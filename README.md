@@ -53,7 +53,7 @@ You run an airport, one **shift** at a time.
 | Flag | What it does |
 | --- | --- |
 | `?perf` | worst-frame-time readout, hitch log (frames over 50 ms), sim vs wall clock |
-| `?tune` | TUNE button (top right): live sliders for spawn rate, speeds, conflict distance, fuel timers...; **Copy values** puts the changed values on the clipboard, **Reset** restores defaults; debug buttons: +1000 coins, unlock all airports, max upgrades, force a wind shift, trigger a storm / fog / crosswind, reset save, reset daily |
+| `?tune` | TUNE button (top right): live sliders for spawn rate, speeds, conflict distance, aircraft timers, wind, weather...; **Copy values** puts the changed values on the clipboard, **Reset** restores defaults; debug buttons: +1000 coins, unlock all airports, max upgrades, force a wind shift, trigger a storm / fog / crosswind, reset save, reset daily |
 | `?nofx=burst,ripple,popup,haptic,glow,hold` | switch effects off (`all` for every one) |
 | `?noprewarm` | skip the start-up pre-warm splash |
 | `?god` | aircraft never collide or run out of time |
