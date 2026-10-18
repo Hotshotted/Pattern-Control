@@ -6,7 +6,7 @@ extends Node3D
 
 const OUTLINE_Y := 0.2
 const COLOR_Y := 0.21
-const NOSE := [0.8, 0.95, 1.2]       # nose distance from the plane's centre, by speed class
+const NOSE := [0.8, 0.95, 1.2]       # nose distance from the plane's centre, by model (speed class)
 
 var traffic: Traffic
 var last_start: Array[Vector2] = []  # per pooled plane: where its ribbon starts (the nose)
@@ -92,7 +92,7 @@ func _build(p: Aircraft, i: int) -> void:
 		_nrm[k] = Vector2(-tan.y, tan.x).normalized() if tan.length_squared() > 0.000001 else Vector2(1, 0)
 	last_alpha_near[i] = _alpha[0]
 	last_alpha_far[i] = _alpha[m - 1]
-	var col: Color = Tuning.runway_colors[p.runway]
+	var col := Airports.rw_color(p.runway)
 	if p.cleared:
 		col = col.lerp(Color.WHITE, 0.25)
 	var om := _outlines[i]

@@ -7,13 +7,19 @@ edge, and you drawing each one home before they meet.
 
 ## How to play
 
-- **Drag from a plane** to draw its flight path; it follows the line as you draw. Each plane is
-  coloured like one of the two runways. End the path on that runway's **approach end** (the ring
-  with the arrows) and the plane lands - score is planes landed.
-- **Tap a plane** to make it circle in place (a holding pattern); tap it again to let it go.
-- **Flashing planes are low on fuel** and show a countdown: land them in time or the run ends.
-- **Two planes getting too close ends the run.** A warning ring grows around them first.
-- Planes fly at different speeds (slow props, medium, fast jets), and traffic ramps up the longer you last.
+You run an airport, one **shift** at a time.
+
+- **Drag from an aircraft** to draw its flight path; it follows the line as you draw. Each aircraft is
+  coloured like one of the runways. End the path on that runway's **approach end** (the ring with the
+  arrows) and it lands.
+- **Tap an aircraft** to make it circle in place (a holding pattern); tap again to let it go.
+- Every aircraft has a **timer ring** that runs down from the moment it is on screen (green, then yellow,
+  then red). Circling burns it more slowly. When it runs out the aircraft is **diverted: a strike**.
+  **3 strikes end the shift.**
+- **Two aircraft getting too close ends the shift immediately.** A warning ring grows around them first.
+- New aircraft get a pulsing edge glow about 2 s before they appear (green slow, yellow medium, red fast).
+- Each shift has **three star goals** (land 25 aircraft, land 4 jets, finish with no strikes). Landings and
+  stars earn **coins**. Stars, coins and bests are saved.
 
 ## Debug / tuning URLs
 

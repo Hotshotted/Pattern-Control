@@ -1,23 +1,23 @@
 class_name Traffic
 extends Node3D
 ## All the aircraft: the pool (built once), spawning, path following, holding patterns, landing,
-## fuel and the conflict check. Everything here is plain arithmetic on pooled objects: a run
+## timers and the conflict check. Everything here is plain arithmetic on pooled objects: a run
 ## allocates nothing.
 
 signal landed(plane: Aircraft)
 signal conflict(a: Aircraft, b: Aircraft)
-signal fuel_out(plane: Aircraft)
+signal timed_out(plane: Aircraft)   # its timer ran out: it is diverted (a strike)
 signal cleared(plane: Aircraft)       # a path just reached its approach end
-signal wrong_runway(plane: Aircraft)  # a path went for the other colour's runway
+signal wrong_runway(plane: Aircraft, runway: int)  # a path went for another colour's runway
 signal spawned(plane: Aircraft)
 
 const MAX_POOL := 16
 const PLANE_Y := 0.35
-const FLASH_COLOR := Color(1.0, 0.12, 0.1)
 
 var planes: Array[Aircraft] = []
 var run_time := 0.0
 var auto_spawn := true
+var spawn_until := INF               # no new planes after this run time (the shift length)
 var half_w := 5.0
 var half_h := 8.9
 var rng := RandomNumberGenerator.new()
@@ -79,38 +79,43 @@ func _free_plane() -> Aircraft:
 			return p
 	return null
 
-## Put a plane on the field exactly as given (tests, and the spawner below).
-func place(runway: int, pos: Vector2, heading: float, speed_class: int, low_fuel: bool, entered: bool = true) -> Aircraft:
+## Put an aircraft on the field exactly as given (tests, and the spawner below).
+func place(runway: int, pos: Vector2, heading: float, type: int, entered: bool = true) -> Aircraft:
 	var p := _free_plane()
 	if p == null:
 		return null
 	p.reset()
 	p.state = Aircraft.State.FLY
 	p.runway = runway
-	p.speed_class = speed_class
-	p.speed = Tuning.class_speed(speed_class)
+	p.type = type
+	p.speed_class = Tuning.type_speed_class(type)
+	p.speed = Tuning.type_speed(type)
+	p.timer_max = Tuning.type_timer(type)
+	p.timer_left = p.timer_max
 	p.pos = pos
 	p.entry = pos
 	p.heading = heading
 	p.vis_heading = heading
 	p.entered = entered
-	p.low_fuel = low_fuel
-	p.fuel_left = Tuning.lowfuel_seconds if low_fuel else 0.0
 	var i := planes.find(p)
-	_body_mats[i].albedo_color = Tuning.runway_colors[runway]
-	_wing_mats[i].albedo_color = Tuning.runway_colors[runway].lerp(Color.WHITE, 0.35)
-	var long: float = [0.85, 1.0, 1.3][speed_class]
-	var span: float = [1.2, 1.0, 0.78][speed_class]
-	_fuselages[i].scale = Vector3(1.0, 1.0, long)
-	_wings[i].scale = Vector3(span, 1.0, 1.0)
+	_body_mats[i].albedo_color = Airports.rw_color(runway)
+	_wing_mats[i].albedo_color = Airports.rw_color(runway).lerp(Color.WHITE, 0.35)
+	_set_model(i, p.speed_class)
 	_nodes[i].visible = true
 	_sync(p, i)
 	return p
 
+## The look of the three models: stubby props, medium, long and swept jets.
+func _set_model(i: int, cls: int) -> void:
+	var long: float = [0.85, 1.0, 1.3][cls]
+	var span: float = [1.2, 1.0, 0.78][cls]
+	_fuselages[i].scale = Vector3(1.0, 1.0, long)
+	_wings[i].scale = Vector3(span, 1.0, 1.0)
+
 ## A new plane from a random screen edge. It starts far enough out that it reaches the edge in
 ## Tuning.entry_warning_seconds, and the overlay shows a glow at that entry point until it appears.
 func spawn() -> Aircraft:
-	var cls := _pick_class()
+	var type := _pick_type()
 	for attempt in 8:
 		var e := rng.randf() * (4.0 * half_w + 4.0 * half_h)
 		var entry := Vector2.ZERO
@@ -128,8 +133,8 @@ func spawn() -> Aircraft:
 			continue
 		var target := Vector2(rng.randf_range(-2.5, 2.5), rng.randf_range(-4.0, 4.0))
 		var dir := (target - entry).normalized()
-		var dist := Tuning.class_speed(cls) * Tuning.speed_mult(run_time) * Tuning.entry_warning_seconds
-		var p := place(rng.randi() % 2, entry - dir * dist, atan2(dir.x, -dir.y), cls, rng.randf() < Tuning.lowfuel_chance(run_time), false)
+		var dist := Tuning.type_speed(type) * Tuning.speed_mult(run_time) * Tuning.entry_warning_seconds
+		var p := place(rng.randi() % Airports.rw_count(), entry - dir * dist, atan2(dir.x, -dir.y), type, false)
 		if p != null:
 			p.entry = entry
 			spawned.emit(p)
@@ -146,14 +151,20 @@ func _crowded(entry: Vector2) -> bool:
 			return true
 	return false
 
-func _pick_class() -> int:
-	var r := rng.randf()
-	var w: Array[float] = Tuning.speed_weights
-	var total := w[0] + w[1] + w[2]
-	r *= total
-	if r < w[0]:
-		return 0
-	return 1 if r < w[0] + w[1] else 2
+## A random aircraft type from the airport's mix.
+func _pick_type() -> int:
+	var mix: Dictionary = Airports.mix()
+	var total := 0.0
+	for k in mix:
+		total += mix[k]
+	var r := rng.randf() * total
+	var last := Aircraft.Type.SMALL
+	for k in mix:
+		last = k
+		r -= mix[k]
+		if r <= 0.0:
+			return k
+	return last
 
 # ---------- Player actions ----------
 
@@ -185,16 +196,19 @@ func extend_path(p: Aircraft, world: Vector2) -> bool:
 		return true
 	var last := p.last_point()
 	var r := Tuning.approach_radius
-	var thr := Tuning.runway_threshold(p.runway)
+	var thr := Airports.rw_threshold(p.runway)
 	if _dist_to_segment(thr, last, world) <= r:
 		p.push(thr)
-		p.push(Tuning.runway_end(p.runway))
+		p.push(Airports.rw_end(p.runway))
 		p.cleared = true
 		cleared.emit(p)
 		return true
-	if not p.wrong_shown and _dist_to_segment(Tuning.runway_threshold(1 - p.runway), last, world) <= r:
-		p.wrong_shown = true
-		wrong_runway.emit(p)
+	if not p.wrong_shown:
+		for k in Airports.rw_count():
+			if k != p.runway and _dist_to_segment(Airports.rw_threshold(k), last, world) <= r:
+				p.wrong_shown = true
+				wrong_runway.emit(p, k)
+				break
 	var d := world - last
 	var len := d.length()
 	if len >= Tuning.path_spacing:
@@ -246,7 +260,7 @@ func release_all() -> void:
 
 func step(delta: float) -> void:
 	run_time += delta
-	if auto_spawn:
+	if auto_spawn and run_time < spawn_until:
 		_spawn_timer -= delta
 		if _spawn_timer <= 0.0:
 			if active_count() < mini(int(Tuning.max_planes), MAX_POOL) and spawn() != null:
@@ -276,10 +290,16 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 			p.hold_angle += speed / Tuning.hold_radius * dt
 			p.pos = p.hold_center + Vector2(cos(p.hold_angle), sin(p.hold_angle)) * Tuning.hold_radius
 			p.heading = atan2(-sin(p.hold_angle), -cos(p.hold_angle))
+		Aircraft.State.DIVERT:
+			var out := Vector2(sin(p.heading), -cos(p.heading))
+			p.pos += out * speed * Tuning.divert_speed_mult * dt
+			if absf(p.pos.x) > half_w + 2.5 or absf(p.pos.y) > half_h + 2.5:
+				_remove(p)
+				return
 		Aircraft.State.LANDING:
 			p.roll_t += dt / Tuning.landing_roll_time
 			var e := 1.0 - (1.0 - minf(p.roll_t, 1.0)) * (1.0 - minf(p.roll_t, 1.0))
-			p.pos = p.roll_from.lerp(Tuning.runway_end(p.runway), e)
+			p.pos = p.roll_from.lerp(Airports.rw_end(p.runway), e)
 			p.ground = p.roll_t >= Tuning.touchdown_fraction
 			if p.roll_t >= 1.0:
 				landed.emit(p)
@@ -287,10 +307,12 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 				return
 	if not p.entered and absf(p.pos.x) < half_w - 0.2 and absf(p.pos.y) < half_h - 0.2:
 		p.entered = true
-	if p.low_fuel and p.entered and p.state != Aircraft.State.LANDING and not _god:
-		p.fuel_left -= dt
-		if p.fuel_left <= 0.0:
-			fuel_out.emit(p)
+	# The timer runs from the moment it is on screen; circling burns it more slowly.
+	if p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD) and not _god:
+		p.timer_left -= dt * (Tuning.hold_drain_mult if p.state == Aircraft.State.HOLD else 1.0)
+		if p.timer_left <= 0.0:
+			_divert(p)
+			timed_out.emit(p)
 	var diff := wrapf(p.heading - p.vis_heading, -PI, PI)
 	var turn := Tuning.plane_turn_rate * dt
 	p.vis_heading += clampf(diff, -turn, turn)
@@ -312,7 +334,7 @@ func _follow(p: Aircraft, dist: float) -> void:
 				p.state = Aircraft.State.LANDING
 				p.roll_t = 0.0
 				p.roll_from = p.pos
-				p.heading = deg_to_rad(Tuning.runway_headings_deg[p.runway])
+				p.heading = deg_to_rad(Airports.rw_heading_deg(p.runway))
 				return
 		else:
 			p.pos += to / l * left
@@ -329,6 +351,15 @@ func _fly_straight(p: Aircraft, dist: float, dt: float) -> void:
 			var t := dist / Tuning.edge_turn_radius
 			p.heading += clampf(diff, -t, t)
 	p.pos += Vector2(sin(p.heading), -cos(p.heading)) * dist
+
+## Timer out: the aircraft leaves the airspace, away from the field.
+func _divert(p: Aircraft) -> void:
+	p.clear_path()
+	p.state = Aircraft.State.DIVERT
+	p.warn = 0.0
+	p.timer_left = 0.0
+	if p.pos.length() > 0.5:
+		p.heading = atan2(p.pos.x, -p.pos.y)
 
 func _remove(p: Aircraft) -> void:
 	var i := planes.find(p)
@@ -362,23 +393,15 @@ func _check_conflicts() -> void:
 					conflict.emit(a, b)
 					return
 
-## Copy a plane's state onto its node (position, heading, size, low-fuel flash).
+## Copy a plane's state onto its node (position, heading, size, colours).
 func _sync(p: Aircraft, i: int) -> void:
 	var n := _nodes[i]
 	var alt := 1.0 if p.state != Aircraft.State.LANDING else 1.0 - 0.35 * minf(p.roll_t / maxf(Tuning.touchdown_fraction, 0.01), 1.0)
 	n.position = Vector3(p.pos.x, PLANE_Y * alt, p.pos.y)
 	n.rotation.y = -p.vis_heading
 	n.scale = Vector3.ONE * (0.9 + 0.1 * alt)
-	var base: Color = Tuning.runway_colors[p.runway]
-	var wing := base.lerp(Color.WHITE, 0.35)
-	if p.low_fuel and p.state != Aircraft.State.LANDING:
-		var frac := clampf(p.fuel_left / maxf(Tuning.lowfuel_seconds, 1.0), 0.0, 1.0)
-		var hz := lerpf(Tuning.lowfuel_flash_hz_max, Tuning.lowfuel_flash_hz_min, frac)
-		if sin(TAU * hz * p.age) > 0.0:
-			base = FLASH_COLOR
-			wing = Color.WHITE
-	_body_mats[i].albedo_color = base
-	_wing_mats[i].albedo_color = wing
+	_body_mats[i].albedo_color = Airports.rw_color(p.runway)
+	_wing_mats[i].albedo_color = Airports.rw_color(p.runway).lerp(Color.WHITE, 0.35)
 
 ## The pre-warm: every pooled plane drawn at once, alternating normal and flashing.
 func prewarm_show() -> void:
@@ -386,19 +409,19 @@ func prewarm_show() -> void:
 		var p := planes[i]
 		p.reset()
 		p.state = Aircraft.State.FLY
-		p.runway = i % 2
-		p.speed_class = i % 3
+		p.runway = i % Airports.rw_count()
+		p.type = [Aircraft.Type.SMALL, Aircraft.Type.MEDIUM, Aircraft.Type.JET][i % 3]
+		p.speed_class = Tuning.type_speed_class(p.type)
+		p.timer_max = Tuning.type_timer(p.type)
+		p.timer_left = p.timer_max * [1.0, 0.4, 0.15, 0.7][i % 4]   # every ring colour
 		p.pos = Vector2(-3.6 + (i % 4) * 2.4, -6.0 + (i / 4) * 3.0)
 		p.heading = i * 0.4
 		p.vis_heading = p.heading
-		p.low_fuel = i % 3 == 0
-		p.fuel_left = Tuning.lowfuel_seconds * 0.5
 		p.age = i * 0.07
 		p.entered = i % 4 != 3          # a few still outside: their entry glows are drawn (all three colours)
 		p.entry = Vector2(-4.0 + (i % 3) * 4.0, -half_h) if i % 4 == 3 else p.pos
 		_nodes[i].visible = true
-		_fuselages[i].scale = Vector3(1.0, 1.0, [0.85, 1.0, 1.3][p.speed_class])
-		_wings[i].scale = Vector3([1.2, 1.0, 0.78][p.speed_class], 1.0, 1.0)
+		_set_model(i, p.speed_class)
 		_sync(p, i)
 
 func prewarm_hide() -> void:

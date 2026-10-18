@@ -6,9 +6,11 @@ extends SceneTree
 ##   3. paths: a plane follows its drawn path; a path ending at its runway's approach end lands it (score +1,
 ##      feedback fires); the other colour's runway does not
 ##   4. holding pattern: a tap circles in place, a second tap releases it
-##   5. speeds differ per class; spawns come in from the edges; difficulty ramps (spawn gap, speed, low fuel)
+##   5. speeds differ per class; spawns come in from the edges; difficulty ramps (spawn gap, speed)
 ##   6. conflicts: warning ring first, then the run ends; grounded / off-screen planes never conflict
-##   7. fuel: a low-fuel plane flashes, counts down, ends the run at 0 - or is saved by landing
+##   7. timers: ring colours, per-type lengths, start on screen, holding drains slower; a timeout diverts (strike),
+##      3 strikes end the shift
+##   9. shifts: star goals and progress, stars / coins / first-time bonus, versioned save (v1 migrates)
 ##   8. edges: a plane with no path turns back instead of leaving
 ##   9. restart in place after game over (tap), best score kept, and NOTHING new is created over many runs
 ##  10. ?tune panel: opens over the paused game, sliders edit Tuning, Copy / Reset work, closing resumes
@@ -16,9 +18,13 @@ extends SceneTree
 
 # (Traffic, Fx, Overlay and TunePanel use the Tuning autoload, which does not exist yet while this script
 # compiles: they are only touched through instances here.)
+const GLIDER := 0
+const HELI := 1
+const SMALL := 2
+const MEDIUM := 3
+const JET := 4
 const MAX_POOL := 16
 const EMITTERS := 4
-const FLASH_COLOR := Color(1.0, 0.12, 0.1)
 
 var failures: Array[String] = []
 
@@ -167,8 +173,8 @@ func _initialize() -> void:
 	print("     field centre on screen: ", ov.world_to_screen(Vector2.ZERO), " viewport ", main.get_viewport().get_visible_rect().size)
 	check(ov.world_to_screen(Vector2.ZERO).distance_to(main.get_viewport().get_visible_rect().size * 0.5) < 150.0, "the field centre is near the middle of the screen")
 	# Plane 0 (orange runway): from the open area to the orange approach end, using the real touch handlers.
-	var thr0: Vector2 = tuning.runway_threshold(0)
-	var p = tr.place(0, thr0 + Vector2(1.5, 4.5), 0.0, 1, false)
+	var thr0: Vector2 = Airports.rw_threshold(0)
+	var p = tr.place(0, thr0 + Vector2(1.5, 4.5), 0.0, MEDIUM)
 	check(p != null and p.active(), "a plane can be placed")
 	var s_from: Vector2 = ov.world_to_screen(p.pos)
 	touch(main, 0, true, s_from)
@@ -201,7 +207,7 @@ func _initialize() -> void:
 
 	print("3. paths: following, and wrong runway")
 	tr.release_all()
-	var q = tr.place(1, Vector2(-3.0, 5.0), 0.0, 1, false)
+	var q = tr.place(1, Vector2(-3.0, 5.0), 0.0, MEDIUM)
 	var route = [Vector2(-3.0, 3.0), Vector2(-1.0, 3.0), Vector2(-1.0, 1.0)]
 	draw_path(main, q, [Vector2(-3.0, 4.6), Vector2(-3.0, 3.0), Vector2(-2.0, 3.0), Vector2(-1.0, 3.0), Vector2(-1.0, 2.0), Vector2(-1.0, 1.0)])
 	check(q.count > 5, "the path has points (%d)" % q.count)
@@ -226,16 +232,16 @@ func _initialize() -> void:
 	check(not q.cleared, "a path not ending at an approach end does not land the plane")
 	# Heading follows the path direction at the end: east then north.
 	tr.release_all()
-	var w1 = tr.place(1, thr0 + Vector2(0.0, 3.0), 0.0, 1, false)   # blue plane aimed at the ORANGE threshold
+	var w1 = tr.place(1, thr0 + Vector2(0.0, 3.0), 0.0, MEDIUM)   # blue plane aimed at the ORANGE threshold
 	var wrong_seen = [false]
-	tr.wrong_runway.connect(func(_pl): wrong_seen[0] = true, CONNECT_ONE_SHOT)
+	tr.wrong_runway.connect(func(_pl, _rw): wrong_seen[0] = true, CONNECT_ONE_SHOT)
 	draw_path(main, w1, [w1.pos + Vector2(0, -0.8), thr0 + Vector2(0, 1.5), thr0])
 	check(not w1.cleared, "the other colour's approach end does not clear the plane")
 	check(wrong_seen[0], "...and flags the wrong runway")
 	# Landing blue on blue works and the landing roll ends on the far end.
 	tr.release_all()
-	var thr1: Vector2 = tuning.runway_threshold(1)
-	var b = tr.place(1, thr1 + Vector2(0.5, -3.0), PI, 2, false)
+	var thr1: Vector2 = Airports.rw_threshold(1)
+	var b = tr.place(1, thr1 + Vector2(0.5, -3.0), PI, JET)
 	draw_path(main, b, [b.pos + Vector2(0, 1.0), thr1])
 	check(b.cleared, "blue plane clears on the blue approach end")
 	var grounded = false
@@ -251,7 +257,7 @@ func _initialize() -> void:
 
 	print("4. holding pattern")
 	tr.release_all()
-	var h = tr.place(0, Vector2(0.0, -3.0), 0.0, 1, false)
+	var h = tr.place(0, Vector2(0.0, -3.0), 0.0, MEDIUM)
 	var hp = ov.world_to_screen(h.pos)
 	touch(main, 0, true, hp)
 	touch(main, 0, false, hp)
@@ -277,18 +283,17 @@ func _initialize() -> void:
 	tr.release_all()
 	var d = []
 	for cls in 3:
-		var sp = tr.place(0, Vector2(-4.0, -6.0 + cls * 3.0), PI * 0.5, cls, false)
+		var sp = tr.place(0, Vector2(-4.0, -6.0 + cls * 3.0), PI * 0.5, [SMALL, MEDIUM, JET][cls])
 		d.append(sp)
 	for i in 60:
 		tr.step(1.0 / 60.0)
 	var dx0: float = d[0].pos.x + 4.0
 	var dx1: float = d[1].pos.x + 4.0
 	var dx2: float = d[2].pos.x + 4.0
-	check(dx0 < dx1 and dx1 < dx2, "slow < medium < fast (%.2f, %.2f, %.2f per second)" % [dx0, dx1, dx2])
+	check(dx0 < dx1 and dx1 < dx2, "small < medium < jet (%.2f, %.2f, %.2f per second)" % [dx0, dx1, dx2])
 	check(tuning.spawn_interval(0.0) > tuning.spawn_interval(60.0) and tuning.spawn_interval(60.0) > tuning.spawn_interval(1000.0), "spawn gap shrinks over time")
 	check(is_equal_approx(tuning.spawn_interval(1000.0), tuning.spawn_interval_min), "...down to spawn_interval_min")
 	check(tuning.speed_mult(0.0) < tuning.speed_mult(100.0), "planes get faster over time")
-	check(tuning.lowfuel_chance(5.0) == 0.0 and tuning.lowfuel_chance(300.0) > 0.0, "low-fuel planes only appear later")
 	tr.release_all()
 	tr.auto_spawn = true
 	tr.half_w = 5.0
@@ -310,7 +315,7 @@ func _initialize() -> void:
 		var dir = Vector2(sin(sp2.heading), -cos(sp2.heading))
 		all_inward = all_inward and dir.dot(sp2.pos) < 0.0
 		colors[sp2.runway] = true
-		classes[sp2.speed_class] = true
+		classes[sp2.type] = true
 		var on_edge = absf(absf(sp2.entry.x) - tr.half_w) < 0.001 or absf(absf(sp2.entry.y) - tr.half_h) < 0.001
 		var lead = sp2.pos.distance_to(sp2.entry) / (sp2.speed * tuning.speed_mult(tr.run_time))
 		entry_ok = entry_ok and on_edge and not sp2.entered and absf(lead - tuning.entry_warning_seconds) < 0.05
@@ -323,15 +328,16 @@ func _initialize() -> void:
 	for ci in 3:
 		for cj in range(ci + 1, 3):
 			apart = apart and absf(glow_cols[ci].r - glow_cols[cj].r) + absf(glow_cols[ci].g - glow_cols[cj].g) + absf(glow_cols[ci].b - glow_cols[cj].b) > 0.6
-		for rc in tuning.runway_colors:
+		for rci in Airports.rw_count():
+			var rc = Airports.rw_color(rci)
 			apart = apart and absf(glow_cols[ci].r - rc.r) + absf(glow_cols[ci].g - rc.g) + absf(glow_cols[ci].b - rc.b) > 0.5
 		apart = apart and absf(glow_cols[ci].r - 1.0) + absf(glow_cols[ci].g - 0.12) + absf(glow_cols[ci].b - 0.1) > 0.5 or ci == 2
 	check(apart, "entry glow colours (green / yellow / red) differ from each other and from the runway colours")
 	check(tuning.entry_pulse(0) < tuning.entry_pulse(1) and tuning.entry_pulse(1) < tuning.entry_pulse(2), "faster planes pulse faster")
-	check(colors.size() == 2 and classes.size() == 3, "both colours and all three speed classes appear")
+	check(colors.size() == 2 and classes.size() == 3, "both colours and all three aircraft types appear")
 	tr.auto_spawn = false
 	# Planes entering from outside are untouchable until they are on screen.
-	var ent = tr.place(0, Vector2(0.0, -9.9), 0.0, 1, false, false)
+	var ent = tr.place(0, Vector2(0.0, -9.9), 0.0, MEDIUM, false)
 	check(tr.pick(Vector2(0.0, -9.9)) == null, "a plane still off screen can't be picked")
 	tr.release_all()
 	# The entry glow: drawn while a plane is on its way in, gone once it appears.
@@ -340,10 +346,6 @@ func _initialize() -> void:
 	await process_frame
 	await process_frame
 	check(ov.glows_drawn == 1, "one edge glow is drawn for it (%d)" % ov.glows_drawn)
-	var fuel_p = tr.place(0, Vector2(0, -20), PI, 1, true, false)
-	var f_before = fuel_p.fuel_left
-	tr.step(1.0)
-	check(is_equal_approx(fuel_p.fuel_left, f_before), "a low-fuel plane doesn't burn fuel before it is on screen")
 	tr.release_all()
 	gp = tr.spawn()
 	for i in 60 * 6:
@@ -366,8 +368,8 @@ func _initialize() -> void:
 	print("6. conflicts")
 	main.restart()
 	tr.auto_spawn = false
-	var a = tr.place(0, Vector2(-3.0, -3.0), PI * 0.5, 1, false)
-	var bb = tr.place(1, Vector2(3.0, -3.0), -PI * 0.5, 1, false)
+	var a = tr.place(0, Vector2(-3.0, -3.0), PI * 0.5, MEDIUM)
+	var bb = tr.place(1, Vector2(3.0, -3.0), -PI * 0.5, MEDIUM)
 	var warned = false
 	var warn_max = 0.0
 	for i in 300:
@@ -385,8 +387,8 @@ func _initialize() -> void:
 	# Grounded and off-screen planes don't conflict.
 	main.restart()
 	tr.auto_spawn = false
-	var g1 = tr.place(0, Vector2(0, 0), 0.0, 1, false)
-	var g2 = tr.place(1, Vector2(0.2, 0.2), 0.0, 1, false)
+	var g1 = tr.place(0, Vector2(0, 0), 0.0, MEDIUM)
+	var g2 = tr.place(1, Vector2(0.2, 0.2), 0.0, MEDIUM)
 	g1.ground = true
 	main.step(1.0 / 60.0)
 	check(main.alive, "a plane on the ground can't conflict")
@@ -404,45 +406,78 @@ func _initialize() -> void:
 	main.step(1.0 / 60.0)
 	check(not main.alive, "...but two airborne planes on the screen do")
 
-	print("7. fuel")
+	print("7. timers, strikes, diverting")
+	check(tuning.timer_glider < tuning.timer_heli and tuning.timer_heli < tuning.timer_small and tuning.timer_small < tuning.timer_medium and tuning.timer_medium < tuning.timer_jet, "timer lengths: glider < helicopter < small < medium < jet")
+	check(tuning.timer_color(1.0) == tuning.timer_color_ok and tuning.timer_color(0.4) == tuning.timer_color_low and tuning.timer_color(0.1) == tuning.timer_color_red, "the ring goes green, then yellow, then red")
 	main.restart()
 	tr.auto_spawn = false
-	var lf = tr.place(0, Vector2(-3.0, 0.0), 0.0, 1, true)
-	var f0 = lf.fuel_left
-	var flashes = 0
-	var last = false
-	var mats: Array = tr._body_mats
-	var idx = tr.planes.find(lf)
-	for i in 120:
+	var tm = tr.place(0, Vector2(-3.0, 0.0), 0.0, MEDIUM)
+	check(is_equal_approx(tm.timer_max, tuning.timer_medium) and is_equal_approx(tm.timer_left, tm.timer_max), "a medium plane starts with the medium timer (%.0f s)" % tm.timer_max)
+	run_sec(main, 2.0)
+	check(absf(tm.timer_left - (tm.timer_max - 2.0 * tuning.speed_mult(tr.run_time - 1.0))) < 0.2 or tm.timer_left < tm.timer_max - 1.9, "the timer counts down while it flies (%.1f s left)" % tm.timer_left)
+	var off = tr.place(1, Vector2(0.0, -20.0), PI * 0.0, MEDIUM, false)
+	var off_before = off.timer_left
+	run_sec(main, 1.0)
+	check(is_equal_approx(off.timer_left, off_before), "the timer doesn't run before the aircraft is on screen")
+	tr.release_all()
+	# Holding drains more slowly.
+	var fl = tr.place(0, Vector2(-3.0, 3.0), 0.0, MEDIUM)
+	var ho = tr.place(1, Vector2(3.0, -3.0), 0.0, MEDIUM)
+	tr.toggle_hold(ho)
+	run_sec(main, 5.0)
+	var used_fly = fl.timer_max - fl.timer_left
+	var used_hold = ho.timer_max - ho.timer_left
+	check(absf(used_hold / used_fly - tuning.hold_drain_mult) < 0.06, "holding burns the timer at %.2fx (%.2f of %.2f s)" % [used_hold / used_fly, used_hold, used_fly])
+	# A timer running out: a strike, the aircraft diverts and leaves, no conflict with it.
+	main.restart()
+	tr.auto_spawn = false
+	var dv = tr.place(0, Vector2(0.0, 2.0), 0.0, MEDIUM)
+	var near = tr.place(1, Vector2(0.4, 2.2), 0.0, MEDIUM)
+	near.entered = false
+	dv.timer_left = 0.02
+	var strikes0 = main.shift.strikes
+	main.step(1.0 / 30.0)
+	check(dv.state == Aircraft.State.DIVERT and main.shift.strikes == strikes0 + 1, "a timed-out aircraft is diverted and counts as a strike")
+	var pop_seen = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "Diverted":
+			pop_seen = true
+	check(pop_seen, "a 'Diverted' popup shows")
+	check(main.hud._art.strikes == 1, "the strike box fills in on the HUD")
+	check(tr.pick(dv.pos) != dv, "a diverting aircraft can't be grabbed")
+	check(main.alive, "one strike doesn't end the shift")
+	for i in 600:
 		main.step(1.0 / 60.0)
-		var red: bool = (mats[idx].albedo_color == FLASH_COLOR)
-		if red != last:
-			flashes += 1
-			last = red
-	check(flashes >= 2, "a low-fuel plane flashes (%d colour changes in 2 s)" % flashes)
-	check(lf.fuel_left < f0 - 1.5, "its fuel time counts down")
+		if not dv.active():
+			break
+	check(not dv.active(), "the diverted aircraft flies off and is returned to the pool")
+	tr.release_all()
+	# Three strikes end the shift.
 	main.restart()
 	tr.auto_spawn = false
-	var lf2 = tr.place(0, Vector2(0.0, 6.0), PI, 0, true)
-	lf2.speed = 0.0
-	lf2.state = Aircraft.State.HOLD   # circles in place: still burns fuel
-	lf2.hold_center = lf2.pos
-	run_sec(main, tuning.lowfuel_seconds + 1.0)
-	check(not main.alive and main.over_header == main.HEADER_FUEL, "running out of fuel ends the run")
+	var coins0 = save.coins
+	for k in 3:
+		var sx = tr.place(k % 2, Vector2(-3.0 + k * 3.0, -5.0 + k * 2.0), 0.0, MEDIUM)
+		sx.timer_left = 0.01
+		main.step(1.0 / 60.0)
+	check(not main.alive and main.over_header == main.HEADER_STRIKES, "3 strikes end the shift")
+	check(main.hud._over.visible and main.shift.state(2) == 2, "the results show, and the no-strikes star is lost")
+	check(save.coins == coins0, "a shift with nothing landed earns no coins (%d -> %d)" % [coins0, save.coins])
+	# Landing in time saves it.
 	main.restart()
 	tr.auto_spawn = false
-	var lf3 = tr.place(1, thr1 + Vector2(0.0, -2.0), PI, 1, true)
-	lf3.fuel_left = 6.0
-	draw_path(main, lf3, [lf3.pos + Vector2(0, 0.8), thr1])
+	var sv = tr.place(1, thr1 + Vector2(0.0, -2.0), PI, MEDIUM)
+	sv.timer_left = 6.0
+	draw_path(main, sv, [sv.pos + Vector2(0, 0.8), thr1])
 	run_sec(main, 10.0)
-	check(main.alive and main.score == 1, "landing in time saves a low-fuel plane")
-	check(tr.active_count() == 0, "...and nothing is left to run dry")
+	check(main.alive and main.score == 1 and main.shift.strikes == 0, "landing in time saves it: no strike")
+	check(tr.active_count() == 0, "...and nothing is left to run out")
 
 	print("8. edges")
 	main.restart()
 	tr.auto_spawn = false
-	var e1 = tr.place(0, Vector2(-4.0, tr.half_h - 2.0), -PI * 0.3, 1, false)
-	var e2 = tr.place(1, Vector2(4.0, 2.0 - tr.half_h), PI * 0.7, 2, false)
+	var e1 = tr.place(0, Vector2(-4.0, tr.half_h - 2.0), -PI * 0.3, MEDIUM)
+	var e2 = tr.place(1, Vector2(4.0, 2.0 - tr.half_h), PI * 0.7, JET)
 	var max_out = 0.0
 	for i in 60 * 40:
 		tr.step(1.0 / 60.0)
@@ -454,7 +489,75 @@ func _initialize() -> void:
 	check(max_out < 1.6, "a plane with no path turns back at the edge (max %.2f units out)" % max_out)
 	check(true, "the planes count as on screen")
 
-	print("9. restart in place, best score, nothing new over many runs")
+	print("9. shifts, stars, coins, save")
+	main.restart()
+	tr.auto_spawn = false
+	check(main.shift.goals.size() == 3 and main.hud._art.goal_text[0].begins_with("Land"), "the HUD lists the three star goals (%s)" % main.hud._art.goal_text[0])
+	var fake = Aircraft.new()
+	fake.runway = 0
+	fake.type = JET
+	fake.pos = Vector2(0, 0)
+	save.reset_all()
+	for k in 3:
+		main._on_landed(fake)
+	check(main.shift.progress(0) == 3 and main.hud._art.goal_text[0].ends_with("3/25"), "landings show as progress (%s)" % main.hud._art.goal_text[0])
+	check(main.shift.state(1) == 0 and main.shift.progress(1) == 3, "jets count toward the jet goal")
+	fake.type = MEDIUM
+	for k in 22:
+		main._on_landed(fake)
+	check(main.shift.state(0) == 1, "landing 25 meets the first goal")
+	var star_pop = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "STAR!":
+			star_pop = true
+	check(star_pop, "a STAR! popup shows when a goal is met")
+	fake.type = JET
+	main._on_landed(fake)
+	check(main.shift.progress(1) == 4 and main.shift.state(1) == 1, "the jet goal is met at 4 jets")
+	check(main.shift.state(2) == 0, "no-strikes stays pending until the shift is complete")
+	# Finish the shift cleanly: stop spawning, field empty.
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 1.0
+	main.step(1.0 / 60.0)
+	check(not main.alive and main.over_header == main.HEADER_DONE, "the shift completes when the planes stop and the field is clear")
+	check(main.shift.stars() == 3 and save.stars_of(0) == 3, "three stars earned and saved")
+	var expect_coins = main.score * tuning.coins_per_landing + 3 * (tuning.coins_per_star + tuning.coins_first_star_bonus)
+	check(save.coins == expect_coins, "coins: landings + stars + first-time bonuses (%d, expected %d)" % [save.coins, expect_coins])
+	check(main.last_result["first_stars"] == 3 and main.hud._art.show_result, "the results screen shows with the stars")
+	var coins_after = save.coins
+	# A second shift: stars again, but no first-time bonus.
+	main.restart()
+	tr.auto_spawn = false
+	for k in 25:
+		main._on_landed(fake)
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 1.0
+	main.step(1.0 / 60.0)
+	var expect2 = coins_after + main.score * tuning.coins_per_landing + 3 * tuning.coins_per_star
+	check(save.coins == expect2, "replaying: star coins, no repeat first-time bonus (%d, expected %d)" % [save.coins, expect2])
+	# Save file: versioned, round trip, v1 migration, forward-compatible.
+	save.upgrades["test"] = 2
+	save.write_file()
+	var saved_coins = save.coins
+	var saved_stars = save.stars_total()
+	save.upgrades = {}
+	save.load_file()
+	check(save.coins == saved_coins and save.stars_total() == saved_stars and save.upgrade_level("test") == 2, "the save round-trips (coins, stars, upgrades)")
+	var raw = FileAccess.open(save.path, FileAccess.READ).get_as_text()
+	check(raw.contains("\"version\":2"), "the save file is versioned (v2)")
+	var f1 = FileAccess.open(save.path, FileAccess.WRITE)
+	f1.store_string("{\"version\":1,\"best\":37}")
+	f1 = null
+	save.load_file()
+	check(save.best_for(0) == 37 and save.coins == 0 and save.stars_total() == 0, "a version-1 save migrates (its best score is kept)")
+	var f2 = FileAccess.open(save.path, FileAccess.WRITE)
+	f2.store_string("{\"version\":2,\"coins\":50,\"future_field\":[1,2,3]}")
+	f2 = null
+	save.load_file()
+	check(save.coins == 50 and save.stars_total() == 0, "unknown / missing fields don't break loading")
+	save.reset_all()
+
+	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
 	tr.release_all()
@@ -474,7 +577,7 @@ func _initialize() -> void:
 				break
 			for pl in tr.planes:
 				if pl.active() and pl.entered and pl.state == Aircraft.State.FLY and not pl.cleared and pl.count == 0 and rng.randf() < 0.05:
-					var th: Vector2 = tuning.runway_threshold(pl.runway)
+					var th: Vector2 = Airports.rw_threshold(pl.runway)
 					draw_path(main, pl, [pl.pos.lerp(th, 0.3), pl.pos.lerp(th, 0.7), th])
 				elif pl.active() and pl.entered and pl.state == Aircraft.State.FLY and pl.count == 0 and rng.randf() < 0.01:
 					tr.toggle_hold(pl)
@@ -482,19 +585,19 @@ func _initialize() -> void:
 		best_seen = maxi(best_seen, main.score)
 		runs += 1
 		if main.alive:
-			main._end_run(main.HEADER_CONFLICT, "(test)")
+			main._end_shift(main.HEADER_CONFLICT, "(test)", false)
 		check(main.hud._over.visible, "run %d ends with the game-over screen (score %d)" % [runs, main.score])
 	var after = snapshot(main)
 	check(same_world(base, after), "4 whole runs created nothing new  [%s]" % describe(after))
-	check(save.best == best_seen, "the best score is remembered (%d)" % save.best)
-	check(main.hud._over_body.text.contains("Planes landed: %d" % main.score), "the game-over screen shows the score")
+	check(save.best_for(0) == best_seen, "the best score is remembered (%d)" % save.best_for(0))
+	check(main.hud._over_body.text.contains("Aircraft landed: %d" % main.score), "the results screen shows the landings")
 	# Tap on the game-over screen restarts in place (after the 0.6 s guard).
 	await real_wait(0.7)
 	touch(main, 0, true, Vector2(540, 900))
 	check(main.screen == main.SCREEN_PLAY and main.alive and main.score == 0, "a tap on the game-over screen restarts in place")
 	touch(main, 0, false, Vector2(540, 900))
 
-	print("10. ?tune panel")
+	print("11. ?tune panel")
 	var tp = main.tune_panel
 	var snap_open = snapshot(main)
 	tp.open()
@@ -517,7 +620,7 @@ func _initialize() -> void:
 	check(tp.last_copied_text.contains("entry_color_fast = Color(") and tp.last_copied_text.contains("entry_warning_seconds = 3.5"), "Copy values includes the lead time and colours")
 	tp.reset_defaults()
 	check(is_equal_approx(tuning.entry_warning_seconds, old_lead) and tuning.entry_color_fast.is_equal_approx(old_col), "Reset restores them")
-	for name in ["spawn_interval_start", "speed_fast", "lowfuel_seconds", "conflict_distance", "warn_distance"]:
+	for name in ["spawn_interval_start", "speed_fast", "timer_jet", "shift_seconds", "conflict_distance", "warn_distance"]:
 		check(tp._sliders.has(name), "panel has a slider for %s" % name)
 	tp.close()
 	check(not tp.is_open and not main.get_tree().paused, "closing the panel resumes the game")
@@ -525,7 +628,7 @@ func _initialize() -> void:
 	var pr = Rect2(tp._button.get_global_rect())
 	check(tp.button_hit(pr.get_center()) or true, "TUNE button rect is tracked")
 
-	print("11. ?debug flags")
+	print("12. ?debug flags")
 	DebugFlags.parse(["nofx=burst,ripple", "perf", "tune", "god", "v=abc123", "bogus"])
 	check(DebugFlags.off("burst") and DebugFlags.off("ripple") and not DebugFlags.off("popup"), "nofx= switches named effects off")
 	check(DebugFlags.perf_enabled() and DebugFlags.tune_enabled() and DebugFlags.god_enabled(), "perf / tune / god parse")

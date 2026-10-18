@@ -5,11 +5,14 @@ extends RefCounted
 
 const PATH_MAX := 220
 
-enum State { IDLE, FLY, HOLD, LANDING }
+enum State { IDLE, FLY, HOLD, LANDING, DIVERT }
+## Aircraft types, shortest timer first. (Gliders and helicopters get their own rules in a later phase.)
+enum Type { GLIDER, HELI, SMALL, MEDIUM, JET }
 
 var state := State.IDLE
 var runway := 0                 # which runway (and colour) this plane belongs to
-var speed_class := 1            # 0 slow, 1 medium, 2 fast
+var type := Type.SMALL
+var speed_class := 0            # 0 slow, 1 medium, 2 fast (the entry glow colour and the model)
 var speed := 2.0                # base units / second (before the run's speed ramp)
 var pos := Vector2.ZERO
 var heading := 0.0              # direction of travel
@@ -17,8 +20,8 @@ var vis_heading := 0.0          # drawn heading (turns toward `heading` at plane
 var entered := false            # has been on screen (planes still outside can't conflict)
 var ground := false             # touched down: can't conflict any more
 var cleared := false            # its path ends on the runway: it will land
-var low_fuel := false
-var fuel_left := 0.0            # seconds, only for low-fuel planes
+var timer_max := 30.0           # seconds on screen before it is diverted (a strike)
+var timer_left := 30.0
 var warn := 0.0                 # 0..1 how close it is to another plane (drives the warning ring)
 var roll_t := 0.0               # landing roll progress 0..1
 var roll_from := Vector2.ZERO
@@ -44,8 +47,7 @@ func reset() -> void:
 	entered = false
 	ground = false
 	cleared = false
-	low_fuel = false
-	fuel_left = 0.0
+	timer_left = timer_max
 	warn = 0.0
 	warn_other = null
 	wrong_shown = false
@@ -86,6 +88,10 @@ func pop() -> void:
 func active() -> bool:
 	return state != State.IDLE
 
-## The nearest-airborne test: ground planes and planes still off screen never conflict.
+## Ground planes, diverting planes and planes still off screen never conflict.
 func can_conflict() -> bool:
-	return state != State.IDLE and entered and not ground
+	return state != State.IDLE and state != State.DIVERT and entered and not ground
+
+## Fraction of the timer left, 1 -> 0.
+func timer_frac() -> float:
+	return clampf(timer_left / maxf(timer_max, 0.01), 0.0, 1.0)

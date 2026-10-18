@@ -8,7 +8,8 @@ const SCREEN_PLAY := 1
 const SCREEN_OVER := 2
 
 const HEADER_CONFLICT := "MID-AIR\nCONFLICT"
-const HEADER_FUEL := "OUT OF\nFUEL"
+const HEADER_STRIKES := "3 STRIKES"
+const HEADER_DONE := "SHIFT\nCOMPLETE"
 
 @onready var camera: Camera3D = $Camera3D
 @onready var sun: DirectionalLight3D = $Sun
@@ -22,8 +23,12 @@ const HEADER_FUEL := "OUT OF\nFUEL"
 var tune_panel: TunePanel
 var screen := SCREEN_MENU
 var alive := false
-var score := 0
-var streak := 0                       # landings within streak_window of each other
+var airport := 0                      # the airport being played
+var shift := Shift.new()
+var score := 0                        # aircraft landed this shift (the big number)
+var streak := 0                       # landings within STREAK_WINDOW_MS of each other
+var shift_coins := 0                  # coins earned so far this shift (paid out when it ends)
+var last_result := {}                 # what the last shift ended with (header, reason, coins, stars...)
 var over_reason := ""
 var over_header := ""
 var new_best := false
@@ -60,10 +65,11 @@ func _ready() -> void:
 	overlay.camera = camera
 	traffic.landed.connect(_on_landed)
 	traffic.conflict.connect(_on_conflict)
-	traffic.fuel_out.connect(_on_fuel_out)
+	traffic.timed_out.connect(_on_timed_out)
 	traffic.cleared.connect(_on_cleared)
 	traffic.wrong_runway.connect(_on_wrong_runway)
-	hud.set_best(Save.best)
+	shift.reset(Airports.goals())
+	hud.set_best(Save.best_for(airport))
 	if DebugFlags.tune_enabled():
 		tune_panel = TunePanel.new()
 		add_child(tune_panel)
@@ -122,16 +128,18 @@ func _prewarm() -> void:
 	_warming = false
 	_show_menu()
 
-## Start a fresh run IN PLACE.
+## Start a fresh shift IN PLACE.
 func restart() -> void:
 	screen = SCREEN_PLAY
 	alive = true
 	score = 0
 	streak = 0
+	shift_coins = 0
 	elapsed = 0.0
 	new_best = false
 	over_reason = ""
 	over_header = ""
+	last_result = {}
 	sim_time = 0.0
 	_run_start_ms = Time.get_ticks_msec()
 	_paused_total_ms = 0
@@ -140,20 +148,24 @@ func restart() -> void:
 	_drag_index = -1
 	_drag_plane = null
 	_drag_active = false
-	_note_event("run started")
+	_note_event("shift started")
 	get_tree().paused = false
+	Airports.current = airport
+	shift.reset(Airports.goals())
 	fx.clear()
 	overlay.clear()
 	airfield.reset()
 	traffic.half_w = Tuning.ortho_size * 0.5
 	traffic.half_h = _half_height()
 	traffic.release_all()
-	hud.reset_for_run(Save.best)
+	traffic.spawn_until = Tuning.shift_seconds
+	hud.reset_for_run(Save.best_for(airport))
+	hud.set_shift(shift, int(Tuning.max_strikes))
 
 func _show_menu() -> void:
 	screen = SCREEN_MENU
 	alive = false
-	hud.show_menu(Save.best)
+	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport))
 
 # ---------- Frame time: the simulation can never run ahead of the clock ----------
 # However long the real frame was, the simulation advances by at most Tuning.max_frame_delta; a stall (a tab
@@ -239,8 +251,12 @@ func step(delta: float) -> void:
 		if p.active():
 			worst = maxf(worst, p.warn)
 	hud.set_alert(alive and worst > 0.55)
+	hud.set_shift_fraction(traffic.run_time / maxf(Tuning.shift_seconds, 1.0))
 	if _drag_active and (_drag_plane == null or not _drag_plane.active()):
 		_cancel_drag()
+	# The shift is over once the planes have stopped coming and the field is clear.
+	if alive and traffic.run_time >= Tuning.shift_seconds and traffic.active_count() == 0:
+		_end_shift(HEADER_DONE, "Shift complete!", true)
 
 # ---------- Game events ----------
 
@@ -248,12 +264,15 @@ func _on_landed(p: Aircraft) -> void:
 	if not alive:
 		return
 	score += 1
+	shift_coins += Tuning.coins_per_landing
+	shift.on_landed(p.type)
 	var now := Time.get_ticks_msec()
 	streak = streak + 1 if _last_land_ms != 0 and now - _last_land_ms < STREAK_WINDOW_MS else 1
 	_last_land_ms = now
-	var col: Color = Tuning.runway_colors[p.runway]
+	var col := Airports.rw_color(p.runway)
 	var land_at := p.pos
-	hud.set_score(score, true)
+	hud.set_landed(score, true)
+	hud.set_shift(shift, int(Tuning.max_strikes))
 	fx.burst(land_at, col)
 	fx.burst(land_at, Color.WHITE)
 	overlay.ripple(land_at, col, 1.0)
@@ -261,23 +280,29 @@ func _on_landed(p: Aircraft) -> void:
 	airfield.glow(p.runway)
 	var text := "+1"
 	var tcol := Color(1, 1, 1)
-	if p.low_fuel:
-		text = "SAVED! +1"
-		tcol = Color(1.0, 0.9, 0.3)
-	elif streak >= 3:
+	if streak >= 3:
 		text = "+1  x%d" % streak
 		tcol = col.lerp(Color.WHITE, 0.4)
 	hud.popup(text, tcol, overlay.world_to_screen(land_at) + Vector2(0, -80))
+	_star_feedback(land_at)
 	if not DebugFlags.off("haptic"):
 		Input.vibrate_handheld(Tuning.haptic_ms)
 
-func _on_cleared(p: Aircraft) -> void:
-	overlay.ripple(Tuning.runway_threshold(p.runway), Tuning.runway_colors[p.runway], 0.5)
+## A goal was just reached: a gold burst and a "STAR!" popup.
+func _star_feedback(at: Vector2) -> void:
+	if shift.just_met == 0:
+		return
+	fx.burst(at, Color(1.0, 0.84, 0.15), true)
+	overlay.ripple(at, Color(1.0, 0.84, 0.15), 1.6)
+	var vp := get_viewport().get_visible_rect().size
+	hud.popup("STAR!", Color(1.0, 0.84, 0.15), Vector2(vp.x * 0.5, vp.y * 0.3))
 
-func _on_wrong_runway(p: Aircraft) -> void:
-	var other := 1 - p.runway
-	overlay.ripple(Tuning.runway_threshold(other), Color(1, 0.25, 0.2), 0.7)
-	hud.popup("WRONG RUNWAY", Color(1, 0.4, 0.35), overlay.world_to_screen(Tuning.runway_threshold(other)) + Vector2(0, 120))
+func _on_cleared(p: Aircraft) -> void:
+	overlay.ripple(Airports.rw_threshold(p.runway), Airports.rw_color(p.runway), 0.5)
+
+func _on_wrong_runway(_p: Aircraft, runway: int) -> void:
+	overlay.ripple(Airports.rw_threshold(runway), Color(1, 0.25, 0.2), 0.7)
+	hud.popup("WRONG RUNWAY", Color(1, 0.4, 0.35), overlay.world_to_screen(Airports.rw_threshold(runway)) + Vector2(0, 120))
 
 func _on_conflict(a: Aircraft, b: Aircraft) -> void:
 	if not alive:
@@ -286,26 +311,50 @@ func _on_conflict(a: Aircraft, b: Aircraft) -> void:
 	fx.burst(mid, Color(1.0, 0.5, 0.1), true)
 	fx.burst(mid, Color(1.0, 0.15, 0.1), true)
 	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
-	_end_run(HEADER_CONFLICT, "Two planes got too close.")
+	_end_shift(HEADER_CONFLICT, "Two aircraft got too close.", false)
 
-func _on_fuel_out(p: Aircraft) -> void:
+## An aircraft's timer ran out: it is diverted, and that is a strike.
+func _on_timed_out(p: Aircraft) -> void:
 	if not alive:
 		return
-	fx.burst(p.pos, Color(1.0, 0.8, 0.2), true)
-	overlay.ripple(p.pos, Color(1, 0.8, 0.2), 1.3)
-	_end_run(HEADER_FUEL, "A flashing plane ran dry.")
+	shift.on_strike()
+	hud.set_shift(shift, int(Tuning.max_strikes))
+	hud.popup("Diverted", Color(1, 0.55, 0.3), overlay.world_to_screen(p.pos))
+	overlay.ripple(p.pos, Color(1, 0.5, 0.2), 1.0)
+	hud.flash(Color(1, 0.5, 0.1))
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(80)
+	if shift.strikes >= int(Tuning.max_strikes):
+		_end_shift(HEADER_STRIKES, "%d aircraft diverted." % shift.strikes, false)
 
-func _end_run(header: String, reason: String) -> void:
+## The shift is over (complete, 3 strikes or a conflict): stars, coins, save, results screen.
+func _end_shift(header: String, reason: String, complete: bool) -> void:
+	if not alive:
+		return
 	alive = false
 	screen = SCREEN_OVER
 	_death_ms = Time.get_ticks_msec()
 	over_header = header
 	over_reason = reason
-	new_best = Save.submit(score)
+	shift.finish(complete)
+	var first_stars := 0
+	var coins := shift_coins
+	for i in 3:
+		if shift.state(i) == Shift.Goal.MET:
+			coins += Tuning.coins_per_star
+			if Save.award_star(airport, i):
+				first_stars += 1
+				coins += Tuning.coins_first_star_bonus
+	Save.add_coins(coins)
+	new_best = Save.submit_best(airport, shift.landed)
+	Save.shifts_played += 1
+	Save.write_file()
+	last_result = {"header": header, "reason": reason, "coins": coins, "stars": shift.stars(), "first_stars": first_stars, "complete": complete}
 	_cancel_drag()
 	hud.set_alert(false)
-	hud.flash(Color(1, 0.1, 0.1))
-	hud.show_over(header, reason, score, Save.best, new_best)
+	hud.flash(Color(1, 0.84, 0.15) if complete else Color(1, 0.1, 0.1))
+	hud.set_shift(shift, int(Tuning.max_strikes))
+	hud.show_results(header, reason, shift, coins, Save.coins, Save.best_for(airport), new_best)
 	if not DebugFlags.off("haptic"):
 		Input.vibrate_handheld(150)
 

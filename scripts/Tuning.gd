@@ -20,24 +20,16 @@ var camera_tilt_deg := 10.0
 var ortho_size := 10.0
 
 # ---------- Airfield ----------
-## Two runways. Each lands planes in the direction `heading` (degrees, 0 = up the screen); its APPROACH
-## END (threshold) is the end the planes come from: centre - direction * length / 2.
-var runway_length := 6.0
-var runway_width := 1.0
-var runway_centers: Array[Vector2] = [Vector2(-2.1, 1.4), Vector2(2.1, -1.4)]
-var runway_headings_deg: Array[float] = [6.0, 186.0]
-var runway_colors: Array[Color] = [Color(1.0, 0.56, 0.12), Color(0.2, 0.66, 1.0)]
-var runway_names: Array[String] = ["ORANGE", "BLUE"]
-## A path whose end comes within this of the matching approach end is cleared to land.
+## (The runways themselves are in Airports.gd.) A path whose end comes within this of the matching
+## approach end is cleared to land.
 var approach_radius := 1.0
+var runway_asphalt := Color(0.24, 0.25, 0.28)
 
 # ---------- Planes ----------
 ## Speed classes (units / second): slow props, medium, fast jets.
 var speed_slow := 1.5
 var speed_medium := 2.2
 var speed_fast := 3.1
-## Chance of each class when a plane spawns (slow, medium, fast).
-var speed_weights: Array[float] = [0.35, 0.4, 0.25]
 ## All speeds grow up to this multiple over `spawn_ramp_seconds`.
 var speed_ramp_max := 1.3
 ## The plane's visual heading turns this fast (radians / s); its position always follows the path exactly.
@@ -57,7 +49,7 @@ var spawn_interval_min := 1.7
 var spawn_ramp_seconds := 150.0
 var first_spawn_delay := 0.8
 ## No more than this many planes at once (the pool holds MAX_POOL).
-var max_planes := 12
+var max_planes := 12.0
 ## A new plane is not placed within this of another plane.
 var spawn_clear_distance := 2.6
 
@@ -78,15 +70,32 @@ var path_spacing := 0.3
 ## Holding pattern: radius of the circle, in world units.
 var hold_radius := 1.1
 
-# ---------- Fuel ----------
-## Low-fuel planes appear after this long, with a chance that grows to lowfuel_chance_max over spawn_ramp_seconds.
-var lowfuel_start_time := 20.0
-var lowfuel_chance_max := 0.4
-## Seconds a low-fuel plane has to land before the run ends.
-var lowfuel_seconds := 38.0
-## Flash rate (Hz) of a low-fuel plane: slow at full time, fast at the end.
-var lowfuel_flash_hz_min := 1.5
-var lowfuel_flash_hz_max := 7.0
+# ---------- Timers and strikes ----------
+## Every aircraft has a timer that runs down from when it enters the screen (seconds), by type, shortest first.
+var timer_glider := 20.0
+var timer_heli := 28.0
+var timer_small := 36.0
+var timer_medium := 44.0
+var timer_jet := 52.0
+## The ring turns yellow below this fraction of the timer, red below the next one.
+var timer_yellow_fraction := 0.5
+var timer_red_fraction := 0.25
+## A circling aircraft burns its timer at this fraction of the normal rate.
+var hold_drain_mult := 0.45
+## A timed-out aircraft is diverted: it flies off at this multiple of its speed. It is a strike.
+var divert_speed_mult := 1.6
+var max_strikes := 3.0
+## Ring colours: plenty of time / low / nearly out.
+var timer_color_ok := Color(0.35, 0.92, 0.5)
+var timer_color_low := Color(1.0, 0.86, 0.2)
+var timer_color_red := Color(1.0, 0.2, 0.15)
+
+# ---------- Shifts, stars, coins ----------
+## Planes stop arriving after this long; the shift ends when the field is clear (or on 3 strikes / a conflict).
+var shift_seconds := 150.0
+var coins_per_landing := 5
+var coins_per_star := 25
+var coins_first_star_bonus := 100
 
 # ---------- Entry warning ----------
 ## Seconds before a plane appears on screen that a glow shows on the edge where it will come in.
@@ -125,7 +134,6 @@ var prewarm_max_seconds := 6.0
 
 # ---------- Look ----------
 var grass_color := Color(0.36, 0.62, 0.36)
-var runway_asphalt := Color(0.24, 0.25, 0.28)
 var outline_thickness := 0.05
 
 # ---------- Derived ----------
@@ -138,26 +146,26 @@ func spawn_interval(t: float) -> float:
 func speed_mult(t: float) -> float:
 	return lerpf(1.0, speed_ramp_max, spawn_progress(t))
 
-func lowfuel_chance(t: float) -> float:
-	if t < lowfuel_start_time:
-		return 0.0
-	return lowfuel_chance_max * clampf((t - lowfuel_start_time) / maxf(spawn_ramp_seconds - lowfuel_start_time, 1.0), 0.25, 1.0)
+## The ring colour for a fraction of the timer left.
+func timer_color(frac: float) -> Color:
+	if frac <= timer_red_fraction:
+		return timer_color_red
+	if frac <= timer_yellow_fraction:
+		return timer_color_low
+	return timer_color_ok
+
+func type_timer(type: int) -> float:
+	return [timer_glider, timer_heli, timer_small, timer_medium, timer_jet][type]
+
+## Speed by type (units / second), and the class (0 slow / 1 medium / 2 fast) that picks the entry glow and model.
+func type_speed(type: int) -> float:
+	return [speed_slow * 0.8, speed_slow * 1.2, speed_slow, speed_medium, speed_fast][type]
+
+func type_speed_class(type: int) -> int:
+	return [0, 1, 0, 1, 2][type]
 
 func entry_color(c: int) -> Color:
 	return [entry_color_slow, entry_color_medium, entry_color_fast][c]
 
 func entry_pulse(c: int) -> float:
 	return [entry_pulse_slow, entry_pulse_medium, entry_pulse_fast][c]
-
-func class_speed(c: int) -> float:
-	return [speed_slow, speed_medium, speed_fast][c]
-
-func runway_dir(i: int) -> Vector2:
-	var h := deg_to_rad(runway_headings_deg[i])
-	return Vector2(sin(h), -cos(h))
-
-func runway_threshold(i: int) -> Vector2:
-	return runway_centers[i] - runway_dir(i) * runway_length * 0.5
-
-func runway_end(i: int) -> Vector2:
-	return runway_centers[i] + runway_dir(i) * runway_length * 0.5

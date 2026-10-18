@@ -59,4 +59,4 @@ func clear() -> void:
 ## Pre-warm: every emitter drawing at once.
 func prewarm(at: Vector2) -> void:
 	for i in EMITTERS:
-		burst(at + Vector2(-2.0 + i * 1.4, 0.0), Tuning.runway_colors[i % 2], i == 3)
+		burst(at + Vector2(-2.0 + i * 1.4, 0.0), Airports.rw_color(i % Airports.rw_count()), i == 3)

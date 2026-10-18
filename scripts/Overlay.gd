@@ -17,7 +17,6 @@ var active_runway := -1              # runway the dragged plane is aiming for (i
 var glows_drawn := 0                 # entry glows drawn last frame
 
 var _c: Control
-var _font: Font
 var _rip_pos := PackedVector2Array()
 var _rip_col := PackedColorArray()
 var _rip_born := PackedInt64Array()
@@ -26,7 +25,6 @@ var _next_rip := 0
 
 func _ready() -> void:
 	layer = 1
-	_font = ThemeDB.fallback_font
 	_c = Control.new()
 	_c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_c.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -81,7 +79,7 @@ func _draw_all() -> void:
 	_draw_runway_markers(t)
 	for p in traffic.planes:
 		if p.state == Aircraft.State.HOLD and not DebugFlags.off("hold"):
-			var col: Color = Tuning.runway_colors[p.runway]
+			var col := Airports.rw_color(p.runway)
 			_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, BLACK, 0.16)
 			_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.8), 0.07)
 	glows_drawn = 0
@@ -93,8 +91,8 @@ func _draw_all() -> void:
 			continue
 		if p.warn > 0.0:
 			_draw_warning(p, t)
-		if p.low_fuel and p.state != Aircraft.State.LANDING:
-			_draw_fuel_ring(p)
+		if p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD):
+			_draw_timer_ring(p, t)
 	if selected != null and selected.active():
 		_c.draw_arc(selected.pos, 0.85, 0.0, TAU, 32, Color(1, 1, 1, 0.9), 0.07)
 	for i in RIPPLES:
@@ -107,22 +105,12 @@ func _draw_all() -> void:
 		var col := _rip_col[i]
 		col.a = 1.0 - a
 		_c.draw_arc(_rip_pos[i], (0.4 + 2.2 * a) * _rip_scale[i], 0.0, TAU, 40, col, 0.14 * (1.0 - a) + 0.03)
-	# Text in screen space.
-	_c.draw_set_transform_matrix(Transform2D.IDENTITY)
-	for p in traffic.planes:
-		if p.low_fuel and p.active() and p.state != Aircraft.State.LANDING:
-			var s := xf * p.pos + Vector2(0, -62)
-			var txt := str(maxi(ceili(p.fuel_left), 0))
-			var urgent := p.fuel_left < 10.0
-			var colr := Color(1, 0.25, 0.2) if urgent else Color(1, 0.9, 0.3)
-			_c.draw_string_outline(_font, s + Vector2(-40, 0), txt, HORIZONTAL_ALIGNMENT_CENTER, 80, 38, 10, Color.BLACK)
-			_c.draw_string(_font, s + Vector2(-40, 0), txt, HORIZONTAL_ALIGNMENT_CENTER, 80, 38, colr)
 
 func _draw_runway_markers(t: float) -> void:
-	for i in 2:
-		var col: Color = Tuning.runway_colors[i]
-		var thr := Tuning.runway_threshold(i)
-		var dir := Tuning.runway_dir(i)
+	for i in Airports.rw_count():
+		var col := Airports.rw_color(i)
+		var thr := Airports.rw_threshold(i)
+		var dir := Airports.rw_dir(i)
 		var side := Vector2(-dir.y, dir.x)
 		var hot := active_runway == i
 		var pulse := 0.5 + 0.5 * sin(t * 5.0)
@@ -172,11 +160,18 @@ func _draw_warning(p: Aircraft, t: float) -> void:
 	if o != null and o.get_instance_id() > p.get_instance_id():
 		_c.draw_dashed_line(p.pos, o.pos, Color(1, 0.2, 0.15, 0.4 + 0.5 * w), 0.07, 0.2)
 
-func _draw_fuel_ring(p: Aircraft) -> void:
-	var frac := clampf(p.fuel_left / maxf(Tuning.lowfuel_seconds, 1.0), 0.0, 1.0)
-	var col := Color(1.0, 0.85, 0.2).lerp(Color(1.0, 0.2, 0.15), 1.0 - frac)
-	_c.draw_arc(p.pos, 0.95, -PI * 0.5, -PI * 0.5 + TAU * maxf(frac, 0.01), 32, Color(0, 0, 0, 0.8), 0.2)
-	_c.draw_arc(p.pos, 0.95, -PI * 0.5, -PI * 0.5 + TAU * maxf(frac, 0.01), 32, col, 0.1)
+## The timer ring around an aircraft: it empties as time runs out, yellow then red, and pulses when nearly out.
+func _draw_timer_ring(p: Aircraft, t: float) -> void:
+	var frac := p.timer_frac()
+	var col := Tuning.timer_color(frac)
+	var w := 0.1
+	if frac <= Tuning.timer_red_fraction:
+		w += 0.05 * (0.5 + 0.5 * sin(t * 14.0))
+	var r := 0.95
+	var end := -PI * 0.5 + TAU * maxf(frac, 0.01)
+	_c.draw_arc(p.pos, r, 0.0, TAU, 32, Color(0, 0, 0, 0.35), 0.2)          # the empty track
+	_c.draw_arc(p.pos, r, -PI * 0.5, end, 32, Color(0, 0, 0, 0.85), w + 0.1)
+	_c.draw_arc(p.pos, r, -PI * 0.5, end, 32, col, w)
 
 ## Pre-warm: draw every kind of mark at once (paths on every plane, rings, ripples, timers).
 func prewarm() -> void:
@@ -188,4 +183,4 @@ func prewarm() -> void:
 				p.push(p.pos + Vector2(sin(p.heading + k * 0.05), -cos(p.heading + k * 0.05)) * (0.4 * (k + 1)))
 			p.warn = 0.6
 	for i in RIPPLES:
-		ripple(Vector2(-3.0 + (i % 4) * 2.0, 0.0 + (i / 4) * 3.0), Tuning.runway_colors[i % 2], 1.0)
+		ripple(Vector2(-3.0 + (i % 4) * 2.0, 0.0 + (i / 4) * 3.0), Airports.rw_color(i % Airports.rw_count()), 1.0)
