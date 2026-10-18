@@ -178,6 +178,8 @@ var _alert: Label
 var _wind_banner: Label
 var _wind_secs := -1
 var _tip: Label
+var _event_banner: Label
+var _event_text := ""
 var _tip_until := 0
 var _menu: Control
 var _menu_info: Label
@@ -239,6 +241,13 @@ func _ready() -> void:
 	_wind_banner.offset_top = 480
 	_wind_banner.add_theme_color_override("font_color", Color(1.0, 0.92, 0.35))
 	_wind_banner.visible = false
+	_event_banner = _label(44, HORIZONTAL_ALIGNMENT_CENTER)
+	_event_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_event_banner.offset_left = -480
+	_event_banner.offset_right = 480
+	_event_banner.offset_top = 545
+	_event_banner.add_theme_color_override("font_color", Color(0.75, 0.85, 1.0))
+	_event_banner.visible = false
 	_tip = _label(36, HORIZONTAL_ALIGNMENT_CENTER)
 	_tip.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	_tip.offset_left = -500
@@ -497,6 +506,8 @@ func reset_for_run(best: int) -> void:
 	_wind_secs = -1
 	_art.wind_warn = false
 	_tip.visible = false
+	_event_text = ""
+	_event_banner.visible = false
 	_art.shift_frac = 0.0
 	set_landed(0)
 	set_best(best)
@@ -567,6 +578,15 @@ func popup(text: String, color: Color, at: Vector2) -> void:
 	_pop_from[best] = l.position
 	_pop_born[best] = Time.get_ticks_msec()
 	l.visible = true
+
+## The weather banner ("Fog in 4s" / "Fog: 12s"); "" hides it. Only touches the label when the text changes.
+func set_event_banner(text: String, warning: bool = false) -> void:
+	if text == _event_text:
+		return
+	_event_text = text
+	_event_banner.visible = text != ""
+	_event_banner.text = text
+	_event_banner.add_theme_color_override("font_color", Color(1.0, 0.8, 0.4) if warning else Color(0.75, 0.88, 1.0))
 
 ## A one-line tip about an aircraft type seen for the first time.
 func show_tip(text: String) -> void:
@@ -652,6 +672,7 @@ func begin_prewarm() -> void:
 	_art.wind_warn = true
 	_wind_banner.text = "Wind shifting to 270  in 8s"
 	_wind_banner.visible = true
+	set_event_banner("Gusty crosswind: ORANGE runway closing in 6s", true)
 	_art.strikes = 2
 	_art.queue_redraw()
 	_best.text = "best 0123456789"

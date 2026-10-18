@@ -135,6 +135,25 @@ var wind_interval_min := 28.0
 ## A shift turns the wind by at least this many degrees.
 var wind_min_change_deg := 60.0
 
+# ---------- Weather events ----------
+## The first event is announced this far into a shift; then every weather_interval_* seconds (shrinking over the
+## shift, and scaled by the airport), each announced weather_warning_seconds ahead.
+var weather_start_time := 35.0
+var weather_interval_start := 60.0
+var weather_interval_min := 32.0
+var weather_warning_seconds := 6.0
+## Storm: how long the event lasts, how big the cells are, how fast they drift, and how many (1 to 2).
+var storm_event_seconds := 22.0
+var storm_radius := 1.5
+var storm_speed := 0.8
+## Fog: how long, how close to the field aircraft must be to be seen, and how fast it rolls in and out.
+var fog_seconds := 22.0
+var fog_visible_radius := 3.8
+var fog_fade_seconds := 2.5
+var upg_radar_fog := 0.8            # the radar sees this much further into the fog per level
+## Crosswind: how long the runway stays closed.
+var crosswind_seconds := 16.0
+
 # ---------- Shifts, stars, coins ----------
 ## Planes stop arriving after this long; the shift ends when the field is clear (or on 3 strikes / a conflict).
 var shift_seconds := 150.0
@@ -184,6 +203,9 @@ var outline_thickness := 0.05
 # ---------- Derived ----------
 func upg(id: String) -> int:
 	return Save.upgrade_level(id)
+
+func fog_radius_eff() -> float:
+	return fog_visible_radius + upg_radar_fog * upg("radar")
 
 func timer_mult() -> float:
 	return 1.0 + upg_comms_timer * upg("comms")

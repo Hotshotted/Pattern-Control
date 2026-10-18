@@ -28,7 +28,9 @@ var alive := false
 var airport := 0                      # the airport being played
 var shift := Shift.new()
 var wind := Wind.new()
+var weather := Weather.new()
 var score := 0                        # aircraft landed this shift (the big number)
+var _event_key := ""
 var streak := 0                       # landings within STREAK_WINDOW_MS of each other
 var shift_coins := 0                  # coins earned so far this shift (paid out when it ends)
 var last_result := {}                 # what the last shift ended with (header, reason, coins, stars...)
@@ -77,6 +79,11 @@ func _ready() -> void:
 	traffic.go_around.connect(_on_go_around)
 	traffic.runway_conflict.connect(_on_runway_conflict)
 	traffic.refused.connect(_on_refused)
+	traffic.revealed.connect(_on_revealed)
+	wind.reopened.connect(_on_runway_reopened)
+	weather.warned.connect(_on_weather_warned)
+	weather.started.connect(_on_weather_started)
+	weather.ended.connect(_on_weather_ended)
 	traffic.appeared.connect(_on_appeared)
 	ribbons.traffic = traffic
 	overlay.camera = camera
@@ -117,6 +124,10 @@ func _prewarm() -> void:
 	_warming = true
 	hud.begin_prewarm()
 	airfield.show_all(true)
+	wind.closed_left[0] = 30.0
+	traffic.fog_amount = 0.6
+	traffic.add_storm(Vector2(-2.5, -4.0), 1.5, Vector2.ZERO)
+	hud.set_event_banner("Fog rolling in 0123456789", true)
 	traffic.prewarm_show()
 	overlay.prewarm()
 	if tune_panel:
@@ -146,6 +157,10 @@ func _prewarm() -> void:
 			break
 	fx.clear()
 	airfield.show_all(false)
+	wind.reopen_all()
+	traffic.fog_amount = 0.0
+	traffic.load_terrain()
+	hud.set_event_banner("")
 	traffic.prewarm_hide()
 	overlay.clear()
 	airfield.reset()
@@ -190,6 +205,8 @@ func restart() -> void:
 	traffic.release_all()
 	traffic.spawn_until = Tuning.shift_seconds
 	wind.start(traffic.rng)
+	weather.start()
+	_event_key = ""
 	airfield.show_active(wind)
 	hud.reset_for_run(Save.best_for(airport))
 	hud.set_wind(wind.from_deg, wind.toward_deg())
@@ -286,6 +303,12 @@ func step(delta: float) -> void:
 			worst = maxf(worst, p.warn)
 	hud.set_alert(alive and worst > 0.55)
 	hud.set_shift_fraction(traffic.run_time / maxf(Tuning.shift_seconds, 1.0))
+	if traffic.run_time < Tuning.shift_seconds or weather.phase != Weather.Phase.IDLE:
+		weather.step(delta, traffic.run_time / maxf(Tuning.shift_seconds, 1.0), traffic.rng, wind)
+		var key := "%d:%d" % [weather.phase, ceili(weather.left)]
+		if key != _event_key:    # (the banner text is only rebuilt when the second changes)
+			_event_key = key
+			hud.set_event_banner(weather.banner(), weather.phase == Weather.Phase.WARN)
 	if traffic.run_time < Tuning.shift_seconds:
 		wind.step(delta, traffic.run_time / maxf(Tuning.shift_seconds, 1.0), traffic.rng)
 		if wind.warning:
@@ -350,15 +373,15 @@ func _star_feedback(at: Vector2) -> void:
 	var vp := get_viewport().get_visible_rect().size
 	hud.popup("STAR!", Color(1.0, 0.84, 0.15), Vector2(vp.x * 0.5, vp.y * 0.3))
 
-## An aircraft flew into terrain: lost, and a strike.
-func _on_crashed(p: Aircraft) -> void:
+## An aircraft flew into terrain or a storm cell: lost, and a strike.
+func _on_crashed(p: Aircraft, kind: int) -> void:
 	if not alive:
 		return
 	shift.on_strike()
 	hud.set_shift(shift, int(Tuning.max_strikes))
 	fx.burst(p.pos, Color(0.85, 0.6, 0.4), true)
 	overlay.ripple(p.pos, Color(1, 0.35, 0.2), 1.1)
-	hud.popup("Crashed!", Color(1, 0.4, 0.3), overlay.world_to_screen(p.pos))
+	hud.popup("Struck by storm!" if kind == 1 else "Crashed!", Color(1, 0.4, 0.3) if kind == 0 else Color(0.8, 0.7, 1.0), overlay.world_to_screen(p.pos))
 	hud.flash(Color(1, 0.3, 0.1))
 	if shift.strikes >= int(Tuning.max_strikes):
 		_end_shift(HEADER_STRIKES, "%d strikes." % shift.strikes, false)
@@ -424,7 +447,7 @@ func _on_wrong_runway(_p: Aircraft, runway: int) -> void:
 ## A path reached an end the wind doesn't allow.
 func _on_inactive_end(_p: Aircraft, runway: int, end: int) -> void:
 	overlay.ripple(Airports.end_threshold(runway, end), Color(1, 0.6, 0.2), 0.7)
-	hud.popup("Not into the wind", Color(1, 0.7, 0.3), overlay.world_to_screen(Airports.end_threshold(runway, end)) + Vector2(0, 100))
+	hud.popup("Runway closed" if wind.is_closed(runway) else "Not into the wind", Color(1, 0.7, 0.3), overlay.world_to_screen(Airports.end_threshold(runway, end)) + Vector2(0, 100))
 
 ## "Wind shifting to 270" is announced about wind_warning_seconds ahead.
 func _on_wind_warned(next_deg: float) -> void:
@@ -440,6 +463,66 @@ func _on_wind_shifted() -> void:
 			if wind.is_active(r, e):
 				overlay.ripple(Airports.end_threshold(r, e), Airports.rw_color(r), 0.8)
 	traffic.reroute_closed_ends()
+
+## Weather: announced, started, ended.
+func _on_weather_warned(_kind: String, text: String) -> void:
+	_event_key = "%d:%d" % [weather.phase, ceili(weather.left)]
+	hud.set_event_banner(weather.banner(), true)
+	hud.popup(text, Color(1.0, 0.85, 0.4), Vector2(get_viewport().get_visible_rect().size.x * 0.5, get_viewport().get_visible_rect().size.y * 0.4))
+
+func _on_weather_started(kind: String) -> void:
+	match kind:
+		"storm":
+			var n := 1 + (1 if traffic.rng.randf() < 0.3 + 0.5 * traffic.run_time / maxf(Tuning.shift_seconds, 1.0) else 0)
+			for k in n:
+				_spawn_storm()
+		"fog":
+			traffic.fog_target = 1.0
+		_:
+			if wind.close_runway(weather.runway, Tuning.crosswind_seconds):
+				airfield.show_active(wind)
+				traffic.reroute_closed_ends()
+				overlay.ripple(Airports.rw_center(weather.runway), Color(1, 0.3, 0.2), 1.6)
+
+func _on_weather_ended(kind: String) -> void:
+	if kind == "fog":
+		traffic.fog_target = 0.0
+	hud.set_event_banner("")
+	_event_key = ""
+
+## A storm cell comes in from a random edge and drifts across the field.
+func _spawn_storm() -> void:
+	var rng := traffic.rng
+	var r := Tuning.storm_radius * rng.randf_range(0.85, 1.2)
+	var side := rng.randi() % 4
+	var hw := traffic.half_w
+	var hh := traffic.half_h
+	var from := Vector2.ZERO
+	match side:
+		0:
+			from = Vector2(rng.randf_range(-hw, hw), -hh - r)
+		1:
+			from = Vector2(hw + r, rng.randf_range(-hh, hh))
+		2:
+			from = Vector2(rng.randf_range(-hw, hw), hh + r)
+		_:
+			from = Vector2(-hw - r, rng.randf_range(-hh, hh))
+	var aim := Airports.field_center() + Vector2(rng.randf_range(-2.0, 2.0), rng.randf_range(-2.0, 2.0))
+	traffic.add_storm(from, r, (aim - from).normalized() * Tuning.storm_speed)
+
+## A closed runway is open again.
+func _on_runway_reopened(r: int) -> void:
+	airfield.show_active(wind)
+	overlay.ripple(Airports.rw_center(r), Airports.rw_color(r), 1.2)
+	hud.popup("%s runway open" % Airports.rw_name(r), Color(0.6, 1.0, 0.7), overlay.world_to_screen(Airports.rw_center(r)))
+
+## An aircraft came out of the fog.
+func _on_revealed(p: Aircraft) -> void:
+	overlay.ripple(p.pos, Color(0.9, 0.95, 1.0), 0.5)
+
+## Debug (?tune): announce a weather event now.
+func trigger_weather(kind: String) -> void:
+	weather.trigger(kind, traffic.rng, wind)
 
 func _on_rerouted(p: Aircraft) -> void:
 	hud.popup("Re-route!", Color(1, 0.35, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
@@ -492,6 +575,7 @@ func _end_shift(header: String, reason: String, complete: bool) -> void:
 	last_result = {"header": header, "reason": reason, "coins": coins, "stars": shift.stars(), "first_stars": first_stars, "complete": complete}
 	_cancel_drag()
 	hud.set_alert(false)
+	hud.set_event_banner("")
 	hud.flash(Color(1, 0.84, 0.15) if complete else Color(1, 0.1, 0.1))
 	hud.set_shift(shift, int(Tuning.max_strikes))
 	hud.show_results(header, reason, shift, coins, Save.coins, Save.best_for(airport), new_best)

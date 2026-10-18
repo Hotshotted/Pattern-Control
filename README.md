@@ -33,6 +33,10 @@ You run an airport, one **shift** at a time.
   arrival warnings), *Approach Control* (arrivals line up with the active runways), *Tower Staff* (slower,
   thinner traffic), *Better Comms* (longer timers), *Holding Fixes* (holding burns timers slower, tighter
   circles), *Fast Turnoffs* (runways clear faster).
+- **Weather** (later airports, later in a shift; each event is announced ~6 s ahead with a banner):
+  *storm cells* drift across the field (flying into one is a strike), *fog* hides aircraft until they get
+  close to the field (the Radar upgrade sees further into it), and a *gusty crosswind* closes one runway for
+  a while (red X and a countdown; aircraft cleared to it are re-routed).
 - Each shift has **three star goals** (land 25 aircraft, land 4 jets, finish with no strikes). Landings and
   stars earn **coins**. Stars, coins and bests are saved.
 

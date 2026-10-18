@@ -8,21 +8,25 @@ extends RefCounted
 
 signal warned(next_deg: float)
 signal shifted
+signal reopened(runway: int)       # a closed runway is open again
 
 var from_deg := 0.0
 var next_deg := 0.0
 var warning := false            # a shift has been announced and is counting down
 var countdown := 30.0           # seconds until the next shift
-var active := PackedByteArray() # runway * 2 + end -> 1 if landing there is allowed
+var active := PackedByteArray() # runway * 2 + end -> 1 if landing there is allowed (by the wind alone)
+var closed_left := PackedFloat32Array()   # per runway: seconds it stays closed (a gusty crosswind), 0 = open
 
 func _init() -> void:
 	active.resize(32)
+	closed_left.resize(8)
 
 ## A new shift: pick a starting wind that works for every runway, and schedule the first change.
 func start(rng: RandomNumberGenerator) -> void:
 	from_deg = _pick(rng, -999.0)
 	next_deg = from_deg
 	warning = false
+	closed_left.fill(0.0)
 	countdown = interval(0.0)
 	refresh()
 
@@ -32,7 +36,28 @@ func interval(progress: float) -> float:
 	return maxf(base * Airports.wind_scale(), Tuning.wind_warning_seconds + 2.0)
 
 func is_active(runway: int, end: int) -> bool:
-	return active[runway * 2 + end] != 0
+	return active[runway * 2 + end] != 0 and closed_left[runway] <= 0.0
+
+func is_closed(runway: int) -> bool:
+	return closed_left[runway] > 0.0
+
+## How many runways can be landed on right now?
+func open_runways() -> int:
+	var n := 0
+	for r in Airports.rw_count():
+		if runway_open(r):
+			n += 1
+	return n
+
+## Close a runway for `secs` (a gusty crosswind). Never the last open one. Returns false if refused.
+func close_runway(r: int, secs: float) -> bool:
+	if closed_left[r] > 0.0 or open_runways() < 2 or not runway_open(r):
+		return false
+	closed_left[r] = secs
+	return true
+
+func reopen_all() -> void:
+	closed_left.fill(0.0)
 
 func refresh() -> void:
 	active.fill(0)
@@ -57,6 +82,11 @@ func _pick(rng: RandomNumberGenerator, avoid: float) -> float:
 	return ok[rng.randi() % ok.size()]
 
 func step(dt: float, progress: float, rng: RandomNumberGenerator) -> void:
+	for r in 8:
+		if closed_left[r] > 0.0:
+			closed_left[r] = maxf(closed_left[r] - dt, 0.0)
+			if closed_left[r] <= 0.0:
+				reopened.emit(r)
 	countdown -= dt
 	if not warning and countdown <= Tuning.wind_warning_seconds:
 		next_deg = _pick(rng, from_deg)

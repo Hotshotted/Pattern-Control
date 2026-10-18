@@ -20,6 +20,7 @@ var vip := false
 var vip_ok := true              # a VIP put into holding loses its bonus
 var locked := false             # gliders: the first path is final
 var hovering := false
+var fogged := false             # hidden in the fog (too far from the field to be seen)
 var type := Type.SMALL
 var speed_class := 0            # 0 slow, 1 medium, 2 fast (the entry glow colour and the model)
 var speed := 2.0                # base units / second (before the run's speed ramp)
@@ -71,6 +72,7 @@ func reset() -> void:
 	vip_ok = true
 	locked = false
 	hovering = false
+	fogged = false
 	tkind = Kind.RUNWAY
 	roll_t = 0.0
 	age = 0.0

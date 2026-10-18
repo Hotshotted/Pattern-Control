@@ -12,7 +12,8 @@ signal wrong_runway(plane: Aircraft, runway: int)  # a path went for another col
 signal inactive_end(plane: Aircraft, runway: int, end: int)  # ...or for an end the wind doesn't allow
 signal rerouted(plane: Aircraft)   # the wind shifted: its path now ends on a closed end
 signal spawned(plane: Aircraft)
-signal crashed(plane: Aircraft)        # flew into terrain (or, later, a storm)
+signal crashed(plane: Aircraft, kind: int)   # flew into terrain (kind 0) or a storm cell (kind 1)
+signal revealed(plane: Aircraft)       # came out of the fog
 signal go_around(plane: Aircraft)      # reached a runway that was still busy
 signal runway_conflict(a: Aircraft, b: Aircraft)   # landed on a crossing runway while it was busy
 signal refused(plane: Aircraft, text: String, at: Vector2)   # a path / tap the aircraft can't follow (with why)
@@ -35,7 +36,10 @@ var wind: Wind                       # which runway ends can be landed on (null 
 var hz_pos := PackedVector2Array()
 var hz_r := PackedFloat32Array()
 var hz_kind := PackedInt32Array()
+var hz_vel := PackedVector2Array()        # storm cells drift
 var hz_count := 0
+var fog_amount := 0.0                     # 0..1, how thick the fog is right now
+var fog_target := 0.0
 
 var _busy_until := PackedFloat32Array()   # per runway: run time until it is free
 var _occupant: Array[Aircraft] = []
@@ -58,6 +62,7 @@ func _ready() -> void:
 	hz_pos.resize(MAX_HAZARDS)
 	hz_r.resize(MAX_HAZARDS)
 	hz_kind.resize(MAX_HAZARDS)
+	hz_vel.resize(MAX_HAZARDS)
 	_busy_until.resize(8)
 	_cand.resize(16)
 	for i in 8:
@@ -324,7 +329,7 @@ func pick(world: Vector2) -> Aircraft:
 	var best_d := Tuning.tap_radius
 	for p in planes:
 		if p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD:
-			if not p.entered:
+			if not p.entered or p.fogged:
 				continue
 			var d := p.pos.distance_to(world)
 			if d <= best_d:
@@ -489,8 +494,35 @@ static func _dist_to_segment(pt: Vector2, a: Vector2, b: Vector2) -> float:
 ## The current airport's terrain becomes the no-fly zones.
 func load_terrain() -> void:
 	hz_count = 0
+	hz_vel.fill(Vector2.ZERO)
 	for h in Airports.hazards():
 		add_hazard(h["center"], h["radius"], 0)
+
+## A storm cell: a no-fly zone that drifts with `vel`. Returns its hazard index (-1 if the table is full).
+func add_storm(c: Vector2, r: float, vel: Vector2) -> int:
+	var k := add_hazard(c, r, 1)
+	if k >= 0:
+		hz_vel[k] = vel
+	return k
+
+func storm_count() -> int:
+	var n := 0
+	for k in hz_count:
+		if hz_kind[k] == 1:
+			n += 1
+	return n
+
+func clear_storms() -> void:
+	for k in range(hz_count - 1, -1, -1):
+		if hz_kind[k] == 1:
+			_remove_hazard(k)
+
+func _remove_hazard(k: int) -> void:
+	hz_count -= 1
+	hz_pos[k] = hz_pos[hz_count]
+	hz_r[k] = hz_r[hz_count]
+	hz_kind[k] = hz_kind[hz_count]
+	hz_vel[k] = hz_vel[hz_count]
 
 func add_hazard(c: Vector2, r: float, kind: int) -> int:
 	if hz_count >= MAX_HAZARDS:
@@ -498,10 +530,13 @@ func add_hazard(c: Vector2, r: float, kind: int) -> int:
 	hz_pos[hz_count] = c
 	hz_r[hz_count] = r
 	hz_kind[hz_count] = kind
+	hz_vel[hz_count] = Vector2.ZERO
 	hz_count += 1
 	return hz_count - 1
 
 func release_all() -> void:
+	fog_amount = 0.0
+	fog_target = 0.0
 	_busy_until.fill(0.0)
 	for i in 8:
 		_occupant[i] = null
@@ -520,6 +555,7 @@ func step(delta: float) -> void:
 				_spawn_timer = Tuning.spawn_interval(run_time) * Airports.spawn_mult() * Tuning.traffic_spawn_mult() * rng.randf_range(0.75, 1.25)
 			else:
 				_spawn_timer = 0.25
+	_update_weather(delta)
 	var mult := Tuning.speed_mult(run_time) * Tuning.traffic_speed_mult()
 	for i in MAX_POOL:
 		var p := planes[i]
@@ -530,6 +566,24 @@ func step(delta: float) -> void:
 		if p.active():
 			_sync(p, i)
 	_check_conflicts()
+
+## Storm cells drift (and leave); the fog thickens or clears; aircraft beyond the visible radius are hidden.
+func _update_weather(dt: float) -> void:
+	for k in range(hz_count - 1, -1, -1):
+		if hz_kind[k] == 1:
+			hz_pos[k] += hz_vel[k] * dt
+			if absf(hz_pos[k].x) > half_w + hz_r[k] + 2.0 or absf(hz_pos[k].y) > half_h + hz_r[k] + 2.0:
+				_remove_hazard(k)
+	fog_amount = move_toward(fog_amount, fog_target, dt / maxf(Tuning.fog_fade_seconds, 0.1))
+	var center := Airports.field_center()
+	var radius := lerpf(60.0, Tuning.fog_radius_eff(), fog_amount)
+	for p in planes:
+		if not p.active():
+			continue
+		var hide: bool = fog_amount > 0.001 and p.entered and p.state != Aircraft.State.LANDING and p.pos.distance_to(center) > radius
+		if p.fogged and not hide:
+			revealed.emit(p)
+		p.fogged = hide
 
 func _move(p: Aircraft, dt: float, mult: float) -> void:
 	var speed := p.speed * mult
@@ -571,7 +625,7 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 	if p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD) and not _god:
 		for k in hz_count:
 			if p.pos.distance_to(hz_pos[k]) < hz_r[k] + Tuning.hazard_margin:
-				crashed.emit(p)
+				crashed.emit(p, hz_kind[k])
 				_remove(p)
 				return
 	var diff := wrapf(p.heading - p.vis_heading, -PI, PI)
@@ -684,6 +738,7 @@ func _check_conflicts() -> void:
 ## Copy a plane's state onto its node (position, heading, size, colours, spinning rotor, emergency flash).
 func _sync(p: Aircraft, i: int) -> void:
 	var n := _nodes[i]
+	n.visible = not p.fogged
 	var alt := 1.0 if p.state != Aircraft.State.LANDING else 1.0 - 0.35 * minf(p.roll_t / maxf(Tuning.touchdown_fraction, 0.01), 1.0)
 	n.position = Vector3(p.pos.x, PLANE_Y * alt, p.pos.y)
 	n.rotation.y = -p.vis_heading

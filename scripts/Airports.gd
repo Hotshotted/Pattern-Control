@@ -40,7 +40,7 @@ static func _build() -> void:
 			"ground": Color(0.42, 0.68, 0.38),
 			"mix": {S: 0.55, M: 0.2, G: 0.25}, "specials": 0.0,
 			"goals": [goal_land.call(12), goal_type.call(G, 3), no_strikes],
-			"wind_scale": 1.6, "spawn_mult": 1.35, "unlock_stars": 0,
+			"wind_scale": 1.6, "spawn_mult": 1.35, "unlock_stars": 0, "weather": [], "weather_scale": 1.0,
 		},
 		{   # 2: two crossing runways: simultaneous landings conflict
 			"name": "County", "tag": "Crossing runways",
@@ -50,7 +50,7 @@ static func _build() -> void:
 			"ground": Color(0.5, 0.68, 0.36),
 			"mix": {S: 0.3, M: 0.55, G: 0.15}, "specials": 1.5,
 			"goals": [goal_land.call(20), {"kind": "land_vip", "n": 2}, no_strikes],
-			"wind_scale": 1.3, "spawn_mult": 1.15, "unlock_stars": 2,
+			"wind_scale": 1.3, "spawn_mult": 1.15, "unlock_stars": 2, "weather": ["crosswind"], "weather_scale": 1.3,
 		},
 		{   # 3: parallel runways and a helipad
 			"name": "Regional", "tag": "Parallel runways + helipad",
@@ -60,7 +60,7 @@ static func _build() -> void:
 			"ground": Color(0.36, 0.62, 0.36),
 			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2}, "specials": 1.0,
 			"goals": [goal_land.call(25), goal_type.call(H, 3), no_strikes],
-			"wind_scale": 1.0, "spawn_mult": 1.0, "unlock_stars": 5,
+			"wind_scale": 1.0, "spawn_mult": 1.0, "unlock_stars": 5, "weather": ["crosswind", "fog"], "weather_scale": 1.1,
 		},
 		{   # 4: terrain no-fly zones
 			"name": "Mountain Field", "tag": "Keep clear of the mountains",
@@ -76,7 +76,7 @@ static func _build() -> void:
 			"ground": Color(0.46, 0.58, 0.42),
 			"mix": {S: 0.3, M: 0.35, G: 0.35}, "specials": 1.0,
 			"goals": [goal_land.call(22), goal_type.call(G, 4), no_strikes],
-			"wind_scale": 0.85, "spawn_mult": 1.0, "unlock_stars": 8,
+			"wind_scale": 0.85, "spawn_mult": 1.0, "unlock_stars": 8, "weather": ["storm", "fog"], "weather_scale": 1.0,
 		},
 		{   # 5: an island in the water, with a seaplane lane
 			"name": "Island", "tag": "Water landing lane",
@@ -90,7 +90,7 @@ static func _build() -> void:
 			"ground": Color(0.2, 0.5, 0.78), "water": true,
 			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25}, "specials": 1.0,
 			"goals": [goal_land.call(28), goal_type.call(P, 3), no_strikes],
-			"wind_scale": 0.75, "spawn_mult": 0.95, "unlock_stars": 11,
+			"wind_scale": 0.75, "spawn_mult": 0.95, "unlock_stars": 11, "weather": ["storm", "crosswind", "fog"], "weather_scale": 0.85,
 		},
 		{   # 6: long runways and multiples of everything
 			"name": "International", "tag": "Everything, all at once",
@@ -105,7 +105,7 @@ static func _build() -> void:
 			"ground": Color(0.4, 0.6, 0.4),
 			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2}, "specials": 1.6,
 			"goals": [goal_land.call(35), {"kind": "land_emergency", "n": 2}, no_strikes],
-			"wind_scale": 0.6, "spawn_mult": 0.85, "unlock_stars": 14,
+			"wind_scale": 0.6, "spawn_mult": 0.85, "unlock_stars": 14, "weather": ["storm", "crosswind", "fog"], "weather_scale": 0.7,
 		},
 	]
 	for d in _defs:
@@ -134,6 +134,21 @@ static func def(i: int = -1) -> Dictionary:
 
 static func tag(i: int = -1) -> String:
 	return def(i)["tag"]
+
+## Which weather events can happen here, and how far apart they come (a smaller scale = more often).
+static func weather_kinds() -> Array:
+	return def().get("weather", [])
+
+static func weather_scale() -> float:
+	return def().get("weather_scale", 1.0)
+
+## The middle of the airfield (fog hides aircraft beyond a radius from here).
+static func field_center() -> Vector2:
+	var c := Vector2.ZERO
+	var n := rw_count()
+	for i in n:
+		c += rw_center(i)
+	return c / maxf(n, 1.0)
 
 static func unlock_stars(i: int) -> int:
 	return def(i)["unlock_stars"]

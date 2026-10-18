@@ -82,7 +82,7 @@ func _draw_all() -> void:
 	_draw_runway_markers(t)
 	_draw_place_markers(t)
 	for p in traffic.planes:
-		if p.state == Aircraft.State.HOLD and not DebugFlags.off("hold"):
+		if p.state == Aircraft.State.HOLD and not p.fogged and not DebugFlags.off("hold"):
 			var col := Airports.land_color(p.tkind, p.runway)
 			if p.hovering:   # a helicopter hovers on the spot
 				_c.draw_arc(p.pos, 0.62, 0.0, TAU, 24, BLACK, 0.16)
@@ -100,8 +100,10 @@ func _draw_all() -> void:
 			continue
 		if p.warn > 0.0:
 			_draw_warning(p, t)
-		if p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD):
+		if p.entered and not p.fogged and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD):
 			_draw_timer_ring(p, t)
+	_draw_closures(t)
+	_draw_fog()
 	if selected != null and selected.active():
 		_c.draw_arc(selected.pos, 0.85, 0.0, TAU, 32, Color(1, 1, 1, 0.9), 0.07)
 	for i in RIPPLES:
@@ -116,8 +118,12 @@ func _draw_all() -> void:
 		_c.draw_arc(_rip_pos[i], (0.4 + 2.2 * a) * _rip_scale[i], 0.0, TAU, 40, col, 0.14 * (1.0 - a) + 0.03)
 	# Little text tags above special aircraft, in screen space.
 	_c.draw_set_transform_matrix(Transform2D.IDENTITY)
+	if wind != null:
+		for r in Airports.rw_count():
+			if wind.is_closed(r):
+				_tag(xf * Airports.rw_center(r) + Vector2(0, -90), "CLOSED %d" % ceili(wind.closed_left[r]), Color(1.0, 0.4, 0.3))
 	for p in traffic.planes:
-		if not p.active() or not p.entered or p.state == Aircraft.State.DIVERT or p.state == Aircraft.State.LANDING:
+		if not p.active() or not p.entered or p.fogged or p.state == Aircraft.State.DIVERT or p.state == Aircraft.State.LANDING:
 			continue
 		var at := xf * p.pos + Vector2(-60, -62)
 		if p.emergency:
@@ -128,17 +134,66 @@ func _draw_all() -> void:
 		elif p.type == Aircraft.Type.GLIDER and p.locked:
 			_tag(at, "LOCKED", Color(0.8, 0.9, 1.0, 0.8))
 
-## No-fly zones: a dashed warning ring and a faint fill around each mountain (and, later, storm).
+## No-fly zones: mountains get a dashed warning ring and a faint fill; storm cells are dark clouds with lightning.
 func _draw_hazards(t: float) -> void:
 	for k in traffic.hz_count:
 		var c := traffic.hz_pos[k]
 		var r := traffic.hz_r[k]
-		var col := Color(1.0, 0.35, 0.2) if traffic.hz_kind[k] == 0 else Color(0.75, 0.55, 1.0)
+		if traffic.hz_kind[k] == 1:
+			_draw_storm(c, r, t, k)
+			continue
+		var col := Color(1.0, 0.35, 0.2)
 		_c.draw_circle(c, r, Color(col.r, col.g, col.b, 0.1))
 		var phase := t * 0.6
 		for seg in 16:
 			var a0 := phase + seg * TAU / 16.0
 			_c.draw_arc(c, r + 0.1, a0, a0 + TAU / 32.0, 4, Color(col.r, col.g, col.b, 0.8), 0.1)
+
+func _draw_storm(c: Vector2, r: float, t: float, k: int) -> void:
+	_c.draw_circle(c, r * 1.05, Color(0.1, 0.12, 0.2, 0.28))
+	for j in 7:       # a lumpy cloud made of drifting puffs
+		var ang := j * TAU / 7.0 + t * 0.3 + k
+		var off := Vector2(cos(ang), sin(ang)) * r * 0.5
+		_c.draw_circle(c + off, r * 0.55, Color(0.2, 0.22, 0.32, 0.5))
+	_c.draw_circle(c, r * 0.6, Color(0.12, 0.13, 0.22, 0.6))
+	_c.draw_arc(c, r, 0.0, TAU, 40, Color(0.75, 0.6, 1.0, 0.7), 0.08)
+	if sin(t * 7.0 + k * 2.0) > 0.85:   # a flash of lightning
+		var p0 := c + Vector2(0.1, -r * 0.6)
+		var p1 := p0 + Vector2(-0.25, r * 0.45)
+		var p2 := p1 + Vector2(0.3, 0.1)
+		var p3 := p2 + Vector2(-0.3, r * 0.55)
+		_c.draw_line(p0, p1, Color(1.0, 0.97, 0.6), 0.1)
+		_c.draw_line(p1, p2, Color(1.0, 0.97, 0.6), 0.1)
+		_c.draw_line(p2, p3, Color(1.0, 0.97, 0.6), 0.1)
+
+## The fog: rings of grey that get thicker away from the field, hiding everything beyond the visible radius.
+func _draw_fog() -> void:
+	if traffic.fog_amount <= 0.001:
+		return
+	var center := Airports.field_center()
+	var vis := lerpf(60.0, Tuning.fog_radius_eff(), traffic.fog_amount)
+	for i in 26:
+		var r := vis + i * 0.8
+		var a := traffic.fog_amount * minf(0.12 + 0.88 * float(i + 1) / 10.0, 0.93)
+		_c.draw_arc(center, r + 0.4, 0.0, TAU, 72, Color(0.82, 0.86, 0.9, a), 0.85)
+
+## A closed runway: a red X across it and the time left.
+func _draw_closures(t: float) -> void:
+	if wind == null:
+		return
+	for r in Airports.rw_count():
+		if not wind.is_closed(r):
+			continue
+		var c := Airports.rw_center(r)
+		var dir := Airports.end_dir(r, 0)
+		var side := Vector2(-dir.y, dir.x)
+		var len := Airports.rw_length(r) * 0.3
+		var a := 0.65 + 0.3 * sin(t * 6.0)
+		for sgn in [-1.0, 1.0]:
+			var p0: Vector2 = c - dir * len + side * (sgn * 0.5)
+			var p1: Vector2 = c + dir * len - side * (sgn * 0.5)
+			_c.draw_line(p0, p1, Color(0, 0, 0, 0.8), 0.34)
+			_c.draw_line(p0, p1, Color(1.0, 0.18, 0.12, a), 0.2)
 
 func _tag(at: Vector2, text: String, col: Color) -> void:
 	_c.draw_string_outline(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, 120.0, 30, 8, Color.BLACK)

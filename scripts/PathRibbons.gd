@@ -63,7 +63,7 @@ func _process(_delta: float) -> void:
 		return
 	for i in Traffic.MAX_POOL:
 		var p := traffic.planes[i]
-		if p.active() and p.count > 0:
+		if p.active() and p.count > 0 and not p.fogged:
 			_build(p, i)
 		elif _nodes[i].visible:
 			_meshes[i].clear_surfaces()

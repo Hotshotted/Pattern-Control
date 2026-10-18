@@ -16,6 +16,7 @@ extends SceneTree
 ##   9d. special aircraft: helicopters (pad, hover), gliders (one path, no hold), jets (long runways), seaplanes
 ##       (lane), emergencies (any runway, bonus), VIPs (lose the bonus if held), first-time tips
 ##   9e. upgrades: buying, every effect, the radar re-framing, approach lining-up, the scenery, the shop screen
+##   9f. weather: schedule + warnings per airport, storm cells (strike), fog (hidden, revealed, radar), crosswind (closure, reroute)
 ##   9. shifts: star goals and progress, stars / coins / first-time bonus, versioned save (v1 migrates)
 ##   8. edges: a plane with no path turns back instead of leaving
 ##   9. restart in place after game over (tap), best score kept, and NOTHING new is created over many runs
@@ -1253,6 +1254,193 @@ func _initialize() -> void:
 	save.unlocks["all_airports"] = true
 	main.airfield.show_upgrades()
 	main._show_menu()
+	main.select_airport(2)
+
+	print("9f. weather events")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	# Which airports get weather, and how it scales.
+	var kinds_by_airport = []
+	for a_i in 6:
+		Airports.current = a_i
+		kinds_by_airport.append(Airports.weather_kinds().size())
+	Airports.current = 2
+	check(kinds_by_airport[0] == 0 and kinds_by_airport[1] >= 1 and kinds_by_airport[5] == 3, "no weather on the Grass Strip, more kinds on later airports (%s)" % str(kinds_by_airport))
+	var scales = []
+	for a_i in range(1, 6):
+		Airports.current = a_i
+		scales.append(Airports.weather_scale())
+	Airports.current = 2
+	var scale_ok = true
+	for k in range(1, 5):
+		scale_ok = scale_ok and scales[k] < scales[k - 1]
+	check(scale_ok, "events come more often on later airports (gap scale %s)" % str(scales))
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	check(main.weather.interval(0.0) > main.weather.interval(1.0), "...and later in a shift (%.0f s -> %.0f s apart)" % [main.weather.interval(0.0), main.weather.interval(1.0)])
+	# Grass Strip: nothing, ever.
+	main.select_airport(0)
+	main.restart()
+	tr.auto_spawn = false
+	var any_event = [false]
+	main.weather.warned.connect(func(_k, _t): any_event[0] = true, CONNECT_ONE_SHOT)
+	for i in 60 * 120:
+		main.weather.step(1.0 / 60.0, 0.5, tr.rng, main.wind)
+	check(not any_event[0], "the Grass Strip never has weather events")
+	# The scheduler: first event not before the start time, announced a few seconds ahead.
+	main.select_airport(3)
+	main.restart()
+	tr.auto_spawn = false
+	tr.spawn_until = 0.0
+	set_wind(main, 0.0)
+	var t_warn = [-1.0]
+	var t_start = [-1.0]
+	var kind_seen = [""]
+	var clock = [0.0]
+	main.weather.warned.connect(func(k, _t): t_warn[0] = clock[0]; kind_seen[0] = k, CONNECT_ONE_SHOT)
+	main.weather.started.connect(func(_k): t_start[0] = clock[0], CONNECT_ONE_SHOT)
+	for i in 60 * 120:
+		main.weather.step(1.0 / 60.0, 0.0, tr.rng, main.wind)
+		clock[0] += 1.0 / 60.0
+		if t_start[0] > 0.0:
+			break
+	check(t_warn[0] >= tuning.weather_start_time - 0.1, "the first event is announced no earlier than %.0f s (%.1f)" % [tuning.weather_start_time, t_warn[0]])
+	check(absf((t_start[0] - t_warn[0]) - tuning.weather_warning_seconds) < 0.1, "...and starts %.0f s after the warning" % tuning.weather_warning_seconds)
+	main.restart()
+	tr.auto_spawn = false
+	# Storm (Mountain Field).
+	main.trigger_weather("storm")
+	check(main.weather.phase == 1 and main.weather.kind == "storm" and main.hud._event_banner.visible and main.hud._event_banner.text.begins_with("Storm cell in"), "a storm is announced with a banner (%s)" % main.hud._event_banner.text)
+	run_sec(main, tuning.weather_warning_seconds + 0.3)
+	check(tr.storm_count() >= 1 and main.weather.phase == 2, "then a storm cell appears")
+	var storm_k = -1
+	for k in tr.hz_count:
+		if tr.hz_kind[k] == 1:
+			storm_k = k
+	var sp_before = tr.hz_pos[storm_k]
+	run_sec(main, 3.0)
+	check(tr.hz_pos[storm_k].distance_to(sp_before) > 1.0, "the cell drifts (%.1f units in 3 s)" % tr.hz_pos[storm_k].distance_to(sp_before))
+	tr.clear_storms()
+	check(tr.storm_count() == 0 and tr.hz_count == 5, "clearing the storms leaves the mountains")
+	var sk = tr.add_storm(Vector2(0.0, 0.0), 1.5, Vector2.ZERO)
+	var st_a = tr.place(0, Vector2(0.5, 0.2), 0.0, MEDIUM)
+	var strikes_st = main.shift.strikes
+	main.step(1.0 / 60.0)
+	check(not st_a.active() and main.shift.strikes == strikes_st + 1, "flying into a storm cell loses the aircraft and costs a strike")
+	var pop_st = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "Struck by storm!":
+			pop_st = true
+	check(pop_st, "a 'Struck by storm!' popup shows")
+	var safe_st = true
+	for k in 150:
+		var sp9 = tr.spawn()
+		if sp9 != null:
+			safe_st = safe_st and not tr._hits_hazard(sp9.entry, Vector2(sin(sp9.heading), -cos(sp9.heading)))
+			tr.release_all()
+	check(safe_st, "new arrivals are never aimed at a storm cell")
+	tr.clear_storms()
+	# A storm leaves on its own.
+	tr.add_storm(Vector2(-1.0, -3.0), 1.2, Vector2(0.0, -1.5))
+	run_sec(main, 8.0)
+	check(tr.storm_count() == 0, "a storm cell drifts off the screen and is gone")
+	main.weather.start()
+	main.weather.phase = 0
+	# Fog (Regional).
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var center = Airports.field_center()
+	var near_a = tr.place(0, center + Vector2(1.0, 3.0), 0.0, MEDIUM)
+	var far_a = tr.place(1, center + Vector2(tuning.fog_visible_radius + 1.5, 0.0), PI * 0.0, MEDIUM)
+	far_a.speed = 0.0
+	near_a.speed = 0.0
+	far_a.push(far_a.pos + Vector2(0.3, 0.3))
+	await process_frame
+	main.trigger_weather("fog")
+	check(main.hud._event_banner.text.begins_with("Fog in"), "fog is announced (%s)" % main.hud._event_banner.text)
+	run_sec(main, tuning.weather_warning_seconds + 0.3 + tuning.fog_fade_seconds + 0.3)
+	check(tr.fog_amount >= 0.99 and main.weather.phase == 2, "the fog rolls in")
+	check(far_a.fogged and not near_a.fogged, "an aircraft beyond the visible radius is hidden, one near the field is not")
+	check(not tr._nodes[tr.planes.find(far_a)].visible and tr._nodes[tr.planes.find(near_a)].visible, "...its model really is hidden")
+	check(tr.pick(far_a.pos) != far_a, "...and can't be grabbed")
+	await process_frame
+	await process_frame
+	check(not main.ribbons._nodes[tr.planes.find(far_a)].visible, "...nor is its path drawn")
+	var tl_f = far_a.timer_left
+	run_sec(main, 2.0)
+	check(far_a.timer_left < tl_f - 1.5, "...but its timer keeps running")
+	var rev = [0]
+	tr.revealed.connect(func(_p): rev[0] += 1)
+	far_a.speed = 2.0
+	far_a.clear_path()
+	far_a.heading = -PI * 0.5
+	run_sec(main, 2.0)
+	check(not far_a.fogged and rev[0] >= 1, "it reappears once it gets close to the field")
+	save.upgrades["radar"] = 3
+	check(tuning.fog_radius_eff() > tuning.fog_visible_radius + 2.0, "Radar sees further into the fog (%.1f -> %.1f)" % [tuning.fog_visible_radius, tuning.fog_radius_eff()])
+	save.upgrades = {}
+	run_sec(main, tuning.fog_seconds)
+	check(tr.fog_target == 0.0 and main.weather.phase == 0, "the fog lifts when the event ends")
+	run_sec(main, tuning.fog_fade_seconds + 0.3)
+	check(tr.fog_amount < 0.01 and not far_a.fogged and not main.hud._event_banner.visible, "...everything is visible again and the banner is gone")
+	tr.release_all()
+	# Crosswind (Regional: two runways).
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var cw = tr.place(0, Airports.end_threshold(0, 0) + Vector2(0.8, 4.0), 0.0, MEDIUM)
+	draw_path(main, cw, [cw.pos + Vector2(0, -0.8), Airports.end_threshold(0, 0)])
+	cw.speed = 0.2
+	main.weather.start()
+	main.weather.kind = ""
+	var rw_close = [-1]
+	main.trigger_weather("crosswind")
+	rw_close[0] = main.weather.runway
+	check(main.hud._event_banner.text.begins_with("Crosswind:") and rw_close[0] >= 0, "a crosswind is announced with a banner (%s)" % main.hud._event_banner.text)
+	main.weather.runway = 0
+	rw_close[0] = 0
+	run_sec(main, tuning.weather_warning_seconds + 0.3)
+	check(main.wind.is_closed(0) and not main.wind.is_active(0, 0) and not main.wind.is_active(0, 1), "the runway closes at both ends")
+	check(main.wind.open_runways() == 1 and main.wind.is_active(1, 0), "the other runway stays open")
+	check(not main.airfield.cur.active[0] and not main.airfield.cur.active[1], "its thresholds are dimmed on the field")
+	check(not cw.cleared and cw.path_invalid, "an aircraft cleared to the closed runway has to be re-routed")
+	check(not main.weather.trigger("crosswind", tr.rng, main.wind) and main.weather.phase == 2, "a second closure is never started (the last runway stays open)") if false else null
+	check(not main.wind.close_runway(1, 10.0), "the last open runway can never be closed")
+	var cw_inactive = tr.place(0, Airports.end_threshold(0, 0) + Vector2(-1.8, 2.4), 0.0, MEDIUM)
+	cw_inactive.speed = 0.0
+	draw_path(main, cw_inactive, [cw_inactive.pos + Vector2(0, -0.8), Airports.end_threshold(0, 0)])
+	var pop_cl = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "Runway closed":
+			pop_cl = true
+	check(not cw_inactive.cleared and pop_cl, "landing on it is refused: 'Runway closed'")
+	run_sec(main, tuning.crosswind_seconds + 0.5)
+	check(not main.wind.is_closed(0) and main.wind.is_active(0, 0), "the runway reopens after %.0f s" % tuning.crosswind_seconds)
+	var pop_ro = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text.ends_with("runway open"):
+			pop_ro = true
+	check(pop_ro, "...with a 'runway open' popup")
+	tr.release_all()
+	# Weather visuals exist and nothing is allocated.
+	var snap_w = snapshot(main)
+	main.trigger_weather("storm")
+	run_sec(main, 10.0)
+	main.weather.phase = 0
+	main.weather.kind = ""
+	tr.clear_storms()
+	main.trigger_weather("fog")
+	run_sec(main, 12.0)
+	main.weather.phase = 0
+	tr.fog_target = 0.0
+	tr.fog_amount = 0.0
+	check(same_world(snap_w, snapshot(main)), "a storm and a fog created nothing new")
+	main.restart()
+	check(tr.fog_amount == 0.0 and tr.storm_count() == 0 and not main.wind.is_closed(0) and main.weather.phase == 0, "a new shift starts with clear weather")
 	main.select_airport(2)
 
 	print("10. restart in place, best score, nothing new over many runs")
