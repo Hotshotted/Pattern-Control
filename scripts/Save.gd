@@ -9,6 +9,7 @@ const AIRPORT_SLOTS := 6
 const STARS_PER_AIRPORT := 3
 
 var path := "user://pattern_work.json"
+var day_override := -1               # tests / debug: pretend it is this day number
 var coins := 0
 var stars := PackedInt32Array()      # AIRPORT_SLOTS * 3 flags
 var best := PackedInt32Array()       # best landings per airport
@@ -18,6 +19,7 @@ var equipped := {}                   # slot -> id
 var tips_seen := {}                  # aircraft-type tips already shown
 var daily := {}                      # {"day": int, "best": int, "streak": int, "last_streak_day": int}
 var shifts_played := 0
+var ads := {}                        # ad stub bookkeeping: shifts since the last interstitial
 var selected_airport := 0
 
 func _ready() -> void:
@@ -36,6 +38,7 @@ func _defaults() -> void:
 	daily = {}
 	shifts_played = 0
 	selected_airport = 0
+	ads = {}
 
 func load_file() -> void:
 	_defaults()
@@ -65,6 +68,7 @@ func load_file() -> void:
 	daily = _dict(data.get("daily"))
 	shifts_played = int(data.get("shifts_played", 0))
 	selected_airport = clampi(int(data.get("selected_airport", 0)), 0, AIRPORT_SLOTS - 1)
+	ads = _dict(data.get("ads"))
 
 func _dict(v) -> Dictionary:
 	return v if v is Dictionary else {}
@@ -75,7 +79,7 @@ func write_file() -> void:
 		f.store_string(JSON.stringify({
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best),
 			"upgrades": upgrades, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
-			"daily": daily, "shifts_played": shifts_played, "selected_airport": selected_airport,
+			"daily": daily, "shifts_played": shifts_played, "selected_airport": selected_airport, "ads": ads,
 		}))
 
 # ---------- Stars ----------
@@ -83,6 +87,54 @@ func write_file() -> void:
 ## Is airport `i` open? (By total stars; the debug unlock opens them all.)
 func airport_open(i: int) -> bool:
 	return Airports.unlocked(i, stars_total()) or unlocks.has("all_airports")
+
+# ---------- Daily shift ----------
+
+## Days since 1970 (UTC): the daily shift's id.
+func today() -> int:
+	return day_override if day_override >= 0 else int(Time.get_unix_time_from_system() / 86400.0)
+
+func daily_done_today() -> bool:
+	return int(daily.get("done_day", -1)) == today()
+
+## Streak as it would read right now (a missed day resets it).
+func daily_streak() -> int:
+	var last := int(daily.get("done_day", -100))
+	return int(daily.get("streak", 0)) if last >= today() - 1 else 0
+
+## Record a completed daily (at least one star): returns the streak after it. Call once per day.
+func daily_complete(landed: int) -> int:
+	var streak := daily_streak() + 1
+	daily["streak"] = streak
+	daily["done_day"] = today()
+	daily["best"] = maxi(landed, int(daily.get("best", 0))) if int(daily.get("best_day", -1)) == today() else landed
+	daily["best_day"] = today()
+	return streak
+
+# ---------- Cosmetics ----------
+
+func owns(kind: String, id: String) -> bool:
+	return unlocks.has(kind + ":" + id) or (kind == "theme" and id == "classic") or (kind == "livery" and id == "standard")
+
+func equipped_id(kind: String) -> String:
+	return str(equipped.get(kind, "classic" if kind == "theme" else "standard"))
+
+func equip(kind: String, id: String) -> bool:
+	if not owns(kind, id):
+		return false
+	equipped[kind] = id
+	write_file()
+	return true
+
+## Buy (and equip) a cosmetic. Returns false if already owned or too expensive.
+func buy_cosmetic(kind: String, id: String, price: int) -> bool:
+	if owns(kind, id) or coins < price:
+		return false
+	coins -= price
+	unlocks[kind + ":" + id] = true
+	equipped[kind] = id
+	write_file()
+	return true
 
 func has_star(airport: int, i: int) -> bool:
 	return stars[airport * STARS_PER_AIRPORT + i] != 0

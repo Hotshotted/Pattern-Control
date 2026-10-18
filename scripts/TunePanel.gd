@@ -95,6 +95,7 @@ var _sliders := {}                  # property -> HSlider
 var _value_labels := {}             # property -> Label
 var _color_sliders := {}            # property -> [R, G, B] HSliders
 var _color_swatches := {}           # property -> ColorRect
+var debug_buttons := {}             # id -> Button (the debug actions; the tests press them)
 var _toggles := {}                  # property -> CheckButton
 var _button_layer: CanvasLayer
 var _panel_layer: CanvasLayer
@@ -242,6 +243,22 @@ func build() -> void:
 	buttons.add_child(reset)
 	buttons.add_child(copy)
 	column.add_child(buttons)
+	# Debug actions on the game (coins, unlocks, upgrades, wind, weather, resets).
+	var rows := [
+		[["add_coins", "+1000 coins"], ["unlock_all", "Unlock airports"], ["max_upgrades", "Max upgrades"]],
+		[["force_wind", "Force wind shift"], ["storm", "Storm"], ["fog", "Fog"], ["crosswind", "Crosswind"]],
+		[["reset_save", "Reset save"], ["reset_daily", "Reset daily"]],
+	]
+	for row in rows:
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 12)
+		for d in row:
+			var b := _make_button(d[1], 28)
+			b.pressed.connect(_debug.bind(d[0]))
+			b.set_meta("debug", d[0])
+			debug_buttons[d[0]] = b
+			hb.add_child(b)
+		column.add_child(hb)
 	_out = _make_label("", 26, HORIZONTAL_ALIGNMENT_LEFT)
 	_out.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_out.custom_minimum_size = Vector2(0, 150)
@@ -309,6 +326,32 @@ func _on_color_slider(value: float, property: String, channel: int) -> void:
 func _on_toggle(on: bool, property: String) -> void:
 	Tuning.set(property, on)
 	changed.emit(property)
+
+## A debug button: do it to the running game and say so.
+func _debug(id: String) -> void:
+	var main = get_parent()
+	match id:
+		"add_coins":
+			main.debug_add_coins(1000)
+			_out.text = "Coins: %d" % Save.coins
+		"unlock_all":
+			main.debug_unlock_all()
+			_out.text = "All airports unlocked."
+		"max_upgrades":
+			main.debug_max_upgrades()
+			_out.text = "All upgrades at max."
+		"force_wind":
+			main.debug_force_wind()
+			_out.text = "Wind shift announced."
+		"storm", "fog", "crosswind":
+			main.trigger_weather(id)
+			_out.text = "Weather: %s announced." % id
+		"reset_save":
+			main.debug_reset_save()
+			_out.text = "Save reset."
+		"reset_daily":
+			main.debug_reset_daily()
+			_out.text = "Daily shift reset."
 
 ## Put every tuned value back to its default (as captured when the panel was built).
 func reset_defaults() -> void:

@@ -8,6 +8,9 @@ const SCREEN_PLAY := 1
 const SCREEN_OVER := 2
 const SCREEN_SELECT := 3
 const SCREEN_UPGRADES := 4
+const SCREEN_SHOP := 5
+const SCREEN_AD := 6
+const SCREEN_CONTINUE := 7
 
 const HEADER_CONFLICT := "MID-AIR\nCONFLICT"
 const HEADER_STRIKES := "3 STRIKES"
@@ -28,9 +31,22 @@ var alive := false
 var airport := 0                      # the airport being played
 var shift := Shift.new()
 var wind := Wind.new()
+var rng_env := RandomNumberGenerator.new()   # wind, weather and storms (seeded for the daily shift)
 var weather := Weather.new()
 var score := 0                        # aircraft landed this shift (the big number)
 var _event_key := ""
+var daily_mode := false               # playing today's seeded daily shift
+var shop_tab := 0                     # 0 themes, 1 liveries
+var _ad_kind := ""
+var _ad_left := 0.0
+var _ad_done: Callable
+var _continue_used := false           # the rewarded "undo the conflict" is once per shift
+var _doubled := false                 # the rewarded "double coins" is once per shift
+var _conflict_a: Aircraft
+var _conflict_b: Aircraft
+var _conflict_header := ""
+var _conflict_reason := ""
+var ads_shown := 0                    # (tests) how many fake ads have played
 var streak := 0                       # landings within STREAK_WINDOW_MS of each other
 var shift_coins := 0                  # coins earned so far this shift (paid out when it ends)
 var last_result := {}                 # what the last shift ended with (header, reason, coins, stars...)
@@ -97,10 +113,12 @@ func _ready() -> void:
 	airfield.select(airport)
 	traffic.load_terrain()
 	shift.reset(Airports.goals())
-	wind.start(traffic.rng)
+	wind.start(rng_env)
 	airfield.show_active(wind)
 	hud.set_wind(wind.from_deg, wind.toward_deg())
 	airfield.show_upgrades()
+	apply_cosmetics()
+	rng_env.randomize()
 	hud.set_best(Save.best_for(airport))
 	if DebugFlags.tune_enabled():
 		tune_panel = TunePanel.new()
@@ -191,6 +209,16 @@ func restart() -> void:
 	_drag_index = -1
 	_drag_plane = null
 	_drag_active = false
+	_continue_used = false
+	_doubled = false
+	if daily_mode:
+		var seed_v := (Save.today() * 2654435761) & 0x7fffffff
+		traffic.rng.seed = seed_v
+		rng_env.seed = seed_v ^ 0x5bd1e995
+	else:
+		traffic.rng.randomize()
+		rng_env.randomize()
+	traffic.grace_until = 0.0
 	_note_event("shift started")
 	get_tree().paused = false
 	Airports.current = airport
@@ -204,7 +232,7 @@ func restart() -> void:
 	traffic.half_h = _half_height()
 	traffic.release_all()
 	traffic.spawn_until = Tuning.shift_seconds
-	wind.start(traffic.rng)
+	wind.start(rng_env)
 	weather.start()
 	_event_key = ""
 	airfield.show_active(wind)
@@ -215,6 +243,9 @@ func restart() -> void:
 func _show_menu() -> void:
 	screen = SCREEN_MENU
 	alive = false
+	daily_mode = false
+	hud.daily_label = "DAILY SHIFT"
+	hud.daily_sub = "done today - streak %d" % Save.daily_streak() if Save.daily_done_today() else "streak %d   bonus +%d" % [Save.daily_streak(), _daily_bonus(Save.daily_streak() + 1)]
 	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport))
 
 # ---------- Frame time: the simulation can never run ahead of the clock ----------
@@ -283,6 +314,8 @@ func _process(raw_delta: float) -> void:
 	_update_camera()
 	traffic.half_w = view_size * 0.5
 	traffic.half_h = _half_height()
+	if screen == SCREEN_AD:
+		_tick_ad(raw_delta)
 	if _warming or not alive:
 		return
 	var delta := _frame_delta(raw_delta)
@@ -304,13 +337,13 @@ func step(delta: float) -> void:
 	hud.set_alert(alive and worst > 0.55)
 	hud.set_shift_fraction(traffic.run_time / maxf(Tuning.shift_seconds, 1.0))
 	if traffic.run_time < Tuning.shift_seconds or weather.phase != Weather.Phase.IDLE:
-		weather.step(delta, traffic.run_time / maxf(Tuning.shift_seconds, 1.0), traffic.rng, wind)
+		weather.step(delta, traffic.run_time / maxf(Tuning.shift_seconds, 1.0), rng_env, wind)
 		var key := "%d:%d" % [weather.phase, ceili(weather.left)]
 		if key != _event_key:    # (the banner text is only rebuilt when the second changes)
 			_event_key = key
 			hud.set_event_banner(weather.banner(), weather.phase == Weather.Phase.WARN)
 	if traffic.run_time < Tuning.shift_seconds:
-		wind.step(delta, traffic.run_time / maxf(Tuning.shift_seconds, 1.0), traffic.rng)
+		wind.step(delta, traffic.run_time / maxf(Tuning.shift_seconds, 1.0), rng_env)
 		if wind.warning:
 			hud.set_wind_warning(wind.next_deg, ceili(wind.countdown))
 	if _drag_active and (_drag_plane == null or not _drag_plane.active()):
@@ -397,7 +430,7 @@ func _on_runway_conflict(a: Aircraft, b: Aircraft) -> void:
 	var mid := (a.pos + b.pos) * 0.5
 	fx.burst(mid, Color(1.0, 0.5, 0.1), true)
 	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
-	_end_shift(HEADER_CONFLICT, "Simultaneous landings on crossing runways.", false)
+	_conflict_or_end(HEADER_CONFLICT, "Simultaneous landings on crossing runways.", a, b)
 
 ## The aircraft can't follow a path or tap (and the reason is shown where it happened).
 func _on_refused(_p: Aircraft, text: String, at: Vector2) -> void:
@@ -473,7 +506,7 @@ func _on_weather_warned(_kind: String, text: String) -> void:
 func _on_weather_started(kind: String) -> void:
 	match kind:
 		"storm":
-			var n := 1 + (1 if traffic.rng.randf() < 0.3 + 0.5 * traffic.run_time / maxf(Tuning.shift_seconds, 1.0) else 0)
+			var n := 1 + (1 if rng_env.randf() < 0.3 + 0.5 * traffic.run_time / maxf(Tuning.shift_seconds, 1.0) else 0)
 			for k in n:
 				_spawn_storm()
 		"fog":
@@ -492,7 +525,7 @@ func _on_weather_ended(kind: String) -> void:
 
 ## A storm cell comes in from a random edge and drifts across the field.
 func _spawn_storm() -> void:
-	var rng := traffic.rng
+	var rng := rng_env
 	var r := Tuning.storm_radius * rng.randf_range(0.85, 1.2)
 	var side := rng.randi() % 4
 	var hw := traffic.half_w
@@ -522,7 +555,7 @@ func _on_revealed(p: Aircraft) -> void:
 
 ## Debug (?tune): announce a weather event now.
 func trigger_weather(kind: String) -> void:
-	weather.trigger(kind, traffic.rng, wind)
+	weather.trigger(kind, rng_env, wind)
 
 func _on_rerouted(p: Aircraft) -> void:
 	hud.popup("Re-route!", Color(1, 0.35, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
@@ -534,7 +567,7 @@ func _on_conflict(a: Aircraft, b: Aircraft) -> void:
 	fx.burst(mid, Color(1.0, 0.5, 0.1), true)
 	fx.burst(mid, Color(1.0, 0.15, 0.1), true)
 	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
-	_end_shift(HEADER_CONFLICT, "Two aircraft got too close.", false)
+	_conflict_or_end(HEADER_CONFLICT, "Two aircraft got too close.", a, b)
 
 ## An aircraft's timer ran out: it is diverted, and that is a strike.
 func _on_timed_out(p: Aircraft) -> void:
@@ -552,7 +585,7 @@ func _on_timed_out(p: Aircraft) -> void:
 
 ## The shift is over (complete, 3 strikes or a conflict): stars, coins, save, results screen.
 func _end_shift(header: String, reason: String, complete: bool) -> void:
-	if not alive:
+	if screen != SCREEN_PLAY and screen != SCREEN_CONTINUE:
 		return
 	alive = false
 	screen = SCREEN_OVER
@@ -565,20 +598,30 @@ func _end_shift(header: String, reason: String, complete: bool) -> void:
 	for i in 3:
 		if shift.state(i) == Shift.Goal.MET:
 			coins += Tuning.coins_per_star
-			if Save.award_star(airport, i):
+			if not daily_mode and Save.award_star(airport, i):    # (the daily shift doesn't earn permanent stars)
 				first_stars += 1
 				coins += Tuning.coins_first_star_bonus
+	var daily_note := ""
+	if daily_mode and shift.stars() >= 1 and not Save.daily_done_today():
+		var streak_now := Save.daily_complete(shift.landed)
+		var bonus := _daily_bonus(streak_now)
+		coins += bonus
+		daily_note = "\nDaily bonus +%d  (streak %d)" % [bonus, streak_now]
 	Save.add_coins(coins)
-	new_best = Save.submit_best(airport, shift.landed)
+	new_best = false if daily_mode else Save.submit_best(airport, shift.landed)
 	Save.shifts_played += 1
+	Save.ads["since"] = int(Save.ads.get("since", 0)) + 1
 	Save.write_file()
-	last_result = {"header": header, "reason": reason, "coins": coins, "stars": shift.stars(), "first_stars": first_stars, "complete": complete}
+	reason += daily_note
+	last_result = {"header": header, "reason": reason, "coins": coins, "stars": shift.stars(), "first_stars": first_stars, "complete": complete, "new_best": new_best}
 	_cancel_drag()
 	hud.set_alert(false)
 	hud.set_event_banner("")
 	hud.flash(Color(1, 0.84, 0.15) if complete else Color(1, 0.1, 0.1))
 	hud.set_shift(shift, int(Tuning.max_strikes))
-	hud.show_results(header, reason, shift, coins, Save.coins, Save.best_for(airport), new_best)
+	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
+	hud.show_results(header, reason, shift, coins, Save.coins, Save.best_for(airport), new_best, lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]])
+	hud.set_double_button(coins > 0, coins)
 	if not DebugFlags.off("haptic"):
 		Input.vibrate_handheld(150)
 
@@ -613,7 +656,7 @@ func _touch_down(index: int, pos: Vector2) -> void:
 		if hud.ui_hit(pos):
 			return   # a disabled button
 	if screen == SCREEN_MENU or (screen == SCREEN_OVER and Time.get_ticks_msec() - _death_ms > 600):
-		restart()
+		begin_shift()
 		return
 	if screen != SCREEN_PLAY or not alive or _drag_index != -1:
 		return
@@ -635,13 +678,31 @@ func _on_button(id: String) -> void:
 		_show_select()
 	elif id == "upgrades":
 		_show_upgrades()
+	elif id == "shop":
+		_show_shop()
+	elif id.begins_with("shop_tab:"):
+		shop_tab = int(id.substr(9))
+		_show_shop()
+	elif id.begins_with("theme:"):
+		shop_pick("theme", int(id.substr(6)))
+	elif id.begins_with("livery:"):
+		shop_pick("livery", int(id.substr(7)))
+	elif id == "daily":
+		start_daily()
+	elif id == "ad_continue":
+		show_ad("Reward: undo the conflict and keep flying", func(): _resume_after_conflict(), SCREEN_PLAY)
+	elif id == "end_shift":
+		_end_shift(_conflict_header, _conflict_reason, false)
+	elif id == "ad_double":
+		show_ad("Reward: double your coins", func(): _double_coins(), SCREEN_OVER)
 	elif id.begins_with("upg:"):
 		buy_upgrade(id.substr(4))
 	elif id == "back" or id == "menu":
 		_show_menu()
 	elif id.begins_with("airport:"):
+		daily_mode = false
 		select_airport(int(id.substr(8)))
-		restart()
+		begin_shift()
 
 func _show_upgrades() -> void:
 	screen = SCREEN_UPGRADES
@@ -664,6 +725,184 @@ func buy_upgrade(id: String) -> bool:
 	if screen == SCREEN_UPGRADES:
 		_show_upgrades()
 	return true
+
+# ---------- Cosmetics, daily shift, ads, debug ----------
+
+## Dress the airport and aircraft in what is equipped (theme, livery, pilot).
+func apply_cosmetics() -> void:
+	var ti := Cosmetics.theme_index(Save.equipped_id("theme"))
+	var li := Cosmetics.livery_index(Save.equipped_id("livery"))
+	airfield.apply_theme(ti)
+	var t: Dictionary = Cosmetics.THEMES[ti]
+	_env.background_color = t["bg"]
+	_env.ambient_light_color = t["ambient"]
+	_env.ambient_light_energy = t["ambient_energy"]
+	sun.light_energy = t["sun"]
+	traffic.set_livery(li)
+	hud.set_pilot(Cosmetics.LIVERIES[li]["animal"])
+
+func _show_shop() -> void:
+	screen = SCREEN_SHOP
+	alive = false
+	var cards: Array = []
+	var kind := "theme" if shop_tab == 0 else "livery"
+	var n := Cosmetics.THEME_COUNT if shop_tab == 0 else Cosmetics.LIVERY_COUNT
+	for i in n:
+		var d: Dictionary = Cosmetics.THEMES[i] if shop_tab == 0 else Cosmetics.LIVERIES[i]
+		var owned := Save.owns(kind, d["id"])
+		var state := 0
+		var sub := ""
+		if Save.equipped_id(kind) == d["id"]:
+			state = 2
+			sub = "EQUIPPED"
+		elif owned:
+			sub = "Owned - tap to equip"
+		elif Save.coins >= d["cost"]:
+			sub = "Tap to buy: %d coins" % d["cost"]
+		else:
+			state = 1
+			sub = "%d coins (need %d more)" % [d["cost"], d["cost"] - Save.coins]
+		var title: String = d["name"] if shop_tab == 0 else "%s  -  %s" % [d["name"], d["pilot"]]
+		cards.append({"id": "%s:%d" % [kind, i], "title": title, "sub": sub, "state": state, "icon": (100 + i) if shop_tab == 0 else d["animal"]})
+	hud.show_list("SHOP", "Coins %d" % Save.coins, [
+		{"id": "shop_tab:0", "title": "THEMES", "selected": shop_tab == 0},
+		{"id": "shop_tab:1", "title": "LIVERIES", "selected": shop_tab == 1}], cards)
+
+## Tap a shop card: equip it if owned, otherwise buy (and equip) it.
+func shop_pick(kind: String, i: int) -> bool:
+	var d: Dictionary = Cosmetics.THEMES[i] if kind == "theme" else Cosmetics.LIVERIES[i]
+	var ok := false
+	if Save.owns(kind, d["id"]):
+		ok = Save.equip(kind, d["id"])
+	else:
+		ok = Save.buy_cosmetic(kind, d["id"], d["cost"])
+		if ok:
+			hud.flash(Color(0.6, 1.0, 0.7))
+	if ok:
+		apply_cosmetics()
+		if screen == SCREEN_SHOP:
+			_show_shop()
+	return ok
+
+func _daily_bonus(streak_days: int) -> int:
+	return Tuning.daily_bonus_coins + Tuning.daily_streak_coins * mini(streak_days, 7)
+
+## Today's seeded shift: the airport and the arrivals are the same for everyone today.
+func start_daily() -> void:
+	daily_mode = true
+	airport = Save.today() % Airports.COUNT
+	begin_shift()
+
+## Start a shift, with an interstitial ad first if one is due (never in the middle of a shift).
+func begin_shift() -> void:
+	if int(Save.ads.get("since", 0)) >= Tuning.interstitial_every_shifts:
+		Save.ads["since"] = 0
+		show_ad("Between shifts: a short break", func(): restart(), SCREEN_MENU)
+	else:
+		restart()
+
+## The fake ad screen. When it has run its course, `done` is called (it moves on to the right screen itself).
+func show_ad(title: String, done: Callable, return_screen: int = SCREEN_MENU) -> void:
+	ads_shown += 1
+	if Tuning.ad_stub_seconds <= 0.0:
+		done.call()
+		return
+	screen = SCREEN_AD
+	alive = false
+	_ad_kind = title
+	_ad_left = Tuning.ad_stub_seconds
+	_ad_done = done
+	_ad_return = return_screen
+	hud.show_ad(title)
+
+var _ad_return := SCREEN_MENU
+
+func _tick_ad(raw_delta: float) -> void:
+	_ad_left -= raw_delta
+	hud.set_ad_progress(1.0 - _ad_left / maxf(Tuning.ad_stub_seconds, 0.01))
+	if _ad_left <= 0.0:
+		hud.hide_ad()
+		screen = _ad_return
+		_ad_done.call()
+
+## A conflict: offer the rewarded "undo it and keep going" once per shift, else the shift ends.
+func _conflict_or_end(header: String, reason: String, a: Aircraft, b: Aircraft) -> void:
+	if _continue_used:
+		_end_shift(header, reason, false)
+		return
+	alive = false
+	screen = SCREEN_CONTINUE
+	_conflict_a = a
+	_conflict_b = b
+	_conflict_header = header
+	_conflict_reason = reason
+	_cancel_drag()
+	hud.set_alert(false)
+	hud.flash(Color(1, 0.1, 0.1))
+	hud.show_continue(header, reason)
+
+## After the ad: pull the two aircraft apart, give them a moment's grace and carry on.
+func _resume_after_conflict() -> void:
+	_continue_used = true
+	var a := _conflict_a
+	var b := _conflict_b
+	if a != null and b != null and a.active() and b.active():
+		var d := a.pos - b.pos
+		d = d.normalized() if d.length() > 0.01 else Vector2(1, 0)
+		a.pos += d * Tuning.warn_distance * 0.6
+		b.pos -= d * Tuning.warn_distance * 0.6
+		for p in [a, b]:
+			p.clear_path()
+			if p.state == Aircraft.State.HOLD:
+				p.state = Aircraft.State.FLY
+				p.hovering = false
+		a.heading = atan2(d.x, -d.y)
+		b.heading = atan2(-d.x, d.y)
+		a.vis_heading = a.heading
+		b.vis_heading = b.heading
+	traffic.grace_until = traffic.run_time + 2.5
+	hud.resume_play()
+	screen = SCREEN_PLAY
+	alive = true
+
+## Results: the rewarded "double the coins" (once per shift).
+func _double_coins() -> void:
+	_doubled = true
+	Save.add_coins(last_result["coins"])
+	Save.write_file()
+	last_result["coins"] *= 2
+	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
+	hud.show_results(last_result["header"], last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], true)
+	hud.set_double_button(false, 0)
+
+## ---- Debug (?tune) ----
+
+func debug_add_coins(n: int = 1000) -> void:
+	Save.add_coins(n)
+	Save.write_file()
+
+func debug_unlock_all() -> void:
+	Save.unlocks["all_airports"] = true
+	Save.write_file()
+
+func debug_max_upgrades() -> void:
+	for id in Upgrades.IDS:
+		Save.upgrades[id] = Upgrades.MAX_LEVEL
+	Save.write_file()
+	airfield.show_upgrades()
+
+func debug_force_wind() -> void:
+	wind.force_shift(-1.0, rng_env)
+
+func debug_reset_save() -> void:
+	Save.reset_all()
+	airport = 0
+	apply_cosmetics()
+	airfield.show_upgrades()
+
+func debug_reset_daily() -> void:
+	Save.daily = {}
+	Save.write_file()
 
 func select_airport(i: int) -> void:
 	airport = clampi(i, 0, Airports.COUNT - 1)

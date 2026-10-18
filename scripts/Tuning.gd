@@ -123,6 +123,15 @@ var upg_holding_drain := 0.20       # holding drains this much slower per level.
 var upg_holding_radius := 0.12      # ...and circles this much tighter
 var upg_turnoff_clear := 0.30       # runways clear this much faster per level
 
+# ---------- Daily shift and ad stubs ----------
+## The first completed daily shift of a day pays this, plus this much per day of streak (up to 7 days).
+var daily_bonus_coins := 150
+var daily_streak_coins := 25
+## The fake "Ad playing" screen lasts this long (no real ads yet). An interstitial comes between shifts at most
+## once per this many finished shifts.
+var ad_stub_seconds := 2.5
+var interstitial_every_shifts := 3
+
 # ---------- Wind ----------
 ## A runway end is active when its landing heading is within this many degrees of the wind's direction.
 var wind_tolerance_deg := 60.0

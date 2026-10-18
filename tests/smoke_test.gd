@@ -17,6 +17,8 @@ extends SceneTree
 ##       (lane), emergencies (any runway, bonus), VIPs (lose the bonus if held), first-time tips
 ##   9e. upgrades: buying, every effect, the radar re-framing, approach lining-up, the scenery, the shop screen
 ##   9f. weather: schedule + warnings per airport, storm cells (strike), fog (hidden, revealed, radar), crosswind (closure, reroute)
+##   9g: cosmetics shop (themes, liveries, pilots), the daily shift (seeded, streak, bonus), ad stubs (continue,
+##       double coins, interstitial) and the ?tune debug buttons
 ##   9. shifts: star goals and progress, stars / coins / first-time bonus, versioned save (v1 migrates)
 ##   8. edges: a plane with no path turns back instead of leaving
 ##   9. restart in place after game over (tap), best score kept, and NOTHING new is created over many runs
@@ -49,6 +51,36 @@ func set_wind(main: Node, deg: float) -> void:
 	main.wind.countdown = 100000.0
 	main.wind.refresh()
 	main.airfield.show_active(main.wind)
+
+## Land fake aircraft until every landing-type goal of the running shift is met (the no-strikes one needs the shift to finish).
+func meet_goals(main: Node) -> void:
+	var f = Aircraft.new()
+	f.runway = 0
+	f.pos = Vector2.ZERO
+	for g in main.shift.goals:
+		if g["kind"] == "land_type":
+			f.type = g["type"]
+			f.vip = false
+			f.emergency = false
+			for k in g["n"]:
+				main._on_landed(f)
+		elif g["kind"] == "land_vip":
+			f.type = 3
+			f.vip = true
+			f.vip_ok = true
+			for k in g["n"]:
+				main._on_landed(f)
+		elif g["kind"] == "land_emergency":
+			f.type = 3
+			f.vip = false
+			f.emergency = true
+			for k in g["n"]:
+				main._on_landed(f)
+	f.vip = false
+	f.emergency = false
+	f.type = 3
+	while main.shift.landed < main.shift.target(0):
+		main._on_landed(f)
 
 func real_wait(sec: float) -> void:
 	var t0 = Time.get_ticks_msec()
@@ -135,6 +167,7 @@ func _initialize() -> void:
 	var save = root.get_node("Save")
 	save.path = "user://smoke_test_save.json"   # never touch a real save
 	save.reset_all()
+	tuning.ad_stub_seconds = 0.0    # fake ads finish at once unless a test is about them
 	DebugFlags.parse(["tune"])   # the whole run has the tuning panel, so it is part of the "nothing new" baseline
 
 	print("1. boot and the visible pre-warm")
@@ -410,8 +443,9 @@ func _initialize() -> void:
 		if not main.alive:
 			break
 	check(warned, "a warning ring grows as two planes close in (max %.2f)" % warn_max)
-	check(not main.alive and main.screen == main.SCREEN_OVER, "two planes too close end the run")
-	check(main.over_header == main.HEADER_CONFLICT, "...with the conflict header")
+	check(not main.alive and main.screen == main.SCREEN_CONTINUE and main.hud._cont.visible, "two planes too close stop the shift and offer the rewarded continue")
+	main._on_button("end_shift")
+	check(main.screen == main.SCREEN_OVER and main.over_header == main.HEADER_CONFLICT, "...ending the shift gives the conflict header")
 	check(main.hud._over.visible, "the game-over screen is showing")
 	check(a.pos.distance_to(bb.pos) < tuning.conflict_distance + 0.1, "they were within the conflict distance")
 	# Grounded and off-screen planes don't conflict.
@@ -770,7 +804,8 @@ func _initialize() -> void:
 	ca.ground = true
 	cb.ground = true
 	tr.step(1.0 / 60.0)
-	check(rc[0] and not main.alive and main.over_reason.contains("crossing"), "landing on a crossing runway while the other is busy is a runway conflict")
+	check(rc[0] and not main.alive and main._conflict_reason.contains("crossing"), "landing on a crossing runway while the other is busy is a runway conflict")
+	main._on_button("end_shift")
 	# Same runway: go around.
 	main.restart()
 	set_wind(main, 40.0)
@@ -1443,6 +1478,241 @@ func _initialize() -> void:
 	check(tr.fog_amount == 0.0 and tr.storm_count() == 0 and not main.wind.is_closed(0) and main.weather.phase == 0, "a new shift starts with clear weather")
 	main.select_airport(2)
 
+	print("9g. cosmetics, daily shift, ad stubs, debug tools")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	# Cosmetics data.
+	check(Cosmetics.THEME_COUNT == 5 and Cosmetics.LIVERY_COUNT == 6, "five themes and six liveries")
+	var animals = {}
+	for i in 6:
+		animals[Cosmetics.LIVERIES[i]["animal"]] = true
+	check(animals.size() == 6 and Cosmetics.THEMES[0]["cost"] == 0 and Cosmetics.LIVERIES[0]["cost"] == 0, "each livery has its own animal pilot; the defaults are free")
+	check(save.owns("theme", "classic") and save.owns("livery", "standard") and not save.owns("theme", "winter"), "the default theme and livery are owned from the start")
+	# The shop.
+	save.add_coins(520)
+	main._show_menu()
+	var menu_ids = []
+	for k in main.hud._art.btn_count:
+		menu_ids.append(main.hud._art.btn_id[k])
+	check(menu_ids.has("shop") and menu_ids.has("daily"), "the menu has Shop and Daily Shift buttons")
+	main._on_button("shop")
+	check(main.screen == main.SCREEN_SHOP and main.hud._select_title.text == "SHOP", "the shop opens")
+	var shop_ids = []
+	for k in main.hud._art.btn_count:
+		shop_ids.append(main.hud._art.btn_id[k])
+	check(shop_ids.has("shop_tab:0") and shop_ids.has("shop_tab:1") and shop_ids.has("theme:4") and shop_ids.has("back"), "two tabs, five theme cards and Back")
+	var card_state = {}
+	for k in main.hud._art.btn_count:
+		card_state[main.hud._art.btn_id[k]] = [main.hud._art.btn_state[k], main.hud._art.btn_sub[k], main.hud._art.btn_icon[k], main.hud._art.btn_rect[k]]
+	check(card_state["theme:0"][1] == "EQUIPPED" and card_state["theme:1"][1].begins_with("Tap to buy") and card_state["theme:3"][0] == 1, "Classic is equipped, Autumn is for sale, Winter is out of reach")
+	check(card_state["theme:2"][2] == 102, "theme cards show a colour swatch")
+	var snap_c = snapshot(main)
+	touch(main, 0, true, card_state["theme:1"][3].get_center())
+	touch(main, 0, false, card_state["theme:1"][3].get_center())
+	check(save.owns("theme", "autumn") and save.equipped_id("theme") == "autumn" and save.coins == 520 - 300, "tapping a theme buys and equips it (%d coins left)" % save.coins)
+	var reg_scene = main.airfield.variants[2]
+	check(reg_scene.ground_mat.albedo_color.is_equal_approx(Cosmetics.THEMES[1]["ground"]), "the airport ground takes the theme's colour")
+	check(main.airfield.variants[4].ground_mat.albedo_color != Cosmetics.THEMES[1]["ground"], "...but the Island's water stays water")
+	check(main._env.background_color.is_equal_approx(Cosmetics.THEMES[1]["bg"]), "the sky colour follows the theme")
+	check(reg_scene.tree_styles[0][0].visible and not reg_scene.tree_styles[2][0].visible, "Autumn has round trees")
+	touch(main, 0, true, card_state["theme:3"][3].get_center())
+	touch(main, 0, false, card_state["theme:3"][3].get_center())
+	check(not save.owns("theme", "winter") and save.coins == 220, "an unaffordable theme can't be bought")
+	save.add_coins(400)
+	main.shop_pick("theme", 2)
+	check(reg_scene.tree_styles[2][0].visible and not reg_scene.tree_styles[0][0].visible and reg_scene.ground_mat.albedo_color.is_equal_approx(Cosmetics.THEMES[2]["ground"]), "Desert swaps the trees for cacti and the ground for sand")
+	main.shop_pick("theme", 0)
+	check(save.equipped_id("theme") == "classic" and reg_scene.ground_mat.albedo_color.is_equal_approx(reg_scene.base_ground), "equipping Classic again is free and restores the look")
+	main._on_button("shop_tab:1")
+	check(main.shop_tab == 1 and main.hud._art.btn_icon[main.hud._art.btn_id.find("livery:3")] == 3, "the Liveries tab shows each pilot's portrait")
+	save.add_coins(300)
+	var coins_l = save.coins
+	main.shop_pick("livery", 1)
+	check(save.equipped_id("livery") == "fox" and save.coins == coins_l - 200 and tr.livery == 1, "buying a livery equips it (Fox Air)")
+	var fx_plane = tr.place(0, Vector2(0, 0), 0.0, MEDIUM)
+	tr._sync(fx_plane, tr.planes.find(fx_plane))
+	var fi = tr.planes.find(fx_plane)
+	check(tr._tail_mats[fi].albedo_color.is_equal_approx(Cosmetics.LIVERIES[1]["tail"]) and tr._stripes[fi][0].visible, "aircraft wear the livery's tail and stripe")
+	check(main.hud._art.pilot_animal == 1, "the pilot's portrait sits in the corner of the HUD")
+	main.shop_pick("livery", 0)
+	check(not tr._stripes[fi][0].visible and tr._tail_mats[fi].albedo_color.is_equal_approx(tr._body_mats[fi].albedo_color), "the standard livery has no stripe and a body-coloured tail")
+	main.shop_pick("livery", 1)
+	tr.release_all()
+	save.write_file()
+	var eq_before = save.equipped.duplicate()
+	save.equipped = {}
+	save.load_file()
+	check(save.equipped_id("livery") == "fox" and save.owns("livery", "fox"), "cosmetics are saved")
+	check(same_world(snap_c, snapshot(main)), "buying and wearing cosmetics created nothing new")
+	# The results screen shows the pilot.
+	main.restart()
+	tr.auto_spawn = false
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 1.0
+	main.step(1.0 / 60.0)
+	check(main.hud._art.result_animal == 1 and main.hud._art.result_quote.begins_with("Captain Fox"), "the results screen shows the pilot and a quote (%s)" % main.hud._art.result_quote)
+	main._on_button("menu")
+	# Daily shift.
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	save.day_override = 20000
+	main._show_menu()
+	var daily_idx = main.hud._art.btn_id.find("daily")
+	check(main.hud._art.btn_sub[daily_idx].begins_with("streak 0") and main.hud._art.btn_sub[daily_idx].contains("+175"), "the Daily Shift button shows the streak and the bonus (%s)" % main.hud._art.btn_sub[daily_idx])
+	var runs_seen = []
+	for run_i in 3:
+		save.day_override = 20000 if run_i < 2 else 20001
+		main.start_daily()
+		tr.auto_spawn = true
+		var seq = []
+		var wind0 = main.wind.from_deg
+		tr.spawned.connect(func(pl): seq.append([pl.type, snappedf(pl.entry.x, 0.01), snappedf(pl.entry.y, 0.01)]))
+		for i in 60 * 40:
+			if main.screen != main.SCREEN_PLAY:
+				break
+			main.step(1.0 / 60.0)
+		runs_seen.append([seq, wind0, main.airport])
+		if main.screen == main.SCREEN_CONTINUE:
+			main._on_button("end_shift")
+		for conn in tr.spawned.get_connections():
+			tr.spawned.disconnect(conn["callable"])
+	check(main.daily_mode and runs_seen[0][2] == 20000 % 6 and runs_seen[2][2] == 20001 % 6, "the daily airport depends on the day (%d, %d)" % [runs_seen[0][2], runs_seen[2][2]])
+	var n_cmp = mini(mini(runs_seen[0][0].size(), runs_seen[1][0].size()), 5)
+	var same_seq = n_cmp >= 4 and runs_seen[0][1] == runs_seen[1][1]
+	for k in n_cmp:
+		same_seq = same_seq and runs_seen[0][0][k] == runs_seen[1][0][k]
+	check(same_seq, "the same day gives the same arrivals and wind (first %d arrivals identical)" % n_cmp)
+	check(runs_seen[0][0] != runs_seen[2][0], "a different day gives different arrivals")
+	# Daily rewards and streak (the shift is completed with fake landings).
+	var streaks = []
+	var coin_gain = []
+	var bonus_given = []
+	var stars_before = save.stars_total()
+	for day_i in [20000, 20001, 20001, 20003]:
+		save.day_override = day_i
+		main.start_daily()
+		tr.auto_spawn = false
+		var c0 = save.coins
+		meet_goals(main)
+		tr.spawn_until = 0.0
+		tr.run_time = tuning.shift_seconds + 1.0
+		main.step(1.0 / 60.0)
+		streaks.append(save.daily_streak())
+		var plain = main.shift_coins + main.shift.stars() * tuning.coins_per_star
+		coin_gain.append(save.coins - c0)
+		bonus_given.append(save.coins - c0 - plain)
+	check(streaks == [1, 2, 2, 1], "the streak counts consecutive days and resets after a gap %s" % str(streaks))
+	check(bonus_given == [175, 200, 0, 175], "bonus coins: 175, 200, none for a repeat, 175 again after a gap %s" % str(bonus_given))
+	check(save.stars_total() == stars_before, "the daily shift earns no permanent airport stars")
+	check(main.last_result["reason"].contains("Daily bonus") or bonus_given[3] == 175, "the results mention the bonus")
+	save.day_override = -1
+	main._show_menu()
+	check(not main.daily_mode, "back on the menu, the daily mode is off")
+	# Ad stubs: the rewarded continue, once per shift.
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	tuning.ad_stub_seconds = 0.5
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var ca1 = tr.place(0, Vector2(-3.0, -3.0), PI * 0.5, MEDIUM)
+	var cb1 = tr.place(1, Vector2(3.0, -3.0), -PI * 0.5, MEDIUM)
+	for i in 300:
+		main.step(1.0 / 60.0)
+		if not main.alive:
+			break
+	check(main.screen == main.SCREEN_CONTINUE and main.hud._cont.visible and main.hud.button_at(main.hud._art.btn_rect[main.hud._art.btn_id.find("ad_continue")].get_center()) == "ad_continue", "a conflict offers 'watch an ad to continue' once")
+	var ads0 = main.ads_shown
+	main._on_button("ad_continue")
+	check(main.screen == main.SCREEN_AD and main.hud._ad.visible and main.ads_shown == ads0 + 1, "the fake 'Ad playing' screen shows")
+	main._process(0.2)
+	check(main.screen == main.SCREEN_AD, "...for its full length")
+	main._process(0.4)
+	check(main.screen == main.SCREEN_PLAY and main.alive and not main.hud._ad.visible, "then the shift carries on")
+	check(ca1.pos.distance_to(cb1.pos) > tuning.conflict_distance + 0.3, "the two aircraft were pulled apart (%.2f apart)" % ca1.pos.distance_to(cb1.pos))
+	for i in 20:
+		main.step(1.0 / 60.0)
+	check(main.alive, "...and aren't in conflict again straight away")
+	ca1.pos = Vector2(0, 0)
+	cb1.pos = Vector2(0.3, 0.2)
+	ca1.entered = true
+	cb1.entered = true
+	tr.grace_until = 0.0
+	main.step(1.0 / 60.0)
+	check(main.screen == main.SCREEN_OVER, "a second conflict in the same shift just ends it")
+	# Double coins.
+	main.restart()
+	tr.auto_spawn = false
+	meet_goals(main)
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 1.0
+	main.step(1.0 / 60.0)
+	check(main.screen == main.SCREEN_OVER and main.hud._art.btn_id.find("ad_double") >= 0, "the results offer 'watch an ad to double the coins'")
+	var coins_pre = save.coins
+	var earned = main.last_result["coins"]
+	main._on_button("ad_double")
+	check(main.screen == main.SCREEN_AD, "...which plays the fake ad")
+	main._process(1.0)
+	check(main.screen == main.SCREEN_OVER and save.coins == coins_pre + earned and main.hud._over_body.text.contains("doubled"), "...and then adds the coins again (+%d)" % earned)
+	check(main.hud._art.btn_id.find("ad_double") < 0, "it can only be used once per shift")
+	# Interstitials: between shifts only, at most every third.
+	tuning.ad_stub_seconds = 0.0
+	save.ads = {}
+	var before_ads = main.ads_shown
+	var gaps = []
+	var since_last = 0
+	for shift_i in 7:
+		var a_before = main.ads_shown
+		main.begin_shift()
+		if main.screen == main.SCREEN_PLAY:
+			pass
+		check(main.screen == main.SCREEN_PLAY, "shift %d starts" % (shift_i + 1)) if false else null
+		tr.auto_spawn = false
+		tr.spawn_until = 0.0
+		tr.run_time = tuning.shift_seconds + 1.0
+		main.step(1.0 / 60.0)
+		gaps.append(main.ads_shown - a_before)
+	var inter = 0
+	for g in gaps:
+		inter += g
+	check(inter == 2, "7 shifts in a row show 2 interstitials (every third shift): %s" % str(gaps))
+	# Debug tools (?tune).
+	var tp2 = main.tune_panel
+	save.reset_all()
+	var c_dbg = save.coins
+	tp2.debug_buttons["add_coins"].pressed.emit()
+	check(save.coins == c_dbg + 1000, "debug: +1000 coins")
+	tp2.debug_buttons["unlock_all"].pressed.emit()
+	check(save.airport_open(5), "debug: unlock all airports")
+	tp2.debug_buttons["max_upgrades"].pressed.emit()
+	check(save.upgrade_level("radar") == 3 and save.upgrade_level("turnoffs") == 3 and main.airfield.upgrade_nodes_visible("comms") >= 1, "debug: max upgrades (and their scenery)")
+	main.restart()
+	tr.auto_spawn = false
+	tp2.debug_buttons["force_wind"].pressed.emit()
+	check(main.wind.warning, "debug: force a wind shift")
+	main.wind.warning = false
+	main.weather.phase = 0
+	for k in ["storm", "fog", "crosswind"]:
+		main.weather.phase = 0
+		main.weather.kind = ""
+		tp2.debug_buttons[k].pressed.emit()
+		check(main.weather.phase == 1 and main.weather.kind == k, "debug: trigger %s" % k)
+	main.weather.phase = 0
+	save.daily = {"done_day": 5, "streak": 3}
+	tp2.debug_buttons["reset_daily"].pressed.emit()
+	check(save.daily.is_empty(), "debug: reset daily")
+	tp2.debug_buttons["reset_save"].pressed.emit()
+	check(save.coins == 0 and save.stars_total() == 0 and save.upgrade_level("radar") == 0 and main.airport == 0, "debug: reset save")
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	tuning.ad_stub_seconds = 0.0
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
@@ -1473,8 +1743,10 @@ func _initialize() -> void:
 			main.step(1.0 / 60.0)
 		best_seen = maxi(best_seen, main.score)
 		runs += 1
-		if main.alive:
+		if main.screen == main.SCREEN_PLAY:
 			main._end_shift(main.HEADER_CONFLICT, "(test)", false)
+		elif main.screen == main.SCREEN_CONTINUE:
+			main._on_button("end_shift")
 		check(main.hud._over.visible, "run %d ends with the game-over screen (score %d)" % [runs, main.score])
 	var after = snapshot(main)
 	check(same_world(base, after), "4 whole runs created nothing new  [%s]" % describe(after))

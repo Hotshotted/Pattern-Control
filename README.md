@@ -37,6 +37,14 @@ You run an airport, one **shift** at a time.
   *storm cells* drift across the field (flying into one is a strike), *fog* hides aircraft until they get
   close to the field (the Radar upgrade sees further into it), and a *gusty crosswind* closes one runway for
   a while (red X and a countdown; aircraft cleared to it are re-routed).
+- **Shop** (cosmetics only): airport *themes* (Autumn, Desert, Winter, Night: palette and scenery) and airline
+  *liveries* with an animal pilot (Fox Air, Owl Express, Penguin Pacific, Bear Cargo, Cat Airways). The pilot's
+  portrait sits in the corner of the HUD, hops on each landing and appears on the results screen.
+- **Daily Shift:** one seeded shift per day (same airport and arrivals for everyone that day) with bonus coins
+  and a streak. It earns coins but no permanent stars.
+- **Ads (stubs, no real ads yet):** a rewarded "undo the conflict and keep going" (once per shift), a rewarded
+  "double coins" on the results screen, and an interstitial only between shifts, at most every third one. Each
+  shows a fake "Ad playing" screen.
 - Each shift has **three star goals** (land 25 aircraft, land 4 jets, finish with no strikes). Landings and
   stars earn **coins**. Stars, coins and bests are saved.
 
@@ -45,10 +53,10 @@ You run an airport, one **shift** at a time.
 | Flag | What it does |
 | --- | --- |
 | `?perf` | worst-frame-time readout, hitch log (frames over 50 ms), sim vs wall clock |
-| `?tune` | TUNE button (top right): live sliders for spawn rate, speeds, conflict distance, fuel timers...; **Copy values** puts the changed values on the clipboard, **Reset** restores defaults |
+| `?tune` | TUNE button (top right): live sliders for spawn rate, speeds, conflict distance, fuel timers...; **Copy values** puts the changed values on the clipboard, **Reset** restores defaults; debug buttons: +1000 coins, unlock all airports, max upgrades, force a wind shift, trigger a storm / fog / crosswind, reset save, reset daily |
 | `?nofx=burst,ripple,popup,haptic,glow,hold` | switch effects off (`all` for every one) |
 | `?noprewarm` | skip the start-up pre-warm splash |
-| `?god` | planes never collide or run dry |
+| `?god` | aircraft never collide or run out of time |
 
 New planes get a pulsing edge glow (green slow, yellow medium, red fast; faster planes pulse faster) about 2 s before they appear.
 

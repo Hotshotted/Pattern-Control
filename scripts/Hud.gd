@@ -33,6 +33,11 @@ class Art extends Control:
 	var btn_sub := PackedStringArray()
 	var btn_state := PackedInt32Array()
 	var btn_stars := PackedInt32Array()      # -1: none, 0..3: stars earned (drawn on cards)
+	var btn_icon := PackedInt32Array()       # -1: none, 0..5: an animal pilot portrait, 100+: a theme's colour swatch
+	var pilot_animal := -1                   # the pilot shown in the corner while playing
+	var pilot_bounce := 0.0                  # 1 -> 0 after a landing
+	var result_animal := -1
+	var result_quote := ""
 	var btn_count := 0
 
 	func _init() -> void:
@@ -43,6 +48,7 @@ class Art extends Control:
 		btn_sub.resize(MAX_BTN)
 		btn_state.resize(MAX_BTN)
 		btn_stars.resize(MAX_BTN)
+		btn_icon.resize(MAX_BTN)
 		_pts.resize(10)
 		_font = ThemeDB.fallback_font
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -76,7 +82,7 @@ class Art extends Control:
 		btn_count = 0
 		queue_redraw()
 
-	func add_button(id: String, text: String, rect: Rect2, state: int = 0, sub: String = "", stars: int = -1) -> void:
+	func add_button(id: String, text: String, rect: Rect2, state: int = 0, sub: String = "", stars: int = -1, icon: int = -1) -> void:
 		if btn_count >= MAX_BTN:
 			return
 		btn_id[btn_count] = id
@@ -85,6 +91,7 @@ class Art extends Control:
 		btn_rect[btn_count] = rect
 		btn_state[btn_count] = state
 		btn_stars[btn_count] = stars
+		btn_icon[btn_count] = icon
 		btn_count += 1
 		queue_redraw()
 
@@ -105,9 +112,12 @@ class Art extends Control:
 			draw_rect(r, border, false, 4.0)
 			var tcol := Color.WHITE if st != 1 else Color(0.55, 0.57, 0.62)
 			var left := btn_sub[k] != "" or btn_stars[k] >= 0
+			var has_icon := btn_icon[k] >= 0
 			var ty := r.position.y + (r.size.y * 0.42 if btn_sub[k] != "" else r.size.y * 0.62)
-			var tx := r.position.x + (28.0 if left else 0.0)
-			var tw := r.size.x - 56.0 if left else r.size.x
+			var tx := r.position.x + (28.0 if left else 0.0) + (110.0 if has_icon else 0.0)
+			var tw := r.size.x - 56.0 - (110.0 if has_icon else 0.0) if left else r.size.x
+			if has_icon:
+				_draw_icon(btn_icon[k], Vector2(r.position.x + 70.0, r.position.y + r.size.y * 0.5), minf(r.size.y * 0.36, 52.0))
 			var align := HORIZONTAL_ALIGNMENT_LEFT if left else HORIZONTAL_ALIGNMENT_CENTER
 			draw_string_outline(_font, Vector2(tx, ty), btn_text[k], align, tw, 46, 8, Color.BLACK)
 			draw_string(_font, Vector2(tx, ty), btn_text[k], align, tw, 46, tcol)
@@ -117,6 +127,18 @@ class Art extends Control:
 			if btn_stars[k] >= 0:
 				for i in 3:
 					star(Vector2(r.end.x - 150.0 + i * 56.0, r.position.y + r.size.y * 0.5), 22.0, Color(1.0, 0.84, 0.15) if i < btn_stars[k] else Color(0.28, 0.3, 0.36))
+
+	## A card's icon: an animal pilot portrait, or a theme's two colours.
+	func _draw_icon(icon: int, c: Vector2, r: float) -> void:
+		if icon < 100:
+			Portraits.draw(self, c, r, icon)
+		else:
+			var t: Dictionary = Cosmetics.THEMES[icon - 100]
+			var g: Color = t["ground"] if t["ground"] != null else Color(0.4, 0.65, 0.4)
+			draw_circle(c, r + 3.0, Color.BLACK)
+			draw_circle(c, r, g)
+			draw_circle(c + Vector2(r * 0.35, -r * 0.2), r * 0.45, t["leaf"])
+			draw_circle(c + Vector2(-r * 0.4, r * 0.35), r * 0.3, (t["bg"] as Color).lightened(0.2))
 
 	func size_x() -> float:
 		return maxf(size.x - 100.0, 200.0)
@@ -147,6 +169,12 @@ class Art extends Control:
 
 	func _draw() -> void:
 		_draw_buttons()
+		if show_play and pilot_animal >= 0:
+			Portraits.draw(self, Vector2(size.x - 84.0, size.y - 150.0 - 22.0 * sin(pilot_bounce * PI)), 52.0, pilot_animal)
+		if show_result and result_animal >= 0:
+			Portraits.draw(self, Vector2(size.x * 0.5, result_y + 470.0), 70.0, result_animal)
+			draw_string_outline(_font, Vector2(size.x * 0.5 - 450.0, result_y + 590.0), result_quote, HORIZONTAL_ALIGNMENT_CENTER, 900.0, 30, 8, Color.BLACK)
+			draw_string(_font, Vector2(size.x * 0.5 - 450.0, result_y + 590.0), result_quote, HORIZONTAL_ALIGNMENT_CENTER, 900.0, 30, Color(0.9, 0.95, 1.0))
 		if show_wind:
 			_draw_wind()
 		if show_play:
@@ -184,6 +212,13 @@ var _tip_until := 0
 var _menu: Control
 var _menu_info: Label
 var _select: Control
+var _ad: Control
+var _ad_title: Label
+var _ad_sub: Label
+var _ad_bar: ColorRect
+var _cont: Control
+var _cont_head: Label
+var _cont_body: Label
 var _select_info: Label
 var _select_title: Label
 var _over: Control
@@ -268,6 +303,7 @@ func _ready() -> void:
 	_build_menu()
 	_build_over()
 	_build_select()
+	_build_ad()
 	move_child(_art, _select.get_index() + 1)   # the art (goals, buttons, stars) is drawn above the screen shades
 	_build_stamp()
 	set_landed(0)
@@ -337,6 +373,110 @@ func _build_select() -> void:
 	_select_info.offset_top = 150
 	_select.visible = false
 
+## The fake "Ad playing" screen (no real ads yet) and the "undo the conflict?" prompt.
+func _build_ad() -> void:
+	_ad = Control.new()
+	_ad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_ad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_ad)
+	var shade := ColorRect.new()
+	shade.color = Color(0.02, 0.02, 0.05, 0.96)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ad.add_child(shade)
+	_ad_title = _label(110, HORIZONTAL_ALIGNMENT_CENTER, _ad)
+	_ad_title.text = "AD PLAYING"
+	_centered(_ad_title, -300, -120)
+	_ad_sub = _label(44, HORIZONTAL_ALIGNMENT_CENTER, _ad)
+	_centered(_ad_sub, -80, 140)
+	_ad_bar = ColorRect.new()
+	_ad_bar.color = Color(0.4, 0.85, 1.0)
+	_ad_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_ad_bar.offset_left = -400
+	_ad_bar.offset_right = 400
+	_ad_bar.offset_top = 200
+	_ad_bar.offset_bottom = 230
+	_ad_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ad.add_child(_ad_bar)
+	_ad.visible = false
+	_cont = Control.new()
+	_cont.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_cont)
+	var cshade := ColorRect.new()
+	cshade.color = Color(0.1, 0.02, 0.02, 0.7)
+	cshade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cshade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_cont.add_child(cshade)
+	_cont_head = _label(100, HORIZONTAL_ALIGNMENT_CENTER, _cont)
+	_centered(_cont_head, -520, -280)
+	_cont_head.add_theme_color_override("font_color", Color(1, 0.4, 0.35))
+	_cont_body = _label(48, HORIZONTAL_ALIGNMENT_CENTER, _cont)
+	_centered(_cont_body, -220, 60)
+	_cont.visible = false
+
+## The fake ad: `title` says what it is for; `progress` (0..1) fills the bar.
+func show_ad(title: String) -> void:
+	_menu.visible = false
+	_over.visible = false
+	_select.visible = false
+	_cont.visible = false
+	_art.show_play = false
+	_art.show_result = false
+	_art.show_wind = false
+	_art.clear_buttons()
+	_ad_sub.text = title + "\n\n(stub: no real ad is shown)"
+	_ad_bar.offset_right = -400
+	_ad.visible = true
+
+func set_ad_progress(f: float) -> void:
+	_ad_bar.offset_right = -400.0 + 800.0 * clampf(f, 0.0, 1.0)
+
+func hide_ad() -> void:
+	_ad.visible = false
+
+## After a conflict: the rewarded "watch an ad to undo it and keep going" prompt (or end the shift).
+func show_continue(header: String, reason: String) -> void:
+	_cont_head.text = header
+	_cont_body.text = reason + "\n\nWatch an ad to undo it\nand keep flying?"
+	_cont.visible = true
+	_over.visible = false
+	_select.visible = false
+	_art.show_play = false
+	_art.show_wind = false
+	var vp := get_viewport().get_visible_rect().size
+	_art.clear_buttons()
+	_art.add_button("ad_continue", "WATCH AD: CONTINUE", Rect2(vp.x * 0.5 - 380.0, vp.y * 0.5 + 120.0, 760.0, 120.0), 2)
+	_art.add_button("end_shift", "END SHIFT", Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 270.0, 500.0, 110.0))
+	_art.queue_redraw()
+
+## Back to the shift after the ad: the HUD of a running shift, nothing else.
+func resume_play() -> void:
+	_cont.visible = false
+	_ad.visible = false
+	_over.visible = false
+	_art.clear_buttons()
+	_art.show_play = true
+	_art.show_wind = true
+	_art.show_result = false
+	_art.queue_redraw()
+
+func hide_continue() -> void:
+	_cont.visible = false
+	_art.clear_buttons()
+
+## Results: the rewarded "double the coins" offer (once per shift).
+func set_double_button(on: bool, coins: int) -> void:
+	_art.clear_buttons()
+	var vp := get_viewport().get_visible_rect().size
+	if on:
+		_art.add_button("ad_double", "WATCH AD: DOUBLE COINS (+%d)" % coins, Rect2(vp.x * 0.5 - 420.0, vp.y * 0.5 + 690.0, 840.0, 110.0), 2)
+	_art.add_button("menu", "MENU", Rect2(vp.x * 0.5 - 170.0, vp.y * 0.5 + 820.0, 340.0, 100.0))
+	_art.queue_redraw()
+
+func set_results_text(text: String) -> void:
+	_over_body.text = text
+
 func _build_over() -> void:
 	_over = Control.new()
 	_over.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -389,9 +529,11 @@ func show_menu(airport_name: String, coins: int, stars: int, best: int, tag: Str
 	_art.queue_redraw()
 
 ## The end-of-shift screen: header, why it ended, the three star goals and the totals.
-func show_results(header: String, reason: String, shift: Shift, coins_earned: int, coins_total: int, best: int, new_best: bool) -> void:
+func show_results(header: String, reason: String, shift: Shift, coins_earned: int, coins_total: int, best: int, new_best: bool, animal: int = -1, quote: String = "", doubled: bool = false) -> void:
+	_art.result_animal = animal
+	_art.result_quote = quote
 	_over_head.text = header
-	_over_body.text = "%s\n\nAircraft landed: %d%s\nCoins +%d   (total %d)\n\nTap to continue" % [reason, shift.landed, "   NEW BEST!" if new_best else "   best %d" % best, coins_earned, coins_total]
+	_over_body.text = "%s\n\nAircraft landed: %d%s\nCoins +%d%s   (total %d)\n\nTap anywhere to fly again" % [reason, shift.landed, "   NEW BEST!" if new_best else "   best %d" % best, coins_earned, "  (doubled!)" if doubled else "", coins_total]
 	for i in 3:
 		_art.goal_state[i] = shift.state(i)
 		_art.goal_text[i] = shift.goal_text(i)
@@ -426,6 +568,38 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 		else:
 			_art.add_button("locked:%d" % i, "%d  %s" % [i + 1, Airports.airport_name(i)], r, 1, "Locked: needs %d stars (you have %d)" % [Airports.unlock_stars(i), total_stars], -1)
 	_art.add_button("back", "BACK", Rect2(vp.x * 0.5 - 170.0, 230.0 + Airports.COUNT * 190.0 + 20.0, 340.0, 100.0))
+	_art.queue_redraw()
+
+## Which pilot sits in the corner while you play (an animal 0..5), with a hop after each landing.
+func set_pilot(animal: int) -> void:
+	_art.pilot_animal = animal
+	_art.queue_redraw()
+
+func pilot_hop() -> void:
+	_art.pilot_bounce = 1.0
+
+## A generic list screen: optional tab buttons, then cards {id, title, sub, state, stars, icon}, then Back.
+func show_list(title: String, info: String, tabs: Array, cards: Array) -> void:
+	_menu.visible = false
+	_over.visible = false
+	_select.visible = true
+	_art.show_play = false
+	_art.show_result = false
+	_art.show_wind = false
+	_select_title.text = title
+	_select_info.text = info
+	var vp := get_viewport().get_visible_rect().size
+	_art.clear_buttons()
+	var y := 210.0
+	if not tabs.is_empty():
+		var w := (vp.x - 80.0 - 20.0 * (tabs.size() - 1)) / tabs.size()
+		for k in tabs.size():
+			_art.add_button(tabs[k]["id"], tabs[k]["title"], Rect2(40.0 + k * (w + 20.0), y, w, 90.0), 2 if tabs[k]["selected"] else 0)
+		y += 120.0
+	for c in cards:
+		_art.add_button(c["id"], c["title"], Rect2(40.0, y, vp.x - 80.0, 150.0), c["state"], c["sub"], c.get("stars", -1), c.get("icon", -1))
+		y += 160.0
+	_art.add_button("back", "BACK", Rect2(vp.x * 0.5 - 170.0, y + 10.0, 340.0, 100.0))
 	_art.queue_redraw()
 
 ## The upgrade shop: one card per upgrade with its level, what it does and the next price.
@@ -472,7 +646,9 @@ func ui_hit(pos: Vector2) -> bool:
 	return _art.button_at(pos) >= 0
 
 ## The menu's buttons, two per row. (Later features add their own entries here.)
-const MENU_BUTTONS := [["airports", "AIRPORTS"], ["upgrades", "UPGRADES"]]
+const MENU_BUTTONS := [["airports", "AIRPORTS"], ["upgrades", "UPGRADES"], ["shop", "SHOP"], ["daily", "DAILY SHIFT"]]
+var daily_label := "DAILY SHIFT"
+var daily_sub := ""
 
 func _layout_menu_buttons() -> void:
 	var vp := get_viewport().get_visible_rect().size
@@ -483,12 +659,14 @@ func _layout_menu_buttons() -> void:
 		var row := k / 2
 		var w := 420.0
 		var x0 := vp.x * 0.5 - (cols * w + (cols - 1) * 30.0) * 0.5
-		_art.add_button(MENU_BUTTONS[k][0], MENU_BUTTONS[k][1], Rect2(x0 + col * (w + 30.0), vp.y * 0.5 + 600.0 + row * 130.0, w, 110.0))
+		_art.add_button(MENU_BUTTONS[k][0], daily_label if MENU_BUTTONS[k][0] == "daily" else MENU_BUTTONS[k][1], Rect2(x0 + col * (w + 30.0), vp.y * 0.5 + 600.0 + row * 130.0, w, 110.0), 0, daily_sub if MENU_BUTTONS[k][0] == "daily" else "")
 
 func hide_screens() -> void:
 	_menu.visible = false
 	_over.visible = false
 	_select.visible = false
+	_cont.visible = false
+	_ad.visible = false
 	_art.clear_buttons()
 	_art.show_result = false
 
@@ -618,6 +796,9 @@ func _process(delta: float) -> void:
 		l.position = _pop_from[i] + Vector2(0, -150.0 * a)
 		l.modulate.a = 1.0 - maxf(a - 0.5, 0.0) * 2.0
 		l.scale = Vector2.ONE * (1.0 + 0.3 * (1.0 - a) * (1.0 - a))
+	if _art.pilot_bounce > 0.0:
+		_art.pilot_bounce = maxf(_art.pilot_bounce - delta * 2.5, 0.0)
+		_art.queue_redraw()
 	if _tip.visible:
 		var left := _tip_until - now
 		if left <= 0:
@@ -684,6 +865,11 @@ func begin_prewarm() -> void:
 	show_select(14, open, st, PackedInt32Array([12, 5, 0, 9, 0, 33]), 1)
 	_menu.visible = true
 	_over.visible = true
+	_ad_sub.text = "Reward: undo the conflict and keep flying\n\n(stub: no real ad is shown)"
+	_cont_head.text = "MID-AIR CONFLICT"
+	_cont_body.text = "Two aircraft got too close.\n\nWatch an ad to undo it\nand keep flying?"
+	_ad.visible = true
+	_cont.visible = true
 	_splash = Control.new()
 	_splash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_splash.mouse_filter = Control.MOUSE_FILTER_IGNORE

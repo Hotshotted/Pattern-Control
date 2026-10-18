@@ -51,7 +51,13 @@ var _glider_groups: Array[Node3D] = []
 var _heli_groups: Array[Node3D] = []
 var _float_groups: Array[Node3D] = []
 var _rotors: Array[Node3D] = []
+var _tail_mats: Array[StandardMaterial3D] = []
+var _stripe_mats: Array[StandardMaterial3D] = []
+var _stripes: Array = []                  # per aircraft: the stripe boxes (shown for a custom livery)
+var livery := 0                          # index into Cosmetics.LIVERIES
 var _cand := PackedInt32Array()
+var _draws := PackedFloat32Array()      # every random number a spawn() call may need, drawn up front
+var grace_until := 0.0                  # run time until which conflicts are ignored (after an ad-continue)
 var _body_mats: Array[StandardMaterial3D] = []
 var _wing_mats: Array[StandardMaterial3D] = []
 var _spawn_timer := 0.0
@@ -65,6 +71,7 @@ func _ready() -> void:
 	hz_vel.resize(MAX_HAZARDS)
 	_busy_until.resize(8)
 	_cand.resize(16)
+	_draws.resize(40)
 	for i in 8:
 		_occupant.append(null)
 	_god = DebugFlags.god_enabled()
@@ -80,8 +87,13 @@ func _build_node() -> void:
 	var body := Prim.mat(Color.WHITE)
 	var wing := Prim.mat(Color.WHITE)
 	var dark := Prim.mat(Color(0.12, 0.16, 0.22))
+	var tailm := Prim.mat(Color.WHITE)
+	var stripem := Prim.mat(Color.WHITE)
+	var stripe_boxes: Array[MeshInstance3D] = []
 	_body_mats.append(body)
 	_wing_mats.append(wing)
+	_tail_mats.append(tailm)
+	_stripe_mats.append(stripem)
 	# The aircraft's nose points along local -z. Cylinders are stood on their side (x rotated 90 degrees).
 	# --- planes (small / medium / jet / seaplane)
 	var group := Node3D.new()
@@ -102,7 +114,8 @@ func _build_node() -> void:
 	var tail := Node3D.new()
 	group.add_child(tail)
 	Prim.box(tail, Vector3(0.62, 0.06, 0.2), Vector3(0, 0.02, 0.5), wing)
-	Prim.box(tail, Vector3(0.06, 0.26, 0.22), Vector3(0, 0.16, 0.5), body)
+	Prim.box(tail, Vector3(0.06, 0.26, 0.22), Vector3(0, 0.16, 0.5), tailm)
+	stripe_boxes.append(Prim.box(fus, Vector3(0.07, 0.03, 0.95), Vector3(0, 0.155, 0.02), stripem, false))
 	var floats := Node3D.new()      # seaplane floats
 	group.add_child(floats)
 	_float_groups.append(floats)
@@ -118,7 +131,8 @@ func _build_node() -> void:
 	Prim.box(glider, Vector3(2.6, 0.04, 0.2), Vector3(0, 0.08, -0.15), wing)
 	Prim.box(glider, Vector3(0.12, 0.1, 0.28), Vector3(0, 0.13, -0.35), dark, false)
 	Prim.box(glider, Vector3(0.6, 0.04, 0.14), Vector3(0, 0.3, 0.55), wing)
-	Prim.box(glider, Vector3(0.04, 0.3, 0.16), Vector3(0, 0.17, 0.55), body)
+	Prim.box(glider, Vector3(0.04, 0.3, 0.16), Vector3(0, 0.17, 0.55), tailm)
+	stripe_boxes.append(Prim.box(glider, Vector3(0.06, 0.03, 0.9), Vector3(0, 0.1, 0.05), stripem, false))
 	# --- helicopter: stubby body, tail boom, a spinning rotor
 	var heli := Node3D.new()
 	root.add_child(heli)
@@ -127,7 +141,8 @@ func _build_node() -> void:
 	hb.rotation.x = deg_to_rad(90.0)
 	Prim.box(heli, Vector3(0.3, 0.16, 0.22), Vector3(0, 0.1, -0.38), dark, false)
 	Prim.box(heli, Vector3(0.1, 0.1, 0.8), Vector3(0, 0.08, 0.62), body)
-	Prim.box(heli, Vector3(0.05, 0.3, 0.18), Vector3(0, 0.2, 0.98), wing)
+	Prim.box(heli, Vector3(0.05, 0.3, 0.18), Vector3(0, 0.2, 0.98), tailm)
+	stripe_boxes.append(Prim.box(heli, Vector3(0.12, 0.03, 0.7), Vector3(0, 0.14, 0.62), stripem, false))
 	for sx in [-1.0, 1.0]:
 		Prim.box(heli, Vector3(0.05, 0.05, 0.6), Vector3(sx * 0.24, -0.16, -0.1), dark, false)
 	var rotor := Node3D.new()
@@ -136,6 +151,7 @@ func _build_node() -> void:
 	_rotors.append(rotor)
 	Prim.box(rotor, Vector3(1.7, 0.03, 0.12), Vector3.ZERO, wing)
 	Prim.box(rotor, Vector3(0.12, 0.03, 1.7), Vector3.ZERO, wing)
+	_stripes.append(stripe_boxes)
 
 # ---------- Spawning ----------
 
@@ -179,6 +195,17 @@ func place(target: int, pos: Vector2, heading: float, type: int, entered: bool =
 	_sync(p, i)
 	return p
 
+## Paint every aircraft in an airline livery (tail + stripe colours; the standard one has none).
+func set_livery(index: int) -> void:
+	livery = index
+	var custom: bool = Cosmetics.LIVERIES[index]["stripe"] != null
+	for i in MAX_POOL:
+		for box in _stripes[i]:
+			box.visible = custom
+		var p := planes[i]
+		if p.active():
+			_sync(p, i)
+
 ## Make this the aircraft's `emergency` (short timer, any suitable runway) and / or `vip`.
 func make_special(p: Aircraft, emergency: bool, vip: bool) -> void:
 	p.emergency = emergency
@@ -203,21 +230,25 @@ func _set_model(i: int, type: int, cls: int) -> void:
 ## A new plane from a random screen edge. It starts far enough out that it reaches the edge in
 ## Tuning.entry_warning_seconds, and the overlay shows a glow at that entry point until it appears.
 func spawn() -> Aircraft:
-	var type := _pick_type()
-	var target := _pick_target(type)
+	# Every call draws the same number of random values, so a seeded run (the daily shift) always produces the
+	# same sequence of arrivals, whatever the player did in between.
+	for k in 40:
+		_draws[k] = rng.randf()
+	var type := _pick_type(_draws[0])
+	var target := _pick_target(type, _draws[1])
 	if target < 0:       # (e.g. no helipad here): an ordinary plane instead
 		type = Aircraft.Type.SMALL
-		target = _pick_target(type)
+		target = _pick_target(type, _draws[1])
 	var spec := Airports.specials()
-	var emergency := type != Aircraft.Type.GLIDER and run_time >= Tuning.emergency_start_time and rng.randf() < Tuning.emergency_chance * spec
-	var vip := not emergency and type != Aircraft.Type.GLIDER and rng.randf() < Tuning.vip_chance * spec
-	var lined := Airports.kind_for(type) == Aircraft.Kind.RUNWAY and rng.randf() < Tuning.approach_bias()
+	var emergency := type != Aircraft.Type.GLIDER and run_time >= Tuning.emergency_start_time and _draws[2] < Tuning.emergency_chance * spec
+	var vip := not emergency and type != Aircraft.Type.GLIDER and _draws[3] < Tuning.vip_chance * spec
+	var lined := Airports.kind_for(type) == Aircraft.Kind.RUNWAY and _draws[4] < Tuning.approach_bias()
 	for attempt in 8:
-		var e := rng.randf() * (4.0 * half_w + 4.0 * half_h)
+		var e := _draws[5 + attempt * 3] * (4.0 * half_w + 4.0 * half_h)
 		var entry := Vector2.ZERO
 		var aim_override := Vector2.INF
 		if lined and attempt < 4:       # Approach Control: come in along an active runway's approach line
-			var line := _approach_line(target)
+			var line := _approach_line(target, _draws[29], _draws[30])
 			if line[0] != Vector2.INF:
 				entry = line[0]
 				aim_override = line[1]
@@ -234,7 +265,7 @@ func spawn() -> Aircraft:
 				entry = Vector2(half_w, clampf(-half_h + e - 4.0 * half_w - 2.0 * half_h, -cz, cz))
 		if _crowded(entry):
 			continue
-		var aim := Vector2(rng.randf_range(-2.5, 2.5), rng.randf_range(-4.0, 4.0))
+		var aim := Vector2(lerpf(-2.5, 2.5, _draws[6 + attempt * 3]), lerpf(-4.0, 4.0, _draws[7 + attempt * 3]))
 		if aim_override != Vector2.INF:
 			aim = aim_override
 		var dir := (aim - entry).normalized()
@@ -251,13 +282,13 @@ func spawn() -> Aircraft:
 
 ## Where an arrival lined up with `runway`'s active approach would enter the screen, and where it aims
 ## (a little off the threshold). [INF, INF] if no end of that runway is open.
-func _approach_line(runway: int) -> Array[Vector2]:
+func _approach_line(runway: int, r_end: float, r_jitter: float) -> Array[Vector2]:
 	var ends := 0
 	var pick := -1
 	for e in 2:
 		if wind == null or wind.is_active(runway, e):
 			ends += 1
-			if pick < 0 or rng.randf() < 0.5:
+			if pick < 0 or r_end < 0.5:
 				pick = e
 	if pick < 0 or ends == 0:
 		return [Vector2.INF, Vector2.INF]
@@ -277,17 +308,17 @@ func _approach_line(runway: int) -> Array[Vector2]:
 	if t == INF:
 		return [Vector2.INF, Vector2.INF]
 	var side := Vector2(-dir.y, dir.x)
-	return [thr - dir * t, thr + side * rng.randf_range(-0.6, 0.6)]
+	return [thr - dir * t, thr + side * lerpf(-0.6, 0.6, r_jitter)]
 
 ## Which runway / helipad / lane a new aircraft of this type is for (-1 if the airport has none that suit it).
-func _pick_target(type: int) -> int:
+func _pick_target(type: int, r: float) -> int:
 	var kind := Airports.kind_for(type)
 	var n := 0
 	for i in Airports.land_count(kind):
 		if kind != Aircraft.Kind.RUNWAY or Airports.suitable_runway(type, i):
 			_cand[n] = i
 			n += 1
-	return -1 if n == 0 else _cand[rng.randi() % n]
+	return -1 if n == 0 else _cand[mini(int(r * n), n - 1)]
 
 ## Would a straight flight from `from` along `dir` pass through a no-fly zone?
 func _hits_hazard(from: Vector2, dir: Vector2) -> bool:
@@ -306,18 +337,18 @@ func _crowded(entry: Vector2) -> bool:
 			return true
 	return false
 
-## A random aircraft type from the airport's mix.
-func _pick_type() -> int:
+## An aircraft type from the airport's mix (`r` is a random number 0..1).
+func _pick_type(r: float) -> int:
 	var mix: Dictionary = Airports.mix()
 	var total := 0.0
 	for k in mix:
 		total += mix[k]
-	var r := rng.randf() * total
+	var x := r * total
 	var last := Aircraft.Type.SMALL
 	for k in mix:
 		last = k
-		r -= mix[k]
-		if r <= 0.0:
+		x -= mix[k]
+		if x <= 0.0:
 			return k
 	return last
 
@@ -731,7 +762,7 @@ func _check_conflicts() -> void:
 				if w > b.warn:
 					b.warn = w
 					b.warn_other = a
-				if d < cd and not _god:
+				if d < cd and not _god and run_time >= grace_until:
 					conflict.emit(a, b)
 					return
 
@@ -750,6 +781,10 @@ func _sync(p: Aircraft, i: int) -> void:
 		wing = Color.WHITE
 	_body_mats[i].albedo_color = base
 	_wing_mats[i].albedo_color = wing
+	var lv: Dictionary = Cosmetics.LIVERIES[livery]
+	_tail_mats[i].albedo_color = lv["tail"] if lv["tail"] != null else base
+	if lv["stripe"] != null:
+		_stripe_mats[i].albedo_color = lv["stripe"]
 	if p.type == Aircraft.Type.HELI:
 		_rotors[i].rotation.y = p.age * 22.0
 

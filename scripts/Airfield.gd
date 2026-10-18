@@ -17,6 +17,13 @@ class AirportScene:
 	var ups: Array = []                 # [node, upgrade id, level it appears at]
 	var dishes: Array[Node3D] = []      # radar dishes (they turn)
 	var mast_lights: Array[StandardMaterial3D] = []   # comms mast beacons (they blink)
+	var water := false
+	var base_ground := Color.WHITE
+	var ground_mat: StandardMaterial3D
+	var stripe_mat: StandardMaterial3D
+	var leaf_mat: StandardMaterial3D
+	var trunk_mat: StandardMaterial3D
+	var tree_styles: Array = [[], [], []]   # per tree style: the holders to show
 
 var wind: Wind                        # set by Main
 var variants: Array[AirportScene] = []
@@ -45,9 +52,13 @@ func _build_airport() -> AirportScene:
 	add_child(root)
 	v.root = root
 	var ground := Airports.ground_color()
-	Prim.box(root, Vector3(40.0, 0.2, 70.0), Vector3(0, -0.1, 0), Prim.mat(ground), false)
+	v.base_ground = ground
+	v.ground_mat = Prim.mat(ground)
+	Prim.box(root, Vector3(40.0, 0.2, 70.0), Vector3(0, -0.1, 0), v.ground_mat, false)
 	var stripe := Prim.mat(ground.lightened(0.07))
+	v.stripe_mat = stripe
 	var water: bool = Airports.def().get("water", false)
+	v.water = water
 	if not water:
 		for i in range(-5, 6):   # mowing stripes
 			if i % 2 == 0:
@@ -71,13 +82,14 @@ func _build_airport() -> AirportScene:
 	var sp := Airports.windsock_pos()
 	_windsock(v, Vector3(sp.x, 0.0, sp.y))
 	if not water:
-		_trees(root)
+		_trees(v)
 	_upgrade_props(v)
 	return v
 
-func _trees(root: Node3D) -> void:
-	var leaf := Prim.mat(Color(0.2, 0.46, 0.25))
-	var trunk := Prim.mat(Color(0.45, 0.3, 0.18))
+## Trees at a few fixed spots, each in three styles (round, pine, cactus): the theme picks which one shows.
+func _trees(v: AirportScene) -> void:
+	v.leaf_mat = Prim.mat(Color(0.2, 0.46, 0.25))
+	v.trunk_mat = Prim.mat(Color(0.45, 0.3, 0.18))
 	for t in [Vector2(-4.4, 6.4), Vector2(-3.6, 7.6), Vector2(4.3, 6.9), Vector2(4.5, -6.5), Vector2(-4.4, -6.9), Vector2(3.7, -7.8), Vector2(-4.2, -3.9), Vector2(4.5, 4.4)]:
 		var blocked := false
 		for h in Airports.hazards():
@@ -85,8 +97,45 @@ func _trees(root: Node3D) -> void:
 				blocked = true
 		if blocked:
 			continue
-		Prim.cyl(root, 0.05, 0.05, 0.4, 5, Vector3(t.x, 0.2, t.y), trunk)
-		Prim.cyl(root, 0.0, 0.42, 0.9, 6, Vector3(t.x, 0.85, t.y), leaf)
+		var round_t := Node3D.new()         # style 0: a round-crowned tree
+		round_t.position = Vector3(t.x, 0.0, t.y)
+		v.root.add_child(round_t)
+		Prim.cyl(round_t, 0.05, 0.05, 0.4, 5, Vector3(0, 0.2, 0), v.trunk_mat)
+		Prim.cyl(round_t, 0.3, 0.38, 0.62, 7, Vector3(0, 0.7, 0), v.leaf_mat)
+		var pine := Node3D.new()            # style 1: a pine
+		pine.position = Vector3(t.x, 0.0, t.y)
+		v.root.add_child(pine)
+		Prim.cyl(pine, 0.05, 0.05, 0.4, 5, Vector3(0, 0.2, 0), v.trunk_mat)
+		Prim.cyl(pine, 0.0, 0.42, 0.9, 6, Vector3(0, 0.85, 0), v.leaf_mat)
+		var cactus := Node3D.new()          # style 2: a cactus
+		cactus.position = Vector3(t.x, 0.0, t.y)
+		v.root.add_child(cactus)
+		Prim.cyl(cactus, 0.12, 0.14, 0.8, 6, Vector3(0, 0.4, 0), v.leaf_mat)
+		Prim.box(cactus, Vector3(0.3, 0.1, 0.1), Vector3(-0.2, 0.5, 0), v.leaf_mat, false)
+		Prim.box(cactus, Vector3(0.1, 0.3, 0.1), Vector3(-0.32, 0.65, 0), v.leaf_mat, false)
+		Prim.box(cactus, Vector3(0.3, 0.1, 0.1), Vector3(0.2, 0.38, 0), v.leaf_mat, false)
+		Prim.box(cactus, Vector3(0.1, 0.26, 0.1), Vector3(0.32, 0.5, 0), v.leaf_mat, false)
+		v.tree_styles[0].append(round_t)
+		v.tree_styles[1].append(pine)
+		v.tree_styles[2].append(cactus)
+
+## Dress every airport in a theme: ground, scenery style and colours (no new nodes).
+func apply_theme(index: int) -> void:
+	var t: Dictionary = Cosmetics.THEMES[index]
+	for v in variants:
+		var ground: Color = v.base_ground
+		if t["ground"] != null and not v.water:
+			ground = t["ground"]
+		elif v.water:
+			ground = v.base_ground * (t["tint"] as Color)
+		v.ground_mat.albedo_color = ground
+		v.stripe_mat.albedo_color = ground.lightened(0.07)
+		if v.leaf_mat != null:
+			v.leaf_mat.albedo_color = t["leaf"]
+			v.trunk_mat.albedo_color = t["trunk"]
+		for st in 3:
+			for holder in v.tree_styles[st]:
+				holder.visible = st == t["style"]
 
 func _runway(v: AirportScene, i: int) -> void:
 	var col := Airports.rw_color(i)
