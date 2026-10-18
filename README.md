@@ -29,6 +29,10 @@ You run an airport, one **shift** at a time.
   timer; **jets** are fast and need a long runway; **seaplanes** land on the water lane; **emergencies**
   (flashing, SOS) have a short timer, may use any suitable runway and pay a big bonus; **VIP flights** pay
   bonus coins, unless you put them in a holding pattern.
+- **Upgrades** (bought with coins, three levels each, and visible on the airport): *Radar* (wider view, earlier
+  arrival warnings), *Approach Control* (arrivals line up with the active runways), *Tower Staff* (slower,
+  thinner traffic), *Better Comms* (longer timers), *Holding Fixes* (holding burns timers slower, tighter
+  circles), *Fast Turnoffs* (runways clear faster).
 - Each shift has **three star goals** (land 25 aircraft, land 4 jets, finish with no strikes). Landings and
   stars earn **coins**. Stars, coins and bests are saved.
 

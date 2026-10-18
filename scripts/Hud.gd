@@ -113,7 +113,7 @@ class Art extends Control:
 			draw_string(_font, Vector2(tx, ty), btn_text[k], align, tw, 46, tcol)
 			if btn_sub[k] != "":
 				var sy := r.position.y + r.size.y * 0.8
-				draw_string(_font, Vector2(tx, sy), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw - 220.0, 28, Color(0.8, 0.85, 0.95) if st != 1 else Color(0.6, 0.62, 0.68))
+				draw_string(_font, Vector2(tx, sy), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw - 170.0, 26, Color(0.8, 0.85, 0.95) if st != 1 else Color(0.6, 0.62, 0.68))
 			if btn_stars[k] >= 0:
 				for i in 3:
 					star(Vector2(r.end.x - 150.0 + i * 56.0, r.position.y + r.size.y * 0.5), 22.0, Color(1.0, 0.84, 0.15) if i < btn_stars[k] else Color(0.28, 0.3, 0.36))
@@ -183,6 +183,7 @@ var _menu: Control
 var _menu_info: Label
 var _select: Control
 var _select_info: Label
+var _select_title: Label
 var _over: Control
 var _over_head: Label
 var _over_body: Label
@@ -314,12 +315,12 @@ func _build_select() -> void:
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_select.add_child(shade)
-	var title := _label(90, HORIZONTAL_ALIGNMENT_CENTER, _select)
-	title.text = "AIRPORTS"
-	title.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	title.offset_left = -500
-	title.offset_right = 500
-	title.offset_top = 40
+	_select_title = _label(90, HORIZONTAL_ALIGNMENT_CENTER, _select)
+	_select_title.text = "AIRPORTS"
+	_select_title.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_select_title.offset_left = -500
+	_select_title.offset_right = 500
+	_select_title.offset_top = 40
 	_select_info = _label(40, HORIZONTAL_ALIGNMENT_CENTER, _select)
 	_select_info.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_select_info.offset_left = -500
@@ -404,6 +405,7 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 	_art.show_play = false
 	_art.show_result = false
 	_art.show_wind = false
+	_select_title.text = "AIRPORTS"
 	_select_info.text = "Stars %d    Coins %d" % [total_stars, Save.coins]
 	var vp := get_viewport().get_visible_rect().size
 	_art.clear_buttons()
@@ -415,6 +417,38 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 		else:
 			_art.add_button("locked:%d" % i, "%d  %s" % [i + 1, Airports.airport_name(i)], r, 1, "Locked: needs %d stars (you have %d)" % [Airports.unlock_stars(i), total_stars], -1)
 	_art.add_button("back", "BACK", Rect2(vp.x * 0.5 - 170.0, 230.0 + Airports.COUNT * 190.0 + 20.0, 340.0, 100.0))
+	_art.queue_redraw()
+
+## The upgrade shop: one card per upgrade with its level, what it does and the next price.
+func show_upgrades(coins: int, levels: PackedInt32Array) -> void:
+	_menu.visible = false
+	_over.visible = false
+	_select.visible = true
+	_art.show_play = false
+	_art.show_result = false
+	_art.show_wind = false
+	_select_title.text = "UPGRADES"
+	_select_info.text = "Coins %d" % coins
+	var vp := get_viewport().get_visible_rect().size
+	_art.clear_buttons()
+	for i in Upgrades.IDS.size():
+		var id: String = Upgrades.IDS[i]
+		var lvl := levels[i]
+		var price := Upgrades.cost(id, lvl)
+		var r := Rect2(40.0, 230.0 + i * 190.0, vp.x - 80.0, 170.0)
+		var sub := Upgrades.description(id)
+		var state := 0
+		if price < 0:
+			sub = "MAX - " + sub
+			state = 1
+		elif coins < price:
+			sub = "%d coins (need %d more) - %s" % [price, price - coins, sub]
+			state = 1
+		else:
+			sub = "BUY for %d coins - %s" % [price, sub]
+			state = 2
+		_art.add_button("upg:" + id, "%s   Lv %d" % [Upgrades.upgrade_name(id), lvl], r, state, sub, lvl)
+	_art.add_button("back", "BACK", Rect2(vp.x * 0.5 - 170.0, 230.0 + Upgrades.IDS.size() * 190.0 + 20.0, 340.0, 100.0))
 	_art.queue_redraw()
 
 ## The id of the enabled button under `pos` ("" if none).
@@ -429,7 +463,7 @@ func ui_hit(pos: Vector2) -> bool:
 	return _art.button_at(pos) >= 0
 
 ## The menu's buttons, two per row. (Later features add their own entries here.)
-const MENU_BUTTONS := [["airports", "AIRPORTS"]]
+const MENU_BUTTONS := [["airports", "AIRPORTS"], ["upgrades", "UPGRADES"]]
 
 func _layout_menu_buttons() -> void:
 	var vp := get_viewport().get_visible_rect().size

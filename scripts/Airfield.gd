@@ -14,6 +14,9 @@ class AirportScene:
 	var glow_born: Array[int] = []
 	var active: Array[bool] = []
 	var sock: Node3D
+	var ups: Array = []                 # [node, upgrade id, level it appears at]
+	var dishes: Array[Node3D] = []      # radar dishes (they turn)
+	var mast_lights: Array[StandardMaterial3D] = []   # comms mast beacons (they blink)
 
 var wind: Wind                        # set by Main
 var variants: Array[AirportScene] = []
@@ -69,6 +72,7 @@ func _build_airport() -> AirportScene:
 	_windsock(v, Vector3(sp.x, 0.0, sp.y))
 	if not water:
 		_trees(root)
+	_upgrade_props(v)
 	return v
 
 func _trees(root: Node3D) -> void:
@@ -191,6 +195,8 @@ func show_active(w: Wind) -> void:
 func show_all(on: bool) -> void:
 	for i in variants.size():
 		variants[i].root.visible = on or i == selected
+		for u in variants[i].ups:      # (every upgrade's scenery is drawn too, so none of it is first seen mid-game)
+			u[0].visible = true if on else Save.upgrade_level(u[1]) >= u[2]
 
 func reset() -> void:
 	for v in variants:
@@ -200,6 +206,11 @@ func _process(delta: float) -> void:
 	if cur == null:
 		return
 	var now := Time.get_ticks_msec()
+	for d in cur.dishes:
+		d.rotation.y += delta * 1.8
+	var blink := 1.6 if int(now / 600.0) % 2 == 0 else 0.0
+	for lm in cur.mast_lights:
+		lm.emission_energy_multiplier = blink
 	for k in cur.thr_mats.size():
 		var age := (now - cur.glow_born[k]) / 600.0
 		var flash := 0.0 if cur.glow_born[k] == 0 or age >= 1.0 else 2.5 * (1.0 - age)
@@ -212,3 +223,166 @@ func _process(delta: float) -> void:
 		var wiggle := sin(now / 260.0) * 6.0
 		cur.sock.rotation.y = -deg_to_rad(_sock_deg + wiggle)
 		cur.sock.rotation.x = deg_to_rad(sin(now / 190.0) * 4.0)
+
+
+# ---------- Upgrade scenery: each purchased upgrade can be seen on the airport ----------
+
+## Is the point `p` clear of runways, pads, lanes, mountains, the tower and the windsock (with `r` to spare)?
+func _spot_free(p: Vector2, r: float, bound: float = 6.0) -> bool:
+	for i in Airports.rw_count():
+		var a := Airports.end_threshold(i, 0)
+		var b := Airports.end_far(i, 0)
+		var ab := b - a
+		var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 0.0001), 0.0, 1.0)
+		if p.distance_to(a + ab * t) < Airports.rw_width(i) * 0.5 + r + 0.15:
+			return false
+	for pad in Airports.pads():
+		if p.distance_to(pad["center"]) < pad["radius"] + r:
+			return false
+	for lane in Airports.lanes():
+		var h := deg_to_rad(lane["heading"])
+		var dir := Vector2(sin(h), -cos(h))
+		var a2: Vector2 = lane["center"] - dir * lane["length"] * 0.5
+		var ab2: Vector2 = dir * lane["length"]
+		var t2 := clampf((p - a2).dot(ab2) / maxf(ab2.length_squared(), 0.0001), 0.0, 1.0)
+		if p.distance_to(a2 + ab2 * t2) < lane["width"] * 0.5 + r + 0.3:
+			return false
+	for hz in Airports.hazards():
+		if p.distance_to(hz["center"]) < hz["radius"] + r:
+			return false
+	if p.distance_to(Airports.tower_pos()) < 0.8 + r or p.distance_to(Airports.windsock_pos()) < 0.5 + r:
+		return false
+	return absf(p.x) < 4.6 and absf(p.y) < bound
+
+## Up to `n` free spots on rings around `c`, at least `spacing` apart.
+func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for ring in radii:
+		for k in 12:
+			var p: Vector2 = c + Vector2(cos(k * TAU / 12.0 + 0.4), sin(k * TAU / 12.0 + 0.4)) * ring
+			if not _spot_free(p, r):
+				continue
+			var ok := true
+			for q in out:
+				if q.distance_to(p) < spacing:
+					ok = false
+			if ok:
+				out.append(p)
+				if out.size() >= n:
+					return out
+	return out
+
+func _upgrade_props(v: AirportScene) -> void:
+	var root := v.root
+	var tower := Airports.tower_pos()
+	var metal := Prim.mat(Color(0.78, 0.8, 0.84))
+	var dark := Prim.mat(Color(0.2, 0.22, 0.26))
+	# Radar: up to three turning dishes around the tower.
+	var spots := _find_spots(tower, 3, 0.35, 0.8, [1.2, 1.6, 2.1])
+	for k in spots.size():
+		var holder := Node3D.new()
+		holder.position = Vector3(spots[k].x, 0.0, spots[k].y)
+		root.add_child(holder)
+		Prim.cyl(holder, 0.05, 0.06, 0.7, 5, Vector3(0, 0.35, 0), metal)
+		var turret := Node3D.new()
+		turret.position = Vector3(0, 0.78, 0)
+		holder.add_child(turret)
+		var dish := Prim.cyl(turret, 0.36, 0.04, 0.16, 8, Vector3(0, 0.0, -0.1), metal)
+		dish.rotation.x = deg_to_rad(-62.0)
+		Prim.box(turret, Vector3(0.05, 0.05, 0.3), Vector3(0, 0.12, -0.12), dark, false)
+		v.dishes.append(turret)
+		v.ups.append([holder, "radar", k + 1])
+	# Better Comms: radio masts with blinking beacons.
+	spots = _find_spots(tower, 3, 0.3, 0.8, [2.4, 2.9, 3.4])
+	for k in spots.size():
+		var holder := Node3D.new()
+		holder.position = Vector3(spots[k].x, 0.0, spots[k].y)
+		root.add_child(holder)
+		Prim.cyl(holder, 0.03, 0.07, 1.6, 4, Vector3(0, 0.8, 0), metal)
+		Prim.box(holder, Vector3(0.5, 0.04, 0.04), Vector3(0, 1.25, 0), metal, false)
+		var lm := Prim.mat(Color(1.0, 0.15, 0.1))
+		lm.emission_enabled = true
+		lm.emission = Color(1.0, 0.15, 0.1)
+		lm.emission_energy_multiplier = 0.0
+		v.mast_lights.append(lm)
+		Prim.cyl(holder, 0.07, 0.07, 0.12, 6, Vector3(0, 1.64, 0), lm, false)
+		v.ups.append([holder, "comms", k + 1])
+	# Tower Staff: a terminal annex, then a bigger one, then a flag.
+	spots = _find_spots(tower, 3, 0.55, 1.0, [1.9, 2.4, 2.9])
+	for k in spots.size():
+		var holder := Node3D.new()
+		holder.position = Vector3(spots[k].x, 0.0, spots[k].y)
+		root.add_child(holder)
+		if k == 2:
+			Prim.cyl(holder, 0.03, 0.03, 1.1, 4, Vector3(0, 0.55, 0), metal, false)
+			Prim.box(holder, Vector3(0.5, 0.3, 0.03), Vector3(0.25, 0.95, 0), Prim.mat(Color(0.9, 0.2, 0.2)), false)
+		else:
+			Prim.box(holder, Vector3(0.9 + 0.3 * k, 0.4, 0.55), Vector3(0, 0.2, 0), Prim.mat(Color(0.88, 0.85, 0.78)))
+			Prim.box(holder, Vector3(0.96 + 0.3 * k, 0.1, 0.62), Vector3(0, 0.45, 0), Prim.mat(Color(0.55, 0.3, 0.25)))
+		v.ups.append([holder, "tower", k + 1])
+	# Holding Fixes: marker cones (two more each level) out in the airspace.
+	var cone_a := Prim.mat(Color(1.0, 0.5, 0.1))
+	var cone_b := Prim.mat(Color(0.97, 0.97, 0.95))
+	var fix_pos: Array[Vector2] = []
+	for z in [-1.5, 1.0, -3.2, 2.6, -4.6, 4.4, 0.0, -2.2, 3.4, -5.4, 5.4]:
+		for x in [-4.2, 4.2, -3.6, 3.6]:
+			fix_pos.append(Vector2(x, z))
+	var placed := 0
+	for p in fix_pos:
+		if placed >= 6 or not _spot_free(p, 0.5):
+			continue
+		var near_other := false
+		for u in v.ups:
+			if u[1] == "holding" and Vector2(u[0].position.x, u[0].position.z).distance_to(p) < 1.6:
+				near_other = true
+		if near_other:
+			continue
+		var holder := Node3D.new()
+		holder.position = Vector3(p.x, 0.0, p.y)
+		root.add_child(holder)
+		Prim.cyl(holder, 0.0, 0.22, 0.5, 6, Vector3(0, 0.25, 0), cone_a)
+		Prim.cyl(holder, 0.0, 0.12, 0.2, 6, Vector3(0, 0.44, 0), cone_b, false)
+		v.ups.append([holder, "holding", 1 + placed / 2])
+		placed += 1
+	# Approach Control: rows of approach lights behind every runway end (3, 6, then 9 of them).
+	var light := Prim.mat(Color(1.0, 0.95, 0.7))
+	light.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	for r in Airports.rw_count():
+		for e in 2:
+			var thr := Airports.end_threshold(r, e)
+			var dir := Airports.end_dir(r, e)
+			var side := Vector2(-dir.y, dir.x)
+			for k in 9:
+				var p := thr - dir * (0.9 + k * 0.42) + side * (0.0 if k % 3 == 0 else (0.3 if k % 3 == 1 else -0.3))
+				if not _spot_free(p, 0.1, 8.0):
+					continue
+				var node := Prim.box(root, Vector3(0.14, 0.1, 0.14), Vector3(p.x, 0.05, p.y), light, false)
+				v.ups.append([node, "approach", 1 + k / 3])
+	# Fast Turnoffs: angled exit taxiways off each runway (2, 4, then 6).
+	var taxi := Prim.mat(Tuning.runway_asphalt.lightened(0.05))
+	for r in Airports.rw_count():
+		var rr := Node3D.new()
+		rr.position = Vector3(Airports.rw_center(r).x, 0.0, Airports.rw_center(r).y)
+		rr.rotation.y = -deg_to_rad(Airports.rw_heading_deg(r))
+		root.add_child(rr)
+		var len := Airports.rw_length(r)
+		var w := Airports.rw_width(r)
+		for k in 6:
+			var sx := 1.0 if k % 2 == 0 else -1.0
+			var z := (0.34 - 0.07 * (k / 2)) * len * (1.0 if (k / 2) % 2 == 0 else -1.0)
+			var strip := Prim.box(rr, Vector3(0.32, 0.1, 1.3), Vector3(sx * (w * 0.5 + 0.35), 0.05, z), taxi)
+			strip.rotation.y = deg_to_rad(sx * 35.0)
+			v.ups.append([strip, "turnoffs", 1 + k / 2])
+
+## Show each upgrade's scenery that has been bought (called at start-up and after a purchase).
+func show_upgrades() -> void:
+	for v in variants:
+		for u in v.ups:
+			u[0].visible = Save.upgrade_level(u[1]) >= u[2]
+
+func upgrade_nodes_visible(id: String) -> int:
+	var n := 0
+	for u in cur.ups:
+		if u[1] == id and u[0].visible:
+			n += 1
+	return n

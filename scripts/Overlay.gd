@@ -88,8 +88,8 @@ func _draw_all() -> void:
 				_c.draw_arc(p.pos, 0.62, 0.0, TAU, 24, BLACK, 0.16)
 				_c.draw_arc(p.pos, 0.62, 0.0, TAU, 24, Color(col.r, col.g, col.b, 0.8), 0.07)
 			else:
-				_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, BLACK, 0.16)
-				_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.8), 0.07)
+				_c.draw_arc(p.hold_center, Tuning.hold_radius_eff(), 0.0, TAU, 40, BLACK, 0.16)
+				_c.draw_arc(p.hold_center, Tuning.hold_radius_eff(), 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.8), 0.07)
 	glows_drawn = 0
 	_draw_hazards(t)
 	for p in traffic.planes:

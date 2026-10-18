@@ -161,7 +161,7 @@ func place(target: int, pos: Vector2, heading: float, type: int, entered: bool =
 	p.any_target = p.tkind != Aircraft.Kind.RUNWAY       # all helipads / lanes look alike
 	p.speed_class = Tuning.type_speed_class(type)
 	p.speed = Tuning.type_speed(type)
-	p.timer_max = Tuning.type_timer(type)
+	p.timer_max = Tuning.type_timer(type) * Tuning.timer_mult()
 	p.timer_left = p.timer_max
 	p.pos = pos
 	p.entry = pos
@@ -180,7 +180,7 @@ func make_special(p: Aircraft, emergency: bool, vip: bool) -> void:
 	p.vip = vip
 	if emergency:
 		p.any_target = true
-		p.timer_max = Tuning.type_timer(p.type) * Tuning.emergency_timer_mult
+		p.timer_max = Tuning.type_timer(p.type) * Tuning.timer_mult() * Tuning.emergency_timer_mult
 		p.timer_left = p.timer_max
 
 ## Show the right model for the type: stubby props / medium / long jets; floats for seaplanes; a glider; a helicopter.
@@ -206,26 +206,36 @@ func spawn() -> Aircraft:
 	var spec := Airports.specials()
 	var emergency := type != Aircraft.Type.GLIDER and run_time >= Tuning.emergency_start_time and rng.randf() < Tuning.emergency_chance * spec
 	var vip := not emergency and type != Aircraft.Type.GLIDER and rng.randf() < Tuning.vip_chance * spec
+	var lined := Airports.kind_for(type) == Aircraft.Kind.RUNWAY and rng.randf() < Tuning.approach_bias()
 	for attempt in 8:
 		var e := rng.randf() * (4.0 * half_w + 4.0 * half_h)
 		var entry := Vector2.ZERO
+		var aim_override := Vector2.INF
+		if lined and attempt < 4:       # Approach Control: come in along an active runway's approach line
+			var line := _approach_line(target)
+			if line[0] != Vector2.INF:
+				entry = line[0]
+				aim_override = line[1]
 		var cx := half_w - 0.9
 		var cz := half_h - 0.9
-		if e < 2.0 * half_w:
-			entry = Vector2(clampf(-half_w + e, -cx, cx), -half_h)
-		elif e < 4.0 * half_w:
-			entry = Vector2(clampf(-half_w + e - 2.0 * half_w, -cx, cx), half_h)
-		elif e < 4.0 * half_w + 2.0 * half_h:
-			entry = Vector2(-half_w, clampf(-half_h + e - 4.0 * half_w, -cz, cz))
-		else:
-			entry = Vector2(half_w, clampf(-half_h + e - 4.0 * half_w - 2.0 * half_h, -cz, cz))
+		if aim_override == Vector2.INF:
+			if e < 2.0 * half_w:
+				entry = Vector2(clampf(-half_w + e, -cx, cx), -half_h)
+			elif e < 4.0 * half_w:
+				entry = Vector2(clampf(-half_w + e - 2.0 * half_w, -cx, cx), half_h)
+			elif e < 4.0 * half_w + 2.0 * half_h:
+				entry = Vector2(-half_w, clampf(-half_h + e - 4.0 * half_w, -cz, cz))
+			else:
+				entry = Vector2(half_w, clampf(-half_h + e - 4.0 * half_w - 2.0 * half_h, -cz, cz))
 		if _crowded(entry):
 			continue
 		var aim := Vector2(rng.randf_range(-2.5, 2.5), rng.randf_range(-4.0, 4.0))
+		if aim_override != Vector2.INF:
+			aim = aim_override
 		var dir := (aim - entry).normalized()
 		if _hits_hazard(entry, dir):
 			continue
-		var dist := Tuning.type_speed(type) * Tuning.speed_mult(run_time) * Tuning.entry_warning_seconds
+		var dist := Tuning.type_speed(type) * Tuning.speed_mult(run_time) * Tuning.traffic_speed_mult() * Tuning.entry_lead()
 		var p := place(target, entry - dir * dist, atan2(dir.x, -dir.y), type, false)
 		if p != null:
 			p.entry = entry
@@ -233,6 +243,36 @@ func spawn() -> Aircraft:
 			spawned.emit(p)
 		return p
 	return null
+
+## Where an arrival lined up with `runway`'s active approach would enter the screen, and where it aims
+## (a little off the threshold). [INF, INF] if no end of that runway is open.
+func _approach_line(runway: int) -> Array[Vector2]:
+	var ends := 0
+	var pick := -1
+	for e in 2:
+		if wind == null or wind.is_active(runway, e):
+			ends += 1
+			if pick < 0 or rng.randf() < 0.5:
+				pick = e
+	if pick < 0 or ends == 0:
+		return [Vector2.INF, Vector2.INF]
+	var thr := Airports.end_threshold(runway, pick)
+	var dir := Airports.end_dir(runway, pick)
+	# Walk backwards along the approach until the ray leaves the screen.
+	var t := INF
+	for s in [-1.0, 1.0]:
+		if absf(dir.x) > 0.0001:
+			var tx: float = (thr.x - s * half_w) / dir.x
+			if tx > 0.0:
+				t = minf(t, tx)
+		if absf(dir.y) > 0.0001:
+			var ty: float = (thr.y - s * half_h) / dir.y
+			if ty > 0.0:
+				t = minf(t, ty)
+	if t == INF:
+		return [Vector2.INF, Vector2.INF]
+	var side := Vector2(-dir.y, dir.x)
+	return [thr - dir * t, thr + side * rng.randf_range(-0.6, 0.6)]
 
 ## Which runway / helipad / lane a new aircraft of this type is for (-1 if the airport has none that suit it).
 func _pick_target(type: int) -> int:
@@ -434,7 +474,7 @@ func toggle_hold(p: Aircraft) -> void:
 	else:
 		var dir := Vector2(sin(p.heading), -cos(p.heading))
 		var right := Vector2(-dir.y, dir.x)          # clockwise on the screen
-		p.hold_center = p.pos + right * Tuning.hold_radius
+		p.hold_center = p.pos + right * Tuning.hold_radius_eff()
 		p.hold_angle = (p.pos - p.hold_center).angle()
 	p.state = Aircraft.State.HOLD
 
@@ -477,10 +517,10 @@ func step(delta: float) -> void:
 		_spawn_timer -= delta
 		if _spawn_timer <= 0.0:
 			if active_count() < mini(int(Tuning.max_planes), MAX_POOL) and spawn() != null:
-				_spawn_timer = Tuning.spawn_interval(run_time) * Airports.spawn_mult() * rng.randf_range(0.75, 1.25)
+				_spawn_timer = Tuning.spawn_interval(run_time) * Airports.spawn_mult() * Tuning.traffic_spawn_mult() * rng.randf_range(0.75, 1.25)
 			else:
 				_spawn_timer = 0.25
-	var mult := Tuning.speed_mult(run_time)
+	var mult := Tuning.speed_mult(run_time) * Tuning.traffic_speed_mult()
 	for i in MAX_POOL:
 		var p := planes[i]
 		if not p.active():
@@ -524,7 +564,7 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 		appeared.emit(p)
 	# The timer runs from the moment it is on screen; circling burns it more slowly.
 	if p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD) and not _god:
-		p.timer_left -= dt * (Tuning.hold_drain_mult if p.state == Aircraft.State.HOLD else 1.0)
+		p.timer_left -= dt * (Tuning.hold_drain() if p.state == Aircraft.State.HOLD else 1.0)
 		if p.timer_left <= 0.0:
 			_divert(p)
 			timed_out.emit(p)
@@ -539,8 +579,9 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 	p.vis_heading += clampf(diff, -turn, turn)
 
 func _circle(p: Aircraft, speed: float, dt: float) -> void:
-	p.hold_angle += speed / Tuning.hold_radius * dt
-	p.pos = p.hold_center + Vector2(cos(p.hold_angle), sin(p.hold_angle)) * Tuning.hold_radius
+	var hr := Tuning.hold_radius_eff()
+	p.hold_angle += speed / hr * dt
+	p.pos = p.hold_center + Vector2(cos(p.hold_angle), sin(p.hold_angle)) * hr
 	p.heading = atan2(-sin(p.hold_angle), -cos(p.hold_angle))
 
 func _follow(p: Aircraft, dist: float) -> void:
@@ -584,7 +625,7 @@ func _begin_landing(p: Aircraft) -> bool:
 		if j != r and Airports.runways_cross(r, j) and run_time < _busy_until[j] and _occupant[j] != null and _occupant[j] != p:
 			runway_conflict.emit(p, _occupant[j])
 			return false
-	_busy_until[r] = run_time + Tuning.landing_roll_time + Tuning.runway_clear_seconds
+	_busy_until[r] = run_time + Tuning.landing_roll_time + Tuning.runway_clear()
 	_occupant[r] = p
 	return true
 

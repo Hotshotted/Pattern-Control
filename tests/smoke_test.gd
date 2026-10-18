@@ -15,6 +15,7 @@ extends SceneTree
 ##       (go around), terrain (crash = strike), cycling airports creates nothing
 ##   9d. special aircraft: helicopters (pad, hover), gliders (one path, no hold), jets (long runways), seaplanes
 ##       (lane), emergencies (any runway, bonus), VIPs (lose the bonus if held), first-time tips
+##   9e. upgrades: buying, every effect, the radar re-framing, approach lining-up, the scenery, the shop screen
 ##   9. shifts: star goals and progress, stars / coins / first-time bonus, versioned save (v1 migrates)
 ##   8. edges: a plane with no path turns back instead of leaving
 ##   9. restart in place after game over (tap), best score kept, and NOTHING new is created over many runs
@@ -1072,6 +1073,186 @@ func _initialize() -> void:
 	save.load_file()
 	check(save.tips_seen.has("glider") and save.tips_seen.has("emergency"), "seen tips survive a reload")
 	tr.release_all()
+	main.select_airport(2)
+
+	print("9e. upgrades")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	check(Upgrades.IDS.size() == 6, "six upgrades")
+	var cost_ok = true
+	for id in Upgrades.IDS:
+		cost_ok = cost_ok and Upgrades.cost(id, 0) < Upgrades.cost(id, 1) and Upgrades.cost(id, 1) < Upgrades.cost(id, 2) and Upgrades.cost(id, 3) == -1
+	check(cost_ok, "each upgrade has three levels and rising costs")
+	check(not save.buy_upgrade("radar") and save.upgrade_level("radar") == 0, "can't buy without the coins")
+	save.add_coins(Upgrades.cost("radar", 0) + 7)
+	var c_before = save.coins
+	check(save.buy_upgrade("radar") and save.upgrade_level("radar") == 1 and save.coins == c_before - Upgrades.cost("radar", 0), "buying takes exactly the price and raises the level")
+	save.add_coins(100000)
+	save.buy_upgrade("radar")
+	save.buy_upgrade("radar")
+	check(save.upgrade_level("radar") == 3 and not save.buy_upgrade("radar"), "a maxed upgrade can't be bought again")
+	save.upgrades = {}
+	# Effects.
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var base_t = tuning.type_timer(MEDIUM)
+	var p0 = tr.place(0, Vector2(-3, 0), 0.0, MEDIUM)
+	save.upgrades["comms"] = 2
+	var p2 = tr.place(1, Vector2(3, 0), 0.0, MEDIUM)
+	check(is_equal_approx(p0.timer_max, base_t) and is_equal_approx(p2.timer_max, base_t * 1.2), "Better Comms: level 2 gives timers +20%% (%.1f -> %.1f s)" % [p0.timer_max, p2.timer_max])
+	save.upgrades = {}
+	tr.release_all()
+	save.upgrades["holding"] = 3
+	check(tuning.hold_drain() < tuning.hold_drain_mult and tuning.hold_radius_eff() < tuning.hold_radius, "Holding Fixes: slower drain and a tighter circle")
+	var hz = tr.place(0, Vector2(-1.0, -2.0), 0.0, MEDIUM)
+	tr.toggle_hold(hz)
+	var t_hz = hz.timer_left
+	var r_err = 0.0
+	for i in 300:
+		main.step(1.0 / 60.0)
+		r_err = maxf(r_err, absf(hz.pos.distance_to(hz.hold_center) - tuning.hold_radius_eff()))
+	check(r_err < 0.02, "...it really circles at the tighter radius (%.2f)" % tuning.hold_radius_eff())
+	check(absf((t_hz - hz.timer_left) - 5.0 * tuning.hold_drain()) < 0.3, "...and drains at %.2fx" % tuning.hold_drain())
+	save.upgrades = {}
+	tr.release_all()
+	# Fast Turnoffs: the busy window after a landing is shorter.
+	var busy0 = tuning.landing_roll_time + tuning.runway_clear()
+	save.upgrades["turnoffs"] = 3
+	var busy3 = tuning.landing_roll_time + tuning.runway_clear()
+	check(busy3 < busy0 and is_equal_approx(tuning.runway_clear(), tuning.runway_clear_seconds * 0.1), "Fast Turnoffs: runways clear faster (%.2f -> %.2f s busy)" % [busy0, busy3])
+	var ta = tr.place(0, Airports.end_threshold(0, 0), 0.0, MEDIUM)
+	ta.push(ta.pos)
+	ta.push(Airports.end_far(0, 0))
+	ta.cleared = true
+	ta.land_end = 0
+	tr.step(1.0 / 60.0)
+	check(absf((tr._busy_until[0] - tr.run_time) - busy3) < 0.05, "...and the runway really is busy for only that long")
+	save.upgrades = {}
+	tr.release_all()
+	# Tower Staff: slower, thinner traffic.
+	check(tuning.traffic_speed_mult() == 1.0 and tuning.traffic_spawn_mult() == 1.0, "no upgrades: normal traffic")
+	save.upgrades["tower"] = 3
+	check(tuning.traffic_speed_mult() < 1.0 and tuning.traffic_spawn_mult() > 1.0, "Tower Staff: slower speeds (%.2fx) and fewer arrivals (%.2fx the gap)" % [tuning.traffic_speed_mult(), tuning.traffic_spawn_mult()])
+	var tw = tr.place(0, Vector2(-3, -4), PI * 0.5, MEDIUM)
+	tr.step(1.0)
+	var moved = tw.pos.x + 3.0
+	check(absf(moved - tuning.speed_medium * tuning.speed_mult(tr.run_time - 1.0 + 1.0) * 0.88) < 0.5 and moved < tuning.speed_medium * 1.0, "...aircraft really fly slower (%.2f units in a second)" % moved)
+	save.upgrades = {}
+	tr.release_all()
+	# Radar: wider view, earlier warnings, smooth re-framing.
+	check(is_equal_approx(tuning.view_size(), tuning.ortho_size), "no radar: the normal view")
+	var lead0 = tuning.entry_lead()
+	save.upgrades["radar"] = 3
+	check(tuning.view_size() > tuning.ortho_size * 1.3 and tuning.entry_lead() > lead0 + 1.5, "Radar level 3: a wider view (%.1f) and arrivals announced %.1f s earlier" % [tuning.view_size(), tuning.entry_lead() - lead0])
+	var vs0 = main.view_size
+	main._process(0.1)
+	var vs1 = main.view_size
+	check(vs1 > vs0 and vs1 < tuning.view_size() and is_equal_approx(main.camera.size, vs1), "the camera re-frames smoothly (%.2f -> %.2f of %.2f)" % [vs0, vs1, tuning.view_size()])
+	for i in 60:
+		main._process(0.1)
+	check(absf(main.view_size - tuning.view_size()) < 0.01 and absf(tr.half_w - main.view_size * 0.5) < 0.001, "...and settles on the new view")
+	var sp7 = tr.spawn()
+	var lead_seen = sp7.pos.distance_to(sp7.entry) / (sp7.speed * tuning.speed_mult(tr.run_time) * tuning.traffic_speed_mult())
+	check(absf(lead_seen - tuning.entry_lead()) < 0.05, "arrivals really spawn %.1f s out (%.2f)" % [tuning.entry_lead(), lead_seen])
+	tr.release_all()
+	save.upgrades = {}
+	for i in 80:
+		main._process(0.1)
+	check(absf(main.view_size - tuning.ortho_size) < 0.01, "...and zooms back without it")
+	# Approach Control: arrivals line up with the active runways.
+	set_wind(main, 0.0)
+	var aligned0 = 0
+	var aligned3 = 0
+	var total0 = 0
+	var total3 = 0
+	for level in [0, 3]:
+		save.upgrades["approach"] = level
+		for k in 400:
+			var sp8 = tr.spawn()
+			if sp8 == null:
+				continue
+			if sp8.tkind == 0 and not sp8.emergency:
+				var d8 = Vector2(sin(sp8.heading), -cos(sp8.heading))
+				var best_d = 99.0
+				for e in 2:
+					if main.wind.is_active(sp8.runway, e):
+						best_d = minf(best_d, tr._dist_to_segment(Airports.end_threshold(sp8.runway, e), sp8.entry, sp8.entry + d8 * 40.0))
+				if level == 0:
+					total0 += 1
+					aligned0 += 1 if best_d < 1.0 else 0
+				else:
+					total3 += 1
+					aligned3 += 1 if best_d < 1.0 else 0
+			tr.release_all()
+	check(float(aligned3) / maxf(total3, 1) > float(aligned0) / maxf(total0, 1) + 0.35 and float(aligned3) / maxf(total3, 1) > 0.6, "Approach Control: arrivals lined up with the active runway %d%% -> %d%%" % [100 * aligned0 / maxf(total0, 1), 100 * aligned3 / maxf(total3, 1)])
+	save.upgrades = {}
+	# Visible on the airport.
+	main.airfield.show_upgrades()
+	var any_vis = false
+	for id in Upgrades.IDS:
+		any_vis = any_vis or main.airfield.upgrade_nodes_visible(id) > 0
+	check(not any_vis, "with no upgrades none of their scenery shows")
+	var vis_ok = true
+	var counts = {}
+	for a_i in 6:
+		main.select_airport(a_i)
+		main.restart()
+		for id in Upgrades.IDS:
+			save.upgrades[id] = 1
+			main.airfield.show_upgrades()
+			var c1 = main.airfield.upgrade_nodes_visible(id)
+			save.upgrades[id] = 3
+			main.airfield.show_upgrades()
+			var c3 = main.airfield.upgrade_nodes_visible(id)
+			if not (c1 >= 1 and c3 > c1):
+				print("     upgrade scenery: airport %d %s level1=%d level3=%d" % [a_i + 1, id, c1, c3])
+			vis_ok = vis_ok and c1 >= 1 and c3 > c1
+			counts[id] = c3
+		save.upgrades = {}
+	check(vis_ok, "at every airport each upgrade adds scenery that grows with its level %s" % str(counts))
+	main.select_airport(2)
+	main.restart()
+	# The shop screen.
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main._show_menu()
+	var ids_menu = []
+	for k in main.hud._art.btn_count:
+		ids_menu.append(main.hud._art.btn_id[k])
+	check(ids_menu.has("upgrades") and ids_menu.has("airports"), "the menu has Airports and Upgrades buttons")
+	save.add_coins(200)
+	main._on_button("upgrades")
+	check(main.screen == main.SCREEN_UPGRADES and main.hud._select.visible and main.hud._select_title.text == "UPGRADES", "the upgrade shop opens")
+	var cards2 = {}
+	for k in main.hud._art.btn_count:
+		cards2[main.hud._art.btn_id[k]] = [main.hud._art.btn_rect[k], main.hud._art.btn_state[k], main.hud._art.btn_stars[k]]
+	check(cards2.has("upg:radar") and cards2.has("upg:turnoffs") and cards2.has("back"), "one card per upgrade, plus Back")
+	check(cards2["upg:comms"][1] == 2 and cards2["upg:radar"][1] == 1, "affordable cards are highlighted, unaffordable ones dim (200 coins)")
+	touch(main, 0, true, cards2["upg:radar"][0].get_center())
+	touch(main, 0, false, cards2["upg:radar"][0].get_center())
+	check(save.upgrade_level("radar") == 0 and save.coins == 200, "tapping an unaffordable card buys nothing")
+	var snap_shop = snapshot(main)
+	touch(main, 0, true, cards2["upg:comms"][0].get_center())
+	touch(main, 0, false, cards2["upg:comms"][0].get_center())
+	check(save.upgrade_level("comms") == 1 and save.coins == 200 - Upgrades.cost("comms", 0), "tapping an affordable card buys it (%d coins left)" % save.coins)
+	check(main.screen == main.SCREEN_UPGRADES and main.hud._art.btn_text[main.hud._art.btn_id.find("upg:comms")].ends_with("Lv 1"), "the card shows the new level")
+	var pop_up = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "Better Comms level 1!":
+			pop_up = true
+	check(pop_up, "a confirmation popup shows")
+	check(main.airfield.upgrade_nodes_visible("comms") >= 1, "...and the new mast appears on the airport")
+	check(same_world(snap_shop, snapshot(main)), "buying created nothing new")
+	save.write_file()
+	save.upgrades = {}
+	save.load_file()
+	check(save.upgrade_level("comms") == 1, "the purchase is saved")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.airfield.show_upgrades()
+	main._show_menu()
 	main.select_airport(2)
 
 	print("10. restart in place, best score, nothing new over many runs")

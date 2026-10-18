@@ -7,6 +7,7 @@ const SCREEN_MENU := 0
 const SCREEN_PLAY := 1
 const SCREEN_OVER := 2
 const SCREEN_SELECT := 3
+const SCREEN_UPGRADES := 4
 
 const HEADER_CONFLICT := "MID-AIR\nCONFLICT"
 const HEADER_STRIKES := "3 STRIKES"
@@ -42,6 +43,7 @@ var _death_ms := 0
 var _last_land_ms := 0
 var _haptic_warmed := false
 var _env: Environment
+var view_size := 10.0                 # world units across the screen width (the radar upgrade widens it, smoothly)
 # touch
 var _drag_index := -1
 var _drag_plane: Aircraft = null
@@ -54,6 +56,7 @@ const STREAK_WINDOW_MS := 5000
 
 func _ready() -> void:
 	Engine.max_physics_steps_per_frame = 1   # no physics here: a stall can never trigger catch-up steps
+	view_size = Tuning.view_size()
 	_setup_environment()
 	sun.look_at_from_position(Vector3.ZERO, Vector3(0.3, -0.8, -0.5))
 	sun.shadow_enabled = false
@@ -90,6 +93,7 @@ func _ready() -> void:
 	wind.start(traffic.rng)
 	airfield.show_active(wind)
 	hud.set_wind(wind.from_deg, wind.toward_deg())
+	airfield.show_upgrades()
 	hud.set_best(Save.best_for(airport))
 	if DebugFlags.tune_enabled():
 		tune_panel = TunePanel.new()
@@ -181,7 +185,7 @@ func restart() -> void:
 	fx.clear()
 	overlay.clear()
 	airfield.reset()
-	traffic.half_w = Tuning.ortho_size * 0.5
+	traffic.half_w = view_size * 0.5
 	traffic.half_h = _half_height()
 	traffic.release_all()
 	traffic.spawn_until = Tuning.shift_seconds
@@ -258,8 +262,9 @@ func run_wall_time() -> float:
 	return maxf((Time.get_ticks_msec() - _run_start_ms - _paused_total_ms) / 1000.0, 0.0)
 
 func _process(raw_delta: float) -> void:
+	view_size = lerpf(view_size, Tuning.view_size(), 1.0 - exp(-raw_delta * 3.0))   # the radar re-frames the view smoothly
 	_update_camera()
-	traffic.half_w = Tuning.ortho_size * 0.5
+	traffic.half_w = view_size * 0.5
 	traffic.half_h = _half_height()
 	if _warming or not alive:
 		return
@@ -544,11 +549,37 @@ func _touch_down(index: int, pos: Vector2) -> void:
 func _on_button(id: String) -> void:
 	if id == "airports":
 		_show_select()
+	elif id == "upgrades":
+		_show_upgrades()
+	elif id.begins_with("upg:"):
+		buy_upgrade(id.substr(4))
 	elif id == "back" or id == "menu":
 		_show_menu()
 	elif id.begins_with("airport:"):
 		select_airport(int(id.substr(8)))
 		restart()
+
+func _show_upgrades() -> void:
+	screen = SCREEN_UPGRADES
+	alive = false
+	var levels := PackedInt32Array()
+	for id in Upgrades.IDS:
+		levels.append(Save.upgrade_level(id))
+	hud.show_upgrades(Save.coins, levels)
+
+## Buy the next level of an upgrade: coins, saved, and visible on the airport (the radar re-frames the view).
+func buy_upgrade(id: String) -> bool:
+	if not Save.buy_upgrade(id):
+		return false
+	airfield.show_upgrades()
+	hud.flash(Color(0.4, 1.0, 0.6))
+	var vp := get_viewport().get_visible_rect().size
+	hud.popup("%s level %d!" % [Upgrades.upgrade_name(id), Save.upgrade_level(id)], Color(0.6, 1.0, 0.7), Vector2(vp.x * 0.5, vp.y * 0.2))
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(40)
+	if screen == SCREEN_UPGRADES:
+		_show_upgrades()
+	return true
 
 func select_airport(i: int) -> void:
 	airport = clampi(i, 0, Airports.COUNT - 1)
@@ -614,14 +645,14 @@ func _cancel_drag() -> void:
 
 func _update_camera() -> void:
 	var tilt := deg_to_rad(Tuning.camera_tilt_deg)
-	camera.size = Tuning.ortho_size
+	camera.size = view_size
 	camera.position = Vector3(0, cos(tilt), sin(tilt)) * 30.0
 	camera.rotation = Vector3(-(PI / 2 - tilt), 0, 0)
 
 ## The screen spans z = -half .. +half (stretched slightly by the camera tilt).
 func _half_height() -> float:
 	var vp := get_viewport().get_visible_rect().size
-	return Tuning.ortho_size * 0.5 * vp.y / vp.x / cos(deg_to_rad(Tuning.camera_tilt_deg))
+	return view_size * 0.5 * vp.y / vp.x / cos(deg_to_rad(Tuning.camera_tilt_deg))
 
 func _setup_environment() -> void:
 	var env := Environment.new()

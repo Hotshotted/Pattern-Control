@@ -128,6 +128,17 @@ func submit_best(airport: int, landed: int) -> bool:
 func best_for(airport: int) -> int:
 	return best[airport]
 
+## Buy the next level of an upgrade. Returns false (and changes nothing) if maxed or too expensive.
+func buy_upgrade(id: String) -> bool:
+	var lvl := upgrade_level(id)
+	var price := Upgrades.cost(id, lvl)
+	if price < 0 or coins < price:
+		return false
+	coins -= price
+	upgrades[id] = lvl + 1
+	write_file()
+	return true
+
 func upgrade_level(id: String) -> int:
 	return int(upgrades.get(id, 0))
 

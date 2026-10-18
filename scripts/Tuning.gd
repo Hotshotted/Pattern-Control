@@ -112,6 +112,17 @@ var pad_land_seconds := 1.1
 ## How long a "first time this type appears" tip stays up.
 var tip_seconds := 5.0
 
+# ---------- Upgrades (effect per level; levels come from the save) ----------
+var upg_radar_zoom := 0.12          # the view is this much wider per level...
+var upg_radar_lead := 0.6           # ...and arrivals are announced this many seconds earlier
+var upg_approach_bias := 0.25       # chance an arrival comes in lined up with an active runway, per level
+var upg_tower_speed := 0.04         # traffic this much slower per level...
+var upg_tower_spawn := 0.06         # ...and arrivals this much rarer
+var upg_comms_timer := 0.10         # timers this much longer per level
+var upg_holding_drain := 0.20       # holding drains this much slower per level...
+var upg_holding_radius := 0.12      # ...and circles this much tighter
+var upg_turnoff_clear := 0.30       # runways clear this much faster per level
+
 # ---------- Wind ----------
 ## A runway end is active when its landing heading is within this many degrees of the wind's direction.
 var wind_tolerance_deg := 60.0
@@ -171,6 +182,37 @@ var grass_color := Color(0.36, 0.62, 0.36)
 var outline_thickness := 0.05
 
 # ---------- Derived ----------
+func upg(id: String) -> int:
+	return Save.upgrade_level(id)
+
+func timer_mult() -> float:
+	return 1.0 + upg_comms_timer * upg("comms")
+
+func hold_drain() -> float:
+	return hold_drain_mult * (1.0 - upg_holding_drain * upg("holding"))
+
+func hold_radius_eff() -> float:
+	return hold_radius * (1.0 - upg_holding_radius * upg("holding"))
+
+func runway_clear() -> float:
+	return runway_clear_seconds * (1.0 - upg_turnoff_clear * upg("turnoffs"))
+
+func traffic_speed_mult() -> float:
+	return 1.0 - upg_tower_speed * upg("tower")
+
+func traffic_spawn_mult() -> float:
+	return 1.0 + upg_tower_spawn * upg("tower")
+
+func approach_bias() -> float:
+	return upg_approach_bias * upg("approach")
+
+func entry_lead() -> float:
+	return entry_warning_seconds + upg_radar_lead * upg("radar")
+
+## World units visible across the screen width: the radar zooms out.
+func view_size() -> float:
+	return ortho_size * (1.0 + upg_radar_zoom * upg("radar"))
+
 func spawn_progress(t: float) -> float:
 	return clampf(t / maxf(spawn_ramp_seconds, 1.0), 0.0, 1.0)
 
