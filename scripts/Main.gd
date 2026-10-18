@@ -1,0 +1,414 @@
+class_name Main
+extends Node3D
+## Wires the game together and runs the three screens (menu -> play -> game over -> play ...).
+## Restarting is IN PLACE: nothing is reloaded, created or freed; only the game state resets.
+
+const SCREEN_MENU := 0
+const SCREEN_PLAY := 1
+const SCREEN_OVER := 2
+
+const HEADER_CONFLICT := "MID-AIR\nCONFLICT"
+const HEADER_FUEL := "OUT OF\nFUEL"
+
+@onready var camera: Camera3D = $Camera3D
+@onready var sun: DirectionalLight3D = $Sun
+@onready var airfield: Airfield = $Airfield
+@onready var traffic: Traffic = $Traffic
+@onready var fx: Fx = $Fx
+@onready var overlay: Overlay = $Overlay
+@onready var hud: Hud = $Hud
+
+var tune_panel: TunePanel
+var screen := SCREEN_MENU
+var alive := false
+var score := 0
+var streak := 0                       # landings within streak_window of each other
+var over_reason := ""
+var over_header := ""
+var new_best := false
+var elapsed := 0.0                    # seconds into this run
+
+var _warming := false
+var _warmed := false
+var _death_ms := 0
+var _last_land_ms := 0
+var _haptic_warmed := false
+var _env: Environment
+# touch
+var _drag_index := -1
+var _drag_plane: Aircraft = null
+var _drag_active := false
+var _touch_start := Vector2.ZERO
+var _touch_ms := 0
+var _last_world := Vector2.ZERO
+
+const STREAK_WINDOW_MS := 5000
+
+func _ready() -> void:
+	Engine.max_physics_steps_per_frame = 1   # no physics here: a stall can never trigger catch-up steps
+	_setup_environment()
+	sun.look_at_from_position(Vector3.ZERO, Vector3(0.3, -0.8, -0.5))
+	sun.shadow_enabled = false
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.keep_aspect = Camera3D.KEEP_WIDTH
+	camera.near = 0.1
+	camera.far = 100.0
+	_update_camera()
+	overlay.traffic = traffic
+	overlay.camera = camera
+	traffic.landed.connect(_on_landed)
+	traffic.conflict.connect(_on_conflict)
+	traffic.fuel_out.connect(_on_fuel_out)
+	traffic.cleared.connect(_on_cleared)
+	traffic.wrong_runway.connect(_on_wrong_runway)
+	hud.set_best(Save.best)
+	if DebugFlags.tune_enabled():
+		tune_panel = TunePanel.new()
+		add_child(tune_panel)
+		tune_panel.build()
+		tune_panel.changed.connect(func(_p: String): pass)
+	if not _warmed:
+		_warmed = true
+		if DebugFlags.prewarm_enabled():
+			_prewarm()
+	if not _warming:
+		_show_menu()
+	if not _warming and tune_panel:
+		tune_panel.set_available(true)
+
+## First-use stutter fix: GL shaders / particle buffers / font glyphs set themselves up the first time
+## they are used. So at boot, behind a splash, draw EVERYTHING for real (every plane, flashing; paths,
+## rings, ripples, bursts, popups, every screen's text, the tuning panel) and KEEP drawing until frame
+## times settle (Tuning.prewarm_*). Then hide it all. Runs once per session. Skip with ?noprewarm.
+func _prewarm() -> void:
+	_warming = true
+	hud.begin_prewarm()
+	traffic.prewarm_show()
+	overlay.prewarm()
+	if tune_panel:
+		tune_panel.prewarm_show(true)
+	var t_start := Time.get_ticks_msec()
+	var t_last := t_start
+	var t_refresh := -100000
+	var calm_frames := 0
+	while true:
+		var now := Time.get_ticks_msec()
+		if now - t_refresh > 350:
+			t_refresh = now
+			fx.prewarm(Vector2(0, 0))
+			hud.prewarm_popups()
+			overlay.prewarm()
+			airfield.glow(0)
+			airfield.glow(1)
+		await get_tree().process_frame
+		var t := Time.get_ticks_msec()
+		calm_frames = calm_frames + 1 if (t - t_last) < Tuning.prewarm_stable_ms else 0
+		t_last = t
+		var elapsed_s := (t - t_start) / 1000.0
+		if elapsed_s >= Tuning.prewarm_max_seconds:
+			break
+		if elapsed_s >= Tuning.prewarm_min_seconds and calm_frames >= Tuning.prewarm_stable_frames:
+			break
+	fx.clear()
+	traffic.prewarm_hide()
+	overlay.clear()
+	airfield.reset()
+	hud.end_prewarm()
+	if tune_panel:
+		tune_panel.prewarm_show(false)
+		tune_panel.set_available(true)
+	_warming = false
+	_show_menu()
+
+## Start a fresh run IN PLACE.
+func restart() -> void:
+	screen = SCREEN_PLAY
+	alive = true
+	score = 0
+	streak = 0
+	elapsed = 0.0
+	new_best = false
+	over_reason = ""
+	over_header = ""
+	sim_time = 0.0
+	_run_start_ms = Time.get_ticks_msec()
+	_paused_total_ms = 0
+	_skip_frames = 0
+	_last_land_ms = 0
+	_drag_index = -1
+	_drag_plane = null
+	_drag_active = false
+	_note_event("run started")
+	get_tree().paused = false
+	fx.clear()
+	overlay.clear()
+	airfield.reset()
+	traffic.half_w = Tuning.ortho_size * 0.5
+	traffic.half_h = _half_height()
+	traffic.release_all()
+	hud.reset_for_run(Save.best)
+
+func _show_menu() -> void:
+	screen = SCREEN_MENU
+	alive = false
+	hud.show_menu(Save.best)
+
+# ---------- Frame time: the simulation can never run ahead of the clock ----------
+# However long the real frame was, the simulation advances by at most Tuning.max_frame_delta; a stall (a tab
+# switch, a long hitch) is dropped, not simulated; and a couple of frames are skipped after a stall or the
+# window coming back, so nothing catches up. ?perf logs every frame over 50 ms and what was going on.
+
+var _skip_frames := 0
+var _suspended := false
+var _event := ""
+var _event_frame := -100
+var sim_time := 0.0
+var _run_start_ms := 0
+var _paused_since_ms := 0
+var _paused_total_ms := 0
+
+func _note_event(what: String) -> void:
+	_event = what
+	_event_frame = Engine.get_process_frames()
+
+func _frame_delta(raw: float) -> float:
+	var used := 0.0
+	var why := ""
+	if _suspended:
+		why = "window in the background"
+	elif _skip_frames > 0:
+		_skip_frames -= 1
+		why = "skipped (resuming)"
+	elif raw > Tuning.stall_delta:
+		_skip_frames = Tuning.resume_skip_frames
+		why = "stall dropped"
+	else:
+		used = minf(raw, Tuning.max_frame_delta)
+		why = "clamped" if raw > Tuning.max_frame_delta else ""
+	if raw > 0.05 and DebugFlags.perf_enabled():
+		hud.note_hitch(raw, used, why, _hitch_context())
+	return used
+
+func _hitch_context() -> String:
+	var parts: Array[String] = []
+	if Engine.get_process_frames() - _event_frame <= 4 and _event != "":
+		parts.append(_event)
+	parts.append("%d plane(s)" % traffic.active_count())
+	return ", ".join(parts)
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+			if not _suspended:
+				_suspended = true
+				_paused_since_ms = Time.get_ticks_msec()
+				_note_event("window went to the background")
+		NOTIFICATION_APPLICATION_FOCUS_IN, NOTIFICATION_APPLICATION_RESUMED, NOTIFICATION_WM_WINDOW_FOCUS_IN:
+			if _suspended:
+				_suspended = false
+				_paused_total_ms += Time.get_ticks_msec() - _paused_since_ms
+				_skip_frames = Tuning.resume_skip_frames
+				_cancel_drag()
+				_note_event("window came back")
+
+func run_wall_time() -> float:
+	return maxf((Time.get_ticks_msec() - _run_start_ms - _paused_total_ms) / 1000.0, 0.0)
+
+func _process(raw_delta: float) -> void:
+	_update_camera()
+	traffic.half_w = Tuning.ortho_size * 0.5
+	traffic.half_h = _half_height()
+	if _warming or not alive:
+		return
+	var delta := _frame_delta(raw_delta)
+	if DebugFlags.perf_enabled():
+		hud.set_clock(sim_time, run_wall_time())
+	if delta <= 0.0:
+		return
+	sim_time += delta
+	elapsed += delta
+	step(delta)
+
+## One simulation step (the tests call this directly).
+func step(delta: float) -> void:
+	traffic.step(delta)
+	var worst := 0.0
+	for p in traffic.planes:
+		if p.active():
+			worst = maxf(worst, p.warn)
+	hud.set_alert(alive and worst > 0.55)
+	if _drag_active and (_drag_plane == null or not _drag_plane.active()):
+		_cancel_drag()
+
+# ---------- Game events ----------
+
+func _on_landed(p: Aircraft) -> void:
+	if not alive:
+		return
+	score += 1
+	var now := Time.get_ticks_msec()
+	streak = streak + 1 if _last_land_ms != 0 and now - _last_land_ms < STREAK_WINDOW_MS else 1
+	_last_land_ms = now
+	var col: Color = Tuning.runway_colors[p.runway]
+	var land_at := p.pos
+	hud.set_score(score, true)
+	fx.burst(land_at, col)
+	fx.burst(land_at, Color.WHITE)
+	overlay.ripple(land_at, col, 1.0)
+	overlay.ripple(land_at, Color.WHITE, 0.6)
+	airfield.glow(p.runway)
+	var text := "+1"
+	var tcol := Color(1, 1, 1)
+	if p.low_fuel:
+		text = "SAVED! +1"
+		tcol = Color(1.0, 0.9, 0.3)
+	elif streak >= 3:
+		text = "+1  x%d" % streak
+		tcol = col.lerp(Color.WHITE, 0.4)
+	hud.popup(text, tcol, overlay.world_to_screen(land_at) + Vector2(0, -80))
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(Tuning.haptic_ms)
+
+func _on_cleared(p: Aircraft) -> void:
+	overlay.ripple(Tuning.runway_threshold(p.runway), Tuning.runway_colors[p.runway], 0.5)
+
+func _on_wrong_runway(p: Aircraft) -> void:
+	var other := 1 - p.runway
+	overlay.ripple(Tuning.runway_threshold(other), Color(1, 0.25, 0.2), 0.7)
+	hud.popup("WRONG RUNWAY", Color(1, 0.4, 0.35), overlay.world_to_screen(Tuning.runway_threshold(other)) + Vector2(0, 120))
+
+func _on_conflict(a: Aircraft, b: Aircraft) -> void:
+	if not alive:
+		return
+	var mid := (a.pos + b.pos) * 0.5
+	fx.burst(mid, Color(1.0, 0.5, 0.1), true)
+	fx.burst(mid, Color(1.0, 0.15, 0.1), true)
+	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
+	_end_run(HEADER_CONFLICT, "Two planes got too close.")
+
+func _on_fuel_out(p: Aircraft) -> void:
+	if not alive:
+		return
+	fx.burst(p.pos, Color(1.0, 0.8, 0.2), true)
+	overlay.ripple(p.pos, Color(1, 0.8, 0.2), 1.3)
+	_end_run(HEADER_FUEL, "A flashing plane ran dry.")
+
+func _end_run(header: String, reason: String) -> void:
+	alive = false
+	screen = SCREEN_OVER
+	_death_ms = Time.get_ticks_msec()
+	over_header = header
+	over_reason = reason
+	new_best = Save.submit(score)
+	_cancel_drag()
+	hud.set_alert(false)
+	hud.flash(Color(1, 0.1, 0.1))
+	hud.show_over(header, reason, score, Save.best, new_best)
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(150)
+
+# ---------- Input ----------
+
+func _input(event: InputEvent) -> void:
+	if not (event is InputEventScreenTouch or event is InputEventScreenDrag):
+		return
+	# A touch on the tuning panel's TUNE button belongs to the button, not the game.
+	if TunePanel.button_hit(event.position):
+		return
+	if not _haptic_warmed:
+		_haptic_warmed = true
+		if not DebugFlags.off("haptic"):
+			Input.vibrate_handheld(1)   # browsers only allow vibration after a touch: connect it early
+	if _warming:
+		return
+	if event is InputEventScreenTouch:
+		if event.pressed:
+			_touch_down(event.index, event.position)
+		else:
+			_touch_up(event.index, event.position)
+	else:
+		_touch_move(event.index, event.position)
+
+func _touch_down(index: int, pos: Vector2) -> void:
+	if screen == SCREEN_MENU or (screen == SCREEN_OVER and Time.get_ticks_msec() - _death_ms > 600):
+		restart()
+		return
+	if screen != SCREEN_PLAY or not alive or _drag_index != -1:
+		return
+	var w := overlay.screen_to_world(pos)
+	var p := traffic.pick(w)
+	if p == null:
+		return
+	_drag_index = index
+	_drag_plane = p
+	_drag_active = false
+	_touch_start = w
+	_touch_ms = Time.get_ticks_msec()
+	_last_world = w
+	overlay.selected = p
+
+func _touch_move(index: int, pos: Vector2) -> void:
+	if index != _drag_index or _drag_plane == null:
+		return
+	var w := overlay.screen_to_world(pos)
+	_last_world = w
+	feed_drag(w)
+
+## The finger is at world position `w` (the tests call this directly).
+func feed_drag(w: Vector2) -> void:
+	if _drag_plane == null:
+		return
+	if not _drag_plane.active():
+		_cancel_drag()
+		return
+	if not _drag_active:
+		if w.distance_to(_touch_start) < Tuning.tap_slop:
+			return
+		_drag_active = true
+		traffic.begin_path(_drag_plane)
+		overlay.active_runway = _drag_plane.runway
+	if traffic.extend_path(_drag_plane, w):
+		_cancel_drag()
+
+func _touch_up(index: int, pos: Vector2) -> void:
+	if index != _drag_index:
+		return
+	var p := _drag_plane
+	if p != null and p.active():
+		if _drag_active:
+			traffic.end_path(p, overlay.screen_to_world(pos))
+		elif Time.get_ticks_msec() - _touch_ms <= Tuning.tap_max_ms:
+			traffic.toggle_hold(p)
+	_cancel_drag()
+
+func _cancel_drag() -> void:
+	_drag_index = -1
+	_drag_plane = null
+	_drag_active = false
+	overlay.selected = null
+	overlay.active_runway = -1
+
+# ---------- Camera ----------
+
+func _update_camera() -> void:
+	var tilt := deg_to_rad(Tuning.camera_tilt_deg)
+	camera.size = Tuning.ortho_size
+	camera.position = Vector3(0, cos(tilt), sin(tilt)) * 30.0
+	camera.rotation = Vector3(-(PI / 2 - tilt), 0, 0)
+
+## The screen spans z = -half .. +half (stretched slightly by the camera tilt).
+func _half_height() -> float:
+	var vp := get_viewport().get_visible_rect().size
+	return Tuning.ortho_size * 0.5 * vp.y / vp.x / cos(deg_to_rad(Tuning.camera_tilt_deg))
+
+func _setup_environment() -> void:
+	var env := Environment.new()
+	_env = env
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.2, 0.26, 0.34)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.8, 0.82, 0.9)
+	env.ambient_light_energy = 0.5
+	var we := WorldEnvironment.new()
+	we.environment = env
+	add_child(we)

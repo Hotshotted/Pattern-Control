@@ -1,0 +1,32 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/Main.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/Airfield.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/Traffic.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/Overlay.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/Hud.gd" id="5"]
+[ext_resource type="Script" path="res://scripts/Fx.gd" id="6"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.7, 0.7, 0, -0.7, 0.7, 0, 5, 0)
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, 9)
+
+[node name="Airfield" type="Node3D" parent="."]
+script = ExtResource("2")
+
+[node name="Traffic" type="Node3D" parent="."]
+script = ExtResource("3")
+
+[node name="Fx" type="Node3D" parent="."]
+script = ExtResource("6")
+
+[node name="Overlay" type="CanvasLayer" parent="."]
+script = ExtResource("4")
+
+[node name="Hud" type="CanvasLayer" parent="."]
+script = ExtResource("5")
