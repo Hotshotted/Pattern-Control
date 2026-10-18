@@ -13,6 +13,8 @@ extends SceneTree
 ##   9b. wind: active ends, the shift warning, re-routing, windsock
 ##   9c. airports: six layouts, unlock by stars, select screen, crossing runways (conflict), busy runway
 ##       (go around), terrain (crash = strike), cycling airports creates nothing
+##   9d. special aircraft: helicopters (pad, hover), gliders (one path, no hold), jets (long runways), seaplanes
+##       (lane), emergencies (any runway, bonus), VIPs (lose the bonus if held), first-time tips
 ##   9. shifts: star goals and progress, stars / coins / first-time bonus, versioned save (v1 migrates)
 ##   8. edges: a plane with no path turns back instead of leaving
 ##   9. restart in place after game over (tap), best score kept, and NOTHING new is created over many runs
@@ -26,6 +28,7 @@ const HELI := 1
 const SMALL := 2
 const MEDIUM := 3
 const JET := 4
+const SEAPLANE := 5
 const MAX_POOL := 16
 const EMITTERS := 4
 
@@ -359,7 +362,7 @@ func _initialize() -> void:
 		apart = apart and absf(glow_cols[ci].r - 1.0) + absf(glow_cols[ci].g - 0.12) + absf(glow_cols[ci].b - 0.1) > 0.5 or ci == 2
 	check(apart, "entry glow colours (green / yellow / red) differ from each other and from the runway colours")
 	check(tuning.entry_pulse(0) < tuning.entry_pulse(1) and tuning.entry_pulse(1) < tuning.entry_pulse(2), "faster planes pulse faster")
-	check(colors.size() == 2 and classes.size() == 3, "both colours and all three aircraft types appear")
+	check(colors.size() == 2 and classes.size() >= 4, "both colours and many aircraft types appear (%d)" % classes.size())
 	tr.auto_spawn = false
 	# Planes entering from outside are untouchable until they are on screen.
 	var ent = tr.place(0, Vector2(0.0, -9.9), 0.0, MEDIUM, false)
@@ -521,13 +524,13 @@ func _initialize() -> void:
 	check(main.shift.goals.size() == 3 and main.hud._art.goal_text[0].begins_with("Land"), "the HUD lists the three star goals (%s)" % main.hud._art.goal_text[0])
 	var fake = Aircraft.new()
 	fake.runway = 0
-	fake.type = JET
+	fake.type = HELI
 	fake.pos = Vector2(0, 0)
 	save.reset_all()
 	for k in 3:
 		main._on_landed(fake)
 	check(main.shift.progress(0) == 3 and main.hud._art.goal_text[0].ends_with("3/25"), "landings show as progress (%s)" % main.hud._art.goal_text[0])
-	check(main.shift.state(1) == 0 and main.shift.progress(1) == 3, "jets count toward the jet goal")
+	check(main.shift.state(1) == 1 and main.shift.progress(1) == 3, "Regional's second goal (3 helicopters) is met by 3 helicopter landings")
 	fake.type = MEDIUM
 	for k in 22:
 		main._on_landed(fake)
@@ -537,9 +540,6 @@ func _initialize() -> void:
 		if l.visible and l.text == "STAR!":
 			star_pop = true
 	check(star_pop, "a STAR! popup shows when a goal is met")
-	fake.type = JET
-	main._on_landed(fake)
-	check(main.shift.progress(1) == 4 and main.shift.state(1) == 1, "the jet goal is met at 4 jets")
 	check(main.shift.state(2) == 0, "no-strikes stays pending until the shift is complete")
 	# Finish the shift cleanly: stop spawning, field empty.
 	tr.spawn_until = 0.0
@@ -555,6 +555,7 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	for k in 25:
+		fake.type = HELI if k < 3 else MEDIUM
 		main._on_landed(fake)
 	tr.spawn_until = 0.0
 	tr.run_time = tuning.shift_seconds + 1.0
@@ -866,6 +867,213 @@ func _initialize() -> void:
 	var after_cycle = snapshot(main)
 	check(same_world(before_cycle, after_cycle), "cycling through all six airports created nothing new  [%s]" % describe(after_cycle))
 
+	print("9d. special aircraft")
+	check(tuning.timer_seaplane > tuning.timer_heli and tuning.timer_seaplane < tuning.timer_jet, "seaplane timer sits between helicopter and jet")
+	# Which airports can spawn what.
+	var mix_ok = true
+	var jets_long = true
+	for a_i in 6:
+		main.select_airport(a_i)
+		main.restart()
+		tr.auto_spawn = false
+		var seen = {}
+		for k in 250:
+			var sp5 = tr.spawn()
+			if sp5 != null:
+				seen[sp5.type] = true
+				if sp5.type == JET:
+					jets_long = jets_long and Airports.is_long(sp5.runway)
+				if sp5.type == HELI:
+					mix_ok = mix_ok and sp5.tkind == 1 and sp5.runway < Airports.pads().size()
+				if sp5.type == SEAPLANE:
+					mix_ok = mix_ok and sp5.tkind == 2 and sp5.runway < Airports.lanes().size()
+				tr.release_all()
+		mix_ok = mix_ok and (not seen.has(HELI) or Airports.pads().size() > 0) and (not seen.has(SEAPLANE) or Airports.lanes().size() > 0)
+		if Airports.pads().size() == 0:
+			mix_ok = mix_ok and not seen.has(HELI)
+		var long_any = false
+		for r in Airports.rw_count():
+			long_any = long_any or Airports.is_long(r)
+		mix_ok = mix_ok and (long_any or not seen.has(JET))
+	check(mix_ok, "helicopters only where there is a pad, seaplanes only where there is a lane, jets only where a runway is long")
+	check(jets_long, "jets are always given a long runway")
+	# Helicopter on Regional.
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var pad_c = Airports.pads()[0]["center"]
+	var hc = tr.place(0, pad_c + Vector2(-2.5, -2.0), 0.5, HELI)
+	check(hc.tkind == 1 and is_equal_approx(hc.timer_max, tuning.timer_heli) and tr._heli_groups[tr.planes.find(hc)].visible and not tr._plane_groups[tr.planes.find(hc)].visible, "a helicopter has its own model and the helicopter timer")
+	var refused_txt = [""]
+	tr.refused.connect(func(_p, t, _a): refused_txt[0] = t)
+	draw_path(main, hc, [hc.pos + Vector2(0.5, 0.0), Airports.end_threshold(0, 0)])
+	check(not hc.cleared and refused_txt[0] == "Helicopters land on the helipad", "a helicopter can't be sent to a runway (%s)" % refused_txt[0])
+	hc.clear_path()
+	draw_path(main, hc, [hc.pos + (pad_c - hc.pos).normalized() * 0.8, pad_c])
+	check(hc.cleared and hc.tkind == 1, "a path ending on the helipad clears a helicopter")
+	var sc_h = main.score
+	for i in 900:
+		main.step(1.0 / 60.0)
+		if not hc.active():
+			break
+	check(main.score == sc_h + 1 and not hc.active(), "...and it lands there")
+	# Hover.
+	var hv = tr.place(0, Vector2(-1.0, -3.0), 1.0, HELI)
+	var hv_pos = hv.pos
+	var tl0 = hv.timer_left
+	tr.toggle_hold(hv)
+	run_sec(main, 4.0)
+	check(hv.state == Aircraft.State.HOLD and hv.hovering and hv.pos.distance_to(hv_pos) < 0.001, "tapping a helicopter makes it hover on the spot")
+	check(absf((tl0 - hv.timer_left) - 4.0 * tuning.hold_drain_mult) < 0.35, "...burning its timer slowly")
+	tr.toggle_hold(hv)
+	check(hv.state == Aircraft.State.FLY and not hv.hovering, "tap again and it flies on")
+	tr.release_all()
+	# Gliders.
+	main.select_airport(0)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var gl = tr.place(0, Vector2(1.5, -4.0), PI, GLIDER)
+	check(is_equal_approx(gl.timer_max, tuning.timer_glider) and gl.speed < tuning.speed_slow, "a glider is slow with the shortest timer")
+	tr.toggle_hold(gl)
+	check(gl.state == Aircraft.State.FLY and refused_txt[0] == "Gliders can't hold", "gliders can't hold (%s)" % refused_txt[0])
+	draw_path(main, gl, [gl.pos + Vector2(0.0, 0.8), gl.pos + Vector2(-1.0, 2.0)])
+	check(gl.locked and not gl.cleared, "a glider's first path (that misses the runway) is final")
+	check(not tr.begin_path(gl) and refused_txt[0] == "Glider: first path only", "...it refuses a second one")
+	var gl2 = tr.place(0, Airports.end_threshold(0, 1) + Vector2(0.5, -3.0), PI, GLIDER)
+	draw_path(main, gl2, [gl2.pos + Vector2(0, 1.0), Airports.end_threshold(0, 0) if false else Airports.end_threshold(0, 0)])
+	set_wind(main, 180.0)
+	tr.release_all()
+	var gl3 = tr.place(0, Airports.end_threshold(0, 1) + Vector2(0.5, -3.0), PI, GLIDER)
+	draw_path(main, gl3, [gl3.pos + Vector2(0, 0.8), Airports.end_threshold(0, 1)])
+	check(gl3.cleared and gl3.locked, "a glider that gets it right on the first path lands")
+	tr.release_all()
+	# Jets need a long runway.
+	main.select_airport(3)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var jt = tr.place(0, Airports.end_threshold(0, 0) + Vector2(0.4, 3.0), 0.0, JET)
+	draw_path(main, jt, [jt.pos + Vector2(0, -0.8), Airports.end_threshold(0, 0)])
+	check(not jt.cleared and refused_txt[0] == "Too short for jets", "a jet can't land on a short runway (%s)" % refused_txt[0])
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var jt2 = tr.place(0, Airports.end_threshold(0, 0) + Vector2(0.4, 3.0), 0.0, JET)
+	draw_path(main, jt2, [jt2.pos + Vector2(0, -0.8), Airports.end_threshold(0, 0)])
+	check(jt2.cleared, "...but it can on a long one")
+	check(tuning.type_speed(JET) > tuning.type_speed(MEDIUM) and tuning.timer_jet > tuning.timer_medium, "jets are fast with the longest timer")
+	tr.release_all()
+	# Seaplanes on Island.
+	main.select_airport(4)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var lane_e = Airports.land_threshold(2, 0, 0)
+	var sp_a = tr.place(0, lane_e + Vector2(-0.5, -3.0), PI, SEAPLANE)
+	check(sp_a.tkind == 2 and tr._float_groups[tr.planes.find(sp_a)].visible, "a seaplane has floats and lands on lanes")
+	draw_path(main, sp_a, [sp_a.pos + Vector2(0, 0.8), Airports.end_threshold(0, 0)])
+	check(not sp_a.cleared and refused_txt[0] == "Seaplanes land on water", "a seaplane can't be sent to a runway (%s)" % refused_txt[0])
+	sp_a.clear_path()
+	draw_path(main, sp_a, [sp_a.pos + (lane_e - sp_a.pos).normalized() * 0.8, lane_e])
+	check(sp_a.cleared and sp_a.tkind == 2, "a path to the water lane clears it")
+	var sc_p = main.score
+	for i in 900:
+		main.step(1.0 / 60.0)
+		if not sp_a.active():
+			break
+	check(main.score == sc_p + 1, "...and it lands on the water")
+	refused_txt[0] = ""
+	var fm = tr.place(0, Vector2(-4.3, 6.2), 0.0, MEDIUM)
+	draw_path(main, fm, [fm.pos + Vector2(0.4, -0.4), Airports.land_threshold(2, 0, 0)])
+	check(not fm.cleared and refused_txt[0] == "Water lane: seaplanes only", "an ordinary plane is refused the lane (%s)" % refused_txt[0])
+	tr.release_all()
+	# Emergency: short timer, any runway, flashing, bonus.
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var em = tr.place(0, Airports.end_threshold(1, 0) + Vector2(0.3, 3.0), 0.0, MEDIUM)
+	tr.make_special(em, true, false)
+	check(is_equal_approx(em.timer_max, tuning.timer_medium * tuning.emergency_timer_mult), "an emergency has a shortened timer")
+	var emi = tr.planes.find(em)
+	var colors_seen = {}
+	for k in 40:
+		em.age = k * 0.05
+		tr._sync(em, emi)
+		colors_seen[tr._body_mats[emi].albedo_color] = true
+	check(colors_seen.size() >= 2, "an emergency flashes")
+	draw_path(main, em, [em.pos + Vector2(0, -0.8), Airports.end_threshold(1, 0)])
+	check(em.cleared and em.runway == 1, "an emergency can land on any suitable runway (its colour doesn't matter)")
+	var coins_em = main.shift_coins
+	for i in 900:
+		main.step(1.0 / 60.0)
+		if not em.active():
+			break
+	check(main.shift_coins >= coins_em + tuning.emergency_bonus_coins and main.shift.landed_emergency == 1, "landing an emergency pays a big bonus and counts")
+	# VIP.
+	var vp1 = tr.place(0, Airports.end_threshold(0, 0) + Vector2(0.3, 3.0), 0.0, MEDIUM)
+	tr.make_special(vp1, false, true)
+	var coins_v = main.shift_coins
+	draw_path(main, vp1, [vp1.pos + Vector2(0, -0.8), Airports.end_threshold(0, 0)])
+	for i in 900:
+		main.step(1.0 / 60.0)
+		if not vp1.active():
+			break
+	check(main.shift_coins - coins_v == tuning.coins_per_landing + tuning.vip_bonus_coins and main.shift.landed_vip == 1, "a VIP landed promptly pays the VIP bonus")
+	var vp2 = tr.place(1, Vector2(2.0, -2.0), 0.0, MEDIUM)
+	tr.make_special(vp2, false, true)
+	tr.toggle_hold(vp2)
+	check(not vp2.vip_ok and refused_txt[0] == "VIP delayed: bonus lost", "holding a VIP loses its bonus (%s)" % refused_txt[0])
+	tr.toggle_hold(vp2)
+	vp2.pos = Airports.end_threshold(1, 0)
+	vp2.push(vp2.pos)
+	vp2.push(Airports.end_far(1, 0))
+	vp2.cleared = true
+	vp2.land_end = 0
+	var coins_v2 = main.shift_coins
+	var vip_before = main.shift.landed_vip
+	for i in 900:
+		main.step(1.0 / 60.0)
+		if not vp2.active():
+			break
+	check(main.shift_coins - coins_v2 == tuning.coins_per_landing and main.shift.landed_vip == vip_before, "...a held VIP lands without the bonus and doesn't count for the goal")
+	# Tips: first sighting only, remembered.
+	save.tips_seen = {}
+	main.hud._tip.visible = false
+	var tg = tr.place(0, Vector2(0, 0), 0.0, GLIDER)
+	main._on_appeared(tg)
+	check(main.hud._tip.visible and main.hud._tip.text.begins_with("Glider"), "the first glider shows a one-line tip (%s)" % main.hud._tip.text)
+	check(save.tips_seen.has("glider"), "...and it is remembered")
+	main.hud._tip.visible = false
+	main._on_appeared(tg)
+	check(not main.hud._tip.visible, "it is not shown a second time")
+	for tt in [[HELI, "heli"], [JET, "jet"], [SEAPLANE, "seaplane"]]:
+		var tp2 = tr.place(0, Vector2(0, 0), 0.0, tt[0])
+		main._on_appeared(tp2)
+		check(save.tips_seen.has(tt[1]), "a first %s gets its tip" % tt[1])
+	var tv = tr.place(0, Vector2(0, 0), 0.0, MEDIUM)
+	tr.make_special(tv, false, true)
+	main._on_appeared(tv)
+	check(save.tips_seen.has("vip"), "...and so does the first VIP")
+	var te = tr.place(0, Vector2(0, 0), 0.0, MEDIUM)
+	tr.make_special(te, true, false)
+	main._on_appeared(te)
+	check(save.tips_seen.has("emergency"), "...and the first emergency")
+	var pop_em = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "EMERGENCY":
+			pop_em = true
+	check(pop_em, "every emergency announces itself")
+	save.write_file()
+	save.tips_seen = {}
+	save.load_file()
+	check(save.tips_seen.has("glider") and save.tips_seen.has("emergency"), "seen tips survive a reload")
+	tr.release_all()
+	main.select_airport(2)
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
@@ -886,7 +1094,10 @@ func _initialize() -> void:
 				break
 			for pl in tr.planes:
 				if pl.active() and pl.entered and pl.state == Aircraft.State.FLY and not pl.cleared and pl.count == 0 and rng.randf() < 0.05:
-					var th: Vector2 = Airports.end_threshold(pl.runway, 0 if main.wind.is_active(pl.runway, 0) else 1)
+					var e_ap = 0
+					if pl.tkind == 0 and not main.wind.is_active(pl.runway, 0):
+						e_ap = 1
+					var th: Vector2 = Airports.land_threshold(pl.tkind, pl.runway, e_ap)
 					draw_path(main, pl, [pl.pos.lerp(th, 0.3), pl.pos.lerp(th, 0.7), th])
 				elif pl.active() and pl.entered and pl.state == Aircraft.State.FLY and pl.count == 0 and rng.randf() < 0.01:
 					tr.toggle_hold(pl)

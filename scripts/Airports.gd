@@ -25,6 +25,9 @@ static func _build() -> void:
 	var M := Aircraft.Type.MEDIUM
 	var S := Aircraft.Type.SMALL
 	var J := Aircraft.Type.JET
+	var G := Aircraft.Type.GLIDER
+	var H := Aircraft.Type.HELI
+	var P := Aircraft.Type.SEAPLANE
 	var goal_land := func(n: int) -> Dictionary: return {"kind": "land", "n": n}
 	var goal_type := func(t: int, n: int) -> Dictionary: return {"kind": "land_type", "type": t, "n": n}
 	var no_strikes := {"kind": "no_strikes"}
@@ -35,8 +38,8 @@ static func _build() -> void:
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6),
 			"ground": Color(0.42, 0.68, 0.38),
-			"mix": {S: 0.75, M: 0.25},
-			"goals": [goal_land.call(12), goal_type.call(M, 3), no_strikes],
+			"mix": {S: 0.55, M: 0.2, G: 0.25}, "specials": 0.0,
+			"goals": [goal_land.call(12), goal_type.call(G, 3), no_strikes],
 			"wind_scale": 1.6, "spawn_mult": 1.35, "unlock_stars": 0,
 		},
 		{   # 2: two crossing runways: simultaneous landings conflict
@@ -45,8 +48,8 @@ static func _build() -> void:
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-3.3, 3.7),
 			"ground": Color(0.5, 0.68, 0.36),
-			"mix": {S: 0.4, M: 0.6},
-			"goals": [goal_land.call(20), goal_type.call(M, 6), no_strikes],
+			"mix": {S: 0.3, M: 0.55, G: 0.15}, "specials": 1.5,
+			"goals": [goal_land.call(20), {"kind": "land_vip", "n": 2}, no_strikes],
 			"wind_scale": 1.3, "spawn_mult": 1.15, "unlock_stars": 2,
 		},
 		{   # 3: parallel runways and a helipad
@@ -55,8 +58,8 @@ static func _build() -> void:
 			"pads": [{"center": Vector2(3.5, 3.4), "radius": 0.85, "color": PAD_COLOR}], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.2, 0.8),
 			"ground": Color(0.36, 0.62, 0.36),
-			"mix": {S: 0.3, M: 0.45, J: 0.25},
-			"goals": [goal_land.call(25), goal_type.call(J, 4), no_strikes],
+			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2}, "specials": 1.0,
+			"goals": [goal_land.call(25), goal_type.call(H, 3), no_strikes],
 			"wind_scale": 1.0, "spawn_mult": 1.0, "unlock_stars": 5,
 		},
 		{   # 4: terrain no-fly zones
@@ -71,8 +74,8 @@ static func _build() -> void:
 			"decor": [],
 			"tower": Vector2(0.0, 3.2), "windsock": Vector2(0.0, -1.2),
 			"ground": Color(0.46, 0.58, 0.42),
-			"mix": {S: 0.35, M: 0.45, J: 0.2},
-			"goals": [goal_land.call(22), goal_type.call(M, 6), no_strikes],
+			"mix": {S: 0.3, M: 0.35, G: 0.35}, "specials": 1.0,
+			"goals": [goal_land.call(22), goal_type.call(G, 4), no_strikes],
 			"wind_scale": 0.85, "spawn_mult": 1.0, "unlock_stars": 8,
 		},
 		{   # 5: an island in the water, with a seaplane lane
@@ -85,8 +88,8 @@ static func _build() -> void:
 					{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.9, "color": Color(0.9, 0.85, 0.6), "sides": 10, "y": 0.01}],
 			"tower": Vector2(0.0, 0.3), "windsock": Vector2(0.0, -3.0),
 			"ground": Color(0.2, 0.5, 0.78), "water": true,
-			"mix": {S: 0.3, M: 0.35, J: 0.35},
-			"goals": [goal_land.call(28), goal_type.call(J, 5), no_strikes],
+			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25}, "specials": 1.0,
+			"goals": [goal_land.call(28), goal_type.call(P, 3), no_strikes],
 			"wind_scale": 0.75, "spawn_mult": 0.95, "unlock_stars": 11,
 		},
 		{   # 6: long runways and multiples of everything
@@ -100,8 +103,8 @@ static func _build() -> void:
 					{"shape": "box", "pos": Vector2(-0.4, 5.6), "size": Vector2(7.6, 1.8), "color": Color(0.2, 0.5, 0.78), "y": 0.02}],
 			"tower": Vector2(2.6, -2.6), "windsock": Vector2(2.6, 3.0),
 			"ground": Color(0.4, 0.6, 0.4),
-			"mix": {S: 0.2, M: 0.4, J: 0.4},
-			"goals": [goal_land.call(35), goal_type.call(J, 8), no_strikes],
+			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2}, "specials": 1.6,
+			"goals": [goal_land.call(35), {"kind": "land_emergency", "n": 2}, no_strikes],
 			"wind_scale": 0.6, "spawn_mult": 0.85, "unlock_stars": 14,
 		},
 	]
@@ -238,6 +241,79 @@ static func rw_dir(i: int) -> Vector2:
 	var h := deg_to_rad(rw_heading_deg(i))
 	return Vector2(sin(h), -cos(h))
 
+
+# ---------- Landing places: runways, helipads and water lanes ----------
+
+static func land_count(kind: int) -> int:
+	match kind:
+		Aircraft.Kind.RUNWAY:
+			return rw_count()
+		Aircraft.Kind.PAD:
+			return pads().size()
+		_:
+			return lanes().size()
+
+## Ends you can land toward: two for a runway or lane, one for a pad.
+static func land_ends(kind: int) -> int:
+	return 1 if kind == Aircraft.Kind.PAD else 2
+
+static func _lane_dir(i: int, e: int) -> Vector2:
+	var h := deg_to_rad(fposmod(lanes()[i]["heading"] + 180.0 * e, 360.0))
+	return Vector2(sin(h), -cos(h))
+
+## Where a path must finish to land on end `e` of this place (a pad: its centre).
+static func land_threshold(kind: int, i: int, e: int) -> Vector2:
+	match kind:
+		Aircraft.Kind.RUNWAY:
+			return end_threshold(i, e)
+		Aircraft.Kind.PAD:
+			return pads()[i]["center"]
+		_:
+			return lanes()[i]["center"] - _lane_dir(i, e) * lanes()[i]["length"] * 0.5
+
+## ...and where the landing roll finishes.
+static func land_far(kind: int, i: int, e: int) -> Vector2:
+	match kind:
+		Aircraft.Kind.RUNWAY:
+			return end_far(i, e)
+		Aircraft.Kind.PAD:
+			return pads()[i]["center"]
+		_:
+			return lanes()[i]["center"] + _lane_dir(i, e) * lanes()[i]["length"] * 0.5
+
+static func land_heading_deg(kind: int, i: int, e: int) -> float:
+	match kind:
+		Aircraft.Kind.RUNWAY:
+			return end_heading_deg(i, e)
+		Aircraft.Kind.PAD:
+			return 0.0
+		_:
+			return fposmod(lanes()[i]["heading"] + 180.0 * e, 360.0)
+
+static func land_color(kind: int, i: int) -> Color:
+	match kind:
+		Aircraft.Kind.RUNWAY:
+			return rw_color(i) if i < rw_count() else ORANGE
+		Aircraft.Kind.PAD:
+			return pads()[i]["color"] if i < pads().size() else PAD_COLOR
+		_:
+			return lanes()[i]["color"] if i < lanes().size() else LANE_COLOR
+
+## The kind of place a type lands on.
+static func kind_for(type: int) -> int:
+	if type == Aircraft.Type.HELI:
+		return Aircraft.Kind.PAD
+	if type == Aircraft.Type.SEAPLANE:
+		return Aircraft.Kind.LANE
+	return Aircraft.Kind.RUNWAY
+
+## Can this type use runway `i`? (Jets need a long one.)
+static func suitable_runway(type: int, i: int) -> bool:
+	return type != Aircraft.Type.JET or is_long(i)
+
+## Scales the chance of emergencies and VIP flights (none on the first airport).
+static func specials() -> float:
+	return def().get("specials", 1.0)
 
 static func goals(i: int = -1) -> Array:
 	return def(i)["goals"]

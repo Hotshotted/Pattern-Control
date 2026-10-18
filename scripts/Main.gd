@@ -73,6 +73,8 @@ func _ready() -> void:
 	traffic.crashed.connect(_on_crashed)
 	traffic.go_around.connect(_on_go_around)
 	traffic.runway_conflict.connect(_on_runway_conflict)
+	traffic.refused.connect(_on_refused)
+	traffic.appeared.connect(_on_appeared)
 	ribbons.traffic = traffic
 	overlay.camera = camera
 	traffic.landed.connect(_on_landed)
@@ -125,6 +127,7 @@ func _prewarm() -> void:
 			t_refresh = now
 			fx.prewarm(Vector2(0, 0))
 			hud.prewarm_popups()
+			hud.prewarm_tip()
 			overlay.prewarm()
 			airfield.glow(0, 0)
 			airfield.glow(1, 1)
@@ -295,11 +298,12 @@ func _on_landed(p: Aircraft) -> void:
 		return
 	score += 1
 	shift_coins += Tuning.coins_per_landing
-	shift.on_landed(p.type)
+	var vip_paid := p.vip and p.vip_ok
+	shift.on_landed(p.type, vip_paid, p.emergency)
 	var now := Time.get_ticks_msec()
 	streak = streak + 1 if _last_land_ms != 0 and now - _last_land_ms < STREAK_WINDOW_MS else 1
 	_last_land_ms = now
-	var col := Airports.rw_color(p.runway)
+	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
 	hud.set_landed(score, true)
 	hud.set_shift(shift, int(Tuning.max_strikes))
@@ -307,12 +311,26 @@ func _on_landed(p: Aircraft) -> void:
 	fx.burst(land_at, Color.WHITE)
 	overlay.ripple(land_at, col, 1.0)
 	overlay.ripple(land_at, Color.WHITE, 0.6)
-	airfield.glow(p.runway, p.land_end)
+	if p.tkind == Aircraft.Kind.RUNWAY:
+		airfield.glow(p.runway, p.land_end)
 	var text := "+1"
 	var tcol := Color(1, 1, 1)
 	if streak >= 3:
 		text = "+1  x%d" % streak
 		tcol = col.lerp(Color.WHITE, 0.4)
+	if p.emergency:
+		shift_coins += Tuning.emergency_bonus_coins
+		text = "EMERGENCY SAVED! +%d" % Tuning.emergency_bonus_coins
+		tcol = Color(1.0, 0.45, 0.4)
+		fx.burst(land_at, Color(1.0, 0.3, 0.25), true)
+	elif p.vip:
+		if vip_paid:
+			shift_coins += Tuning.vip_bonus_coins
+			text = "VIP +%d" % Tuning.vip_bonus_coins
+			tcol = Color(1.0, 0.84, 0.15)
+		else:
+			text = "VIP (no bonus)"
+			tcol = Color(0.7, 0.7, 0.72)
 	hud.popup(text, tcol, overlay.world_to_screen(land_at) + Vector2(0, -80))
 	_star_feedback(land_at)
 	if not DebugFlags.off("haptic"):
@@ -353,8 +371,46 @@ func _on_runway_conflict(a: Aircraft, b: Aircraft) -> void:
 	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
 	_end_shift(HEADER_CONFLICT, "Simultaneous landings on crossing runways.", false)
 
+## The aircraft can't follow a path or tap (and the reason is shown where it happened).
+func _on_refused(_p: Aircraft, text: String, at: Vector2) -> void:
+	overlay.ripple(at, Color(1, 0.6, 0.25), 0.6)
+	hud.popup(text, Color(1, 0.75, 0.35), overlay.world_to_screen(at) + Vector2(0, 90))
+
+## First time a kind of aircraft is on screen: a one-line tip. Emergencies announce themselves every time.
+const TIPS := {
+	"glider": "Glider: no engine. It can't hold and only gets one path.",
+	"heli": "Helicopter: lands on the helipad only. Tap to hover.",
+	"jet": "Jet: fast, and needs a long runway.",
+	"seaplane": "Seaplane: lands on the water lane.",
+	"emergency": "Emergency! Flashing aircraft can use any suitable runway. Land them fast.",
+	"vip": "VIP flight: bonus coins, but not if you hold it.",
+}
+
+func _on_appeared(p: Aircraft) -> void:
+	if p.emergency:
+		hud.popup("EMERGENCY", Color(1.0, 0.3, 0.25), overlay.world_to_screen(p.pos))
+	var key := ""
+	if p.emergency:
+		key = "emergency"
+	elif p.vip:
+		key = "vip"
+	else:
+		match p.type:
+			Aircraft.Type.GLIDER:
+				key = "glider"
+			Aircraft.Type.HELI:
+				key = "heli"
+			Aircraft.Type.JET:
+				key = "jet"
+			Aircraft.Type.SEAPLANE:
+				key = "seaplane"
+	if key != "" and not Save.tips_seen.has(key):
+		Save.tips_seen[key] = true
+		Save.write_file()
+		hud.show_tip(TIPS[key])
+
 func _on_cleared(p: Aircraft) -> void:
-	overlay.ripple(Airports.end_threshold(p.runway, p.land_end), Airports.rw_color(p.runway), 0.5)
+	overlay.ripple(Airports.land_threshold(p.tkind, p.runway, p.land_end), Airports.land_color(p.tkind, p.runway), 0.5)
 
 func _on_wrong_runway(_p: Aircraft, runway: int) -> void:
 	overlay.ripple(Airports.end_threshold(runway, 0), Color(1, 0.25, 0.2), 0.7)
@@ -528,8 +584,10 @@ func feed_drag(w: Vector2) -> void:
 	if not _drag_active:
 		if w.distance_to(_touch_start) < Tuning.tap_slop:
 			return
+		if not traffic.begin_path(_drag_plane):
+			_cancel_drag()
+			return
 		_drag_active = true
-		traffic.begin_path(_drag_plane)
 		overlay.active_runway = _drag_plane.runway
 	if traffic.extend_path(_drag_plane, w):
 		_cancel_drag()

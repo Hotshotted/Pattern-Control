@@ -82,6 +82,7 @@ var timer_heli := 28.0
 var timer_small := 36.0
 var timer_medium := 44.0
 var timer_jet := 52.0
+var timer_seaplane := 32.0
 ## The ring turns yellow below this fraction of the timer, red below the next one.
 var timer_yellow_fraction := 0.5
 var timer_red_fraction := 0.25
@@ -94,6 +95,22 @@ var max_strikes := 3.0
 var timer_color_ok := Color(0.35, 0.92, 0.5)
 var timer_color_low := Color(1.0, 0.86, 0.2)
 var timer_color_red := Color(1.0, 0.2, 0.15)
+
+# ---------- Special aircraft ----------
+## An emergency has this fraction of its type's timer, and may land on ANY suitable runway / pad / lane.
+var emergency_timer_mult := 0.5
+var emergency_bonus_coins := 60
+## Chance that a new aircraft is an emergency / a VIP (scaled by the airport; none on the first one).
+var emergency_chance := 0.05
+## ...and emergencies only start this far into a shift.
+var emergency_start_time := 20.0
+var vip_chance := 0.08
+var vip_bonus_coins := 25
+## A helicopter lands when its path ends within this of a helipad's centre; the landing takes this long.
+var pad_capture_radius := 0.95
+var pad_land_seconds := 1.1
+## How long a "first time this type appears" tip stays up.
+var tip_seconds := 5.0
 
 # ---------- Wind ----------
 ## A runway end is active when its landing heading is within this many degrees of the wind's direction.
@@ -172,14 +189,14 @@ func timer_color(frac: float) -> Color:
 	return timer_color_ok
 
 func type_timer(type: int) -> float:
-	return [timer_glider, timer_heli, timer_small, timer_medium, timer_jet][type]
+	return [timer_glider, timer_heli, timer_small, timer_medium, timer_jet, timer_seaplane][type]
 
 ## Speed by type (units / second), and the class (0 slow / 1 medium / 2 fast) that picks the entry glow and model.
 func type_speed(type: int) -> float:
-	return [speed_slow * 0.8, speed_slow * 1.2, speed_slow, speed_medium, speed_fast][type]
+	return [speed_slow * 0.8, speed_slow * 1.2, speed_slow, speed_medium, speed_fast, speed_slow * 1.1][type]
 
 func type_speed_class(type: int) -> int:
-	return [0, 1, 0, 1, 2][type]
+	return [0, 1, 0, 1, 2, 0][type]
 
 func entry_color(c: int) -> Color:
 	return [entry_color_slow, entry_color_medium, entry_color_fast][c]

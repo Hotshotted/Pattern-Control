@@ -18,6 +18,7 @@ var active_runway := -1              # runway the dragged plane is aiming for (i
 var glows_drawn := 0                 # entry glows drawn last frame
 
 var _c: Control
+var _font: Font
 var _rip_pos := PackedVector2Array()
 var _rip_col := PackedColorArray()
 var _rip_born := PackedInt64Array()
@@ -26,6 +27,7 @@ var _next_rip := 0
 
 func _ready() -> void:
 	layer = 1
+	_font = ThemeDB.fallback_font
 	_c = Control.new()
 	_c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_c.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -78,11 +80,16 @@ func _draw_all() -> void:
 	var t := now / 1000.0
 	_c.draw_set_transform_matrix(xf)
 	_draw_runway_markers(t)
+	_draw_place_markers(t)
 	for p in traffic.planes:
 		if p.state == Aircraft.State.HOLD and not DebugFlags.off("hold"):
-			var col := Airports.rw_color(p.runway)
-			_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, BLACK, 0.16)
-			_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.8), 0.07)
+			var col := Airports.land_color(p.tkind, p.runway)
+			if p.hovering:   # a helicopter hovers on the spot
+				_c.draw_arc(p.pos, 0.62, 0.0, TAU, 24, BLACK, 0.16)
+				_c.draw_arc(p.pos, 0.62, 0.0, TAU, 24, Color(col.r, col.g, col.b, 0.8), 0.07)
+			else:
+				_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, BLACK, 0.16)
+				_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.8), 0.07)
 	glows_drawn = 0
 	_draw_hazards(t)
 	for p in traffic.planes:
@@ -107,6 +114,19 @@ func _draw_all() -> void:
 		var col := _rip_col[i]
 		col.a = 1.0 - a
 		_c.draw_arc(_rip_pos[i], (0.4 + 2.2 * a) * _rip_scale[i], 0.0, TAU, 40, col, 0.14 * (1.0 - a) + 0.03)
+	# Little text tags above special aircraft, in screen space.
+	_c.draw_set_transform_matrix(Transform2D.IDENTITY)
+	for p in traffic.planes:
+		if not p.active() or not p.entered or p.state == Aircraft.State.DIVERT or p.state == Aircraft.State.LANDING:
+			continue
+		var at := xf * p.pos + Vector2(-60, -62)
+		if p.emergency:
+			var blink := 0.55 + 0.45 * sin(t * 12.0)
+			_tag(at, "SOS", Color(1.0, 0.25, 0.2, blink))
+		elif p.vip:
+			_tag(at, "VIP", Color(1.0, 0.84, 0.15) if p.vip_ok else Color(0.6, 0.6, 0.62))
+		elif p.type == Aircraft.Type.GLIDER and p.locked:
+			_tag(at, "LOCKED", Color(0.8, 0.9, 1.0, 0.8))
 
 ## No-fly zones: a dashed warning ring and a faint fill around each mountain (and, later, storm).
 func _draw_hazards(t: float) -> void:
@@ -119,6 +139,24 @@ func _draw_hazards(t: float) -> void:
 		for seg in 16:
 			var a0 := phase + seg * TAU / 16.0
 			_c.draw_arc(c, r + 0.1, a0, a0 + TAU / 32.0, 4, Color(col.r, col.g, col.b, 0.8), 0.1)
+
+func _tag(at: Vector2, text: String, col: Color) -> void:
+	_c.draw_string_outline(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, 120.0, 30, 8, Color.BLACK)
+	_c.draw_string(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, 120.0, 30, col)
+
+## Helipad and water-lane markers: a ring on each landing spot (always open), like a runway's approach end.
+func _draw_place_markers(t: float) -> void:
+	var pulse := 0.5 + 0.5 * sin(t * 5.0)
+	for kind in [Aircraft.Kind.PAD, Aircraft.Kind.LANE]:
+		for i in Airports.land_count(kind):
+			var col := Airports.land_color(kind, i)
+			var hot: bool = selected != null and selected.tkind == kind
+			var radius := Tuning.pad_capture_radius if kind == Aircraft.Kind.PAD else Tuning.approach_radius
+			for e in Airports.land_ends(kind):
+				var thr := Airports.land_threshold(kind, i, e)
+				var r := radius * (1.0 + 0.08 * pulse if hot else 1.0)
+				_c.draw_arc(thr, r, 0.0, TAU, 32, Color(0, 0, 0, 0.6), 0.16)
+				_c.draw_arc(thr, r, 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.95 if hot else 0.65), 0.08)
 
 func _draw_runway_markers(t: float) -> void:
 	for i in Airports.rw_count():

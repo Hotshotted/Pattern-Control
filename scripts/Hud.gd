@@ -177,6 +177,8 @@ var _best: Label
 var _alert: Label
 var _wind_banner: Label
 var _wind_secs := -1
+var _tip: Label
+var _tip_until := 0
 var _menu: Control
 var _menu_info: Label
 var _select: Control
@@ -236,6 +238,15 @@ func _ready() -> void:
 	_wind_banner.offset_top = 480
 	_wind_banner.add_theme_color_override("font_color", Color(1.0, 0.92, 0.35))
 	_wind_banner.visible = false
+	_tip = _label(36, HORIZONTAL_ALIGNMENT_CENTER)
+	_tip.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_tip.offset_left = -500
+	_tip.offset_right = 500
+	_tip.offset_top = -230
+	_tip.offset_bottom = -120
+	_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tip.add_theme_color_override("font_color", Color(0.85, 1.0, 0.9))
+	_tip.visible = false
 	for i in POPUP_POOL:
 		var l := _label(72, HORIZONTAL_ALIGNMENT_CENTER)
 		l.size = Vector2(560, 100)
@@ -451,6 +462,7 @@ func reset_for_run(best: int) -> void:
 	_wind_banner.visible = false
 	_wind_secs = -1
 	_art.wind_warn = false
+	_tip.visible = false
 	_art.shift_frac = 0.0
 	set_landed(0)
 	set_best(best)
@@ -522,6 +534,13 @@ func popup(text: String, color: Color, at: Vector2) -> void:
 	_pop_born[best] = Time.get_ticks_msec()
 	l.visible = true
 
+## A one-line tip about an aircraft type seen for the first time.
+func show_tip(text: String) -> void:
+	_tip.text = text
+	_tip.visible = true
+	_tip.modulate.a = 1.0
+	_tip_until = Time.get_ticks_msec() + int(Tuning.tip_seconds * 1000.0)
+
 ## A quick colour wash over the whole screen.
 func flash(color: Color) -> void:
 	_flash.color = Color(color.r, color.g, color.b, 0.0)
@@ -545,6 +564,12 @@ func _process(delta: float) -> void:
 		l.position = _pop_from[i] + Vector2(0, -150.0 * a)
 		l.modulate.a = 1.0 - maxf(a - 0.5, 0.0) * 2.0
 		l.scale = Vector2.ONE * (1.0 + 0.3 * (1.0 - a) * (1.0 - a))
+	if _tip.visible:
+		var left := _tip_until - now
+		if left <= 0:
+			_tip.visible = false
+		else:
+			_tip.modulate.a = clampf(left / 600.0, 0.0, 1.0)
 	if _alert_on:
 		_alert.modulate.a = 0.5 + 0.5 * sin(now / 90.0)
 	_update_perf(delta)
@@ -621,6 +646,9 @@ func begin_prewarm() -> void:
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_splash.add_child(title)
 	add_child(_splash)
+
+func prewarm_tip() -> void:
+	show_tip("Emergency! Flashing aircraft can use any suitable runway. Land them fast. 0123456789")
 
 func prewarm_popups() -> void:
 	var vp := get_viewport().get_visible_rect().size

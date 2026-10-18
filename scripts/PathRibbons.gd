@@ -92,7 +92,9 @@ func _build(p: Aircraft, i: int) -> void:
 		_nrm[k] = Vector2(-tan.y, tan.x).normalized() if tan.length_squared() > 0.000001 else Vector2(1, 0)
 	last_alpha_near[i] = _alpha[0]
 	last_alpha_far[i] = _alpha[m - 1]
-	var col := Airports.rw_color(p.runway)
+	var col := Airports.land_color(p.tkind, p.runway)
+	if p.emergency:
+		col = Color(1.0, 0.35, 0.3)
 	if p.cleared:
 		col = col.lerp(Color.WHITE, 0.25)
 	var om := _outlines[i]

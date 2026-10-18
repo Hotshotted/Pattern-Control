@@ -7,10 +7,19 @@ const PATH_MAX := 220
 
 enum State { IDLE, FLY, HOLD, LANDING, DIVERT }
 ## Aircraft types, shortest timer first. (Gliders and helicopters get their own rules in a later phase.)
-enum Type { GLIDER, HELI, SMALL, MEDIUM, JET }
+enum Type { GLIDER, HELI, SMALL, MEDIUM, JET, SEAPLANE }
+## What an aircraft lands on: a runway end, a helipad, or a water lane.
+enum Kind { RUNWAY, PAD, LANE }
 
 var state := State.IDLE
-var runway := 0                 # which runway (and colour) this plane belongs to
+var tkind := Kind.RUNWAY        # what it lands on...
+var runway := 0                 # ...which one (a runway, pad or lane index; it also gives the colour)
+var any_target := false         # emergencies may use any suitable runway / pad / lane
+var emergency := false
+var vip := false
+var vip_ok := true              # a VIP put into holding loses its bonus
+var locked := false             # gliders: the first path is final
+var hovering := false
 var type := Type.SMALL
 var speed_class := 0            # 0 slow, 1 medium, 2 fast (the entry glow colour and the model)
 var speed := 2.0                # base units / second (before the run's speed ramp)
@@ -56,6 +65,13 @@ func reset() -> void:
 	wrong_shown = false
 	inactive_shown = false
 	path_invalid = false
+	any_target = false
+	emergency = false
+	vip = false
+	vip_ok = true
+	locked = false
+	hovering = false
+	tkind = Kind.RUNWAY
 	roll_t = 0.0
 	age = 0.0
 	head = 0

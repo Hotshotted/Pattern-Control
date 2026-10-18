@@ -24,6 +24,11 @@ You run an airport, one **shift** at a time.
   runways + a helipad), Mountain Field (terrain no-fly zones: flying into a mountain is a strike), Island
   (water and a seaplane lane) and International (three long runways, two helipads, two lanes). A second
   aircraft reaching a runway that is still busy goes around.
+- **Special aircraft** (each shows a one-line tip the first time it appears): **helicopters** land on the
+  helipad only and hover when tapped; **gliders** can't hold and only get their first path, with the shortest
+  timer; **jets** are fast and need a long runway; **seaplanes** land on the water lane; **emergencies**
+  (flashing, SOS) have a short timer, may use any suitable runway and pay a big bonus; **VIP flights** pay
+  bonus coins, unless you put them in a holding pattern.
 - Each shift has **three star goals** (land 25 aircraft, land 4 jets, finish with no strikes). Landings and
   stars earn **coins**. Stars, coins and bests are saved.
 

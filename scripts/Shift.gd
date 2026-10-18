@@ -8,6 +8,8 @@ enum Goal { PENDING, MET, FAILED }
 var goals: Array = []
 var landed := 0
 var landed_by_type := PackedInt32Array()
+var landed_vip := 0              # VIP flights landed with their bonus intact
+var landed_emergency := 0
 var strikes := 0
 var completed := false          # the shift ran its full length (needed for "no strikes")
 var met := PackedInt32Array()   # per goal: 0 pending / 1 met / 2 failed
@@ -20,13 +22,19 @@ func reset(goal_list: Array) -> void:
 	goals = goal_list
 	landed = 0
 	landed_by_type.fill(0)
+	landed_vip = 0
+	landed_emergency = 0
 	strikes = 0
 	completed = false
 	met.fill(0)
 
-func on_landed(type: int) -> void:
+func on_landed(type: int, vip: bool = false, emergency: bool = false) -> void:
 	landed += 1
 	landed_by_type[type] += 1
+	if vip:
+		landed_vip += 1
+	if emergency:
+		landed_emergency += 1
 	_evaluate()
 
 func on_strike() -> void:
@@ -45,6 +53,10 @@ func progress(i: int) -> int:
 			return landed
 		"land_type":
 			return landed_by_type[g["type"]]
+		"land_vip":
+			return landed_vip
+		"land_emergency":
+			return landed_emergency
 		_:
 			return strikes
 
@@ -92,5 +104,9 @@ func goal_text(i: int) -> String:
 			return "Land %d aircraft" % g["n"]
 		"land_type":
 			return "Land %d %ss" % [g["n"], type_name(g["type"])]
+		"land_vip":
+			return "Land %d VIP flights" % g["n"]
+		"land_emergency":
+			return "Land %d emergencies" % g["n"]
 		_:
 			return "No strikes"
