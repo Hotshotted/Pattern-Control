@@ -30,6 +30,9 @@ var hold_angle := 0.0
 var age := 0.0
 var entry := Vector2.ZERO       # where it comes onto the screen (the edge glow shows here until it appears)
 var wrong_shown := false        # this drag already flashed "wrong runway"
+var inactive_shown := false     # ...or "runway not active"
+var land_end := 0               # which end of its runway it is landing on
+var path_invalid := false       # the wind shifted: its path ends on a closed runway end (drawn dashed red)
 var warn_other: Aircraft = null    # the plane it is close to (for the warning line)
 
 # Path: points[head .. head+count) are still to be flown (a plain array that compacts when full).
@@ -51,6 +54,8 @@ func reset() -> void:
 	warn = 0.0
 	warn_other = null
 	wrong_shown = false
+	inactive_shown = false
+	path_invalid = false
 	roll_t = 0.0
 	age = 0.0
 	head = 0
@@ -60,6 +65,7 @@ func clear_path() -> void:
 	head = 0
 	count = 0
 	cleared = false
+	path_invalid = false
 
 func last_point() -> Vector2:
 	return pts[head + count - 1] if count > 0 else pos

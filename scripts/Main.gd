@@ -25,6 +25,7 @@ var screen := SCREEN_MENU
 var alive := false
 var airport := 0                      # the airport being played
 var shift := Shift.new()
+var wind := Wind.new()
 var score := 0                        # aircraft landed this shift (the big number)
 var streak := 0                       # landings within STREAK_WINDOW_MS of each other
 var shift_coins := 0                  # coins earned so far this shift (paid out when it ends)
@@ -61,6 +62,13 @@ func _ready() -> void:
 	camera.far = 100.0
 	_update_camera()
 	overlay.traffic = traffic
+	overlay.wind = wind
+	traffic.wind = wind
+	airfield.wind = wind
+	wind.warned.connect(_on_wind_warned)
+	wind.shifted.connect(_on_wind_shifted)
+	traffic.inactive_end.connect(_on_inactive_end)
+	traffic.rerouted.connect(_on_rerouted)
 	ribbons.traffic = traffic
 	overlay.camera = camera
 	traffic.landed.connect(_on_landed)
@@ -69,6 +77,9 @@ func _ready() -> void:
 	traffic.cleared.connect(_on_cleared)
 	traffic.wrong_runway.connect(_on_wrong_runway)
 	shift.reset(Airports.goals())
+	wind.start(traffic.rng)
+	airfield.show_active(wind)
+	hud.set_wind(wind.from_deg, wind.toward_deg())
 	hud.set_best(Save.best_for(airport))
 	if DebugFlags.tune_enabled():
 		tune_panel = TunePanel.new()
@@ -106,8 +117,8 @@ func _prewarm() -> void:
 			fx.prewarm(Vector2(0, 0))
 			hud.prewarm_popups()
 			overlay.prewarm()
-			airfield.glow(0)
-			airfield.glow(1)
+			airfield.glow(0, 0)
+			airfield.glow(1, 1)
 		await get_tree().process_frame
 		var t := Time.get_ticks_msec()
 		calm_frames = calm_frames + 1 if (t - t_last) < Tuning.prewarm_stable_ms else 0
@@ -159,7 +170,10 @@ func restart() -> void:
 	traffic.half_h = _half_height()
 	traffic.release_all()
 	traffic.spawn_until = Tuning.shift_seconds
+	wind.start(traffic.rng)
+	airfield.show_active(wind)
 	hud.reset_for_run(Save.best_for(airport))
+	hud.set_wind(wind.from_deg, wind.toward_deg())
 	hud.set_shift(shift, int(Tuning.max_strikes))
 
 func _show_menu() -> void:
@@ -252,6 +266,10 @@ func step(delta: float) -> void:
 			worst = maxf(worst, p.warn)
 	hud.set_alert(alive and worst > 0.55)
 	hud.set_shift_fraction(traffic.run_time / maxf(Tuning.shift_seconds, 1.0))
+	if traffic.run_time < Tuning.shift_seconds:
+		wind.step(delta, traffic.run_time / maxf(Tuning.shift_seconds, 1.0), traffic.rng)
+		if wind.warning:
+			hud.set_wind_warning(wind.next_deg, ceili(wind.countdown))
 	if _drag_active and (_drag_plane == null or not _drag_plane.active()):
 		_cancel_drag()
 	# The shift is over once the planes have stopped coming and the field is clear.
@@ -277,7 +295,7 @@ func _on_landed(p: Aircraft) -> void:
 	fx.burst(land_at, Color.WHITE)
 	overlay.ripple(land_at, col, 1.0)
 	overlay.ripple(land_at, Color.WHITE, 0.6)
-	airfield.glow(p.runway)
+	airfield.glow(p.runway, p.land_end)
 	var text := "+1"
 	var tcol := Color(1, 1, 1)
 	if streak >= 3:
@@ -298,11 +316,34 @@ func _star_feedback(at: Vector2) -> void:
 	hud.popup("STAR!", Color(1.0, 0.84, 0.15), Vector2(vp.x * 0.5, vp.y * 0.3))
 
 func _on_cleared(p: Aircraft) -> void:
-	overlay.ripple(Airports.rw_threshold(p.runway), Airports.rw_color(p.runway), 0.5)
+	overlay.ripple(Airports.end_threshold(p.runway, p.land_end), Airports.rw_color(p.runway), 0.5)
 
 func _on_wrong_runway(_p: Aircraft, runway: int) -> void:
-	overlay.ripple(Airports.rw_threshold(runway), Color(1, 0.25, 0.2), 0.7)
-	hud.popup("WRONG RUNWAY", Color(1, 0.4, 0.35), overlay.world_to_screen(Airports.rw_threshold(runway)) + Vector2(0, 120))
+	overlay.ripple(Airports.end_threshold(runway, 0), Color(1, 0.25, 0.2), 0.7)
+	hud.popup("WRONG RUNWAY", Color(1, 0.4, 0.35), overlay.world_to_screen(Airports.rw_center(runway)) + Vector2(0, 120))
+
+## A path reached an end the wind doesn't allow.
+func _on_inactive_end(_p: Aircraft, runway: int, end: int) -> void:
+	overlay.ripple(Airports.end_threshold(runway, end), Color(1, 0.6, 0.2), 0.7)
+	hud.popup("Not into the wind", Color(1, 0.7, 0.3), overlay.world_to_screen(Airports.end_threshold(runway, end)) + Vector2(0, 100))
+
+## "Wind shifting to 270" is announced about wind_warning_seconds ahead.
+func _on_wind_warned(next_deg: float) -> void:
+	hud.set_wind_warning(next_deg, ceili(wind.countdown))
+
+## The wind changed: the active ends change, and aircraft cleared for a closed end must be re-routed.
+func _on_wind_shifted() -> void:
+	hud.set_wind_warning(0.0, -1)
+	hud.set_wind(wind.from_deg, wind.toward_deg())
+	airfield.show_active(wind)
+	for r in Airports.rw_count():
+		for e in 2:
+			if wind.is_active(r, e):
+				overlay.ripple(Airports.end_threshold(r, e), Airports.rw_color(r), 0.8)
+	traffic.reroute_closed_ends()
+
+func _on_rerouted(p: Aircraft) -> void:
+	hud.popup("Re-route!", Color(1, 0.35, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
 
 func _on_conflict(a: Aircraft, b: Aircraft) -> void:
 	if not alive:

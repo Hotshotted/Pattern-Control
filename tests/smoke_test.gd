@@ -33,6 +33,15 @@ func check(ok: bool, what: String) -> void:
 	if not ok:
 		failures.append(what)
 
+## Pin the wind (no random shifts) so landings are predictable.
+func set_wind(main: Node, deg: float) -> void:
+	main.wind.from_deg = deg
+	main.wind.next_deg = deg
+	main.wind.warning = false
+	main.wind.countdown = 100000.0
+	main.wind.refresh()
+	main.airfield.show_active(main.wind)
+
 func real_wait(sec: float) -> void:
 	var t0 = Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t0 < sec * 1000.0:
@@ -160,6 +169,7 @@ func _initialize() -> void:
 	touch(main, 0, true, Vector2(540, 900))
 	touch(main, 0, false, Vector2(540, 900))
 	check(main.screen == main.SCREEN_PLAY and main.alive, "tap starts the run")
+	set_wind(main, 0.0)
 	check(not main.hud._menu.visible, "menu hides")
 	main.traffic.auto_spawn = false
 	main.traffic.release_all()
@@ -173,7 +183,7 @@ func _initialize() -> void:
 	print("     field centre on screen: ", ov.world_to_screen(Vector2.ZERO), " viewport ", main.get_viewport().get_visible_rect().size)
 	check(ov.world_to_screen(Vector2.ZERO).distance_to(main.get_viewport().get_visible_rect().size * 0.5) < 150.0, "the field centre is near the middle of the screen")
 	# Plane 0 (orange runway): from the open area to the orange approach end, using the real touch handlers.
-	var thr0: Vector2 = Airports.rw_threshold(0)
+	var thr0: Vector2 = Airports.end_threshold(0, 0)
 	var p = tr.place(0, thr0 + Vector2(1.5, 4.5), 0.0, MEDIUM)
 	check(p != null and p.active(), "a plane can be placed")
 	var s_from: Vector2 = ov.world_to_screen(p.pos)
@@ -240,7 +250,7 @@ func _initialize() -> void:
 	check(wrong_seen[0], "...and flags the wrong runway")
 	# Landing blue on blue works and the landing roll ends on the far end.
 	tr.release_all()
-	var thr1: Vector2 = Airports.rw_threshold(1)
+	var thr1: Vector2 = Airports.end_threshold(1, 0)
 	var b = tr.place(1, thr1 + Vector2(0.5, -3.0), PI, JET)
 	draw_path(main, b, [b.pos + Vector2(0, 1.0), thr1])
 	check(b.cleared, "blue plane clears on the blue approach end")
@@ -465,6 +475,7 @@ func _initialize() -> void:
 	check(save.coins == coins0, "a shift with nothing landed earns no coins (%d -> %d)" % [coins0, save.coins])
 	# Landing in time saves it.
 	main.restart()
+	set_wind(main, 0.0)
 	tr.auto_spawn = false
 	var sv = tr.place(1, thr1 + Vector2(0.0, -2.0), PI, MEDIUM)
 	sv.timer_left = 6.0
@@ -557,6 +568,107 @@ func _initialize() -> void:
 	check(save.coins == 50 and save.stars_total() == 0, "unknown / missing fields don't break loading")
 	save.reset_all()
 
+	print("9b. wind and active runway ends")
+	main.restart()
+	tr.auto_spawn = false
+	var all_ok = true
+	for k in 40:
+		main.wind.start(tr.rng)
+		all_ok = all_ok and Airports.wind_ok(main.wind.from_deg, tuning.wind_tolerance_deg)
+		for r in Airports.rw_count():
+			all_ok = all_ok and main.wind.runway_open(r)
+	check(all_ok, "a starting wind always leaves every runway usable (40 tries)")
+	set_wind(main, 0.0)
+	check(main.wind.is_active(0, 0) and not main.wind.is_active(0, 1) and main.wind.is_active(1, 0) and not main.wind.is_active(1, 1), "wind from 000: the north-facing ends are active, the south-facing ones not")
+	set_wind(main, 180.0)
+	check(not main.wind.is_active(0, 0) and main.wind.is_active(0, 1), "wind from 180 swaps the active ends")
+	check(main.airfield._active[1] and not main.airfield._active[0], "active ends are highlighted on the field, inactive ones dimmed")
+	main.airfield._process(0.016)
+	check(main.airfield._thr_mats[1].albedo_color != main.airfield._thr_mats[0].albedo_color, "...the dull end really is a different colour")
+	for k in 6:
+		main.airfield._process(1.0)
+	var sock_err = absf(wrapf(rad_to_deg(-main.airfield._sock.rotation.y) - main.wind.toward_deg(), -180.0, 180.0))
+	check(sock_err < 10.0, "the windsock points downwind (%.1f deg off)" % sock_err)
+	# Landing needs an ACTIVE end.
+	set_wind(main, 0.0)
+	var blue = tr.place(1, Vector2(2.0, -4.8), PI, MEDIUM)
+	var inactive_seen = [false]
+	tr.inactive_end.connect(func(_pl, _r, _e): inactive_seen[0] = true, CONNECT_ONE_SHOT)
+	var thr_closed = Airports.end_threshold(1, 1)
+	draw_path(main, blue, [blue.pos + Vector2(0, 1.0), thr_closed])
+	check(not blue.cleared and inactive_seen[0], "a path ending on a closed end does not land the plane")
+	var pop_nw = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "Not into the wind":
+			pop_nw = true
+	check(pop_nw, "...and says so")
+	tr.release_all()
+	# Landing on the other end when the wind swaps: the plane rolls out the opposite way.
+	set_wind(main, 180.0)
+	var lw = tr.place(0, Airports.end_threshold(0, 1) + Vector2(0.3, 3.0), 0.0, MEDIUM)
+	draw_path(main, lw, [lw.pos + Vector2(0, -0.8), Airports.end_threshold(0, 1)])
+	check(lw.cleared and lw.land_end == 1, "with the wind swapped the plane lands on end 1")
+	var roll_heading_ok = false
+	for i in 900:
+		main.step(1.0 / 60.0)
+		if lw.state == Aircraft.State.LANDING and absf(wrapf(lw.heading - PI, -PI, PI)) < 0.05:
+			roll_heading_ok = true
+		if not lw.active():
+			break
+	check(roll_heading_ok and main.score >= 1, "...rolling out toward the south, and scores")
+	# The warning, the shift, the re-route.
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var rr = tr.place(0, Airports.end_threshold(0, 0) + Vector2(1.0, 4.0), 0.0, MEDIUM)
+	draw_path(main, rr, [rr.pos + Vector2(0, -0.8), Airports.end_threshold(0, 0)])
+	check(rr.cleared, "cleared to land on the north-facing end")
+	rr.speed = 0.25   # slow: still on its way when the wind shifts
+	var cnt = rr.count
+	var warned_to = [-1.0]
+	main.wind.warned.connect(func(d): warned_to[0] = d, CONNECT_ONE_SHOT)
+	main.wind.force_shift(180.0)
+	check(is_equal_approx(warned_to[0], 180.0), "the shift is announced with its new direction")
+	main.step(1.0 / 60.0)
+	check(main.hud._wind_banner.visible and main.hud._wind_banner.text.begins_with("Wind shifting to 180"), "the banner reads '%s'" % main.hud._wind_banner.text)
+	check(main.hud._art.wind_warn, "the wind widget flags the coming shift")
+	check(absf(main.wind.countdown - tuning.wind_warning_seconds) < 0.1, "about %.0f s of warning" % tuning.wind_warning_seconds)
+	check(main.wind.is_active(0, 0), "the old ends stay active during the warning")
+	run_sec(main, tuning.wind_warning_seconds + 0.5)
+	check(is_equal_approx(main.wind.from_deg, 180.0) and main.wind.is_active(0, 1) and not main.wind.is_active(0, 0), "after the warning the wind and the active ends have changed")
+	check(not main.hud._wind_banner.visible and main.hud._art.wind_text == "WIND 180", "the banner clears and the widget shows the new wind")
+	check(rr.active() and not rr.cleared and rr.path_invalid, "a plane cleared for the closed end loses its clearance and its path is marked invalid")
+	check(rr.count == cnt - 2 or rr.count == 0 or not rr.active(), "its approach points are dropped (%d -> %d)" % [cnt, rr.count])
+	await process_frame
+	await process_frame
+	var rri = tr.planes.find(rr)
+	check(main.ribbons._nodes[rri].visible == false or (main.ribbons._meshes[rri].get_surface_count() == 1), "its path is drawn dashed (one dashed surface)")
+	var pop_rr = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "Re-route!":
+			pop_rr = true
+	check(pop_rr, "a 'Re-route!' popup shows")
+	# A new path to the now-active end works, and clears the invalid mark.
+	var fresh = Airports.end_threshold(0, 1)
+	draw_path(main, rr, [rr.pos + (fresh - rr.pos).normalized() * 0.8, fresh])
+	check(rr.cleared and not rr.path_invalid and rr.land_end == 1, "drawing a new path to the open end clears it again")
+	# A plane already rolling out is not affected by a later shift.
+	var rolling = tr.place(1, Vector2(2.0, -2.0), 0.0, MEDIUM)
+	rolling.state = Aircraft.State.LANDING
+	rolling.cleared = true
+	rolling.land_end = 0
+	rolling.roll_from = Airports.end_threshold(1, 0)
+	var n_before = tr.reroute_closed_ends()
+	check(rolling.state == Aircraft.State.LANDING and not rolling.path_invalid, "a plane already on its landing roll isn't re-routed")
+	# Shifts get more frequent later and on later airports.
+	check(main.wind.interval(0.0) > main.wind.interval(1.0), "wind shifts come more often later in a shift (%.0f s -> %.0f s)" % [main.wind.interval(0.0), main.wind.interval(1.0)])
+	var scale0 = Airports.def()["wind_scale"]
+	Airports.def()["wind_scale"] = 0.5
+	var quick = main.wind.interval(0.0)
+	Airports.def()["wind_scale"] = scale0
+	check(quick < main.wind.interval(0.0), "...and on airports with a lower wind scale")
+	tr.release_all()
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
@@ -577,7 +689,7 @@ func _initialize() -> void:
 				break
 			for pl in tr.planes:
 				if pl.active() and pl.entered and pl.state == Aircraft.State.FLY and not pl.cleared and pl.count == 0 and rng.randf() < 0.05:
-					var th: Vector2 = Airports.rw_threshold(pl.runway)
+					var th: Vector2 = Airports.end_threshold(pl.runway, 0 if main.wind.is_active(pl.runway, 0) else 1)
 					draw_path(main, pl, [pl.pos.lerp(th, 0.3), pl.pos.lerp(th, 0.7), th])
 				elif pl.active() and pl.entered and pl.state == Aircraft.State.FLY and pl.count == 0 and rng.randf() < 0.01:
 					tr.toggle_hold(pl)

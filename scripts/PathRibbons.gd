@@ -97,12 +97,17 @@ func _build(p: Aircraft, i: int) -> void:
 		col = col.lerp(Color.WHITE, 0.25)
 	var om := _outlines[i]
 	om.clear_surfaces()
-	_strip(om, m, Tuning.path_outline_width * 0.5, OUTLINE_Y, Color(0, 0, 0), 0.9)
-	_dot(om, _pts[m - 1], Tuning.path_outline_width * 0.8, OUTLINE_Y, Color.BLACK, _alpha[m - 1])
 	var im := _meshes[i]
 	im.clear_surfaces()
-	_strip(im, m, Tuning.path_width * 0.5, COLOR_Y, col, 1.0)
-	_dot(im, _pts[m - 1], Tuning.path_width * 1.3, COLOR_Y, col, _alpha[m - 1])
+	if p.path_invalid:
+		# The wind shifted and this path no longer ends on an open runway end: dashed and red.
+		_dashes(om, m, Tuning.path_outline_width * 0.5, OUTLINE_Y, Color(0, 0, 0), 0.9)
+		_dashes(im, m, Tuning.path_width * 0.6, COLOR_Y, Color(1.0, 0.2, 0.15), 1.0)
+	else:
+		_strip(om, m, Tuning.path_outline_width * 0.5, OUTLINE_Y, Color(0, 0, 0), 0.9)
+		_dot(om, _pts[m - 1], Tuning.path_outline_width * 0.8, OUTLINE_Y, Color.BLACK, _alpha[m - 1])
+		_strip(im, m, Tuning.path_width * 0.5, COLOR_Y, col, 1.0)
+		_dot(im, _pts[m - 1], Tuning.path_width * 1.3, COLOR_Y, col, _alpha[m - 1])
 	_nodes[i].visible = true
 	_outline_nodes[i].visible = true
 
@@ -125,4 +130,28 @@ func _dot(im: ImmediateMesh, at: Vector2, r: float, y: float, col: Color, a: flo
 		im.surface_add_vertex(Vector3(at.x, y, at.y))
 		im.surface_add_vertex(Vector3(at.x + cos(a0) * r, y, at.y + sin(a0) * r))
 		im.surface_add_vertex(Vector3(at.x + cos(a1) * r, y, at.y + sin(a1) * r))
+	im.surface_end()
+
+## A dashed ribbon: every other segment of the path is drawn as a quad.
+func _dashes(im: ImmediateMesh, m: int, half: float, y: float, col: Color, a_mul: float) -> void:
+	if m < 2:
+		return
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var k := 0
+	while k < m - 1:
+		var a := _pts[k]
+		var b := _pts[k + 1]
+		var na := _nrm[k] * half
+		var nb := _nrm[k + 1] * half
+		var ca := Color(col.r, col.g, col.b, _alpha[k] * a_mul)
+		var cb := Color(col.r, col.g, col.b, _alpha[k + 1] * a_mul)
+		im.surface_set_color(ca)
+		im.surface_add_vertex(Vector3(a.x - na.x, y, a.y - na.y))
+		im.surface_add_vertex(Vector3(a.x + na.x, y, a.y + na.y))
+		im.surface_set_color(cb)
+		im.surface_add_vertex(Vector3(b.x - nb.x, y, b.y - nb.y))
+		im.surface_add_vertex(Vector3(a.x + na.x, y, a.y + na.y))
+		im.surface_add_vertex(Vector3(b.x + nb.x, y, b.y + nb.y))
+		im.surface_add_vertex(Vector3(b.x - nb.x, y, b.y - nb.y))
+		k += 2
 	im.surface_end()

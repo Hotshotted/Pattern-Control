@@ -90,6 +90,18 @@ var timer_color_ok := Color(0.35, 0.92, 0.5)
 var timer_color_low := Color(1.0, 0.86, 0.2)
 var timer_color_red := Color(1.0, 0.2, 0.15)
 
+# ---------- Wind ----------
+## A runway end is active when its landing heading is within this many degrees of the wind's direction.
+var wind_tolerance_deg := 60.0
+## Seconds of warning before the wind shifts ("Wind shifting to 270").
+var wind_warning_seconds := 8.0
+## Seconds between shifts: starts at wind_interval_start, shrinks to wind_interval_min by the end of the shift
+## (each airport scales this: later airports shift more often).
+var wind_interval_start := 55.0
+var wind_interval_min := 28.0
+## A shift turns the wind by at least this many degrees.
+var wind_min_change_deg := 60.0
+
 # ---------- Shifts, stars, coins ----------
 ## Planes stop arriving after this long; the shift ends when the field is clear (or on 3 strikes / a conflict).
 var shift_seconds := 150.0

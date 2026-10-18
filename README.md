@@ -18,6 +18,7 @@ You run an airport, one **shift** at a time.
   **3 strikes end the shift.**
 - **Two aircraft getting too close ends the shift immediately.** A warning ring grows around them first.
 - New aircraft get a pulsing edge glow about 2 s before they appear (green slow, yellow medium, red fast).
+- **Wind:** a windsock and a wind arrow show it. Aircraft can only land on runway ends facing roughly into the wind (those are bright; the others are dull with an X). The wind shifts during a shift with a banner ~8 s ahead ("Wind shifting to 270"); aircraft already cleared to an end that closes get a dashed red path and must be re-routed.
 - Each shift has **three star goals** (land 25 aircraft, land 4 jets, finish with no strikes). Landings and
   stars earn **coins**. Stars, coins and bests are saved.
 

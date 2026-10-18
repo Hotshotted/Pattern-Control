@@ -9,6 +9,7 @@ const RIPPLES := 8
 const BLACK := Color(0, 0, 0, 0.85)
 
 var traffic: Traffic
+var wind: Wind
 var camera: Camera3D
 var xf := Transform2D.IDENTITY       # world (x, z) -> viewport pixels
 var inv := Transform2D.IDENTITY
@@ -108,26 +109,41 @@ func _draw_all() -> void:
 
 func _draw_runway_markers(t: float) -> void:
 	for i in Airports.rw_count():
-		var col := Airports.rw_color(i)
-		var thr := Airports.rw_threshold(i)
-		var dir := Airports.rw_dir(i)
-		var side := Vector2(-dir.y, dir.x)
-		var hot := active_runway == i
-		var pulse := 0.5 + 0.5 * sin(t * 5.0)
-		var r := Tuning.approach_radius * (1.0 + 0.08 * pulse if hot else 1.0)
-		_c.draw_arc(thr, r, 0.0, TAU, 40, Color(0, 0, 0, 0.6), 0.16)
-		_c.draw_arc(thr, r, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.95 if hot else 0.6), 0.08)
-		# Approach funnel: two dashed lines opening out behind the threshold, with chevrons.
-		var far := thr - dir * 3.4
-		for s in [-1.0, 1.0]:
-			_c.draw_dashed_line(thr + side * s * 0.35, far + side * s * 1.4, Color(col.r, col.g, col.b, 0.55), 0.07, 0.25)
-		for k in 3:
-			var c := thr - dir * (1.5 + k * 0.7)
-			var a := 0.25 + 0.55 * clampf(1.0 - absf(fmod(t * 1.5, 3.0) - k), 0.0, 1.0)
-			_c.draw_line(c - side * 0.3 - dir * 0.0, c + dir * 0.3, Color(col.r, col.g, col.b, a), 0.09)
-			_c.draw_line(c + side * 0.3 - dir * 0.0, c + dir * 0.3, Color(col.r, col.g, col.b, a), 0.09)
+		for e in 2:
+			var col := Airports.rw_color(i)
+			var thr := Airports.end_threshold(i, e)
+			var dir := Airports.end_dir(i, e)
+			var side := Vector2(-dir.y, dir.x)
+			var active := wind == null or wind.is_active(i, e)
+			var hot := active_runway == i and active
+			var pulse := 0.5 + 0.5 * sin(t * 5.0)
+			# While a wind shift is announced, ends that are about to change blink.
+			var changing := false
+			if wind != null and wind.warning:
+				var next_on := Airports.angle_diff(Airports.end_heading_deg(i, e), wind.next_deg) <= Tuning.wind_tolerance_deg
+				changing = next_on != active
+			if not active:
+				_c.draw_arc(thr, Tuning.approach_radius, 0.0, TAU, 40, Color(0.1, 0.1, 0.12, 0.35), 0.12)
+				var x := 0.4
+				_c.draw_line(thr + Vector2(-x, -x), thr + Vector2(x, x), Color(0.9, 0.25, 0.2, 0.55), 0.1)
+				_c.draw_line(thr + Vector2(x, -x), thr + Vector2(-x, x), Color(0.9, 0.25, 0.2, 0.55), 0.1)
+			else:
+				var r := Tuning.approach_radius * (1.0 + 0.08 * pulse if hot else 1.0)
+				_c.draw_arc(thr, r, 0.0, TAU, 40, Color(0, 0, 0, 0.6), 0.16)
+				_c.draw_arc(thr, r, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.95 if hot else 0.7), 0.08)
+				# Approach funnel: two dashed lines opening out behind the threshold, with chevrons.
+				var far := thr - dir * 3.4
+				for s in [-1.0, 1.0]:
+					_c.draw_dashed_line(thr + side * s * 0.35, far + side * s * 1.4, Color(col.r, col.g, col.b, 0.55), 0.07, 0.25)
+				for k in 3:
+					var c := thr - dir * (1.5 + k * 0.7)
+					var a := 0.25 + 0.55 * clampf(1.0 - absf(fmod(t * 1.5, 3.0) - k), 0.0, 1.0)
+					_c.draw_line(c - side * 0.3, c + dir * 0.3, Color(col.r, col.g, col.b, a), 0.09)
+					_c.draw_line(c + side * 0.3, c + dir * 0.3, Color(col.r, col.g, col.b, a), 0.09)
+			if changing and sin(t * 9.0) > 0.0:
+				_c.draw_arc(thr, Tuning.approach_radius + 0.25, 0.0, TAU, 40, Color(1, 0.95, 0.4, 0.9), 0.1)
 
-## The edge glow for a plane that is about to come in: a pulsing beacon in its speed colour on the screen
+## The edge glow for an aircraft that is about to come in: a pulsing beacon in its speed colour on the screen
 ## edge at its entry point (half of it is off screen), with an arrow pointing the way it will fly.
 func _draw_entry_glow(p: Aircraft, t: float) -> void:
 	glows_drawn += 1

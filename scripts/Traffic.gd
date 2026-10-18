@@ -9,6 +9,8 @@ signal conflict(a: Aircraft, b: Aircraft)
 signal timed_out(plane: Aircraft)   # its timer ran out: it is diverted (a strike)
 signal cleared(plane: Aircraft)       # a path just reached its approach end
 signal wrong_runway(plane: Aircraft, runway: int)  # a path went for another colour's runway
+signal inactive_end(plane: Aircraft, runway: int, end: int)  # ...or for an end the wind doesn't allow
+signal rerouted(plane: Aircraft)   # the wind shifted: its path now ends on a closed end
 signal spawned(plane: Aircraft)
 
 const MAX_POOL := 16
@@ -21,6 +23,7 @@ var spawn_until := INF               # no new planes after this run time (the sh
 var half_w := 5.0
 var half_h := 8.9
 var rng := RandomNumberGenerator.new()
+var wind: Wind                       # which runway ends can be landed on (null = all)
 
 var _nodes: Array[Node3D] = []
 var _fuselages: Array[Node3D] = []
@@ -186,29 +189,37 @@ func pick(world: Vector2) -> Aircraft:
 func begin_path(p: Aircraft) -> void:
 	p.clear_path()
 	p.wrong_shown = false
+	p.inactive_shown = false
 	if p.state == Aircraft.State.HOLD:
 		p.state = Aircraft.State.FLY
 
 ## The finger is now at `world`: lay path points up to it. Returns true when the path has
-## reached the plane's approach end (it is cleared to land; the drag is over).
+## reached an ACTIVE approach end of the plane's runway (it is cleared to land; the drag is over).
 func extend_path(p: Aircraft, world: Vector2) -> bool:
 	if p.cleared:
 		return true
 	var last := p.last_point()
 	var r := Tuning.approach_radius
-	var thr := Airports.rw_threshold(p.runway)
-	if _dist_to_segment(thr, last, world) <= r:
-		p.push(thr)
-		p.push(Airports.rw_end(p.runway))
-		p.cleared = true
-		cleared.emit(p)
-		return true
+	for e in 2:
+		if _dist_to_segment(Airports.end_threshold(p.runway, e), last, world) <= r:
+			if wind == null or wind.is_active(p.runway, e):
+				p.push(Airports.end_threshold(p.runway, e))
+				p.push(Airports.end_far(p.runway, e))
+				p.cleared = true
+				p.land_end = e
+				cleared.emit(p)
+				return true
+			elif not p.inactive_shown:
+				p.inactive_shown = true
+				inactive_end.emit(p, p.runway, e)
 	if not p.wrong_shown:
 		for k in Airports.rw_count():
-			if k != p.runway and _dist_to_segment(Airports.rw_threshold(k), last, world) <= r:
-				p.wrong_shown = true
-				wrong_runway.emit(p, k)
-				break
+			if k == p.runway:
+				continue
+			for e in 2:
+				if _dist_to_segment(Airports.end_threshold(k, e), last, world) <= r:
+					p.wrong_shown = true
+					wrong_runway.emit(p, k)
 	var d := world - last
 	var len := d.length()
 	if len >= Tuning.path_spacing:
@@ -219,6 +230,23 @@ func extend_path(p: Aircraft, world: Vector2) -> bool:
 				break
 			k += 1
 	return false
+
+## The wind shifted: aircraft cleared to land on an end that just closed lose that clearance. Their path
+## stays (drawn dashed red) but no longer ends on the runway: the player has to draw a new one.
+func reroute_closed_ends() -> int:
+	var n := 0
+	if wind == null:
+		return 0
+	for p in planes:
+		if p.state == Aircraft.State.FLY and p.cleared and not wind.is_active(p.runway, p.land_end):
+			p.count = maxi(p.count - 2, 0)   # drop the approach end and the far end
+			if p.count == 0:
+				p.head = 0
+			p.cleared = false
+			p.path_invalid = true
+			rerouted.emit(p)
+			n += 1
+	return n
 
 ## The finger lifted: finish the path at the finger.
 func end_path(p: Aircraft, world: Vector2) -> void:
@@ -299,7 +327,7 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 		Aircraft.State.LANDING:
 			p.roll_t += dt / Tuning.landing_roll_time
 			var e := 1.0 - (1.0 - minf(p.roll_t, 1.0)) * (1.0 - minf(p.roll_t, 1.0))
-			p.pos = p.roll_from.lerp(Airports.rw_end(p.runway), e)
+			p.pos = p.roll_from.lerp(Airports.end_far(p.runway, p.land_end), e)
 			p.ground = p.roll_t >= Tuning.touchdown_fraction
 			if p.roll_t >= 1.0:
 				landed.emit(p)
@@ -334,7 +362,7 @@ func _follow(p: Aircraft, dist: float) -> void:
 				p.state = Aircraft.State.LANDING
 				p.roll_t = 0.0
 				p.roll_from = p.pos
-				p.heading = deg_to_rad(Airports.rw_heading_deg(p.runway))
+				p.heading = deg_to_rad(Airports.end_heading_deg(p.runway, p.land_end))
 				return
 		else:
 			p.pos += to / l * left

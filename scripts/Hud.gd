@@ -18,6 +18,10 @@ class Art extends Control:
 	var goal_state := PackedInt32Array([0, 0, 0])      # 0 pending / 1 met / 2 failed
 	var show_result := false
 	var result_y := 640.0
+	var wind_toward := 0.0           # compass direction the wind blows toward (the arrow)
+	var wind_text := "WIND 000"
+	var wind_warn := false
+	var show_wind := false
 	var _pts := PackedVector2Array()
 	var _font: Font
 
@@ -54,7 +58,33 @@ class Art extends Control:
 	func size_x() -> float:
 		return maxf(size.x - 100.0, 200.0)
 
+	func _draw_wind() -> void:
+		var c := Vector2(size.x - 92.0, 196.0)
+		draw_circle(c, 56.0, Color(0.03, 0.05, 0.08, 0.5))
+		var ring := Color(1.0, 0.9, 0.3) if wind_warn and int(Time.get_ticks_msec() / 250.0) % 2 == 0 else Color(0.85, 0.9, 1.0, 0.8)
+		draw_arc(c, 56.0, 0.0, TAU, 40, ring, 4.0)
+		var d := Vector2(sin(deg_to_rad(wind_toward)), -cos(deg_to_rad(wind_toward)))
+		var n := Vector2(-d.y, d.x)
+		draw_line(c - d * 34.0, c + d * 10.0, Color(0, 0, 0), 12.0)
+		draw_line(c - d * 34.0, c + d * 10.0, Color.WHITE, 6.0)
+		_pts[0] = c + d * 40.0
+		_pts[1] = c + d * 8.0 + n * 20.0
+		_pts[2] = c + d * 8.0 - n * 20.0
+		draw_colored_polygon(_tri(), Color.WHITE)
+		draw_string_outline(_font, Vector2(c.x - 90.0, c.y + 92.0), wind_text, HORIZONTAL_ALIGNMENT_CENTER, 180.0, 30, 8, Color.BLACK)
+		draw_string(_font, Vector2(c.x - 90.0, c.y + 92.0), wind_text, HORIZONTAL_ALIGNMENT_CENTER, 180.0, 30, Color(1, 0.95, 0.7) if wind_warn else Color.WHITE)
+
+	var _tri_pts := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
+
+	func _tri() -> PackedVector2Array:
+		_tri_pts[0] = _pts[0]
+		_tri_pts[1] = _pts[1]
+		_tri_pts[2] = _pts[2]
+		return _tri_pts
+
 	func _draw() -> void:
+		if show_wind:
+			_draw_wind()
 		if show_play:
 			draw_rect(Rect2(0, 0, size.x, 14), Color(0, 0, 0, 0.5))
 			draw_rect(Rect2(0, 0, size.x * clampf(shift_frac, 0.0, 1.0), 14), Color(0.4, 0.85, 1.0, 0.9))
@@ -81,6 +111,8 @@ var _art: Art
 var _score: Label
 var _best: Label
 var _alert: Label
+var _wind_banner: Label
+var _wind_secs := -1
 var _menu: Control
 var _menu_info: Label
 var _over: Control
@@ -131,6 +163,13 @@ func _ready() -> void:
 	_alert.text = "TRAFFIC!"
 	_alert.add_theme_color_override("font_color", Color(1, 0.3, 0.25))
 	_alert.visible = false
+	_wind_banner = _label(46, HORIZONTAL_ALIGNMENT_CENTER)
+	_wind_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_wind_banner.offset_left = -480
+	_wind_banner.offset_right = 480
+	_wind_banner.offset_top = 480
+	_wind_banner.add_theme_color_override("font_color", Color(1.0, 0.92, 0.35))
+	_wind_banner.visible = false
 	for i in POPUP_POOL:
 		var l := _label(72, HORIZONTAL_ALIGNMENT_CENTER)
 		l.size = Vector2(560, 100)
@@ -230,6 +269,8 @@ func show_menu(airport_name: String, coins: int, stars: int, best: int) -> void:
 	_over.visible = false
 	_art.show_play = false
 	_art.show_result = false
+	_art.show_wind = false
+	_wind_banner.visible = false
 	_art.queue_redraw()
 
 ## The end-of-shift screen: header, why it ended, the three star goals and the totals.
@@ -241,6 +282,8 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 		_art.goal_text[i] = shift.goal_text(i)
 	_art.show_play = false
 	_art.show_result = true
+	_art.show_wind = false
+	_wind_banner.visible = false
 	_art.queue_redraw()
 	_over.visible = true
 	_menu.visible = false
@@ -259,6 +302,10 @@ func reset_for_run(best: int) -> void:
 	_alert.visible = false
 	_alert_on = false
 	_art.show_play = true
+	_art.show_wind = true
+	_wind_banner.visible = false
+	_wind_secs = -1
+	_art.wind_warn = false
 	_art.shift_frac = 0.0
 	set_landed(0)
 	set_best(best)
@@ -270,6 +317,24 @@ func set_landed(n: int, punch: bool = false) -> void:
 	_score.text = str(n)
 	if punch and not DebugFlags.off("popup"):
 		_punch_ms = Time.get_ticks_msec()
+
+## The wind widget: an arrow showing where the air is going and the "WIND 270" label.
+func set_wind(from_deg: float, toward_deg: float) -> void:
+	_art.wind_toward = toward_deg
+	_art.wind_text = "WIND " + Wind.label(from_deg)
+	_art.queue_redraw()
+
+## The banner for an announced wind shift ("Wind shifting to 270  in 6s"); `secs` < 0 hides it.
+func set_wind_warning(next_deg: float, secs: int) -> void:
+	_art.wind_warn = secs >= 0
+	if secs < 0:
+		_wind_banner.visible = false
+		_wind_secs = -1
+		return
+	if secs != _wind_secs:
+		_wind_secs = secs
+		_wind_banner.text = "Wind shifting to %s  in %ds" % [Wind.label(next_deg), secs]
+	_wind_banner.visible = true
 
 func set_alert(on: bool) -> void:
 	_alert_on = on
@@ -379,6 +444,10 @@ func begin_prewarm() -> void:
 		_art.goal_state[i] = i
 	_art.show_play = true
 	_art.show_result = true
+	_art.show_wind = true
+	_art.wind_warn = true
+	_wind_banner.text = "Wind shifting to 270  in 8s"
+	_wind_banner.visible = true
 	_art.strikes = 2
 	_art.queue_redraw()
 	_best.text = "best 0123456789"
@@ -420,6 +489,8 @@ func end_prewarm() -> void:
 	_menu.visible = false
 	_art.show_play = false
 	_art.show_result = false
+	_art.show_wind = false
+	_wind_banner.visible = false
 	_art.queue_redraw()
 	_flash_ms = -10000
 	if is_instance_valid(_splash):
