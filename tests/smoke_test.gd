@@ -10,6 +10,9 @@ extends SceneTree
 ##   6. conflicts: warning ring first, then the run ends; grounded / off-screen planes never conflict
 ##   7. timers: ring colours, per-type lengths, start on screen, holding drains slower; a timeout diverts (strike),
 ##      3 strikes end the shift
+##   9b. wind: active ends, the shift warning, re-routing, windsock
+##   9c. airports: six layouts, unlock by stars, select screen, crossing runways (conflict), busy runway
+##       (go around), terrain (crash = strike), cycling airports creates nothing
 ##   9. shifts: star goals and progress, stars / coins / first-time bonus, versioned save (v1 migrates)
 ##   8. edges: a plane with no path turns back instead of leaving
 ##   9. restart in place after game over (tap), best score kept, and NOTHING new is created over many runs
@@ -147,6 +150,11 @@ func _initialize() -> void:
 	check(main.tune_panel != null and main.tune_panel._panel.visible and main.tune_panel._panel_layer.layer == 0,
 			"?tune: the panel is drawn during the pre-warm, under the splash (layer 0)")
 	check(not main.tune_panel._button.visible, "?tune: the TUNE button stays hidden while starting up")
+	var vis_roots := 0
+	for av in main.airfield.variants:
+		if av.root.visible:
+			vis_roots += 1
+	check(vis_roots == 6, "all six airports are drawn during the pre-warm (%d)" % vis_roots)
 	check(main.overlay.glows_drawn >= 3, "entry glows (all three speed colours) are drawn during the pre-warm (%d)" % main.overlay.glows_drawn)
 	var ribbons_up := 0
 	for rn in main.ribbons._nodes:
@@ -163,6 +171,13 @@ func _initialize() -> void:
 	check(main.screen == main.SCREEN_MENU and main.hud._menu.visible, "the menu is showing after boot")
 	check(main.tune_panel._button.visible, "?tune: TUNE button appears once the game has started")
 	check(not main.alive, "nothing runs on the menu")
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)    # the older tests were written for two parallel runways: Regional
+	vis_roots = 0
+	for av in main.airfield.variants:
+		if av.root.visible:
+			vis_roots += 1
+	check(vis_roots == 1, "after the pre-warm only the current airport is visible")
 
 	print("2. a tap on the menu starts a run in place; real touches pick and drag a plane")
 	main.traffic.auto_spawn = false
@@ -213,7 +228,7 @@ func _initialize() -> void:
 		if b != 0:
 			ripples += 1
 	check(ripples >= 1, "landing ripple rings are showing")
-	check(main.airfield._glow_born[0] != 0, "the runway threshold flashes")
+	check(main.airfield.cur.glow_born[0] != 0, "the runway threshold flashes")
 
 	print("3. paths: following, and wrong runway")
 	tr.release_all()
@@ -531,7 +546,7 @@ func _initialize() -> void:
 	tr.run_time = tuning.shift_seconds + 1.0
 	main.step(1.0 / 60.0)
 	check(not main.alive and main.over_header == main.HEADER_DONE, "the shift completes when the planes stop and the field is clear")
-	check(main.shift.stars() == 3 and save.stars_of(0) == 3, "three stars earned and saved")
+	check(main.shift.stars() == 3 and save.stars_of(main.airport) == 3, "three stars earned and saved")
 	var expect_coins = main.score * tuning.coins_per_landing + 3 * (tuning.coins_per_star + tuning.coins_first_star_bonus)
 	check(save.coins == expect_coins, "coins: landings + stars + first-time bonuses (%d, expected %d)" % [save.coins, expect_coins])
 	check(main.last_result["first_stars"] == 3 and main.hud._art.show_result, "the results screen shows with the stars")
@@ -582,12 +597,12 @@ func _initialize() -> void:
 	check(main.wind.is_active(0, 0) and not main.wind.is_active(0, 1) and main.wind.is_active(1, 0) and not main.wind.is_active(1, 1), "wind from 000: the north-facing ends are active, the south-facing ones not")
 	set_wind(main, 180.0)
 	check(not main.wind.is_active(0, 0) and main.wind.is_active(0, 1), "wind from 180 swaps the active ends")
-	check(main.airfield._active[1] and not main.airfield._active[0], "active ends are highlighted on the field, inactive ones dimmed")
+	check(main.airfield.cur.active[1] and not main.airfield.cur.active[0], "active ends are highlighted on the field, inactive ones dimmed")
 	main.airfield._process(0.016)
-	check(main.airfield._thr_mats[1].albedo_color != main.airfield._thr_mats[0].albedo_color, "...the dull end really is a different colour")
+	check(main.airfield.cur.thr_mats[1].albedo_color != main.airfield.cur.thr_mats[0].albedo_color, "...the dull end really is a different colour")
 	for k in 6:
 		main.airfield._process(1.0)
-	var sock_err = absf(wrapf(rad_to_deg(-main.airfield._sock.rotation.y) - main.wind.toward_deg(), -180.0, 180.0))
+	var sock_err = absf(wrapf(rad_to_deg(-main.airfield.cur.sock.rotation.y) - main.wind.toward_deg(), -180.0, 180.0))
 	check(sock_err < 10.0, "the windsock points downwind (%.1f deg off)" % sock_err)
 	# Landing needs an ACTIVE end.
 	set_wind(main, 0.0)
@@ -669,6 +684,188 @@ func _initialize() -> void:
 	check(quick < main.wind.interval(0.0), "...and on airports with a lower wind scale")
 	tr.release_all()
 
+	print("9c. airports")
+	check(Airports.COUNT == 6, "six airports")
+	var unlocks_ok = Airports.unlock_stars(0) == 0
+	for i in range(1, 6):
+		unlocks_ok = unlocks_ok and Airports.unlock_stars(i) > Airports.unlock_stars(i - 1)
+	check(unlocks_ok and Airports.unlock_stars(5) <= 18, "unlock thresholds rise with total stars (max possible 18)")
+	var want_rw = [1, 2, 2, 2, 2, 3]
+	var want_pads = [0, 0, 1, 0, 0, 2]
+	var want_lanes = [0, 0, 0, 0, 1, 2]
+	var want_haz = [0, 0, 0, 5, 0, 0]
+	var layout_ok = true
+	var inside_ok = true
+	var hazard_clear = true
+	for i in 6:
+		Airports.current = i
+		layout_ok = layout_ok and Airports.rw_count() == want_rw[i] and Airports.pads().size() == want_pads[i] and Airports.lanes().size() == want_lanes[i] and Airports.hazards().size() == want_haz[i]
+		for r in Airports.rw_count():
+			for e in 2:
+				var tp = Airports.end_threshold(r, e)
+				var fp = Airports.end_far(r, e)
+				inside_ok = inside_ok and absf(tp.x) <= 4.7 and absf(tp.y) <= 6.2 and absf(fp.x) <= 4.7 and absf(fp.y) <= 6.2
+				for hz in Airports.hazards():
+					hazard_clear = hazard_clear and tp.distance_to(hz["center"]) >= hz["radius"] + 0.8
+		for pad in Airports.pads():
+			inside_ok = inside_ok and absf(pad["center"].x) <= 4.7 and absf(pad["center"].y) <= 6.2
+		for lane in Airports.lanes():
+			inside_ok = inside_ok and absf(lane["center"].x) <= 4.7 and absf(lane["center"].y) <= 6.2
+		check(Airports.goals().size() == 3 and Airports.goals()[2]["kind"] == "no_strikes", "airport %d (%s) has three star goals" % [i + 1, Airports.airport_name(i)])
+	check(layout_ok, "runway / helipad / lane / mountain counts match the brief (1,2,2,2,2,3 runways)")
+	check(inside_ok, "every runway end, pad and lane sits inside the screen on any phone or tablet")
+	check(hazard_clear, "mountains stay clear of the approach ends")
+	Airports.current = 1
+	check(Airports.runways_cross(0, 1) and Airports.runways_cross(1, 0), "County: the two runways cross")
+	Airports.current = 2
+	check(not Airports.runways_cross(0, 1), "Regional: the parallel runways don't")
+	Airports.current = 0
+	check(Airports.is_long(0) == false and Airports.is_long(0) == (Airports.rw_length(0) >= 7.4), "Grass Strip is too short for jets")
+	Airports.current = 5
+	check(Airports.is_long(0) and Airports.is_long(2), "International's runways are long")
+	Airports.current = 2
+	check(main.airfield.variants.size() == 6, "every airport's scenery is built once, up front")
+	# Select screen: locks, stars, tapping.
+	save.reset_all()
+	main._show_select()
+	check(main.screen == main.SCREEN_SELECT and main.hud._select.visible, "the airport select screen shows")
+	var cards = {}
+	for k in main.hud._art.btn_count:
+		cards[main.hud._art.btn_id[k]] = main.hud._art.btn_rect[k]
+	check(cards.has("airport:0") and cards.has("locked:1") and cards.has("locked:5") and cards.has("back"), "airport 1 is open, the others show as locked, with a Back button")
+	check(main.hud._art.btn_sub[1].contains("needs 2 stars"), "a locked card says what unlocks it (%s)" % main.hud._art.btn_sub[1])
+	var locked_pos = cards["locked:1"].get_center()
+	touch(main, 0, true, locked_pos)
+	touch(main, 0, false, locked_pos)
+	check(main.screen == main.SCREEN_SELECT, "tapping a locked airport does nothing")
+	save.award_star(0, 0)
+	save.award_star(0, 1)
+	main._show_select()
+	check(save.stars_total() == 2 and main.hud.button_at(cards["locked:1"].get_center()) == "airport:1", "two stars open County")
+	touch(main, 0, true, cards["locked:1"].get_center())
+	touch(main, 0, false, cards["locked:1"].get_center())
+	check(main.screen == main.SCREEN_PLAY and main.airport == 1 and Airports.rw_count() == 2 and main.airfield.selected == 1, "tapping an open airport starts a shift there")
+	check(save.selected_airport == 1, "the choice is remembered")
+	set_wind(main, 40.0)
+	# County: crossing runways.
+	tr.auto_spawn = false
+	var ca = tr.place(0, Airports.end_threshold(0, 0), 0.0, MEDIUM)
+	var cb = tr.place(1, Airports.end_threshold(1, 0), 0.0, MEDIUM)
+	for pl in [ca, cb]:
+		pl.pos = Airports.end_threshold(pl.runway, 0)
+		pl.push(pl.pos)
+		pl.push(Airports.end_far(pl.runway, 0))
+		pl.cleared = true
+		pl.land_end = 0
+	ca.pos += Vector2(30, 30)   # keep them out of each other's conflict range until we want them
+	ca.pos = Airports.end_threshold(0, 0)
+	cb.pos = Airports.end_threshold(1, 0) + Vector2(0.0, 0.0)
+	var rc = [false]
+	tr.runway_conflict.connect(func(_a, _b): rc[0] = true, CONNECT_ONE_SHOT)
+	cb.entered = false   # (aircraft outside never conflict in the air; the runway check is separate)
+	cb.entered = true
+	ca.ground = true
+	cb.ground = true
+	tr.step(1.0 / 60.0)
+	check(rc[0] and not main.alive and main.over_reason.contains("crossing"), "landing on a crossing runway while the other is busy is a runway conflict")
+	# Same runway: go around.
+	main.restart()
+	set_wind(main, 40.0)
+	tr.auto_spawn = false
+	var g_a = tr.place(0, Airports.end_threshold(0, 0), 0.0, MEDIUM)
+	var g_b = tr.place(0, Airports.end_threshold(0, 0) + Vector2(0.0, 0.5), 0.0, MEDIUM)
+	for pl in [g_a, g_b]:
+		pl.pos = Airports.end_threshold(0, 0)
+		pl.push(pl.pos)
+		pl.push(Airports.end_far(0, 0))
+		pl.cleared = true
+		pl.land_end = 0
+		pl.ground = true
+	var ga_seen = [false]
+	tr.go_around.connect(func(_p): ga_seen[0] = true, CONNECT_ONE_SHOT)
+	tr.step(1.0 / 60.0)
+	check(ga_seen[0] and main.alive and main.shift.strikes == 0, "a second aircraft reaching a busy runway goes around: no strike")
+	check(g_a.state == Aircraft.State.LANDING and g_b.state == Aircraft.State.FLY and not g_b.cleared, "...the first lands, the second keeps flying with its clearance withdrawn")
+	var pop_ga = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "Go around!":
+			pop_ga = true
+	check(pop_ga, "a 'Go around!' popup shows")
+	run_sec(main, tuning.landing_roll_time + tuning.runway_clear_seconds + 0.3)
+	g_b.pos = Airports.end_threshold(0, 0)
+	g_b.ground = true
+	g_b.push(g_b.pos)
+	g_b.push(Airports.end_far(0, 0))
+	g_b.cleared = true
+	g_b.land_end = 0
+	tr.step(1.0 / 60.0)
+	check(g_b.state == Aircraft.State.LANDING, "once the runway has cleared, a landing goes ahead")
+	# Grass Strip: one runway, usable both ways.
+	main.select_airport(0)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	check(Airports.rw_count() == 1 and main.wind.is_active(0, 0) and not main.wind.is_active(0, 1), "Grass Strip with a north wind: end 0 is active")
+	set_wind(main, 180.0)
+	check(main.wind.is_active(0, 1) and not main.wind.is_active(0, 0), "...and with a south wind the other end is")
+	var gs = tr.place(0, Airports.end_threshold(0, 1) + Vector2(0.4, -3.0), PI, SMALL)
+	draw_path(main, gs, [gs.pos + Vector2(0, 0.8), Airports.end_threshold(0, 1)])
+	check(gs.cleared and gs.land_end == 1, "the single runway can be landed on from the south end")
+	var jets_seen = false
+	var small_seen = false
+	for k in 150:
+		var sp3 = tr.spawn()
+		if sp3 != null:
+			jets_seen = jets_seen or sp3.type == JET
+			small_seen = small_seen or sp3.type == SMALL
+			tr.release_all()
+	check(small_seen and not jets_seen, "Grass Strip's traffic is small and medium planes only")
+	# Mountain Field: terrain.
+	main.select_airport(3)
+	main.restart()
+	tr.auto_spawn = false
+	check(tr.hz_count == 5 and Airports.hazards().size() == 5, "Mountain Field has five no-fly zones")
+	var safe = true
+	var spawned_mt = 0
+	for k in 300:
+		var sp4 = tr.spawn()
+		if sp4 != null:
+			spawned_mt += 1
+			var d4 = Vector2(sin(sp4.heading), -cos(sp4.heading))
+			safe = safe and not tr._hits_hazard(sp4.entry, d4)
+			tr.release_all()
+	check(spawned_mt > 150 and safe, "no aircraft is ever sent straight at a mountain (%d spawns)" % spawned_mt)
+	var mt = tr.place(0, Vector2(-3.7, -2.0), 0.0, MEDIUM)
+	var strikes_mt = main.shift.strikes
+	for i in 400:
+		main.step(1.0 / 60.0)
+		if not mt.active():
+			break
+	check(not mt.active() and main.shift.strikes == strikes_mt + 1, "flying into a mountain loses the aircraft and costs a strike")
+	var pop_cr = false
+	for l in main.hud._pop_labels:
+		if l.visible and l.text == "Crashed!":
+			pop_cr = true
+	check(pop_cr, "a 'Crashed!' popup shows")
+	# Island and International: the extras exist.
+	main.select_airport(4)
+	main.restart()
+	check(Airports.lanes().size() == 1 and main.airfield.selected == 4, "Island has its seaplane lane")
+	main.select_airport(5)
+	main.restart()
+	check(Airports.rw_count() == 3 and Airports.pads().size() == 2 and Airports.lanes().size() == 2, "International has multiples of everything")
+	# Switching airports in place creates nothing.
+	var before_cycle = snapshot(main)
+	for i in 6:
+		main.select_airport(i)
+		main.restart()
+		check(main.airfield.selected == i and Airports.current == i and main.alive and tr.hz_count == want_haz[i], "airport %d starts in place" % (i + 1))
+		run_sec(main, 2.0)
+	main.select_airport(2)
+	main.restart()
+	var after_cycle = snapshot(main)
+	check(same_world(before_cycle, after_cycle), "cycling through all six airports created nothing new  [%s]" % describe(after_cycle))
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
@@ -701,7 +898,7 @@ func _initialize() -> void:
 		check(main.hud._over.visible, "run %d ends with the game-over screen (score %d)" % [runs, main.score])
 	var after = snapshot(main)
 	check(same_world(base, after), "4 whole runs created nothing new  [%s]" % describe(after))
-	check(save.best_for(0) == best_seen, "the best score is remembered (%d)" % save.best_for(0))
+	check(save.best_for(main.airport) == best_seen, "the best score is remembered (%d)" % save.best_for(main.airport))
 	check(main.hud._over_body.text.contains("Aircraft landed: %d" % main.score), "the results screen shows the landings")
 	# Tap on the game-over screen restarts in place (after the 0.6 s guard).
 	await real_wait(0.7)

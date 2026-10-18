@@ -18,6 +18,7 @@ var equipped := {}                   # slot -> id
 var tips_seen := {}                  # aircraft-type tips already shown
 var daily := {}                      # {"day": int, "best": int, "streak": int, "last_streak_day": int}
 var shifts_played := 0
+var selected_airport := 0
 
 func _ready() -> void:
 	load_file()
@@ -34,6 +35,7 @@ func _defaults() -> void:
 	tips_seen = {}
 	daily = {}
 	shifts_played = 0
+	selected_airport = 0
 
 func load_file() -> void:
 	_defaults()
@@ -62,6 +64,7 @@ func load_file() -> void:
 	tips_seen = _dict(data.get("tips_seen"))
 	daily = _dict(data.get("daily"))
 	shifts_played = int(data.get("shifts_played", 0))
+	selected_airport = clampi(int(data.get("selected_airport", 0)), 0, AIRPORT_SLOTS - 1)
 
 func _dict(v) -> Dictionary:
 	return v if v is Dictionary else {}
@@ -72,10 +75,14 @@ func write_file() -> void:
 		f.store_string(JSON.stringify({
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best),
 			"upgrades": upgrades, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
-			"daily": daily, "shifts_played": shifts_played,
+			"daily": daily, "shifts_played": shifts_played, "selected_airport": selected_airport,
 		}))
 
 # ---------- Stars ----------
+
+## Is airport `i` open? (By total stars; the debug unlock opens them all.)
+func airport_open(i: int) -> bool:
+	return Airports.unlocked(i, stars_total()) or unlocks.has("all_airports")
 
 func has_star(airport: int, i: int) -> bool:
 	return stars[airport * STARS_PER_AIRPORT + i] != 0

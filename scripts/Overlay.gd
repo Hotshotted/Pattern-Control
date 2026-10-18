@@ -84,6 +84,7 @@ func _draw_all() -> void:
 			_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, BLACK, 0.16)
 			_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.8), 0.07)
 	glows_drawn = 0
+	_draw_hazards(t)
 	for p in traffic.planes:
 		if p.active() and not p.entered:
 			_draw_entry_glow(p, t)
@@ -106,6 +107,18 @@ func _draw_all() -> void:
 		var col := _rip_col[i]
 		col.a = 1.0 - a
 		_c.draw_arc(_rip_pos[i], (0.4 + 2.2 * a) * _rip_scale[i], 0.0, TAU, 40, col, 0.14 * (1.0 - a) + 0.03)
+
+## No-fly zones: a dashed warning ring and a faint fill around each mountain (and, later, storm).
+func _draw_hazards(t: float) -> void:
+	for k in traffic.hz_count:
+		var c := traffic.hz_pos[k]
+		var r := traffic.hz_r[k]
+		var col := Color(1.0, 0.35, 0.2) if traffic.hz_kind[k] == 0 else Color(0.75, 0.55, 1.0)
+		_c.draw_circle(c, r, Color(col.r, col.g, col.b, 0.1))
+		var phase := t * 0.6
+		for seg in 16:
+			var a0 := phase + seg * TAU / 16.0
+			_c.draw_arc(c, r + 0.1, a0, a0 + TAU / 32.0, 4, Color(col.r, col.g, col.b, 0.8), 0.1)
 
 func _draw_runway_markers(t: float) -> void:
 	for i in Airports.rw_count():

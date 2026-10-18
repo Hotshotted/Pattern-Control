@@ -6,6 +6,7 @@ extends Node3D
 const SCREEN_MENU := 0
 const SCREEN_PLAY := 1
 const SCREEN_OVER := 2
+const SCREEN_SELECT := 3
 
 const HEADER_CONFLICT := "MID-AIR\nCONFLICT"
 const HEADER_STRIKES := "3 STRIKES"
@@ -69,6 +70,9 @@ func _ready() -> void:
 	wind.shifted.connect(_on_wind_shifted)
 	traffic.inactive_end.connect(_on_inactive_end)
 	traffic.rerouted.connect(_on_rerouted)
+	traffic.crashed.connect(_on_crashed)
+	traffic.go_around.connect(_on_go_around)
+	traffic.runway_conflict.connect(_on_runway_conflict)
 	ribbons.traffic = traffic
 	overlay.camera = camera
 	traffic.landed.connect(_on_landed)
@@ -76,6 +80,10 @@ func _ready() -> void:
 	traffic.timed_out.connect(_on_timed_out)
 	traffic.cleared.connect(_on_cleared)
 	traffic.wrong_runway.connect(_on_wrong_runway)
+	airport = Save.selected_airport if Save.airport_open(Save.selected_airport) else 0
+	Airports.current = airport
+	airfield.select(airport)
+	traffic.load_terrain()
 	shift.reset(Airports.goals())
 	wind.start(traffic.rng)
 	airfield.show_active(wind)
@@ -102,6 +110,7 @@ func _ready() -> void:
 func _prewarm() -> void:
 	_warming = true
 	hud.begin_prewarm()
+	airfield.show_all(true)
 	traffic.prewarm_show()
 	overlay.prewarm()
 	if tune_panel:
@@ -129,6 +138,7 @@ func _prewarm() -> void:
 		if elapsed_s >= Tuning.prewarm_min_seconds and calm_frames >= Tuning.prewarm_stable_frames:
 			break
 	fx.clear()
+	airfield.show_all(false)
 	traffic.prewarm_hide()
 	overlay.clear()
 	airfield.reset()
@@ -162,6 +172,8 @@ func restart() -> void:
 	_note_event("shift started")
 	get_tree().paused = false
 	Airports.current = airport
+	airfield.select(airport)
+	traffic.load_terrain()
 	shift.reset(Airports.goals())
 	fx.clear()
 	overlay.clear()
@@ -179,7 +191,7 @@ func restart() -> void:
 func _show_menu() -> void:
 	screen = SCREEN_MENU
 	alive = false
-	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport))
+	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport))
 
 # ---------- Frame time: the simulation can never run ahead of the clock ----------
 # However long the real frame was, the simulation advances by at most Tuning.max_frame_delta; a stall (a tab
@@ -315,6 +327,32 @@ func _star_feedback(at: Vector2) -> void:
 	var vp := get_viewport().get_visible_rect().size
 	hud.popup("STAR!", Color(1.0, 0.84, 0.15), Vector2(vp.x * 0.5, vp.y * 0.3))
 
+## An aircraft flew into terrain: lost, and a strike.
+func _on_crashed(p: Aircraft) -> void:
+	if not alive:
+		return
+	shift.on_strike()
+	hud.set_shift(shift, int(Tuning.max_strikes))
+	fx.burst(p.pos, Color(0.85, 0.6, 0.4), true)
+	overlay.ripple(p.pos, Color(1, 0.35, 0.2), 1.1)
+	hud.popup("Crashed!", Color(1, 0.4, 0.3), overlay.world_to_screen(p.pos))
+	hud.flash(Color(1, 0.3, 0.1))
+	if shift.strikes >= int(Tuning.max_strikes):
+		_end_shift(HEADER_STRIKES, "%d strikes." % shift.strikes, false)
+
+## The runway was still busy: the aircraft goes around (no strike, but time passes).
+func _on_go_around(p: Aircraft) -> void:
+	hud.popup("Go around!", Color(1, 0.85, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
+	overlay.ripple(p.pos, Color(1, 0.85, 0.3), 0.7)
+
+func _on_runway_conflict(a: Aircraft, b: Aircraft) -> void:
+	if not alive:
+		return
+	var mid := (a.pos + b.pos) * 0.5
+	fx.burst(mid, Color(1.0, 0.5, 0.1), true)
+	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
+	_end_shift(HEADER_CONFLICT, "Simultaneous landings on crossing runways.", false)
+
 func _on_cleared(p: Aircraft) -> void:
 	overlay.ripple(Airports.end_threshold(p.runway, p.land_end), Airports.rw_color(p.runway), 0.5)
 
@@ -422,6 +460,13 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.index, event.position)
 
 func _touch_down(index: int, pos: Vector2) -> void:
+	if screen != SCREEN_PLAY:
+		var id := hud.button_at(pos)
+		if id != "":
+			_on_button(id)
+			return
+		if hud.ui_hit(pos):
+			return   # a disabled button
 	if screen == SCREEN_MENU or (screen == SCREEN_OVER and Time.get_ticks_msec() - _death_ms > 600):
 		restart()
 		return
@@ -438,6 +483,33 @@ func _touch_down(index: int, pos: Vector2) -> void:
 	_touch_ms = Time.get_ticks_msec()
 	_last_world = w
 	overlay.selected = p
+
+## A button / card on the menu, results or airport screen.
+func _on_button(id: String) -> void:
+	if id == "airports":
+		_show_select()
+	elif id == "back" or id == "menu":
+		_show_menu()
+	elif id.begins_with("airport:"):
+		select_airport(int(id.substr(8)))
+		restart()
+
+func select_airport(i: int) -> void:
+	airport = clampi(i, 0, Airports.COUNT - 1)
+	Save.selected_airport = airport
+	Save.write_file()
+
+func _show_select() -> void:
+	screen = SCREEN_SELECT
+	alive = false
+	var open := PackedByteArray()
+	var stars := PackedInt32Array()
+	var best := PackedInt32Array()
+	for i in Airports.COUNT:
+		open.append(1 if Save.airport_open(i) else 0)
+		stars.append(Save.stars_of(i))
+		best.append(Save.best_for(i))
+	hud.show_select(Save.stars_total(), open, stars, best, airport)
 
 func _touch_move(index: int, pos: Vector2) -> void:
 	if index != _drag_index or _drag_plane == null:

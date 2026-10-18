@@ -37,6 +37,11 @@ var plane_turn_rate := 7.0
 ## Seconds a landing plane takes to roll out along the runway, and the fraction of the roll before it is on the ground.
 var landing_roll_time := 1.5
 var touchdown_fraction := 0.2
+## A runway stays busy this long after a landing roll ends (a second aircraft reaching it goes around; a landing
+## on a CROSSING runway meanwhile is a runway conflict).
+var runway_clear_seconds := 1.5
+## Terrain hit: an aircraft within a hazard's radius plus this is lost.
+var hazard_margin := 0.1
 ## A plane with no path that gets this close to the edge of the screen turns back toward the field.
 var edge_turn_margin := 1.1
 ## ...in an arc of this radius.

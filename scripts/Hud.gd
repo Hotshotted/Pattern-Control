@@ -25,7 +25,24 @@ class Art extends Control:
 	var _pts := PackedVector2Array()
 	var _font: Font
 
+	# Buttons / cards (fixed pool; set per screen). state: 0 normal, 1 disabled, 2 accent.
+	const MAX_BTN := 12
+	var btn_rect: Array[Rect2] = []
+	var btn_id := PackedStringArray()
+	var btn_text := PackedStringArray()
+	var btn_sub := PackedStringArray()
+	var btn_state := PackedInt32Array()
+	var btn_stars := PackedInt32Array()      # -1: none, 0..3: stars earned (drawn on cards)
+	var btn_count := 0
+
 	func _init() -> void:
+		for i in MAX_BTN:
+			btn_rect.append(Rect2())
+		btn_id.resize(MAX_BTN)
+		btn_text.resize(MAX_BTN)
+		btn_sub.resize(MAX_BTN)
+		btn_state.resize(MAX_BTN)
+		btn_stars.resize(MAX_BTN)
 		_pts.resize(10)
 		_font = ThemeDB.fallback_font
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -55,6 +72,52 @@ class Art extends Control:
 		draw_string_outline(_font, Vector2(x + 60.0, y + size * 0.35), goal_text[i], HORIZONTAL_ALIGNMENT_LEFT, size_x(), size, 8, Color.BLACK)
 		draw_string(_font, Vector2(x + 60.0, y + size * 0.35), goal_text[i], HORIZONTAL_ALIGNMENT_LEFT, size_x(), size, tcol)
 
+	func clear_buttons() -> void:
+		btn_count = 0
+		queue_redraw()
+
+	func add_button(id: String, text: String, rect: Rect2, state: int = 0, sub: String = "", stars: int = -1) -> void:
+		if btn_count >= MAX_BTN:
+			return
+		btn_id[btn_count] = id
+		btn_text[btn_count] = text
+		btn_sub[btn_count] = sub
+		btn_rect[btn_count] = rect
+		btn_state[btn_count] = state
+		btn_stars[btn_count] = stars
+		btn_count += 1
+		queue_redraw()
+
+	## Index of the button under `pos`, or -1.
+	func button_at(pos: Vector2) -> int:
+		for k in btn_count:
+			if btn_rect[k].has_point(pos):
+				return k
+		return -1
+
+	func _draw_buttons() -> void:
+		for k in btn_count:
+			var r := btn_rect[k]
+			var st := btn_state[k]
+			var fill := Color(0.12, 0.16, 0.24, 0.94) if st == 0 else (Color(0.07, 0.08, 0.1, 0.9) if st == 1 else Color(0.12, 0.42, 0.3, 0.96))
+			var border := Color(0.7, 0.8, 0.95, 0.9) if st != 1 else Color(0.35, 0.37, 0.42, 0.9)
+			draw_rect(r, fill)
+			draw_rect(r, border, false, 4.0)
+			var tcol := Color.WHITE if st != 1 else Color(0.55, 0.57, 0.62)
+			var left := btn_sub[k] != "" or btn_stars[k] >= 0
+			var ty := r.position.y + (r.size.y * 0.42 if btn_sub[k] != "" else r.size.y * 0.62)
+			var tx := r.position.x + (28.0 if left else 0.0)
+			var tw := r.size.x - 56.0 if left else r.size.x
+			var align := HORIZONTAL_ALIGNMENT_LEFT if left else HORIZONTAL_ALIGNMENT_CENTER
+			draw_string_outline(_font, Vector2(tx, ty), btn_text[k], align, tw, 46, 8, Color.BLACK)
+			draw_string(_font, Vector2(tx, ty), btn_text[k], align, tw, 46, tcol)
+			if btn_sub[k] != "":
+				var sy := r.position.y + r.size.y * 0.8
+				draw_string(_font, Vector2(tx, sy), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw - 220.0, 28, Color(0.8, 0.85, 0.95) if st != 1 else Color(0.6, 0.62, 0.68))
+			if btn_stars[k] >= 0:
+				for i in 3:
+					star(Vector2(r.end.x - 150.0 + i * 56.0, r.position.y + r.size.y * 0.5), 22.0, Color(1.0, 0.84, 0.15) if i < btn_stars[k] else Color(0.28, 0.3, 0.36))
+
 	func size_x() -> float:
 		return maxf(size.x - 100.0, 200.0)
 
@@ -83,6 +146,7 @@ class Art extends Control:
 		return _tri_pts
 
 	func _draw() -> void:
+		_draw_buttons()
 		if show_wind:
 			_draw_wind()
 		if show_play:
@@ -115,6 +179,8 @@ var _wind_banner: Label
 var _wind_secs := -1
 var _menu: Control
 var _menu_info: Label
+var _select: Control
+var _select_info: Label
 var _over: Control
 var _over_head: Label
 var _over_body: Label
@@ -180,6 +246,8 @@ func _ready() -> void:
 	_pop_from.resize(POPUP_POOL)
 	_build_menu()
 	_build_over()
+	_build_select()
+	move_child(_art, _select.get_index() + 1)   # the art (goals, buttons, stars) is drawn above the screen shades
 	_build_stamp()
 	set_landed(0)
 
@@ -225,6 +293,29 @@ func _build_menu() -> void:
 	_centered(_menu_info, 430, 560)
 	_menu.visible = false
 
+func _build_select() -> void:
+	_select = Control.new()
+	_select.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_select.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_select)
+	var shade := ColorRect.new()
+	shade.color = Color(0.05, 0.08, 0.12, 0.82)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_select.add_child(shade)
+	var title := _label(90, HORIZONTAL_ALIGNMENT_CENTER, _select)
+	title.text = "AIRPORTS"
+	title.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	title.offset_left = -500
+	title.offset_right = 500
+	title.offset_top = 40
+	_select_info = _label(40, HORIZONTAL_ALIGNMENT_CENTER, _select)
+	_select_info.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_select_info.offset_left = -500
+	_select_info.offset_right = 500
+	_select_info.offset_top = 150
+	_select.visible = false
+
 func _build_over() -> void:
 	_over = Control.new()
 	_over.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -263,8 +354,11 @@ func _build_stamp() -> void:
 
 # ---------- Screens ----------
 
-func show_menu(airport_name: String, coins: int, stars: int, best: int) -> void:
-	_menu_info.text = "%s\nCoins %d    Stars %d%s" % [airport_name, coins, stars, ("    Best %d" % best) if best > 0 else ""]
+func show_menu(airport_name: String, coins: int, stars: int, best: int, tag: String = "") -> void:
+	_select.visible = false
+	_menu_info.text = "%s\n%s\nCoins %d    Stars %d%s" % [airport_name, tag, coins, stars, ("    Best %d" % best) if best > 0 else ""]
+	_art.clear_buttons()
+	_layout_menu_buttons()
 	_menu.visible = true
 	_over.visible = false
 	_art.show_play = false
@@ -284,13 +378,64 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	_art.show_result = true
 	_art.show_wind = false
 	_wind_banner.visible = false
+	var vp := get_viewport().get_visible_rect().size
+	_art.clear_buttons()
+	_art.add_button("menu", "MENU", Rect2(vp.x * 0.5 - 170.0, vp.y * 0.5 + 800.0, 340.0, 100.0))
 	_art.queue_redraw()
 	_over.visible = true
 	_menu.visible = false
 
+## The airport select screen: one card per airport (stars earned, best, or what unlocks it).
+func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Array, best: PackedInt32Array, selected: int) -> void:
+	_menu.visible = false
+	_over.visible = false
+	_select.visible = true
+	_art.show_play = false
+	_art.show_result = false
+	_art.show_wind = false
+	_select_info.text = "Stars %d    Coins %d" % [total_stars, Save.coins]
+	var vp := get_viewport().get_visible_rect().size
+	_art.clear_buttons()
+	for i in Airports.COUNT:
+		var r := Rect2(40.0, 230.0 + i * 190.0, vp.x - 80.0, 170.0)
+		if open[i] != 0:
+			var sub := Airports.tag(i) + ("    best %d" % best[i] if best[i] > 0 else "")
+			_art.add_button("airport:%d" % i, "%d  %s" % [i + 1, Airports.airport_name(i)], r, 2 if i == selected else 0, sub, stars[i])
+		else:
+			_art.add_button("locked:%d" % i, "%d  %s" % [i + 1, Airports.airport_name(i)], r, 1, "Locked: needs %d stars (you have %d)" % [Airports.unlock_stars(i), total_stars], -1)
+	_art.add_button("back", "BACK", Rect2(vp.x * 0.5 - 170.0, 230.0 + Airports.COUNT * 190.0 + 20.0, 340.0, 100.0))
+	_art.queue_redraw()
+
+## The id of the enabled button under `pos` ("" if none).
+func button_at(pos: Vector2) -> String:
+	var k := _art.button_at(pos)
+	if k < 0 or _art.btn_state[k] == 1:
+		return ""
+	return _art.btn_id[k]
+
+## True if `pos` is on any button (even a disabled one): the tap belongs to the UI, not the game.
+func ui_hit(pos: Vector2) -> bool:
+	return _art.button_at(pos) >= 0
+
+## The menu's buttons, two per row. (Later features add their own entries here.)
+const MENU_BUTTONS := [["airports", "AIRPORTS"]]
+
+func _layout_menu_buttons() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var n := MENU_BUTTONS.size()
+	for k in n:
+		var cols := mini(n, 2)
+		var col := k % 2
+		var row := k / 2
+		var w := 420.0
+		var x0 := vp.x * 0.5 - (cols * w + (cols - 1) * 30.0) * 0.5
+		_art.add_button(MENU_BUTTONS[k][0], MENU_BUTTONS[k][1], Rect2(x0 + col * (w + 30.0), vp.y * 0.5 + 600.0 + row * 130.0, w, 110.0))
+
 func hide_screens() -> void:
 	_menu.visible = false
 	_over.visible = false
+	_select.visible = false
+	_art.clear_buttons()
 	_art.show_result = false
 
 func reset_for_run(best: int) -> void:
@@ -451,6 +596,12 @@ func begin_prewarm() -> void:
 	_art.strikes = 2
 	_art.queue_redraw()
 	_best.text = "best 0123456789"
+	_menu.visible = true
+	_over.visible = true
+	_select.visible = true
+	var open := PackedByteArray([1, 1, 0, 1, 0, 1])
+	var st := PackedInt32Array([3, 2, 0, 1, 0, 3])
+	show_select(14, open, st, PackedInt32Array([12, 5, 0, 9, 0, 33]), 1)
 	_menu.visible = true
 	_over.visible = true
 	_splash = Control.new()

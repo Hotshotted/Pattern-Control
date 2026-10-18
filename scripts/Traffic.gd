@@ -12,8 +12,12 @@ signal wrong_runway(plane: Aircraft, runway: int)  # a path went for another col
 signal inactive_end(plane: Aircraft, runway: int, end: int)  # ...or for an end the wind doesn't allow
 signal rerouted(plane: Aircraft)   # the wind shifted: its path now ends on a closed end
 signal spawned(plane: Aircraft)
+signal crashed(plane: Aircraft)        # flew into terrain (or, later, a storm)
+signal go_around(plane: Aircraft)      # reached a runway that was still busy
+signal runway_conflict(a: Aircraft, b: Aircraft)   # landed on a crossing runway while it was busy
 
 const MAX_POOL := 16
+const MAX_HAZARDS := 16
 const PLANE_Y := 0.35
 
 var planes: Array[Aircraft] = []
@@ -25,6 +29,14 @@ var half_h := 8.9
 var rng := RandomNumberGenerator.new()
 var wind: Wind                       # which runway ends can be landed on (null = all)
 
+## No-fly zones (terrain now, storms later): circles. kind 0 = terrain.
+var hz_pos := PackedVector2Array()
+var hz_r := PackedFloat32Array()
+var hz_kind := PackedInt32Array()
+var hz_count := 0
+
+var _busy_until := PackedFloat32Array()   # per runway: run time until it is free
+var _occupant: Array[Aircraft] = []
 var _nodes: Array[Node3D] = []
 var _fuselages: Array[Node3D] = []
 var _wings: Array[Node3D] = []
@@ -35,6 +47,12 @@ var _god := false
 
 func _ready() -> void:
 	rng.randomize()
+	hz_pos.resize(MAX_HAZARDS)
+	hz_r.resize(MAX_HAZARDS)
+	hz_kind.resize(MAX_HAZARDS)
+	_busy_until.resize(8)
+	for i in 8:
+		_occupant.append(null)
 	_god = DebugFlags.god_enabled()
 	for i in MAX_POOL:
 		planes.append(Aircraft.new())
@@ -136,6 +154,8 @@ func spawn() -> Aircraft:
 			continue
 		var target := Vector2(rng.randf_range(-2.5, 2.5), rng.randf_range(-4.0, 4.0))
 		var dir := (target - entry).normalized()
+		if _hits_hazard(entry, dir):
+			continue
 		var dist := Tuning.type_speed(type) * Tuning.speed_mult(run_time) * Tuning.entry_warning_seconds
 		var p := place(rng.randi() % Airports.rw_count(), entry - dir * dist, atan2(dir.x, -dir.y), type, false)
 		if p != null:
@@ -143,6 +163,13 @@ func spawn() -> Aircraft:
 			spawned.emit(p)
 		return p
 	return null
+
+## Would a straight flight from `from` along `dir` pass through a no-fly zone?
+func _hits_hazard(from: Vector2, dir: Vector2) -> bool:
+	for k in hz_count:
+		if _dist_to_segment(hz_pos[k], from, from + dir * 40.0) < hz_r[k] + 0.9:
+			return true
+	return false
 
 ## Is `entry` too close to a plane on screen, or to another plane's entry point?
 func _crowded(entry: Vector2) -> bool:
@@ -279,7 +306,25 @@ static func _dist_to_segment(pt: Vector2, a: Vector2, b: Vector2) -> float:
 
 # ---------- Simulation ----------
 
+## The current airport's terrain becomes the no-fly zones.
+func load_terrain() -> void:
+	hz_count = 0
+	for h in Airports.hazards():
+		add_hazard(h["center"], h["radius"], 0)
+
+func add_hazard(c: Vector2, r: float, kind: int) -> int:
+	if hz_count >= MAX_HAZARDS:
+		return -1
+	hz_pos[hz_count] = c
+	hz_r[hz_count] = r
+	hz_kind[hz_count] = kind
+	hz_count += 1
+	return hz_count - 1
+
 func release_all() -> void:
+	_busy_until.fill(0.0)
+	for i in 8:
+		_occupant[i] = null
 	for i in MAX_POOL:
 		planes[i].reset()
 		_nodes[i].visible = false
@@ -292,7 +337,7 @@ func step(delta: float) -> void:
 		_spawn_timer -= delta
 		if _spawn_timer <= 0.0:
 			if active_count() < mini(int(Tuning.max_planes), MAX_POOL) and spawn() != null:
-				_spawn_timer = Tuning.spawn_interval(run_time) * rng.randf_range(0.75, 1.25)
+				_spawn_timer = Tuning.spawn_interval(run_time) * Airports.spawn_mult() * rng.randf_range(0.75, 1.25)
 			else:
 				_spawn_timer = 0.25
 	var mult := Tuning.speed_mult(run_time)
@@ -341,6 +386,12 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 		if p.timer_left <= 0.0:
 			_divert(p)
 			timed_out.emit(p)
+	if p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD) and not _god:
+		for k in hz_count:
+			if p.pos.distance_to(hz_pos[k]) < hz_r[k] + Tuning.hazard_margin:
+				crashed.emit(p)
+				_remove(p)
+				return
 	var diff := wrapf(p.heading - p.vis_heading, -PI, PI)
 	var turn := Tuning.plane_turn_rate * dt
 	p.vis_heading += clampf(diff, -turn, turn)
@@ -357,6 +408,8 @@ func _follow(p: Aircraft, dist: float) -> void:
 				p.heading = atan2(to.x, -to.y)
 			p.pop()
 			if p.cleared and p.count == 1:        # reached the approach end: only the runway's far end is left
+				if not _begin_landing(p):
+					return
 				p.clear_path()
 				p.cleared = true
 				p.state = Aircraft.State.LANDING
@@ -368,6 +421,22 @@ func _follow(p: Aircraft, dist: float) -> void:
 			p.pos += to / l * left
 			p.heading = atan2(to.x, -to.y)
 			left = 0.0
+
+## The aircraft is at the approach end. If its runway is still busy it goes around; if a CROSSING runway is
+## busy that is a runway conflict; otherwise the runway is taken for the landing roll. Returns true to land.
+func _begin_landing(p: Aircraft) -> bool:
+	var r := p.runway
+	if run_time < _busy_until[r] and _occupant[r] != p:
+		p.clear_path()
+		go_around.emit(p)
+		return false
+	for j in Airports.rw_count():
+		if j != r and Airports.runways_cross(r, j) and run_time < _busy_until[j] and _occupant[j] != null and _occupant[j] != p:
+			runway_conflict.emit(p, _occupant[j])
+			return false
+	_busy_until[r] = run_time + Tuning.landing_roll_time + Tuning.runway_clear_seconds
+	_occupant[r] = p
+	return true
 
 func _fly_straight(p: Aircraft, dist: float, dt: float) -> void:
 	if p.entered:
