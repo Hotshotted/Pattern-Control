@@ -132,6 +132,12 @@ func _initialize() -> void:
 	check(main.tune_panel != null and main.tune_panel._panel.visible and main.tune_panel._panel_layer.layer == 0,
 			"?tune: the panel is drawn during the pre-warm, under the splash (layer 0)")
 	check(not main.tune_panel._button.visible, "?tune: the TUNE button stays hidden while starting up")
+	check(main.overlay.glows_drawn >= 3, "entry glows (all three speed colours) are drawn during the pre-warm (%d)" % main.overlay.glows_drawn)
+	var ribbons_up := 0
+	for rn in main.ribbons._nodes:
+		if rn.visible:
+			ribbons_up += 1
+	check(ribbons_up >= 8, "path ribbons are drawn during the pre-warm (%d)" % ribbons_up)
 	var guard = 0
 	while main._warming and guard < 1200:
 		await process_frame
@@ -199,6 +205,16 @@ func _initialize() -> void:
 	var route = [Vector2(-3.0, 3.0), Vector2(-1.0, 3.0), Vector2(-1.0, 1.0)]
 	draw_path(main, q, [Vector2(-3.0, 4.6), Vector2(-3.0, 3.0), Vector2(-2.0, 3.0), Vector2(-1.0, 3.0), Vector2(-1.0, 2.0), Vector2(-1.0, 1.0)])
 	check(q.count > 5, "the path has points (%d)" % q.count)
+	await process_frame
+	await process_frame
+	var qi = tr.planes.find(q)
+	var rb = main.ribbons
+	check(rb._nodes[qi].visible and rb._outline_nodes[qi].visible and rb._meshes[qi].get_surface_count() == 2 and rb._outlines[qi].get_surface_count() == 2, "the path is drawn as a ribbon (colour + end dot, with a black outline mesh under it)")
+	var nose_dir = Vector2(sin(q.vis_heading), -cos(q.vis_heading))
+	var nose_off = (rb.last_start[qi] - q.pos)
+	check(nose_off.length() > 0.6 and nose_off.normalized().dot(nose_dir) > 0.99, "the ribbon starts at the plane's nose (%.2f units ahead)" % nose_off.length())
+	check(rb.last_alpha_near[qi] < rb.last_alpha_far[qi] and rb.last_alpha_near[qi] <= tuning.path_fade_min + 0.01, "the path fades out near the plane (%.2f at the nose, %.2f far)" % [rb.last_alpha_near[qi], rb.last_alpha_far[qi]])
+	check(rb.COLOR_Y < tr.PLANE_Y and rb.OUTLINE_Y < rb.COLOR_Y, "the ribbon lies on the ground, under the plane")
 	var max_off = 0.0
 	for i in 600:
 		main.step(1.0 / 60.0)
@@ -282,6 +298,7 @@ func _initialize() -> void:
 	var all_inward = true
 	var colors = {}
 	var classes = {}
+	var entry_ok = true
 	for i in 40:
 		var sp2 = tr.spawn()
 		if sp2 == null:
@@ -294,14 +311,49 @@ func _initialize() -> void:
 		all_inward = all_inward and dir.dot(sp2.pos) < 0.0
 		colors[sp2.runway] = true
 		classes[sp2.speed_class] = true
+		var on_edge = absf(absf(sp2.entry.x) - tr.half_w) < 0.001 or absf(absf(sp2.entry.y) - tr.half_h) < 0.001
+		var lead = sp2.pos.distance_to(sp2.entry) / (sp2.speed * tuning.speed_mult(tr.run_time))
+		entry_ok = entry_ok and on_edge and not sp2.entered and absf(lead - tuning.entry_warning_seconds) < 0.05
 		tr.release_all()
 	check(spawned_n >= 35, "planes spawn (%d of 40 tries)" % spawned_n)
 	check(all_outside and all_inward, "they all start off screen, heading in")
+	check(entry_ok, "every spawn has an entry point on the screen edge, reached %.1f s after it spawns" % tuning.entry_warning_seconds)
+	var glow_cols = [tuning.entry_color(0), tuning.entry_color(1), tuning.entry_color(2)]
+	var apart = true
+	for ci in 3:
+		for cj in range(ci + 1, 3):
+			apart = apart and absf(glow_cols[ci].r - glow_cols[cj].r) + absf(glow_cols[ci].g - glow_cols[cj].g) + absf(glow_cols[ci].b - glow_cols[cj].b) > 0.6
+		for rc in tuning.runway_colors:
+			apart = apart and absf(glow_cols[ci].r - rc.r) + absf(glow_cols[ci].g - rc.g) + absf(glow_cols[ci].b - rc.b) > 0.5
+		apart = apart and absf(glow_cols[ci].r - 1.0) + absf(glow_cols[ci].g - 0.12) + absf(glow_cols[ci].b - 0.1) > 0.5 or ci == 2
+	check(apart, "entry glow colours (green / yellow / red) differ from each other and from the runway colours")
+	check(tuning.entry_pulse(0) < tuning.entry_pulse(1) and tuning.entry_pulse(1) < tuning.entry_pulse(2), "faster planes pulse faster")
 	check(colors.size() == 2 and classes.size() == 3, "both colours and all three speed classes appear")
 	tr.auto_spawn = false
 	# Planes entering from outside are untouchable until they are on screen.
 	var ent = tr.place(0, Vector2(0.0, -9.9), 0.0, 1, false, false)
 	check(tr.pick(Vector2(0.0, -9.9)) == null, "a plane still off screen can't be picked")
+	tr.release_all()
+	# The entry glow: drawn while a plane is on its way in, gone once it appears.
+	var gp = tr.spawn()
+	check(gp != null and not gp.entered, "a spawned plane is still outside")
+	await process_frame
+	await process_frame
+	check(ov.glows_drawn == 1, "one edge glow is drawn for it (%d)" % ov.glows_drawn)
+	var fuel_p = tr.place(0, Vector2(0, -20), PI, 1, true, false)
+	var f_before = fuel_p.fuel_left
+	tr.step(1.0)
+	check(is_equal_approx(fuel_p.fuel_left, f_before), "a low-fuel plane doesn't burn fuel before it is on screen")
+	tr.release_all()
+	gp = tr.spawn()
+	for i in 60 * 6:
+		tr.step(1.0 / 60.0)
+		if gp.entered:
+			break
+	check(gp.entered and gp.age > tuning.entry_warning_seconds * 0.8 and gp.age < tuning.entry_warning_seconds * 1.6, "it appears about %.1f s after the glow starts (%.2f s)" % [tuning.entry_warning_seconds, gp.age])
+	await process_frame
+	await process_frame
+	check(ov.glows_drawn == 0, "the glow is gone once the plane has appeared")
 	tr.release_all()
 	# The real spawner over time: planes appear on their own.
 	tr.auto_spawn = true
@@ -455,6 +507,16 @@ func _initialize() -> void:
 	check(tp.last_copied_text.contains("conflict_distance = 1.40"), "Copy values lists what changed (%s)" % tp.last_copied_text.replace("\n", "; "))
 	tp.reset_defaults()
 	check(is_equal_approx(tuning.conflict_distance, old_cd), "Reset restores the defaults")
+	var old_lead = tuning.entry_warning_seconds
+	tp._sliders["entry_warning_seconds"].value = 3.5
+	check(is_equal_approx(tuning.entry_warning_seconds, 3.5), "the entry warning lead time is tunable")
+	var old_col = tuning.entry_color_fast
+	tp._color_sliders["entry_color_fast"][1].value = 0.9
+	check(is_equal_approx(tuning.entry_color_fast.g, 0.9) and tp._color_swatches["entry_color_fast"].color.is_equal_approx(tuning.entry_color_fast), "a speed colour is tunable (RGB sliders + swatch)")
+	tp.copy_values()
+	check(tp.last_copied_text.contains("entry_color_fast = Color(") and tp.last_copied_text.contains("entry_warning_seconds = 3.5"), "Copy values includes the lead time and colours")
+	tp.reset_defaults()
+	check(is_equal_approx(tuning.entry_warning_seconds, old_lead) and tuning.entry_color_fast.is_equal_approx(old_col), "Reset restores them")
 	for name in ["spawn_interval_start", "speed_fast", "lowfuel_seconds", "conflict_distance", "warn_distance"]:
 		check(tp._sliders.has(name), "panel has a slider for %s" % name)
 	tp.close()

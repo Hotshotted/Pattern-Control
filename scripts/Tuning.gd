@@ -88,6 +88,27 @@ var lowfuel_seconds := 38.0
 var lowfuel_flash_hz_min := 1.5
 var lowfuel_flash_hz_max := 7.0
 
+# ---------- Entry warning ----------
+## Seconds before a plane appears on screen that a glow shows on the edge where it will come in.
+var entry_warning_seconds := 2.0
+## The glow's colour by speed class: green slow, yellow medium, red fast (kept apart from the runway
+## colours and from the red/white low-fuel flash by the black ring and the arrow).
+var entry_color_slow := Color(0.2, 0.95, 0.4)
+var entry_color_medium := Color(1.0, 0.92, 0.15)
+var entry_color_fast := Color(0.95, 0.1, 0.35)
+## ...and how fast it pulses (Hz): faster planes pulse faster.
+var entry_pulse_slow := 1.2
+var entry_pulse_medium := 2.2
+var entry_pulse_fast := 4.0
+
+# ---------- Flight paths ----------
+## The drawn path starts at the plane's nose, runs under the plane, and is faded to path_fade_min opacity
+## at the nose, reaching full opacity path_fade_distance further along.
+var path_fade_distance := 1.6
+var path_fade_min := 0.25
+var path_width := 0.1
+var path_outline_width := 0.2
+
 # ---------- Feedback ----------
 var ripple_time := 0.8
 var burst_count := 22
@@ -121,6 +142,12 @@ func lowfuel_chance(t: float) -> float:
 	if t < lowfuel_start_time:
 		return 0.0
 	return lowfuel_chance_max * clampf((t - lowfuel_start_time) / maxf(spawn_ramp_seconds - lowfuel_start_time, 1.0), 0.25, 1.0)
+
+func entry_color(c: int) -> Color:
+	return [entry_color_slow, entry_color_medium, entry_color_fast][c]
+
+func entry_pulse(c: int) -> float:
+	return [entry_pulse_slow, entry_pulse_medium, entry_pulse_fast][c]
 
 func class_speed(c: int) -> float:
 	return [speed_slow, speed_medium, speed_fast][c]

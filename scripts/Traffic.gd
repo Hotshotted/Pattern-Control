@@ -90,6 +90,7 @@ func place(runway: int, pos: Vector2, heading: float, speed_class: int, low_fuel
 	p.speed_class = speed_class
 	p.speed = Tuning.class_speed(speed_class)
 	p.pos = pos
+	p.entry = pos
 	p.heading = heading
 	p.vis_heading = heading
 	p.entered = entered
@@ -106,34 +107,42 @@ func place(runway: int, pos: Vector2, heading: float, speed_class: int, low_fuel
 	_sync(p, i)
 	return p
 
-## A new plane from a random screen edge, heading in over the field, in a random runway's colour.
+## A new plane from a random screen edge. It starts far enough out that it reaches the edge in
+## Tuning.entry_warning_seconds, and the overlay shows a glow at that entry point until it appears.
 func spawn() -> Aircraft:
 	var cls := _pick_class()
 	for attempt in 8:
 		var e := rng.randf() * (4.0 * half_w + 4.0 * half_h)
-		var margin := 1.0
-		var pos := Vector2.ZERO
+		var entry := Vector2.ZERO
+		var cx := half_w - 0.9
+		var cz := half_h - 0.9
 		if e < 2.0 * half_w:
-			pos = Vector2(-half_w + e, -half_h - margin)
+			entry = Vector2(clampf(-half_w + e, -cx, cx), -half_h)
 		elif e < 4.0 * half_w:
-			pos = Vector2(-half_w + e - 2.0 * half_w, half_h + margin)
+			entry = Vector2(clampf(-half_w + e - 2.0 * half_w, -cx, cx), half_h)
 		elif e < 4.0 * half_w + 2.0 * half_h:
-			pos = Vector2(-half_w - margin, -half_h + e - 4.0 * half_w)
+			entry = Vector2(-half_w, clampf(-half_h + e - 4.0 * half_w, -cz, cz))
 		else:
-			pos = Vector2(half_w + margin, -half_h + e - 4.0 * half_w - 2.0 * half_h)
-		if _crowded(pos):
+			entry = Vector2(half_w, clampf(-half_h + e - 4.0 * half_w - 2.0 * half_h, -cz, cz))
+		if _crowded(entry):
 			continue
 		var target := Vector2(rng.randf_range(-2.5, 2.5), rng.randf_range(-4.0, 4.0))
-		var d := target - pos
-		var p := place(rng.randi() % 2, pos, atan2(d.x, -d.y), cls, rng.randf() < Tuning.lowfuel_chance(run_time), false)
+		var dir := (target - entry).normalized()
+		var dist := Tuning.class_speed(cls) * Tuning.speed_mult(run_time) * Tuning.entry_warning_seconds
+		var p := place(rng.randi() % 2, entry - dir * dist, atan2(dir.x, -dir.y), cls, rng.randf() < Tuning.lowfuel_chance(run_time), false)
 		if p != null:
+			p.entry = entry
 			spawned.emit(p)
 		return p
 	return null
 
-func _crowded(pos: Vector2) -> bool:
+## Is `entry` too close to a plane on screen, or to another plane's entry point?
+func _crowded(entry: Vector2) -> bool:
 	for p in planes:
-		if p.active() and p.pos.distance_to(pos) < Tuning.spawn_clear_distance:
+		if not p.active():
+			continue
+		var at := p.pos if p.entered else p.entry
+		if at.distance_to(entry) < Tuning.spawn_clear_distance:
 			return true
 	return false
 
@@ -278,7 +287,7 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 				return
 	if not p.entered and absf(p.pos.x) < half_w - 0.2 and absf(p.pos.y) < half_h - 0.2:
 		p.entered = true
-	if p.low_fuel and p.state != Aircraft.State.LANDING and not _god:
+	if p.low_fuel and p.entered and p.state != Aircraft.State.LANDING and not _god:
 		p.fuel_left -= dt
 		if p.fuel_left <= 0.0:
 			fuel_out.emit(p)
@@ -385,7 +394,8 @@ func prewarm_show() -> void:
 		p.low_fuel = i % 3 == 0
 		p.fuel_left = Tuning.lowfuel_seconds * 0.5
 		p.age = i * 0.07
-		p.entered = true
+		p.entered = i % 4 != 3          # a few still outside: their entry glows are drawn (all three colours)
+		p.entry = Vector2(-4.0 + (i % 3) * 4.0, -half_h) if i % 4 == 3 else p.pos
 		_nodes[i].visible = true
 		_fuselages[i].scale = Vector3(1.0, 1.0, [0.85, 1.0, 1.3][p.speed_class])
 		_wings[i].scale = Vector3([1.2, 1.0, 0.78][p.speed_class], 1.0, 1.0)

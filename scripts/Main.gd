@@ -14,6 +14,7 @@ const HEADER_FUEL := "OUT OF\nFUEL"
 @onready var sun: DirectionalLight3D = $Sun
 @onready var airfield: Airfield = $Airfield
 @onready var traffic: Traffic = $Traffic
+@onready var ribbons: PathRibbons = $Ribbons
 @onready var fx: Fx = $Fx
 @onready var overlay: Overlay = $Overlay
 @onready var hud: Hud = $Hud
@@ -55,6 +56,7 @@ func _ready() -> void:
 	camera.far = 100.0
 	_update_camera()
 	overlay.traffic = traffic
+	ribbons.traffic = traffic
 	overlay.camera = camera
 	traffic.landed.connect(_on_landed)
 	traffic.conflict.connect(_on_conflict)

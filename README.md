@@ -25,6 +25,8 @@ edge, and you drawing each one home before they meet.
 | `?noprewarm` | skip the start-up pre-warm splash |
 | `?god` | planes never collide or run dry |
 
+New planes get a pulsing edge glow (green slow, yellow medium, red fast; faster planes pulse faster) about 2 s before they appear.
+
 Flags combine with `&`, e.g. `?perf&tune`. Every feel value lives in `scripts/Tuning.gd`.
 
 ## Project notes

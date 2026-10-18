@@ -14,7 +14,7 @@ var xf := Transform2D.IDENTITY       # world (x, z) -> viewport pixels
 var inv := Transform2D.IDENTITY
 var selected: Aircraft = null           # the plane being dragged
 var active_runway := -1              # runway the dragged plane is aiming for (its marker pulses)
-var show_paths := true
+var glows_drawn := 0                 # entry glows drawn last frame
 
 var _c: Control
 var _font: Font
@@ -84,10 +84,10 @@ func _draw_all() -> void:
 			var col: Color = Tuning.runway_colors[p.runway]
 			_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, BLACK, 0.16)
 			_c.draw_arc(p.hold_center, Tuning.hold_radius, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.8), 0.07)
-	if show_paths:
-		for p in traffic.planes:
-			if p.active() and p.count > 0:
-				_draw_path(p)
+	glows_drawn = 0
+	for p in traffic.planes:
+		if p.active() and not p.entered:
+			_draw_entry_glow(p, t)
 	for p in traffic.planes:
 		if not p.active():
 			continue
@@ -139,20 +139,28 @@ func _draw_runway_markers(t: float) -> void:
 			_c.draw_line(c - side * 0.3 - dir * 0.0, c + dir * 0.3, Color(col.r, col.g, col.b, a), 0.09)
 			_c.draw_line(c + side * 0.3 - dir * 0.0, c + dir * 0.3, Color(col.r, col.g, col.b, a), 0.09)
 
-func _draw_path(p: Aircraft) -> void:
-	var n := p.count
-	p.draw_buf.resize(n + 1)   # (only reallocates when the size crosses a power of two)
-	p.draw_buf[0] = p.pos
-	for k in n:
-		p.draw_buf[k + 1] = p.pts[p.head + k]
-	var col: Color = Tuning.runway_colors[p.runway]
-	if p.cleared:
-		col = col.lerp(Color.WHITE, 0.25)
-	_c.draw_polyline(p.draw_buf, Color(0, 0, 0, 0.9), 0.2, true)
-	_c.draw_polyline(p.draw_buf, col, 0.1, true)
-	var end := p.pts[p.head + n - 1]
-	_c.draw_circle(end, 0.16, Color.BLACK)
-	_c.draw_circle(end, 0.1, col)
+## The edge glow for a plane that is about to come in: a pulsing beacon in its speed colour on the screen
+## edge at its entry point (half of it is off screen), with an arrow pointing the way it will fly.
+func _draw_entry_glow(p: Aircraft, t: float) -> void:
+	glows_drawn += 1
+	var col := Tuning.entry_color(p.speed_class)
+	var hz := Tuning.entry_pulse(p.speed_class)
+	var pulse := 0.5 + 0.5 * sin(TAU * hz * t)
+	var fade := clampf(p.age / 0.25, 0.0, 1.0)
+	var dir := Vector2(sin(p.heading), -cos(p.heading))
+	var side := Vector2(-dir.y, dir.x)
+	var e := p.entry
+	for k in 4:   # soft glow: stacked translucent discs
+		var r := (0.5 + 0.35 * k) * (1.0 + 0.18 * pulse)
+		_c.draw_circle(e, r, Color(col.r, col.g, col.b, (0.16 + 0.1 * pulse) * fade))
+	var ring := 0.55 + 0.25 * pulse
+	_c.draw_arc(e, ring, 0.0, TAU, 32, Color(0, 0, 0, 0.75 * fade), 0.2)
+	_c.draw_arc(e, ring, 0.0, TAU, 32, Color(col.r, col.g, col.b, (0.6 + 0.4 * pulse) * fade), 0.1)
+	var tip := e + dir * (0.7 + 0.15 * pulse)
+	for s in [-1.0, 1.0]:
+		var wing: Vector2 = tip - dir * 0.4 + side * s * 0.3
+		_c.draw_line(tip, wing, Color(0, 0, 0, 0.8 * fade), 0.2)
+		_c.draw_line(tip, wing, Color(col.r, col.g, col.b, fade), 0.1)
 
 func _draw_warning(p: Aircraft, t: float) -> void:
 	var w := p.warn

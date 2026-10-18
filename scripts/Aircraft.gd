@@ -25,6 +25,7 @@ var roll_from := Vector2.ZERO
 var hold_center := Vector2.ZERO
 var hold_angle := 0.0
 var age := 0.0
+var entry := Vector2.ZERO       # where it comes onto the screen (the edge glow shows here until it appears)
 var wrong_shown := false        # this drag already flashed "wrong runway"
 var warn_other: Aircraft = null    # the plane it is close to (for the warning line)
 

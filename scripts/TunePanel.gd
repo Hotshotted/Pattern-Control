@@ -31,6 +31,19 @@ const ENTRIES := [
 	["path_spacing", "Path point spacing", 0.1, 0.8, 0.05],
 	["plane_turn_rate", "Aircraft turn rate", 2.0, 20.0, 0.5],
 	["landing_roll_time", "Landing roll (s)", 0.5, 4.0, 0.1],
+	["entry_warning_seconds", "Entry warning lead (s)", 0.0, 6.0, 0.1],
+	["entry_pulse_slow", "Entry glow pulse: slow (Hz)", 0.2, 10.0, 0.1],
+	["entry_pulse_medium", "Entry glow pulse: medium (Hz)", 0.2, 10.0, 0.1],
+	["entry_pulse_fast", "Entry glow pulse: fast (Hz)", 0.2, 10.0, 0.1],
+	["path_fade_distance", "Path fade length near plane", 0.0, 4.0, 0.1],
+	["path_fade_min", "Path opacity at the nose", 0.0, 1.0, 0.05],
+]
+
+## [Tuning property, label]: colours, edited with three (red, green, blue) sliders and a swatch.
+const COLOR_ENTRIES := [
+	["entry_color_slow", "Entry glow: slow"],
+	["entry_color_medium", "Entry glow: medium"],
+	["entry_color_fast", "Entry glow: fast"],
 ]
 
 ## [Tuning property, label]: on/off switches.
@@ -49,6 +62,8 @@ var last_copied_text := ""          # what the Copy button last put on the clipb
 var _defaults := {}                 # property -> default value, captured at build time
 var _sliders := {}                  # property -> HSlider
 var _value_labels := {}             # property -> Label
+var _color_sliders := {}            # property -> [R, G, B] HSliders
+var _color_swatches := {}           # property -> ColorRect
 var _toggles := {}                  # property -> CheckButton
 var _button_layer: CanvasLayer
 var _panel_layer: CanvasLayer
@@ -65,6 +80,8 @@ func build() -> void:
 		_defaults[e[0]] = Tuning.get(e[0])
 	for t in TOGGLES:
 		_defaults[t[0]] = Tuning.get(t[0])
+	for c in COLOR_ENTRIES:
+		_defaults[c[0]] = Tuning.get(c[0])
 	# Shared look for every slider: a thick track and a big round handle (the default is tiny on a phone).
 	var track := StyleBoxFlat.new()
 	track.bg_color = Color(0.22, 0.27, 0.36)
@@ -139,6 +156,41 @@ func build() -> void:
 		_sliders[e[0]] = slider
 		_value_labels[e[0]] = value_label
 		_show_value(e[0])
+	for c in COLOR_ENTRIES:
+		var crow := VBoxContainer.new()
+		crow.add_theme_constant_override("separation", 4)
+		var chead := HBoxContainer.new()
+		var cname := _make_label(c[1], 32, HORIZONTAL_ALIGNMENT_LEFT)
+		cname.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		chead.add_child(cname)
+		var swatch := ColorRect.new()
+		swatch.custom_minimum_size = Vector2(90, 40)
+		swatch.color = Tuning.get(c[0])
+		chead.add_child(swatch)
+		crow.add_child(chead)
+		var sliders := HBoxContainer.new()
+		sliders.add_theme_constant_override("separation", 10)
+		var made: Array[HSlider] = []
+		for ch in 3:
+			var cs := HSlider.new()
+			cs.min_value = 0.0
+			cs.max_value = 1.0
+			cs.step = 0.01
+			cs.custom_minimum_size = Vector2(0, 60)
+			cs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			cs.add_theme_stylebox_override("slider", track)
+			cs.add_theme_stylebox_override("grabber_area", fill)
+			cs.add_theme_stylebox_override("grabber_area_highlight", fill)
+			for icon in ["grabber", "grabber_highlight", "grabber_disabled"]:
+				cs.add_theme_icon_override(icon, knob)
+			cs.value = (Tuning.get(c[0]) as Color)[ch]
+			cs.value_changed.connect(_on_color_slider.bind(c[0], ch))
+			sliders.add_child(cs)
+			made.append(cs)
+		crow.add_child(sliders)
+		list.add_child(crow)
+		_color_sliders[c[0]] = made
+		_color_swatches[c[0]] = swatch
 	for t in TOGGLES:
 		var check := CheckButton.new()
 		check.text = t[1]
@@ -216,6 +268,13 @@ func _on_slider(value: float, property: String) -> void:
 	_show_value(property)
 	changed.emit(property)
 
+func _on_color_slider(value: float, property: String, channel: int) -> void:
+	var col: Color = Tuning.get(property)
+	col[channel] = value
+	Tuning.set(property, col)
+	_color_swatches[property].color = col
+	changed.emit(property)
+
 func _on_toggle(on: bool, property: String) -> void:
 	Tuning.set(property, on)
 	changed.emit(property)
@@ -227,6 +286,13 @@ func reset_defaults() -> void:
 		Tuning.set(name, _defaults[name])
 		_toggles[name].set_pressed_no_signal(_defaults[name])
 		changed.emit(name)
+	for c in COLOR_ENTRIES:
+		var cname: String = c[0]
+		Tuning.set(cname, _defaults[cname])
+		_color_swatches[cname].color = _defaults[cname]
+		for ch in 3:
+			_color_sliders[cname][ch].set_value_no_signal((_defaults[cname] as Color)[ch])
+		changed.emit(cname)
 	for e in ENTRIES:
 		var property: String = e[0]
 		Tuning.set(property, _defaults[property])
@@ -243,6 +309,11 @@ func changed_text() -> String:
 		var v: float = Tuning.get(property)
 		if not is_equal_approx(v, _defaults[property]):
 			lines.append("%s = %s" % [property, _format(v, e[4])])
+	for c in COLOR_ENTRIES:
+		var cname: String = c[0]
+		var cv: Color = Tuning.get(cname)
+		if not cv.is_equal_approx(_defaults[cname]):
+			lines.append("%s = Color(%.2f, %.2f, %.2f)" % [cname, cv.r, cv.g, cv.b])
 	for t in TOGGLES:
 		var name: String = t[0]
 		if bool(Tuning.get(name)) != bool(_defaults[name]):
