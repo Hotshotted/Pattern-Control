@@ -183,6 +183,29 @@ var fine_timeout := 20
 var fine_hazard := 50
 ## After a fine, the "watch an ad to refund it" offer stays up this long (once per shift).
 var refund_offer_seconds := 8.0
+
+# Go-arounds: approach quality is scored when an aircraft reaches short final.
+var short_final_distance := 1.4      # the decision point: this far (along its path) before the threshold
+var approach_aligned_deg := 15.0     # path segments within this of the runway heading count as straight final
+var approach_turn_window := 3.5      # turning is added up over this much path before the threshold
+var approach_turn_free_deg := 45.0   # up to this much turning there costs nothing
+var approach_turn_full_deg := 180.0  # ...and this much (a U-turn on final) is the worst
+var final_need_base := 0.9           # straight final wanted (units) = base + per_speed * speed (jets need more)
+var final_need_per_speed := 0.3
+var spacing_need_seconds := 5.0      # wanted gap behind the previous aircraft landing on the same runway
+var approach_w_turn := 0.55          # how much each factor counts towards the penalty
+var approach_w_len := 0.30
+var approach_w_space := 0.09
+var approach_w_wind := 0.06
+var go_around_free := 0.10           # penalty up to here: no go-around chance at all
+var go_around_max := 0.98            # chance at the worst possible approach
+var go_around_curve := 1.0
+var tint_yellow_chance := 0.12       # final-segment tint: green below this go-around chance, yellow, then red
+var tint_red_chance := 0.45
+var student_go_around_mult := 2.2    # student pilots: go-around chance x this + the floor (capped at go_around_max)
+var student_go_around_floor := 0.25
+var tint_distance := 3.0            # how much of the path before the runway is tinted by approach quality
+var go_around_climb_seconds := 1.6   # how long the climb-out lift shows
 ## The first time a star is ever earned at an airport it pays this much extra.
 var coins_first_star_bonus := 100
 

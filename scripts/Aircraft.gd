@@ -43,6 +43,16 @@ var wrong_shown := false        # this drag already flashed "wrong runway"
 var inactive_shown := false     # ...or "runway not active"
 var land_end := 0               # which end of its runway it is landing on
 var path_invalid := false       # the wind shifted: its path ends on a closed runway end (drawn dashed red)
+var ga_checked := false         # the short-final go-around decision has been made for this approach
+var ga_geo := false             # the path's geometry (turning, final length) has been scored: it is fixed once drawn
+var ga_turn_pen := 0.0
+var ga_len_pen := 0.0
+var ga_turn_deg := 0.0
+var ga_chance := 0.0            # predicted go-around chance of the cleared approach (drives the path tint)
+var ga_band := 0                # 0 green, 1 yellow, 2 red
+var student := false            # student pilot: far more go-arounds, double coins
+var go_arounds := 0             # how many times it has gone around
+var climb := 0.0                # seconds of go-around climb-out left (a small lift on screen)
 var warn_other: Aircraft = null    # the plane it is close to (for the warning line)
 
 # Path: points[head .. head+count) are still to be flown (a plain array that compacts when full).
@@ -66,6 +76,13 @@ func reset() -> void:
 	wrong_shown = false
 	inactive_shown = false
 	path_invalid = false
+	ga_checked = false
+	ga_geo = false
+	ga_chance = 0.0
+	ga_band = 0
+	climb = 0.0
+	student = false
+	go_arounds = 0
 	any_target = false
 	emergency = false
 	vip = false
@@ -84,6 +101,10 @@ func clear_path() -> void:
 	count = 0
 	cleared = false
 	path_invalid = false
+	ga_checked = false
+	ga_geo = false
+	ga_chance = 0.0
+	ga_band = 0
 
 func last_point() -> Vector2:
 	return pts[head + count - 1] if count > 0 else pos
@@ -119,3 +140,7 @@ func can_conflict() -> bool:
 ## Fraction of the timer left, 1 -> 0.
 func timer_frac() -> float:
 	return clampf(timer_left / maxf(timer_max, 0.01), 0.0, 1.0)
+
+## Gliders and emergencies never go around (they land or are lost); only runway landings are scored.
+func can_go_around() -> bool:
+	return tkind == Kind.RUNWAY and type != Type.GLIDER and not emergency

@@ -52,6 +52,13 @@ You run an airport, one **shift** at a time.
   "refund the last fine" (once per shift); "double coins" stays on the results. Stars, coins and bests are saved
   (save format v3).
 
+- **Go-arounds are earned.** When an aircraft reaches short final its approach is scored: turning in the last
+  stretch (a U-turn is worst), straight aligned final before the threshold (jets want more), the gap behind the
+  previous landing on that runway, and the wind. A good approach practically never goes around; a poor one often
+  does: the aircraft climbs out along the runway heading ("Go-around!" and the reason), keeps its timer and needs a
+  new path. While you draw, the last stretch of the path is tinted green / yellow / red by the predicted go-around
+  chance. Gliders and emergencies never go around (a glider that finds the runway busy is lost).
+
 ## Debug / tuning URLs
 
 | Flag | What it does |

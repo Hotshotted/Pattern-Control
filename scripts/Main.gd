@@ -425,12 +425,15 @@ func _on_crashed(p: Aircraft, kind: int) -> void:
 		return
 	fx.burst(p.pos, Color(0.85, 0.6, 0.4), true)
 	overlay.ripple(p.pos, Color(1, 0.35, 0.2), 1.1)
-	_apply_fine(Tuning.fine_hazard, "crash", "Struck by storm!" if kind == 1 else "Crashed!", p.pos)
+	_apply_fine(Tuning.fine_hazard, "crash", "Struck by storm!" if kind == 1 else ("No room to land!" if kind == 2 else "Crashed!"), p.pos)
 
-## The runway was still busy: the aircraft goes around (no fine, but time passes).
-func _on_go_around(p: Aircraft) -> void:
-	hud.popup("Go around!", Color(1, 0.85, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
+## A go-around: the aircraft climbs out along the runway heading and needs a new path (it keeps its timer).
+func _on_go_around(p: Aircraft, reason: int) -> void:
+	var why := Approach.reason_text(reason)
+	hud.popup("Go-around!" if why == "" else "Go-around!\n%s" % why, Color(1, 0.85, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
 	overlay.ripple(p.pos, Color(1, 0.85, 0.3), 0.7)
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(30)
 
 ## Two aircraft landed on crossing runways at once: a conflict.
 func _on_runway_conflict(a: Aircraft, b: Aircraft) -> void:

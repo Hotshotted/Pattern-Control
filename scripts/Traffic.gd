@@ -14,7 +14,7 @@ signal rerouted(plane: Aircraft)   # the wind shifted: its path now ends on a cl
 signal spawned(plane: Aircraft)
 signal crashed(plane: Aircraft, kind: int)   # flew into terrain (kind 0) or a storm cell (kind 1)
 signal revealed(plane: Aircraft)       # came out of the fog
-signal go_around(plane: Aircraft)      # reached a runway that was still busy
+signal go_around(plane: Aircraft, reason: int)   # climbing out: the runway was busy, or the approach was poor (Approach.Reason)
 signal runway_conflict(a: Aircraft, b: Aircraft)   # landed on a crossing runway while it was busy
 signal refused(plane: Aircraft, text: String, at: Vector2)   # a path / tap the aircraft can't follow (with why)
 signal appeared(plane: Aircraft)       # it just came on screen (first-time tips hook in here)
@@ -42,6 +42,9 @@ var fog_amount := 0.0                     # 0..1, how thick the fog is right now
 var fog_target := 0.0
 
 var _busy_until := PackedFloat32Array()   # per runway: run time until it is free
+var _last_td := PackedFloat32Array()      # per runway: run time of the last touchdown there
+var approach := Approach.new()           # scratch approach scorer (one object, reused)
+var go_rng := RandomNumberGenerator.new()   # the go-around dice (kept apart from the spawn draws)
 var _occupant: Array[Aircraft] = []
 var _nodes: Array[Node3D] = []
 var _fuselages: Array[Node3D] = []
@@ -70,6 +73,9 @@ func _ready() -> void:
 	hz_kind.resize(MAX_HAZARDS)
 	hz_vel.resize(MAX_HAZARDS)
 	_busy_until.resize(8)
+	_last_td.resize(8)
+	_last_td.fill(-1000.0)
+	go_rng.randomize()
 	_cand.resize(16)
 	_draws.resize(40)
 	for i in 8:
@@ -569,6 +575,7 @@ func release_all() -> void:
 	fog_amount = 0.0
 	fog_target = 0.0
 	_busy_until.fill(0.0)
+	_last_td.fill(-1000.0)
 	for i in 8:
 		_occupant[i] = null
 	for i in MAX_POOL:
@@ -593,8 +600,12 @@ func step(delta: float) -> void:
 		if not p.active():
 			continue
 		p.age += delta
+		if p.climb > 0.0:
+			p.climb = maxf(p.climb - delta, 0.0)
 		_move(p, delta, mult)
 		if p.active():
+			if p.cleared and p.state == Aircraft.State.FLY and p.can_go_around():
+				_score_approach(p, mult)
 			_sync(p, i)
 	_check_conflicts()
 
@@ -703,16 +714,52 @@ func _begin_landing(p: Aircraft) -> bool:
 		return true
 	var r := p.runway
 	if run_time < _busy_until[r] and _occupant[r] != p:
-		p.clear_path()
-		go_around.emit(p)
+		if not p.can_go_around():       # gliders and emergencies have no go-around: no room, so they are lost
+			crashed.emit(p, 2)
+			_remove(p)
+			return false
+		_start_go_around(p, Approach.Reason.BUSY)
 		return false
 	for j in Airports.rw_count():
 		if j != r and Airports.runways_cross(r, j) and run_time < _busy_until[j] and _occupant[j] != null and _occupant[j] != p:
 			runway_conflict.emit(p, _occupant[j])
 			return false
 	_busy_until[r] = run_time + Tuning.landing_roll_time + Tuning.runway_clear()
+	_last_td[r] = run_time
 	_occupant[r] = p
 	return true
+
+## Score a cleared runway approach every frame (for the path tint); at short final, roll the go-around dice once.
+func _score_approach(p: Aircraft, mult: float) -> void:
+	if p.count < 2:
+		return
+	var dist := 0.0               # path length from the aircraft to the threshold
+	var prev := p.pos
+	for k in p.count - 1:
+		var q := p.pts[p.head + k]
+		dist += prev.distance_to(q)
+		prev = q
+	var arrive := run_time + dist / maxf(p.speed * mult, 0.01)
+	approach.evaluate(p, arrive - _last_td[p.runway], wind.from_deg if wind != null else -1.0)
+	var chance := approach.chance
+	if p.student:
+		chance = minf(chance * Tuning.student_go_around_mult + Tuning.student_go_around_floor, Tuning.go_around_max)
+		if approach.reason == Approach.Reason.NONE:
+			approach.reason = Approach.Reason.STUDENT
+	p.ga_chance = chance
+	p.ga_band = approach.band(chance)
+	if dist <= Tuning.short_final_distance and not p.ga_checked:
+		p.ga_checked = true
+		if go_rng.randf() < chance:
+			_start_go_around(p, approach.reason)
+
+## Climb out along the runway heading with the remaining timer; the path is gone, so a new one is needed.
+func _start_go_around(p: Aircraft, reason: int) -> void:
+	p.clear_path()
+	p.heading = deg_to_rad(Airports.land_heading_deg(p.tkind, p.runway, p.land_end))
+	p.climb = Tuning.go_around_climb_seconds
+	p.go_arounds += 1
+	go_around.emit(p, reason)
 
 func _fly_straight(p: Aircraft, dist: float, dt: float) -> void:
 	if p.entered:
@@ -776,7 +823,8 @@ func _sync(p: Aircraft, i: int) -> void:
 	var n := _nodes[i]
 	n.visible = not p.fogged
 	var alt := 1.0 if p.state != Aircraft.State.LANDING else 1.0 - 0.35 * minf(p.roll_t / maxf(Tuning.touchdown_fraction, 0.01), 1.0)
-	n.position = Vector3(p.pos.x, PLANE_Y * alt, p.pos.y)
+	var lift := 0.0 if p.climb <= 0.0 else 0.3 * sin(PI * clampf(p.climb / maxf(Tuning.go_around_climb_seconds, 0.1), 0.0, 1.0))
+	n.position = Vector3(p.pos.x, PLANE_Y * alt + lift, p.pos.y)
 	n.rotation.y = -p.vis_heading
 	n.scale = Vector3.ONE * (0.9 + 0.1 * alt)
 	var base := Airports.land_color(p.tkind, p.runway)

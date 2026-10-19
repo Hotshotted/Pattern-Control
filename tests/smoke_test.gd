@@ -154,6 +154,7 @@ func _initialize() -> void:
 	save.path = "user://smoke_test_save.json"   # never touch a real save
 	save.reset_all()
 	tuning.ad_stub_seconds = 0.0    # fake ads finish at once unless a test is about them
+	tuning.go_around_max = 0.0      # ...and no random go-arounds, except in the go-around section
 	DebugFlags.parse(["tune"])   # the whole run has the tuning panel, so it is part of the "nothing new" baseline
 
 	print("1. boot and the visible pre-warm")
@@ -845,15 +846,15 @@ func _initialize() -> void:
 		pl.land_end = 0
 		pl.ground = true
 	var ga_seen = [false]
-	tr.go_around.connect(func(_p): ga_seen[0] = true, CONNECT_ONE_SHOT)
+	tr.go_around.connect(func(_p, _r): ga_seen[0] = true, CONNECT_ONE_SHOT)
 	tr.step(1.0 / 60.0)
 	check(ga_seen[0] and main.alive and main.shift.fines == 0, "a second aircraft reaching a busy runway goes around: no fine")
 	check(g_a.state == Aircraft.State.LANDING and g_b.state == Aircraft.State.FLY and not g_b.cleared, "...the first lands, the second keeps flying with its clearance withdrawn")
 	var pop_ga = false
 	for l in main.hud._pop_labels:
-		if l.visible and l.text == "Go around!":
+		if l.visible and l.text.begins_with("Go-around!"):
 			pop_ga = true
-	check(pop_ga, "a 'Go around!' popup shows")
+	check(pop_ga, "a 'Go-around!' popup shows")
 	run_sec(main, tuning.landing_roll_time + tuning.runway_clear_seconds + 0.3)
 	g_b.pos = Airports.end_threshold(0, 0)
 	g_b.ground = true
@@ -1732,6 +1733,174 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	tuning.ad_stub_seconds = 0.0
+
+	print("9h. approach quality and go-arounds")
+	tuning.go_around_max = 0.98
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var ap = tr.approach
+	var thr_a = Airports.end_threshold(0, 0)
+	var rd_a = (Airports.end_far(0, 0) - thr_a).normalized()
+	var nm_a = Vector2(-rd_a.y, rd_a.x)
+	var rw_head = atan2(rd_a.x, -rd_a.y)
+	# A good approach: a long, straight, aligned final.
+	var good_pts = []
+	var u = -4.5
+	while u < -0.05:
+		good_pts.append([u, 0.0])
+		u += 0.3
+	# A bad one: runs past the field, makes a U-turn, then cuts back in on short final.
+	var bad_pts = []
+	for k in 6:
+		bad_pts.append([2.0 - 0.4 * k, 0.0])             # flying away from the threshold, heading back along the runway
+	for k in 9:
+		var ang = PI * k / 8.0
+		bad_pts.append([-0.4 + sin(ang) * 0.5, 0.6 - cos(ang) * 0.6])   # the U-turn
+	bad_pts.append([-0.7, 0.3])
+	bad_pts.append([-0.35, 0.15])
+	var mk = func(type, plist, wind_gap):
+		tr.release_all()
+		tr._busy_until.fill(0.0)
+		tr._last_td.fill(-1000.0)
+		var f0 = plist[0]
+		var pq = tr.place(0, thr_a + rd_a * f0[0] + nm_a * f0[1], rw_head, type)
+		for e in plist.slice(1):
+			pq.push(thr_a + rd_a * e[0] + nm_a * e[1])
+		pq.push(thr_a)
+		pq.push(Airports.end_far(0, 0))
+		pq.cleared = true
+		pq.runway = 0
+		pq.land_end = 0
+		return pq
+	var qg = mk.call(MEDIUM, good_pts, 99.0)
+	ap.evaluate(qg, 99.0, main.wind.from_deg)
+	check(ap.chance < 0.01 and ap.reason == ap.Reason.NONE, "a long straight aligned final has near-zero go-around chance (%.3f)" % ap.chance)
+	var qb = mk.call(MEDIUM, bad_pts, 99.0)
+	ap.evaluate(qb, 99.0, main.wind.from_deg)
+	check(ap.turn_deg > 120.0 and ap.chance > 0.5 and ap.penalty > 0.6, "a U-turn onto short final is very likely to go around (turn %.0f deg, chance %.2f)" % [ap.turn_deg, ap.chance])
+	# Each factor on its own.
+	var short_pts = [[-1.2, 0.0], [-0.9, 0.0], [-0.6, 0.0], [-0.3, 0.0]]
+	var qs = mk.call(SMALL, short_pts, 99.0)
+	ap.evaluate(qs, 99.0, -1.0)
+	var pen_small = ap.pen_len
+	qs = mk.call(JET, short_pts, 99.0)
+	ap.evaluate(qs, 99.0, -1.0)
+	check(ap.pen_len > pen_small and ap.need_len > 0.0, "a jet wants a longer final than a small plane (%.2f vs %.2f)" % [ap.pen_len, pen_small])
+	qs = mk.call(MEDIUM, good_pts, 99.0)
+	ap.evaluate(qs, 1.0, -1.0)
+	var sp_close = ap.pen_space
+	ap.evaluate(qs, 99.0, -1.0)
+	check(sp_close > 0.5 and ap.pen_space == 0.0, "landing right behind another aircraft hurts the score (%.2f), a wide gap doesn't" % sp_close)
+	set_wind(main, 90.0)
+	ap.evaluate(qs, 99.0, main.wind.from_deg)
+	var wind_pen = ap.pen_wind
+	set_wind(main, 0.0)
+	ap.evaluate(qs, 99.0, main.wind.from_deg)
+	check(wind_pen > ap.pen_wind and ap.pen_wind == 0.0, "a runway across the wind scores worse than one into it (%.2f vs %.2f)" % [wind_pen, ap.pen_wind])
+	# The final segment is tinted by the predicted quality.
+	qg = mk.call(MEDIUM, good_pts, 99.0)
+	tr.step(1.0 / 60.0)
+	check(qg.ga_band == 0 and qg.ga_chance < 0.12, "a good approach is tinted green")
+	qb = mk.call(MEDIUM, bad_pts, 99.0)
+	tr.step(1.0 / 60.0)
+	check(qb.ga_band == 2, "a U-turn onto short final is tinted red")
+	var qy = mk.call(MEDIUM, [[-1.5, -1.5], [-1.0, -1.0], [-0.5, -0.5]], 99.0)
+	tr.step(1.0 / 60.0)
+	check(qy.ga_band == 1, "a diagonal cut-in with no straight final is yellow (chance %.2f)" % qy.ga_chance)
+	var ribbons = main.ribbons if "ribbons" in main else null
+	if ribbons != null:
+		qg = mk.call(MEDIUM, good_pts, 99.0)
+		ribbons._pts.resize(Aircraft.PATH_MAX + 2)
+		for k in qg.count:
+			ribbons._pts[k + 1] = qg.pts[qg.head + k]
+		check(ribbons._tint_start(qg, qg.count + 1) > 0, "the ribbon tints the last stretch of a cleared path")
+		var glx = mk.call(GLIDER, good_pts, 99.0)
+		check(ribbons._tint_start(glx, glx.count + 1) == -1, "...but not a glider's")
+	# Rolling the dice: a good approach never goes around, a bad one nearly always does.
+	var ga_good = 0
+	var ga_bad = 0
+	var ga_n = [0]
+	var ga_why = [0]
+	var cb_ga = func(_pl, r):
+		ga_n[0] += 1
+		ga_why[0] = r
+	tr.go_around.connect(cb_ga)
+	tr.go_rng.seed = 4242
+	for trial in 40:
+		var plist = good_pts.slice(good_pts.size() - 12) if trial % 2 == 0 else bad_pts
+		var qq = mk.call(MEDIUM, plist, 99.0)
+		qq.timer_left = 17.0
+		ga_n[0] = 0
+		for i in 400:
+			tr.step(1.0 / 60.0)
+			if not qq.active() or qq.state == Aircraft.State.LANDING or ga_n[0] > 0:
+				break
+		if ga_n[0] > 0:
+			if trial % 2 == 0:
+				ga_good += 1
+			else:
+				ga_bad += 1
+	check(ga_good == 0, "20 well set-up approaches: no go-arounds")
+	check(ga_bad >= 12, "20 U-turn approaches: most go around (%d)" % ga_bad)
+	# What a go-around does.
+	qb = mk.call(MEDIUM, bad_pts, 99.0)
+	qb.timer_left = 17.0
+	tr.go_rng.seed = 1
+	var ga_try = 0
+	while qb.go_arounds == 0 and ga_try < 30:
+		qb = mk.call(MEDIUM, bad_pts, 99.0)
+		qb.timer_left = 17.0
+		for i in 400:
+			tr.step(1.0 / 60.0)
+			if qb.go_arounds > 0 or not qb.active() or qb.state == Aircraft.State.LANDING:
+				break
+		ga_try += 1
+	check(qb.go_arounds == 1 and qb.state == Aircraft.State.FLY and not qb.cleared and qb.count == 0, "a go-around withdraws the clearance and the path: it needs a new one")
+	check(absf(wrapf(qb.heading - rw_head, -PI, PI)) < 0.01, "...and it climbs out along the runway heading")
+	check(qb.timer_left > 10.0 and qb.timer_left < 17.0 and qb.climb > 0.0, "...keeping its remaining timer (%.1f)" % qb.timer_left)
+	check(ga_why[0] == ap.Reason.TURN, "...with the sharp turn as the reason (%s)" % ap.reason_text(ga_why[0]))
+	var pop_why = false
+	main._on_go_around(qb, ap.Reason.TURN)
+	for l in main.hud._pop_labels:
+		if l.visible and l.text.begins_with("Go-around!") and l.text.contains("sharp"):
+			pop_why = true
+	check(pop_why, "the 'Go-around!' popup says why")
+	tr.go_around.disconnect(cb_ga)
+	# Gliders and emergencies never go around.
+	var qgl = mk.call(GLIDER, bad_pts, 99.0)
+	var qem = mk.call(MEDIUM, bad_pts, 99.0)
+	tr.make_special(qem, true, false)
+	var both = [qgl, qem]
+	for who in both:
+		who.timer_left = 40.0
+	tr.go_rng.seed = 9
+	for i in 300:
+		tr.step(1.0 / 60.0)
+	check(qgl.go_arounds == 0 and qem.go_arounds == 0 and qgl.ga_chance == 0.0 and qem.ga_chance == 0.0, "gliders and emergencies are never scored for a go-around")
+	# ...and if the runway is busy they are lost instead.
+	tr.release_all()
+	tr._busy_until.fill(0.0)
+	var crashed_kind = [-1]
+	tr.crashed.connect(func(_pl, k): crashed_kind[0] = k, CONNECT_ONE_SHOT)
+	var occp = tr.place(0, thr_a, rw_head, MEDIUM)
+	occp.push(thr_a)
+	occp.push(Airports.end_far(0, 0))
+	occp.cleared = true
+	occp.land_end = 0
+	tr.step(1.0 / 60.0)
+	var glid2 = tr.place(0, thr_a, rw_head, GLIDER)
+	glid2.push(thr_a)
+	glid2.push(Airports.end_far(0, 0))
+	glid2.cleared = true
+	glid2.land_end = 0
+	tr.step(1.0 / 60.0)
+	check(crashed_kind[0] == 2 and not glid2.active(), "a glider reaching a busy runway has no go-around: it is lost")
+	tr.release_all()
+	tuning.go_around_max = 0.0
+	main.restart()
+	tr.auto_spawn = false
 
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
