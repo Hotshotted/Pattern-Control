@@ -614,20 +614,25 @@ func ui_hit(pos: Vector2) -> bool:
 	return _art.button_at(pos) >= 0
 
 ## The menu's buttons, two per row. (Later features add their own entries here.)
-const MENU_BUTTONS := [["airports", "AIRPORTS"], ["upgrades", "UPGRADES"], ["shop", "SHOP"], ["daily", "DAILY SHIFT"]]
+const MENU_BUTTONS := [["airports", "AIRPORTS"], ["upgrades", "UPGRADES"], ["shop", "SHOP"], ["daily", "DAILY SHIFT"], ["bad", "BAD PILOT DAY"]]
 var daily_label := "DAILY SHIFT"
 var daily_sub := ""
+var bad_sub := ""
 
 func _layout_menu_buttons() -> void:
 	var vp := get_viewport().get_visible_rect().size
 	var n := MENU_BUTTONS.size()
 	for k in n:
-		var cols := mini(n, 2)
-		var col := k % 2
-		var row := k / 2
+		var id: String = MENU_BUTTONS[k][0]
 		var w := 420.0
+		var alone := k == n - 1 and n % 2 == 1          # a last button on its own row is centred
+		var col := 0 if alone else k % 2
+		var row := k / 2
+		var cols := 1 if alone else 2
 		var x0 := vp.x * 0.5 - (cols * w + (cols - 1) * 30.0) * 0.5
-		_art.add_button(MENU_BUTTONS[k][0], daily_label if MENU_BUTTONS[k][0] == "daily" else MENU_BUTTONS[k][1], Rect2(x0 + col * (w + 30.0), vp.y * 0.5 + 600.0 + row * 130.0, w, 110.0), 0, daily_sub if MENU_BUTTONS[k][0] == "daily" else "")
+		var label: String = daily_label if id == "daily" else MENU_BUTTONS[k][1]
+		var sub := daily_sub if id == "daily" else (bad_sub if id == "bad" else "")
+		_art.add_button(id, label, Rect2(x0 + col * (w + 30.0), vp.y * 0.5 + 585.0 + row * 120.0, w, 100.0), 0, sub)
 
 func hide_screens() -> void:
 	_menu.visible = false

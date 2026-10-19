@@ -205,6 +205,13 @@ var tint_red_chance := 0.45
 var student_go_around_mult := 2.2    # student pilots: go-around chance x this + the floor (capped at go_around_max)
 var student_go_around_floor := 0.25
 var tint_distance := 3.0            # how much of the path before the runway is tinted by approach quality
+var student_chance := 0.12           # chance an ordinary runway arrival is a student pilot ("L" badge)
+var student_pay_mult := 2.0          # students pay double when they land
+var bad_day_go_around_mult := 3.0    # Bad Pilot Day: every aircraft is a student, with far higher go-around chances
+var bad_day_go_around_floor := 0.6
+var bad_day_pay_mult := 1.5          # ...and every landing pays big (x student_pay_mult as well)
+var bad_day_threshold_mult := 2.5    # ...so the star thresholds are higher
+var bad_day_bonus_mult := 2.0        # ...and so is the completion bonus
 var go_around_climb_seconds := 1.6   # how long the climb-out lift shows
 ## The first time a star is ever earned at an airport it pays this much extra.
 var coins_first_star_bonus := 100

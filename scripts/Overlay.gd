@@ -13,6 +13,7 @@ var wind: Wind
 var camera: Camera3D
 var xf := Transform2D.IDENTITY       # world (x, z) -> viewport pixels
 var inv := Transform2D.IDENTITY
+var _students_drawn := 0
 var selected: Aircraft = null           # the plane being dragged
 var active_runway := -1              # runway the dragged plane is aiming for (its marker pulses)
 var glows_drawn := 0                 # entry glows drawn last frame
@@ -122,6 +123,7 @@ func _draw_all() -> void:
 		for r in Airports.rw_count():
 			if wind.is_closed(r):
 				_tag(xf * Airports.rw_center(r) + Vector2(0, -90), "CLOSED %d" % ceili(wind.closed_left[r]), Color(1.0, 0.4, 0.3))
+	_students_drawn = 0
 	for p in traffic.planes:
 		if not p.active() or not p.entered or p.fogged or p.state == Aircraft.State.DIVERT or p.state == Aircraft.State.LANDING:
 			continue
@@ -131,8 +133,15 @@ func _draw_all() -> void:
 			_tag(at, "SOS", Color(1.0, 0.25, 0.2, blink))
 		elif p.vip:
 			_tag(at, "VIP", Color(1.0, 0.84, 0.15) if p.vip_ok else Color(0.6, 0.6, 0.62))
+		elif p.student:
+			_students_drawn += 1
+			_tag(at, "L", Color(1.0, 0.62, 0.15))
 		elif p.type == Aircraft.Type.GLIDER and p.locked:
 			_tag(at, "LOCKED", Color(0.8, 0.9, 1.0, 0.8))
+
+## How many student badges the last draw showed (for the tests).
+func student_tags_drawn() -> int:
+	return _students_drawn
 
 ## No-fly zones: mountains get a dashed warning ring and a faint fill; storm cells are dark clouds with lightning.
 func _draw_hazards(t: float) -> void:

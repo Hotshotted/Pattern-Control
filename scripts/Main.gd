@@ -32,6 +32,7 @@ var rng_env := RandomNumberGenerator.new()   # wind, weather and storms (seeded 
 var weather := Weather.new()
 var score := 0                        # aircraft landed this shift (the big number)
 var _event_key := ""
+var bad_mode := false                 # Bad Pilot Day (also a seeded daily-style shift: daily_mode is true too)
 var daily_mode := false               # playing today's seeded daily shift
 var shop_tab := 0                     # 0 themes, 1 liveries
 var _ad_kind := ""
@@ -203,8 +204,11 @@ func restart() -> void:
 	_drag_plane = null
 	_drag_active = false
 	_doubled = false
+	traffic.all_students = bad_mode
 	if daily_mode:
 		var seed_v := (Save.today() * 2654435761) & 0x7fffffff
+		if bad_mode:
+			seed_v = (seed_v ^ 0x2f1d9a7) & 0x7fffffff
 		traffic.rng.seed = seed_v
 		rng_env.seed = seed_v ^ 0x5bd1e995
 	else:
@@ -216,7 +220,7 @@ func restart() -> void:
 	Airports.current = airport
 	airfield.select(airport)
 	traffic.load_terrain()
-	shift.reset(Airports.star_thresholds())
+	shift.reset(_thresholds())
 	fx.clear()
 	overlay.clear()
 	airfield.reset()
@@ -236,6 +240,8 @@ func _show_menu() -> void:
 	screen = SCREEN_MENU
 	alive = false
 	daily_mode = false
+	bad_mode = false
+	hud.bad_sub = "done today - streak %d" % Save.daily_streak("bad") if Save.daily_done_today("bad") else "all student pilots   streak %d" % Save.daily_streak("bad")
 	hud.daily_label = "DAILY SHIFT"
 	hud.daily_sub = "done today - streak %d" % Save.daily_streak() if Save.daily_done_today() else "streak %d   bonus +%d" % [Save.daily_streak(), _daily_bonus(Save.daily_streak() + 1)]
 	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport))
@@ -356,6 +362,8 @@ func _on_landed(p: Aircraft) -> void:
 	score += 1
 	var vip_paid := p.vip and p.vip_ok
 	var base := Tuning.landing_pay(p.type)
+	if p.student:
+		base = roundi(base * Tuning.student_pay_mult * (Tuning.bad_day_pay_mult if bad_mode else 1.0))
 	var extra := 0
 	# Quick succession: landings close together earn a growing bonus.
 	var t := traffic.run_time
@@ -366,7 +374,7 @@ func _on_landed(p: Aircraft) -> void:
 		extra += Tuning.emergency_bonus_coins
 	elif vip_paid:
 		extra += Tuning.vip_bonus_coins
-	shift.on_landed(p.type, base, extra, vip_paid, p.emergency)
+	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
 	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
 	hud.set_landed(score, true)
@@ -609,12 +617,15 @@ func _end_shift() -> void:
 				coins += Tuning.coins_first_star_bonus
 	var daily_note := ""
 	if daily_mode:
-		Save.daily_note_score(payout)
-		if stars >= 1 and not Save.daily_done_today():
-			var streak_now := Save.daily_complete(payout)
+		var kind := "bad" if bad_mode else "daily"
+		Save.daily_note_score(payout, kind)
+		if stars >= 1 and not Save.daily_done_today(kind):
+			var streak_now := Save.daily_complete(payout, kind)
 			var bonus := _daily_bonus(streak_now)
+			if bad_mode:
+				bonus = roundi(bonus * Tuning.bad_day_bonus_mult)
 			coins += bonus
-			daily_note = "\nDaily bonus +%d  (streak %d)" % [bonus, streak_now]
+			daily_note = "\n%s bonus +%d  (streak %d)" % ["Bad Pilot Day" if bad_mode else "Daily", bonus, streak_now]
 	Save.add_coins(coins)
 	new_best = false if daily_mode else Save.submit_best_coins(airport, payout)
 	if not daily_mode:
@@ -706,6 +717,8 @@ func _on_button(id: String) -> void:
 		shop_pick("livery", int(id.substr(7)))
 	elif id == "daily":
 		start_daily()
+	elif id == "bad":
+		start_bad_day()
 	elif id == "ad_refund":
 		show_ad("Reward: refund your last fine", func(): _refund_last_fine(), SCREEN_PLAY)
 	elif id == "ad_double":
@@ -716,6 +729,7 @@ func _on_button(id: String) -> void:
 		_show_menu()
 	elif id.begins_with("airport:"):
 		daily_mode = false
+		bad_mode = false
 		select_airport(int(id.substr(8)))
 		begin_shift()
 
@@ -805,8 +819,25 @@ func _daily_bonus(streak_days: int) -> int:
 ## Today's seeded shift: the airport and the arrivals are the same for everyone today.
 func start_daily() -> void:
 	daily_mode = true
+	bad_mode = false
 	airport = Save.today() % Airports.COUNT
 	begin_shift()
+
+## Bad Pilot Day: a second daily challenge. Every aircraft is a student pilot, go-arounds are very likely and every
+## landing pays big. Its own airport, best score and streak.
+func start_bad_day() -> void:
+	daily_mode = true
+	bad_mode = true
+	airport = (Save.today() + 3) % Airports.COUNT
+	begin_shift()
+
+## The star thresholds of this shift (Bad Pilot Day pays more, so it asks for more).
+func _thresholds() -> Array:
+	var th := Airports.star_thresholds().duplicate()
+	if bad_mode:
+		for i in th.size():
+			th[i] = roundi(th[i] * Tuning.bad_day_threshold_mult)
+	return th
 
 ## Start a shift, with an interstitial ad first if one is due (never in the middle of a shift).
 func begin_shift() -> void:
@@ -891,6 +922,7 @@ func debug_reset_save() -> void:
 
 func debug_reset_daily() -> void:
 	Save.daily = {}
+	Save.bad_day = {}
 	Save.write_file()
 
 func select_airport(i: int) -> void:

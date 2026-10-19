@@ -1902,6 +1902,155 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
+	print("9i. student pilots and Bad Pilot Day")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	save.day_override = 20100
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	# Students appear among ordinary arrivals, and only runway aircraft that can go around.
+	tuning.student_chance = 0.3
+	var n_stu = 0
+	var n_all = 0
+	var stu_ok = true
+	tr.rng.seed = 11
+	for k in 120:
+		tr.release_all()
+		var sp = tr.spawn()
+		if sp == null:
+			continue
+		n_all += 1
+		if sp.student:
+			n_stu += 1
+			stu_ok = stu_ok and sp.tkind == Aircraft.Kind.RUNWAY and sp.type != GLIDER and not sp.emergency and not sp.vip
+	check(n_stu > 10 and n_stu < n_all and stu_ok, "student pilots turn up in normal shifts (%d of %d), never gliders / emergencies / VIPs" % [n_stu, n_all])
+	tuning.student_chance = 0.12
+	# The "L" badge.
+	var stp = tr.place(0, Vector2(0.0, 2.0), 0.0, MEDIUM)
+	stp.student = true
+	await real_wait(0.3)
+	check(stp.student and main.overlay.student_tags_drawn() >= 1, "a student aircraft is drawn with an L badge")
+	# Student pay: double.
+	main.restart()
+	tr.auto_spawn = false
+	var fk = Aircraft.new()
+	fk.runway = 0
+	fk.type = MEDIUM
+	main._on_landed(fk)
+	var plain_pay = main.shift.earned
+	fk.student = true
+	main.traffic.run_time += 10.0
+	main._on_landed(fk)
+	check(main.shift.earned - plain_pay == plain_pay * 2 and main.shift.landed_student == 1, "a student landing pays double (%d vs %d)" % [main.shift.earned - plain_pay, plain_pay])
+	# Go-around chance: far higher for a student on the same approach.
+	set_wind(main, 0.0)
+	tuning.go_around_max = 0.98
+	var thr_s = Airports.end_threshold(0, 0)
+	var rd_s = (Airports.end_far(0, 0) - thr_s).normalized()
+	var sq = tr.place(0, thr_s - rd_s * 4.5, atan2(rd_s.x, -rd_s.y), MEDIUM)
+	var u2 = -4.2
+	while u2 < -0.05:
+		sq.push(thr_s + rd_s * u2)
+		u2 += 0.3
+	sq.push(thr_s)
+	sq.push(Airports.end_far(0, 0))
+	sq.cleared = true
+	sq.land_end = 0
+	tr.step(1.0 / 60.0)
+	var base_chance = sq.ga_chance
+	sq.student = true
+	tr.step(1.0 / 60.0)
+	check(base_chance < 0.01 and sq.ga_chance > 0.2 and sq.ga_band >= 1, "a student's go-around chance is much higher on a perfect approach (%.2f -> %.2f)" % [base_chance, sq.ga_chance])
+	tr.release_all()
+	# Bad Pilot Day.
+	tuning.go_around_max = 0.0
+	save.day_override = 20100
+	main.start_bad_day()
+	check(main.bad_mode and main.daily_mode and main.airport == (20100 + 3) % 6 and tr.all_students, "Bad Pilot Day is its own daily mode with its own airport")
+	tuning.go_around_max = 0.98
+	tr.auto_spawn = false
+	var all_stu = true
+	tr.rng.seed = 5
+	var bd_n = 0
+	for k in 40:
+		tr.release_all()
+		var sp2 = tr.spawn()
+		if sp2 != null:
+			bd_n += 1
+			all_stu = all_stu and (sp2.student or sp2.emergency)
+	check(bd_n > 20 and all_stu, "every aircraft is a student pilot on Bad Pilot Day (%d)" % bd_n)
+	# Seeded like the daily shift.
+	var seqs = []
+	for rep in 3:
+		save.day_override = 20100 if rep < 2 else 20101
+		main.start_bad_day()
+		tr.auto_spawn = true
+		var sq2 = []
+		tr.spawned.connect(func(pl): sq2.append([pl.type, snappedf(pl.entry.x, 0.01), snappedf(pl.entry.y, 0.01)]))
+		for i in 60 * 30:
+			main.step(1.0 / 60.0)
+		seqs.append(sq2)
+		for conn in tr.spawned.get_connections():
+			tr.spawned.disconnect(conn["callable"])
+	var ncmp = mini(mini(seqs[0].size(), seqs[1].size()), 5)
+	check(ncmp >= 4 and seqs[0].slice(0, ncmp) == seqs[1].slice(0, ncmp) and seqs[0] != seqs[2], "the same day gives the same arrivals; another day differs")
+	# Landings pay big; high thresholds; separate best and streak.
+	save.day_override = 20100
+	tuning.go_around_max = 0.0
+	main.start_bad_day()
+	tr.auto_spawn = false
+	var fk2 = Aircraft.new()
+	fk2.runway = 0
+	fk2.type = MEDIUM
+	fk2.student = true
+	main._on_landed(fk2)
+	check(main.shift.earned == roundi(tuning.pay_medium * tuning.student_pay_mult * tuning.bad_day_pay_mult), "every Bad Pilot Day landing pays big (%d vs %d for an ordinary one)" % [main.shift.earned, tuning.pay_medium])
+	check(main.shift.thresholds[0] == roundi(Airports.star_thresholds()[0] * tuning.bad_day_threshold_mult), "...and its star thresholds are higher")
+	var streaks_b = []
+	var bonus_b = []
+	var stars_b = save.stars_total()
+	var daily_before = save.daily.duplicate()
+	for day_i in [20100, 20101, 20101, 20103]:
+		save.day_override = day_i
+		main.start_bad_day()
+		tr.auto_spawn = false
+		var cb0 = save.coins
+		earn_coins(main, main.shift.thresholds[0])
+		var plain_b = main.shift.payout()
+		tr.spawn_until = 0.0
+		tr.run_time = tuning.shift_seconds + 0.01
+		main.step(1.0 / 60.0)
+		streaks_b.append(save.daily_streak("bad"))
+		bonus_b.append(save.coins - cb0 - plain_b)
+	var b1 = roundi((tuning.daily_bonus_coins + tuning.daily_streak_coins * 1) * tuning.bad_day_bonus_mult)
+	var b2 = roundi((tuning.daily_bonus_coins + tuning.daily_streak_coins * 2) * tuning.bad_day_bonus_mult)
+	check(streaks_b == [1, 2, 2, 1] and bonus_b == [b1, b2, 0, b1], "Bad Pilot Day has its own streak and bonus %s %s" % [str(streaks_b), str(bonus_b)])
+	check(save.daily == daily_before and save.daily_streak("daily") == 0, "...separate from the Daily Shift's record")
+	check(int(save.bad_day.get("best", 0)) >= main.shift.thresholds[0] and save.stars_total() == stars_b, "...its own best score, and no permanent stars")
+	# The menu offers it; Save round trip keeps it.
+	main._show_menu()
+	check(not main.bad_mode and not main.daily_mode and main.hud._art.btn_id.find("bad") >= 0, "the menu has a Bad Pilot Day button")
+	var bi = main.hud._art.btn_id.find("bad")
+	var br = main.hud._art.btn_rect[bi]
+	var vpz = main.get_viewport().get_visible_rect().size
+	check(br.end.y <= vpz.y and br.position.y > vpz.y * 0.5 + 500.0, "...which fits on screen (%s)" % str(br))
+	main._on_button("bad")
+	check(main.bad_mode and main.screen == main.SCREEN_PLAY, "pressing it starts the shift")
+	save.write_file()
+	save.bad_day = {}
+	save.load_file()
+	check(int(save.bad_day.get("streak", 0)) == 1, "the Bad Pilot Day record survives a save round trip")
+	save.day_override = -1
+	tuning.go_around_max = 0.0
+	main.daily_mode = false
+	main.bad_mode = false
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true

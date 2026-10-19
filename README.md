@@ -59,6 +59,12 @@ You run an airport, one **shift** at a time.
   new path. While you draw, the last stretch of the path is tinted green / yellow / red by the predicted go-around
   chance. Gliders and emergencies never go around (a glider that finds the runway busy is lost).
 
+- **Student pilots** (an orange **L** badge) turn up now and then in normal shifts: they go around far more
+  often, and pay double when they land.
+- **Bad Pilot Day** is a second daily challenge on the menu (next to the Daily Shift): every aircraft is a student
+  pilot, go-arounds are very likely and every landing pays big. It has its own airport, thresholds, best score and
+  streak. Same seeded arrivals for everyone on the same day.
+
 ## Debug / tuning URLs
 
 | Flag | What it does |

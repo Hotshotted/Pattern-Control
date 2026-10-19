@@ -60,6 +60,7 @@ var _stripes: Array = []                  # per aircraft: the stripe boxes (show
 var livery := 0                          # index into Cosmetics.LIVERIES
 var _cand := PackedInt32Array()
 var _draws := PackedFloat32Array()      # every random number a spawn() call may need, drawn up front
+var all_students := false               # Bad Pilot Day: every aircraft is a student pilot
 var grace_until := 0.0                  # run time until which conflicts are ignored (after an ad-continue)
 var _body_mats: Array[StandardMaterial3D] = []
 var _wing_mats: Array[StandardMaterial3D] = []
@@ -282,6 +283,8 @@ func spawn() -> Aircraft:
 		if p != null:
 			p.entry = entry
 			make_special(p, emergency, vip)
+			if not emergency:
+				p.student = all_students or (not vip and p.tkind == Aircraft.Kind.RUNWAY and type != Aircraft.Type.GLIDER and _draws[31] < Tuning.student_chance)
 			spawned.emit(p)
 		return p
 	return null
@@ -743,7 +746,12 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 	approach.evaluate(p, arrive - _last_td[p.runway], wind.from_deg if wind != null else -1.0)
 	var chance := approach.chance
 	if p.student:
-		chance = minf(chance * Tuning.student_go_around_mult + Tuning.student_go_around_floor, Tuning.go_around_max)
+		if all_students:
+			chance = minf(chance * Tuning.bad_day_go_around_mult + Tuning.bad_day_go_around_floor, Tuning.go_around_max)
+		else:
+			chance = minf(chance * Tuning.student_go_around_mult + Tuning.student_go_around_floor, Tuning.go_around_max)
+		if Tuning.go_around_max <= 0.0:
+			chance = 0.0
 		if approach.reason == Approach.Reason.NONE:
 			approach.reason = Approach.Reason.STUDENT
 	p.ga_chance = chance
