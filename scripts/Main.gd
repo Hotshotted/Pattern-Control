@@ -10,10 +10,7 @@ const SCREEN_SELECT := 3
 const SCREEN_UPGRADES := 4
 const SCREEN_SHOP := 5
 const SCREEN_AD := 6
-const SCREEN_CONTINUE := 7
 
-const HEADER_CONFLICT := "MID-AIR\nCONFLICT"
-const HEADER_STRIKES := "3 STRIKES"
 const HEADER_DONE := "SHIFT\nCOMPLETE"
 
 @onready var camera: Camera3D = $Camera3D
@@ -40,15 +37,12 @@ var shop_tab := 0                     # 0 themes, 1 liveries
 var _ad_kind := ""
 var _ad_left := 0.0
 var _ad_done: Callable
-var _continue_used := false           # the rewarded "undo the conflict" is once per shift
+var _refund_used := false             # the rewarded "refund the last fine" is once per shift
+var _refund_until := 0.0              # run time until which the refund offer stays up
+var _last_land_t := -100.0            # run time of the previous landing (quick-succession bonus)
 var _doubled := false                 # the rewarded "double coins" is once per shift
-var _conflict_a: Aircraft
-var _conflict_b: Aircraft
-var _conflict_header := ""
-var _conflict_reason := ""
 var ads_shown := 0                    # (tests) how many fake ads have played
-var streak := 0                       # landings within STREAK_WINDOW_MS of each other
-var shift_coins := 0                  # coins earned so far this shift (paid out when it ends)
+var streak := 0                       # landings in a row, each within Tuning.streak_window_seconds of the last
 var last_result := {}                 # what the last shift ended with (header, reason, coins, stars...)
 var over_reason := ""
 var over_header := ""
@@ -58,7 +52,6 @@ var elapsed := 0.0                    # seconds into this run
 var _warming := false
 var _warmed := false
 var _death_ms := 0
-var _last_land_ms := 0
 var _haptic_warmed := false
 var _env: Environment
 var view_size := 10.0                 # world units across the screen width (the radar upgrade widens it, smoothly)
@@ -70,7 +63,6 @@ var _touch_start := Vector2.ZERO
 var _touch_ms := 0
 var _last_world := Vector2.ZERO
 
-const STREAK_WINDOW_MS := 5000
 
 func _ready() -> void:
 	Engine.max_physics_steps_per_frame = 1   # no physics here: a stall can never trigger catch-up steps
@@ -112,7 +104,7 @@ func _ready() -> void:
 	Airports.current = airport
 	airfield.select(airport)
 	traffic.load_terrain()
-	shift.reset(Airports.goals())
+	shift.reset(Airports.star_thresholds())
 	wind.start(rng_env)
 	airfield.show_active(wind)
 	hud.set_wind(wind.from_deg, wind.toward_deg())
@@ -195,7 +187,6 @@ func restart() -> void:
 	alive = true
 	score = 0
 	streak = 0
-	shift_coins = 0
 	elapsed = 0.0
 	new_best = false
 	over_reason = ""
@@ -205,11 +196,12 @@ func restart() -> void:
 	_run_start_ms = Time.get_ticks_msec()
 	_paused_total_ms = 0
 	_skip_frames = 0
-	_last_land_ms = 0
+	_last_land_t = -100.0
+	_refund_used = false
+	_refund_until = 0.0
 	_drag_index = -1
 	_drag_plane = null
 	_drag_active = false
-	_continue_used = false
 	_doubled = false
 	if daily_mode:
 		var seed_v := (Save.today() * 2654435761) & 0x7fffffff
@@ -224,7 +216,7 @@ func restart() -> void:
 	Airports.current = airport
 	airfield.select(airport)
 	traffic.load_terrain()
-	shift.reset(Airports.goals())
+	shift.reset(Airports.star_thresholds())
 	fx.clear()
 	overlay.clear()
 	airfield.reset()
@@ -238,7 +230,7 @@ func restart() -> void:
 	airfield.show_active(wind)
 	hud.reset_for_run(Save.best_for(airport))
 	hud.set_wind(wind.from_deg, wind.toward_deg())
-	hud.set_shift(shift, int(Tuning.max_strikes))
+	hud.set_shift(shift)
 
 func _show_menu() -> void:
 	screen = SCREEN_MENU
@@ -320,7 +312,7 @@ func _process(raw_delta: float) -> void:
 		return
 	var delta := _frame_delta(raw_delta)
 	if DebugFlags.perf_enabled():
-		hud.set_clock(sim_time, run_wall_time())
+		hud.set_perf_clock(sim_time, run_wall_time())
 	if delta <= 0.0:
 		return
 	sim_time += delta
@@ -348,9 +340,13 @@ func step(delta: float) -> void:
 			hud.set_wind_warning(wind.next_deg, ceili(wind.countdown))
 	if _drag_active and (_drag_plane == null or not _drag_plane.active()):
 		_cancel_drag()
-	# The shift is over once the planes have stopped coming and the field is clear.
-	if alive and traffic.run_time >= Tuning.shift_seconds and traffic.active_count() == 0:
-		_end_shift(HEADER_DONE, "Shift complete!", true)
+	hud.set_timer(ceili(maxf(Tuning.shift_seconds - traffic.run_time, 0.0)))
+	if _refund_until > 0.0 and traffic.run_time > _refund_until:
+		_refund_until = 0.0
+		hud.set_refund_offer(0)
+	# The shift always ends at the clock.
+	if alive and traffic.run_time >= Tuning.shift_seconds:
+		_end_shift()
 
 # ---------- Game events ----------
 
@@ -358,79 +354,87 @@ func _on_landed(p: Aircraft) -> void:
 	if not alive:
 		return
 	score += 1
-	shift_coins += Tuning.coins_per_landing
 	var vip_paid := p.vip and p.vip_ok
-	shift.on_landed(p.type, vip_paid, p.emergency)
-	var now := Time.get_ticks_msec()
-	streak = streak + 1 if _last_land_ms != 0 and now - _last_land_ms < STREAK_WINDOW_MS else 1
-	_last_land_ms = now
+	var base := Tuning.landing_pay(p.type)
+	var extra := 0
+	# Quick succession: landings close together earn a growing bonus.
+	var t := traffic.run_time
+	streak = streak + 1 if t - _last_land_t <= Tuning.streak_window_seconds else 1
+	_last_land_t = t
+	extra += Tuning.streak_bonus_coins * mini(streak - 1, Tuning.streak_bonus_cap)
+	if p.emergency:
+		extra += Tuning.emergency_bonus_coins
+	elif vip_paid:
+		extra += Tuning.vip_bonus_coins
+	shift.on_landed(p.type, base, extra, vip_paid, p.emergency)
 	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
 	hud.set_landed(score, true)
-	hud.set_shift(shift, int(Tuning.max_strikes))
+	hud.set_shift(shift)
 	fx.burst(land_at, col)
 	fx.burst(land_at, Color.WHITE)
 	overlay.ripple(land_at, col, 1.0)
 	overlay.ripple(land_at, Color.WHITE, 0.6)
 	if p.tkind == Aircraft.Kind.RUNWAY:
 		airfield.glow(p.runway, p.land_end)
-	var text := "+1"
+	var text := "+%d" % (base + extra)
 	var tcol := Color(1, 1, 1)
-	if streak >= 3:
-		text = "+1  x%d" % streak
+	if streak >= 2:
+		text += "  x%d" % streak
 		tcol = col.lerp(Color.WHITE, 0.4)
 	if p.emergency:
-		shift_coins += Tuning.emergency_bonus_coins
-		text = "EMERGENCY SAVED! +%d" % Tuning.emergency_bonus_coins
+		text = "EMERGENCY SAVED! +%d" % (base + extra)
 		tcol = Color(1.0, 0.45, 0.4)
 		fx.burst(land_at, Color(1.0, 0.3, 0.25), true)
 	elif p.vip:
 		if vip_paid:
-			shift_coins += Tuning.vip_bonus_coins
-			text = "VIP +%d" % Tuning.vip_bonus_coins
+			text = "VIP +%d" % (base + extra)
 			tcol = Color(1.0, 0.84, 0.15)
 		else:
-			text = "VIP (no bonus)"
+			text = "VIP +%d (no bonus)" % (base + extra)
 			tcol = Color(0.7, 0.7, 0.72)
 	hud.popup(text, tcol, overlay.world_to_screen(land_at) + Vector2(0, -80))
 	_star_feedback(land_at)
 	if not DebugFlags.off("haptic"):
 		Input.vibrate_handheld(Tuning.haptic_ms)
 
-## A goal was just reached: a gold burst and a "STAR!" popup.
+## A star threshold was just crossed: a gold burst and a "STAR!" popup.
 func _star_feedback(at: Vector2) -> void:
-	if shift.just_met == 0:
+	if shift.just_stars == 0:
 		return
 	fx.burst(at, Color(1.0, 0.84, 0.15), true)
 	overlay.ripple(at, Color(1.0, 0.84, 0.15), 1.6)
 	var vp := get_viewport().get_visible_rect().size
 	hud.popup("STAR!", Color(1.0, 0.84, 0.15), Vector2(vp.x * 0.5, vp.y * 0.3))
 
-## An aircraft flew into terrain or a storm cell: lost, and a strike.
+## A fine: coins come off the balance (it may go negative), a red popup, and the refund ad is offered.
+func _apply_fine(amount: int, kind: String, label: String, world_at: Vector2) -> void:
+	shift.fine(amount, kind)
+	hud.set_shift(shift)
+	hud.popup("%s  -%d" % [label, amount], Color(1.0, 0.25, 0.2), overlay.world_to_screen(world_at))
+	hud.flash(Color(1.0, 0.2, 0.15))
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(80)
+	if not _refund_used:
+		_refund_until = traffic.run_time + Tuning.refund_offer_seconds
+		hud.set_refund_offer(shift.last_fine)
+
+## An aircraft flew into terrain or a storm cell: lost, and a medium fine.
 func _on_crashed(p: Aircraft, kind: int) -> void:
 	if not alive:
 		return
-	shift.on_strike()
-	hud.set_shift(shift, int(Tuning.max_strikes))
 	fx.burst(p.pos, Color(0.85, 0.6, 0.4), true)
 	overlay.ripple(p.pos, Color(1, 0.35, 0.2), 1.1)
-	hud.popup("Struck by storm!" if kind == 1 else "Crashed!", Color(1, 0.4, 0.3) if kind == 0 else Color(0.8, 0.7, 1.0), overlay.world_to_screen(p.pos))
-	hud.flash(Color(1, 0.3, 0.1))
-	if shift.strikes >= int(Tuning.max_strikes):
-		_end_shift(HEADER_STRIKES, "%d strikes." % shift.strikes, false)
+	_apply_fine(Tuning.fine_hazard, "crash", "Struck by storm!" if kind == 1 else "Crashed!", p.pos)
 
-## The runway was still busy: the aircraft goes around (no strike, but time passes).
+## The runway was still busy: the aircraft goes around (no fine, but time passes).
 func _on_go_around(p: Aircraft) -> void:
 	hud.popup("Go around!", Color(1, 0.85, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
 	overlay.ripple(p.pos, Color(1, 0.85, 0.3), 0.7)
 
+## Two aircraft landed on crossing runways at once: a conflict.
 func _on_runway_conflict(a: Aircraft, b: Aircraft) -> void:
-	if not alive:
-		return
-	var mid := (a.pos + b.pos) * 0.5
-	fx.burst(mid, Color(1.0, 0.5, 0.1), true)
-	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
-	_conflict_or_end(HEADER_CONFLICT, "Simultaneous landings on crossing runways.", a, b)
+	_conflict(a, b, "RUNWAY CONFLICT")
 
 ## The aircraft can't follow a path or tap (and the reason is shown where it happened).
 func _on_refused(_p: Aircraft, text: String, at: Vector2) -> void:
@@ -561,66 +565,71 @@ func _on_rerouted(p: Aircraft) -> void:
 	hud.popup("Re-route!", Color(1, 0.35, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
 
 func _on_conflict(a: Aircraft, b: Aircraft) -> void:
+	_conflict(a, b, "CONFLICT")
+
+## A conflict: a large fine, and both aircraft are lost.
+func _conflict(a: Aircraft, b: Aircraft, label: String) -> void:
 	if not alive:
 		return
 	var mid := (a.pos + b.pos) * 0.5
 	fx.burst(mid, Color(1.0, 0.5, 0.1), true)
 	fx.burst(mid, Color(1.0, 0.15, 0.1), true)
 	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
-	_conflict_or_end(HEADER_CONFLICT, "Two aircraft got too close.", a, b)
+	traffic.lose(a)
+	traffic.lose(b)
+	_cancel_drag()
+	_apply_fine(Tuning.fine_conflict, "conflict", label, mid)
 
-## An aircraft's timer ran out: it is diverted, and that is a strike.
+## An aircraft's timer ran out: it is diverted, and that is a small fine.
 func _on_timed_out(p: Aircraft) -> void:
 	if not alive:
 		return
-	shift.on_strike()
-	hud.set_shift(shift, int(Tuning.max_strikes))
-	hud.popup("Diverted", Color(1, 0.55, 0.3), overlay.world_to_screen(p.pos))
 	overlay.ripple(p.pos, Color(1, 0.5, 0.2), 1.0)
-	hud.flash(Color(1, 0.5, 0.1))
-	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(80)
-	if shift.strikes >= int(Tuning.max_strikes):
-		_end_shift(HEADER_STRIKES, "%d aircraft diverted." % shift.strikes, false)
+	_apply_fine(Tuning.fine_timeout, "diversion", "Diverted", p.pos)
 
-## The shift is over (complete, 3 strikes or a conflict): stars, coins, save, results screen.
-func _end_shift(header: String, reason: String, complete: bool) -> void:
-	if screen != SCREEN_PLAY and screen != SCREEN_CONTINUE:
+## The clock ran out: pay out (never below zero), award stars, save, show the results.
+func _end_shift() -> void:
+	if screen != SCREEN_PLAY:
 		return
 	alive = false
 	screen = SCREEN_OVER
 	_death_ms = Time.get_ticks_msec()
-	over_header = header
-	over_reason = reason
-	shift.finish(complete)
+	hud.set_refund_offer(0)
+	var payout := shift.payout()
+	var coins := payout
 	var first_stars := 0
-	var coins := shift_coins
-	for i in 3:
-		if shift.state(i) == Shift.Goal.MET:
-			coins += Tuning.coins_per_star
-			if not daily_mode and Save.award_star(airport, i):    # (the daily shift doesn't earn permanent stars)
+	var stars := shift.stars()
+	if not daily_mode:       # (the daily shift doesn't earn permanent stars)
+		for i in stars:
+			if Save.award_star(airport, i):
 				first_stars += 1
 				coins += Tuning.coins_first_star_bonus
 	var daily_note := ""
-	if daily_mode and shift.stars() >= 1 and not Save.daily_done_today():
-		var streak_now := Save.daily_complete(shift.landed)
-		var bonus := _daily_bonus(streak_now)
-		coins += bonus
-		daily_note = "\nDaily bonus +%d  (streak %d)" % [bonus, streak_now]
+	if daily_mode:
+		Save.daily_note_score(payout)
+		if stars >= 1 and not Save.daily_done_today():
+			var streak_now := Save.daily_complete(payout)
+			var bonus := _daily_bonus(streak_now)
+			coins += bonus
+			daily_note = "\nDaily bonus +%d  (streak %d)" % [bonus, streak_now]
 	Save.add_coins(coins)
-	new_best = false if daily_mode else Save.submit_best(airport, shift.landed)
+	new_best = false if daily_mode else Save.submit_best_coins(airport, payout)
+	if not daily_mode:
+		Save.submit_best(airport, shift.landed)
 	Save.shifts_played += 1
 	Save.ads["since"] = int(Save.ads.get("since", 0)) + 1
 	Save.write_file()
-	reason += daily_note
-	last_result = {"header": header, "reason": reason, "coins": coins, "stars": shift.stars(), "first_stars": first_stars, "complete": complete, "new_best": new_best}
+	var reason := "Landings +%d   Bonuses +%d   Fines -%d\nShift total %d%s%s" % [shift.earned, shift.bonus, shift.fines, shift.balance(), "  (paid as 0)" if shift.balance() < 0 else "", daily_note]
+	over_header = HEADER_DONE
+	over_reason = reason
+	last_result = {"header": HEADER_DONE, "reason": reason, "coins": coins, "payout": payout, "stars": stars, "first_stars": first_stars, "new_best": new_best}
 	_cancel_drag()
 	hud.set_alert(false)
 	hud.set_event_banner("")
-	hud.flash(Color(1, 0.84, 0.15) if complete else Color(1, 0.1, 0.1))
-	hud.set_shift(shift, int(Tuning.max_strikes))
+	hud.flash(Color(1, 0.84, 0.15))
+	hud.set_shift(shift)
 	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
-	hud.show_results(header, reason, shift, coins, Save.coins, Save.best_for(airport), new_best, lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]])
+	hud.show_results(HEADER_DONE, reason, shift, coins, Save.coins, Save.best_coins_for(airport), new_best, lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]])
 	hud.set_double_button(coins > 0, coins)
 	if not DebugFlags.off("haptic"):
 		Input.vibrate_handheld(150)
@@ -648,6 +657,11 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.index, event.position)
 
 func _touch_down(index: int, pos: Vector2) -> void:
+	if screen == SCREEN_PLAY and alive:
+		var play_id := hud.button_at(pos)
+		if play_id != "":            # the refund offer (the only button during a shift)
+			_on_button(play_id)
+			return
 	if screen != SCREEN_PLAY:
 		var id := hud.button_at(pos)
 		if id != "":
@@ -689,10 +703,8 @@ func _on_button(id: String) -> void:
 		shop_pick("livery", int(id.substr(7)))
 	elif id == "daily":
 		start_daily()
-	elif id == "ad_continue":
-		show_ad("Reward: undo the conflict and keep flying", func(): _resume_after_conflict(), SCREEN_PLAY)
-	elif id == "end_shift":
-		_end_shift(_conflict_header, _conflict_reason, false)
+	elif id == "ad_refund":
+		show_ad("Reward: refund your last fine", func(): _refund_last_fine(), SCREEN_PLAY)
 	elif id == "ad_double":
 		show_ad("Reward: double your coins", func(): _double_coins(), SCREEN_OVER)
 	elif id.begins_with("upg:"):
@@ -825,45 +837,19 @@ func _tick_ad(raw_delta: float) -> void:
 		screen = _ad_return
 		_ad_done.call()
 
-## A conflict: offer the rewarded "undo it and keep going" once per shift, else the shift ends.
-func _conflict_or_end(header: String, reason: String, a: Aircraft, b: Aircraft) -> void:
-	if _continue_used:
-		_end_shift(header, reason, false)
-		return
-	alive = false
-	screen = SCREEN_CONTINUE
-	_conflict_a = a
-	_conflict_b = b
-	_conflict_header = header
-	_conflict_reason = reason
-	_cancel_drag()
-	hud.set_alert(false)
-	hud.flash(Color(1, 0.1, 0.1))
-	hud.show_continue(header, reason)
-
-## After the ad: pull the two aircraft apart, give them a moment's grace and carry on.
-func _resume_after_conflict() -> void:
-	_continue_used = true
-	var a := _conflict_a
-	var b := _conflict_b
-	if a != null and b != null and a.active() and b.active():
-		var d := a.pos - b.pos
-		d = d.normalized() if d.length() > 0.01 else Vector2(1, 0)
-		a.pos += d * Tuning.warn_distance * 0.6
-		b.pos -= d * Tuning.warn_distance * 0.6
-		for p in [a, b]:
-			p.clear_path()
-			if p.state == Aircraft.State.HOLD:
-				p.state = Aircraft.State.FLY
-				p.hovering = false
-		a.heading = atan2(d.x, -d.y)
-		b.heading = atan2(-d.x, d.y)
-		a.vis_heading = a.heading
-		b.vis_heading = b.heading
-	traffic.grace_until = traffic.run_time + 2.5
+## After the ad: the last fine is given back and the shift carries on (the clock was paused during the ad).
+func _refund_last_fine() -> void:
+	_refund_used = true
+	_refund_until = 0.0
+	var amount := shift.refund_last()
+	hud.set_refund_offer(0)
+	hud.set_shift(shift)
 	hud.resume_play()
 	screen = SCREEN_PLAY
 	alive = true
+	if amount > 0:
+		var vp := get_viewport().get_visible_rect().size
+		hud.popup("Refunded +%d" % amount, Color(0.5, 1.0, 0.6), Vector2(vp.x * 0.5, vp.y * 0.42))
 
 ## Results: the rewarded "double the coins" (once per shift).
 func _double_coins() -> void:

@@ -9,7 +9,7 @@ extends SceneTree
 ##   5. speeds differ per class; spawns come in from the edges; difficulty ramps (spawn gap, speed)
 ##   6. conflicts: warning ring first, then the run ends; grounded / off-screen planes never conflict
 ##   7. timers: ring colours, per-type lengths, start on screen, holding drains slower; a timeout diverts (strike),
-##      3 strikes end the shift
+##      timed shifts: fines, coin payout, stars from coin thresholds
 ##   9b. wind: active ends, the shift warning, re-routing, windsock
 ##   9c. airports: six layouts, unlock by stars, select screen, crossing runways (conflict), busy runway
 ##       (go around), terrain (crash = strike), cycling airports creates nothing
@@ -52,35 +52,21 @@ func set_wind(main: Node, deg: float) -> void:
 	main.wind.refresh()
 	main.airfield.show_active(main.wind)
 
-## Land fake aircraft until every landing-type goal of the running shift is met (the no-strikes one needs the shift to finish).
-func meet_goals(main: Node) -> void:
+## Land fake aircraft (spaced out in time) until the running shift's balance reaches `coins`.
+func earn_coins(main: Node, coins: int) -> void:
 	var f = Aircraft.new()
 	f.runway = 0
 	f.pos = Vector2.ZERO
-	for g in main.shift.goals:
-		if g["kind"] == "land_type":
-			f.type = g["type"]
-			f.vip = false
-			f.emergency = false
-			for k in g["n"]:
-				main._on_landed(f)
-		elif g["kind"] == "land_vip":
-			f.type = 3
-			f.vip = true
-			f.vip_ok = true
-			for k in g["n"]:
-				main._on_landed(f)
-		elif g["kind"] == "land_emergency":
-			f.type = 3
-			f.vip = false
-			f.emergency = true
-			for k in g["n"]:
-				main._on_landed(f)
-	f.vip = false
-	f.emergency = false
 	f.type = 3
-	while main.shift.landed < main.shift.target(0):
+	var guard = 0
+	while main.shift.balance() < coins and guard < 500:
+		main.traffic.run_time += 10.0     # outside the quick-succession window: flat pay
 		main._on_landed(f)
+		guard += 1
+
+func has_btn(main: Node, id: String) -> bool:
+	var i = main.hud._art.btn_id.find(id)
+	return i >= 0 and i < main.hud._art.btn_count
 
 func real_wait(sec: float) -> void:
 	var t0 = Time.get_ticks_msec()
@@ -254,7 +240,7 @@ func _initialize() -> void:
 	run_sec(main, 12.0)
 	check(main.score == score_before + 1, "the plane lands: score +1 (%d)" % main.score)
 	check(tr.active_count() == 0, "a landed plane leaves the field (pooled, not freed)")
-	check(main.hud._score.text == "1", "score label shows 1")
+	check(main.hud._score.text == str(main.shift.balance()) and main.shift.landed == 1, "the score label shows the coin balance (%s)" % main.hud._score.text)
 	check(count_visible(main.hud._pop_labels) >= 1, "a '+1' popup is showing")
 	var emitting2 = 0
 	for e in main.fx._emitters:
@@ -440,14 +426,13 @@ func _initialize() -> void:
 		warn_max = maxf(warn_max, a.warn)
 		if a.warn > 0.0:
 			warned = true
-		if not main.alive:
+		if main.shift.conflicts > 0:
 			break
 	check(warned, "a warning ring grows as two planes close in (max %.2f)" % warn_max)
-	check(not main.alive and main.screen == main.SCREEN_CONTINUE and main.hud._cont.visible, "two planes too close stop the shift and offer the rewarded continue")
-	main._on_button("end_shift")
-	check(main.screen == main.SCREEN_OVER and main.over_header == main.HEADER_CONFLICT, "...ending the shift gives the conflict header")
-	check(main.hud._over.visible, "the game-over screen is showing")
-	check(a.pos.distance_to(bb.pos) < tuning.conflict_distance + 0.1, "they were within the conflict distance")
+	check(main.alive and main.screen == main.SCREEN_PLAY and main.shift.conflicts == 1, "a conflict doesn't end the shift")
+	check(main.shift.fines == int(tuning.fine_conflict) and main.shift.balance() == -int(tuning.fine_conflict), "...it costs the large fine, and the balance goes negative (%d)" % main.shift.balance())
+	check(not a.active() and not bb.active(), "...and both aircraft are lost")
+	check(has_btn(main, "ad_refund"), "...and the refund ad is offered")
 	# Grounded and off-screen planes don't conflict.
 	main.restart()
 	tr.auto_spawn = false
@@ -468,9 +453,9 @@ func _initialize() -> void:
 	g1.pos = Vector2(0.0, 0.0)
 	g2.pos = Vector2(0.2, 0.2)
 	main.step(1.0 / 60.0)
-	check(not main.alive, "...but two airborne planes on the screen do")
+	check(main.shift.conflicts == 1, "...but two airborne planes on the screen do")
 
-	print("7. timers, strikes, diverting")
+	print("7. timers, fines, diverting")
 	check(tuning.timer_glider < tuning.timer_heli and tuning.timer_heli < tuning.timer_small and tuning.timer_small < tuning.timer_medium and tuning.timer_medium < tuning.timer_jet, "timer lengths: glider < helicopter < small < medium < jet")
 	check(tuning.timer_color(1.0) == tuning.timer_color_ok and tuning.timer_color(0.4) == tuning.timer_color_low and tuning.timer_color(0.1) == tuning.timer_color_red, "the ring goes green, then yellow, then red")
 	main.restart()
@@ -492,31 +477,30 @@ func _initialize() -> void:
 	var used_fly = fl.timer_max - fl.timer_left
 	var used_hold = ho.timer_max - ho.timer_left
 	check(absf(used_hold / used_fly - tuning.hold_drain_mult) < 0.06, "holding burns the timer at %.2fx (%.2f of %.2f s)" % [used_hold / used_fly, used_hold, used_fly])
-	# A timer running out: a strike, the aircraft diverts and leaves, no conflict with it.
+	# A timer running out: a small fine, the aircraft diverts and leaves, no conflict with it.
 	main.restart()
 	tr.auto_spawn = false
 	var dv = tr.place(0, Vector2(0.0, 2.0), 0.0, MEDIUM)
 	var near = tr.place(1, Vector2(0.4, 2.2), 0.0, MEDIUM)
 	near.entered = false
 	dv.timer_left = 0.02
-	var strikes0 = main.shift.strikes
 	main.step(1.0 / 30.0)
-	check(dv.state == Aircraft.State.DIVERT and main.shift.strikes == strikes0 + 1, "a timed-out aircraft is diverted and counts as a strike")
+	check(dv.state == Aircraft.State.DIVERT and main.shift.diversions == 1 and main.shift.fines == int(tuning.fine_timeout), "a timed-out aircraft is diverted and costs the small fine (%d)" % main.shift.fines)
 	var pop_seen = false
 	for l in main.hud._pop_labels:
-		if l.visible and l.text == "Diverted":
+		if l.visible and l.text.begins_with("Diverted") and l.text.contains("-%d" % int(tuning.fine_timeout)):
 			pop_seen = true
-	check(pop_seen, "a 'Diverted' popup shows")
-	check(main.hud._art.strikes == 1, "the strike box fills in on the HUD")
+	check(pop_seen, "a red 'Diverted -N' popup shows")
+	check(main.hud._art.balance == -int(tuning.fine_timeout), "the HUD balance shows the fine (and can go negative)")
 	check(tr.pick(dv.pos) != dv, "a diverting aircraft can't be grabbed")
-	check(main.alive, "one strike doesn't end the shift")
+	check(main.alive, "a fine doesn't end the shift")
 	for i in 600:
 		main.step(1.0 / 60.0)
 		if not dv.active():
 			break
 	check(not dv.active(), "the diverted aircraft flies off and is returned to the pool")
 	tr.release_all()
-	# Three strikes end the shift.
+	# Fines can pile up past zero; the shift still ends only at the clock, and pays nothing.
 	main.restart()
 	tr.auto_spawn = false
 	var coins0 = save.coins
@@ -524,9 +508,14 @@ func _initialize() -> void:
 		var sx = tr.place(k % 2, Vector2(-3.0 + k * 3.0, -5.0 + k * 2.0), 0.0, MEDIUM)
 		sx.timer_left = 0.01
 		main.step(1.0 / 60.0)
-	check(not main.alive and main.over_header == main.HEADER_STRIKES, "3 strikes end the shift")
-	check(main.hud._over.visible and main.shift.state(2) == 2, "the results show, and the no-strikes star is lost")
-	check(save.coins == coins0, "a shift with nothing landed earns no coins (%d -> %d)" % [coins0, save.coins])
+	check(main.alive and main.shift.diversions == 3 and main.shift.balance() < 0, "three diversions don't end the shift; the balance is %d" % main.shift.balance())
+	check(main.shift.payout() == 0, "a negative balance pays out as zero")
+	tr.release_all()
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 0.01
+	main.step(1.0 / 60.0)
+	check(not main.alive and main.over_header == main.HEADER_DONE and main.hud._over.visible, "the shift ends at the clock")
+	check(save.coins == coins0 and main.shift.stars() == 0, "...earning no coins and no stars (%d -> %d)" % [coins0, save.coins])
 	# Landing in time saves it.
 	main.restart()
 	set_wind(main, 0.0)
@@ -535,7 +524,7 @@ func _initialize() -> void:
 	sv.timer_left = 6.0
 	draw_path(main, sv, [sv.pos + Vector2(0, 0.8), thr1])
 	run_sec(main, 10.0)
-	check(main.alive and main.score == 1 and main.shift.strikes == 0, "landing in time saves it: no strike")
+	check(main.alive and main.score == 1 and main.shift.diversions == 0 and main.shift.earned == int(tuning.pay_medium), "landing in time pays the landing coins and no fine")
 	check(tr.active_count() == 0, "...and nothing is left to run out")
 
 	print("8. edges")
@@ -557,47 +546,78 @@ func _initialize() -> void:
 	print("9. shifts, stars, coins, save")
 	main.restart()
 	tr.auto_spawn = false
-	check(main.shift.goals.size() == 3 and main.hud._art.goal_text[0].begins_with("Land"), "the HUD lists the three star goals (%s)" % main.hud._art.goal_text[0])
+	var sth9 = Airports.star_thresholds()
+	check(sth9.size() == 3 and sth9[0] < sth9[1] and sth9[1] < sth9[2] and main.hud._art.thresholds.size() == 3, "three coin thresholds per airport, shown on the HUD (%s)" % str(sth9))
 	var fake = Aircraft.new()
 	fake.runway = 0
 	fake.type = HELI
 	fake.pos = Vector2(0, 0)
 	save.reset_all()
-	for k in 3:
-		main._on_landed(fake)
-	check(main.shift.progress(0) == 3 and main.hud._art.goal_text[0].ends_with("3/25"), "landings show as progress (%s)" % main.hud._art.goal_text[0])
-	check(main.shift.state(1) == 1 and main.shift.progress(1) == 3, "Regional's second goal (3 helicopters) is met by 3 helicopter landings")
+	main._on_landed(fake)
+	check(main.shift.earned == int(tuning.pay_heli) and main.shift.landed == 1, "a landing pays by type (heli %d)" % main.shift.earned)
+	fake.type = GLIDER
+	main.traffic.run_time += 10.0
+	main._on_landed(fake)
+	check(main.shift.earned == int(tuning.pay_heli) + int(tuning.pay_glider), "a glider pays more than a small plane (%d)" % int(tuning.pay_glider))
+	# Quick succession: landings close together pay a growing bonus.
+	main.restart()
 	fake.type = MEDIUM
-	for k in 22:
-		main._on_landed(fake)
-	check(main.shift.state(0) == 1, "landing 25 meets the first goal")
+	main._on_landed(fake)
+	check(main.shift.bonus == 0, "the first landing has no streak bonus")
+	main.traffic.run_time += 1.0
+	main._on_landed(fake)
+	check(main.shift.bonus == int(tuning.streak_bonus_coins), "a second landing within %.0f s earns the quick-succession bonus (%d)" % [tuning.streak_window_seconds, main.shift.bonus])
+	main.traffic.run_time += 10.0
+	main._on_landed(fake)
+	check(main.streak == 1 and main.shift.bonus == int(tuning.streak_bonus_coins), "a slow landing resets the streak")
+	# Stars come from the coin thresholds.
+	main.restart()
+	tr.auto_spawn = false
+	earn_coins(main, sth9[0])
+	check(main.shift.stars() == 1 and main.shift.star_reached(0), "reaching the first threshold earns one star")
 	var star_pop = false
 	for l in main.hud._pop_labels:
 		if l.visible and l.text == "STAR!":
 			star_pop = true
-	check(star_pop, "a STAR! popup shows when a goal is met")
-	check(main.shift.state(2) == 0, "no-strikes stays pending until the shift is complete")
-	# Finish the shift cleanly: stop spawning, field empty.
+	check(star_pop, "a STAR! popup shows when a threshold is crossed")
+	earn_coins(main, sth9[2])
+	check(main.shift.stars() == 3, "reaching the third threshold earns three stars")
+	# Fines subtract and can drop a star again.
+	main.shift.fine(500, "conflict")
+	check(main.shift.stars() < 3 and main.shift.balance() < sth9[2], "a big fine takes the balance back under a threshold")
+	main.shift.refund_last()
+	check(main.shift.stars() == 3, "...and refunding it restores the stars")
+	var payout_expect = main.shift.payout()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 1.0
-	main.step(1.0 / 60.0)
-	check(not main.alive and main.over_header == main.HEADER_DONE, "the shift completes when the planes stop and the field is clear")
-	check(main.shift.stars() == 3 and save.stars_of(main.airport) == 3, "three stars earned and saved")
-	var expect_coins = main.score * tuning.coins_per_landing + 3 * (tuning.coins_per_star + tuning.coins_first_star_bonus)
-	check(save.coins == expect_coins, "coins: landings + stars + first-time bonuses (%d, expected %d)" % [save.coins, expect_coins])
+	tr.run_time = tuning.shift_seconds - 0.01
+	main.step(1.0 / 30.0)
+	check(not main.alive and main.over_header == main.HEADER_DONE, "the shift ends exactly when the clock runs out, whatever is flying")
+	check(save.stars_of(main.airport) == 3, "three stars earned and saved")
+	var expect_coins = payout_expect + 3 * int(tuning.coins_first_star_bonus)
+	check(save.coins == expect_coins, "coins: payout + first-time star bonuses (%d, expected %d)" % [save.coins, expect_coins])
 	check(main.last_result["first_stars"] == 3 and main.hud._art.show_result, "the results screen shows with the stars")
+	check(save.best_coins_for(main.airport) == payout_expect and main.new_best, "the best payout is recorded")
 	var coins_after = save.coins
-	# A second shift: stars again, but no first-time bonus.
+	# A second shift: no first-time bonus again.
 	main.restart()
 	tr.auto_spawn = false
-	for k in 25:
-		fake.type = HELI if k < 3 else MEDIUM
-		main._on_landed(fake)
+	earn_coins(main, sth9[2])
+	var pay2 = main.shift.payout()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 1.0
+	tr.run_time = tuning.shift_seconds + 0.01
 	main.step(1.0 / 60.0)
-	var expect2 = coins_after + main.score * tuning.coins_per_landing + 3 * tuning.coins_per_star
-	check(save.coins == expect2, "replaying: star coins, no repeat first-time bonus (%d, expected %d)" % [save.coins, expect2])
+	check(save.coins == coins_after + pay2, "replaying: just the payout, no repeat first-time bonus (%d, expected %d)" % [save.coins, coins_after + pay2])
+	# Refund ad: a fine offers it once per shift; watching gives the fine back.
+	main.restart()
+	tr.auto_spawn = false
+	earn_coins(main, 50)
+	var bal_before = main.shift.balance()
+	main._apply_fine(int(tuning.fine_conflict), "conflict", "CONFLICT", Vector2.ZERO)
+	check(main.shift.balance() == bal_before - int(tuning.fine_conflict) and has_btn(main, "ad_refund"), "a fine offers the refund ad")
+	main._on_button("ad_refund")
+	check(main.shift.balance() == bal_before and main._refund_used and main.screen == main.SCREEN_PLAY and main.alive, "the ad refunds the last fine and the shift carries on")
+	main._apply_fine(int(tuning.fine_timeout), "diversion", "Diverted", Vector2.ZERO)
+	check(not has_btn(main, "ad_refund"), "...but it is only offered once per shift")
 	# Save file: versioned, round trip, v1 migration, forward-compatible.
 	save.upgrades["test"] = 2
 	save.write_file()
@@ -607,7 +627,7 @@ func _initialize() -> void:
 	save.load_file()
 	check(save.coins == saved_coins and save.stars_total() == saved_stars and save.upgrade_level("test") == 2, "the save round-trips (coins, stars, upgrades)")
 	var raw = FileAccess.open(save.path, FileAccess.READ).get_as_text()
-	check(raw.contains("\"version\":2"), "the save file is versioned (v2)")
+	check(raw.contains("\"version\":3"), "the save file is versioned (v3)")
 	var f1 = FileAccess.open(save.path, FileAccess.WRITE)
 	f1.store_string("{\"version\":1,\"best\":37}")
 	f1 = null
@@ -618,6 +638,11 @@ func _initialize() -> void:
 	f2 = null
 	save.load_file()
 	check(save.coins == 50 and save.stars_total() == 0, "unknown / missing fields don't break loading")
+	var f3 = FileAccess.open(save.path, FileAccess.WRITE)
+	f3.store_string("{\"version\":2,\"coins\":70,\"best\":[5,6,0,0,0,0],\"stars\":[3,1,0,0,0,0]}")
+	f3 = null
+	save.load_file()
+	check(save.coins == 70 and save.best_for(1) == 6 and save.best_coins_for(0) == 0 and save.stars_total() == 4, "a version-2 save migrates (coins, bests and stars kept; coin bests start at zero)")
 	save.reset_all()
 
 	print("9b. wind and active runway ends")
@@ -748,7 +773,8 @@ func _initialize() -> void:
 			inside_ok = inside_ok and absf(pad["center"].x) <= 4.7 and absf(pad["center"].y) <= 6.2
 		for lane in Airports.lanes():
 			inside_ok = inside_ok and absf(lane["center"].x) <= 4.7 and absf(lane["center"].y) <= 6.2
-		check(Airports.goals().size() == 3 and Airports.goals()[2]["kind"] == "no_strikes", "airport %d (%s) has three star goals" % [i + 1, Airports.airport_name(i)])
+		var sth = Airports.star_thresholds(i)
+		check(sth.size() == 3 and sth[0] < sth[1] and sth[1] < sth[2], "airport %d (%s) has three increasing coin thresholds" % [i + 1, Airports.airport_name(i)])
 	check(layout_ok, "runway / helipad / lane / mountain counts match the brief (1,2,2,2,2,3 runways)")
 	check(inside_ok, "every runway end, pad and lane sits inside the screen on any phone or tablet")
 	check(hazard_clear, "mountains stay clear of the approach ends")
@@ -804,8 +830,7 @@ func _initialize() -> void:
 	ca.ground = true
 	cb.ground = true
 	tr.step(1.0 / 60.0)
-	check(rc[0] and not main.alive and main._conflict_reason.contains("crossing"), "landing on a crossing runway while the other is busy is a runway conflict")
-	main._on_button("end_shift")
+	check(rc[0] and main.alive and main.shift.conflicts == 1, "landing on a crossing runway while the other is busy is a runway conflict (a fine, not the end)")
 	# Same runway: go around.
 	main.restart()
 	set_wind(main, 40.0)
@@ -822,7 +847,7 @@ func _initialize() -> void:
 	var ga_seen = [false]
 	tr.go_around.connect(func(_p): ga_seen[0] = true, CONNECT_ONE_SHOT)
 	tr.step(1.0 / 60.0)
-	check(ga_seen[0] and main.alive and main.shift.strikes == 0, "a second aircraft reaching a busy runway goes around: no strike")
+	check(ga_seen[0] and main.alive and main.shift.fines == 0, "a second aircraft reaching a busy runway goes around: no fine")
 	check(g_a.state == Aircraft.State.LANDING and g_b.state == Aircraft.State.FLY and not g_b.cleared, "...the first lands, the second keeps flying with its clearance withdrawn")
 	var pop_ga = false
 	for l in main.hud._pop_labels:
@@ -874,15 +899,15 @@ func _initialize() -> void:
 			tr.release_all()
 	check(spawned_mt > 150 and safe, "no aircraft is ever sent straight at a mountain (%d spawns)" % spawned_mt)
 	var mt = tr.place(0, Vector2(-3.7, -2.0), 0.0, MEDIUM)
-	var strikes_mt = main.shift.strikes
+	var fines_mt = main.shift.fines
 	for i in 400:
 		main.step(1.0 / 60.0)
 		if not mt.active():
 			break
-	check(not mt.active() and main.shift.strikes == strikes_mt + 1, "flying into a mountain loses the aircraft and costs a strike")
+	check(not mt.active() and main.shift.fines == fines_mt + int(tuning.fine_hazard), "flying into a mountain loses the aircraft and costs the medium fine")
 	var pop_cr = false
 	for l in main.hud._pop_labels:
-		if l.visible and l.text == "Crashed!":
+		if l.visible and l.text.begins_with("Crashed!"):
 			pop_cr = true
 	check(pop_cr, "a 'Crashed!' popup shows")
 	# Island and International: the extras exist.
@@ -1044,22 +1069,23 @@ func _initialize() -> void:
 	check(colors_seen.size() >= 2, "an emergency flashes")
 	draw_path(main, em, [em.pos + Vector2(0, -0.8), Airports.end_threshold(1, 0)])
 	check(em.cleared and em.runway == 1, "an emergency can land on any suitable runway (its colour doesn't matter)")
-	var coins_em = main.shift_coins
+	var coins_em = main.shift.earned + main.shift.bonus
 	for i in 900:
 		main.step(1.0 / 60.0)
 		if not em.active():
 			break
-	check(main.shift_coins >= coins_em + tuning.emergency_bonus_coins and main.shift.landed_emergency == 1, "landing an emergency pays a big bonus and counts")
+	check(main.shift.earned + main.shift.bonus >= coins_em + tuning.emergency_bonus_coins and main.shift.landed_emergency == 1, "landing an emergency pays a big bonus and counts")
 	# VIP.
 	var vp1 = tr.place(0, Airports.end_threshold(0, 0) + Vector2(0.3, 3.0), 0.0, MEDIUM)
 	tr.make_special(vp1, false, true)
-	var coins_v = main.shift_coins
+	var coins_v = main.shift.earned + main.shift.bonus
+	main._last_land_t = -100.0
 	draw_path(main, vp1, [vp1.pos + Vector2(0, -0.8), Airports.end_threshold(0, 0)])
 	for i in 900:
 		main.step(1.0 / 60.0)
 		if not vp1.active():
 			break
-	check(main.shift_coins - coins_v == tuning.coins_per_landing + tuning.vip_bonus_coins and main.shift.landed_vip == 1, "a VIP landed promptly pays the VIP bonus")
+	check(main.shift.earned + main.shift.bonus - coins_v == tuning.pay_medium + tuning.vip_bonus_coins and main.shift.landed_vip == 1, "a VIP landed promptly pays the VIP bonus")
 	var vp2 = tr.place(1, Vector2(2.0, -2.0), 0.0, MEDIUM)
 	tr.make_special(vp2, false, true)
 	tr.toggle_hold(vp2)
@@ -1070,13 +1096,14 @@ func _initialize() -> void:
 	vp2.push(Airports.end_far(1, 0))
 	vp2.cleared = true
 	vp2.land_end = 0
-	var coins_v2 = main.shift_coins
+	var coins_v2 = main.shift.earned + main.shift.bonus
+	main._last_land_t = -100.0
 	var vip_before = main.shift.landed_vip
 	for i in 900:
 		main.step(1.0 / 60.0)
 		if not vp2.active():
 			break
-	check(main.shift_coins - coins_v2 == tuning.coins_per_landing and main.shift.landed_vip == vip_before, "...a held VIP lands without the bonus and doesn't count for the goal")
+	check(main.shift.earned + main.shift.bonus - coins_v2 == tuning.pay_medium and main.shift.landed_vip == vip_before, "...a held VIP lands without the bonus and doesn't count for the goal")
 	# Tips: first sighting only, remembered.
 	save.tips_seen = {}
 	main.hud._tip.visible = false
@@ -1361,12 +1388,12 @@ func _initialize() -> void:
 	check(tr.storm_count() == 0 and tr.hz_count == 5, "clearing the storms leaves the mountains")
 	var sk = tr.add_storm(Vector2(0.0, 0.0), 1.5, Vector2.ZERO)
 	var st_a = tr.place(0, Vector2(0.5, 0.2), 0.0, MEDIUM)
-	var strikes_st = main.shift.strikes
+	var fines_st = main.shift.fines
 	main.step(1.0 / 60.0)
-	check(not st_a.active() and main.shift.strikes == strikes_st + 1, "flying into a storm cell loses the aircraft and costs a strike")
+	check(not st_a.active() and main.shift.fines == fines_st + int(tuning.fine_hazard), "flying into a storm cell loses the aircraft and costs the medium fine")
 	var pop_st = false
 	for l in main.hud._pop_labels:
-		if l.visible and l.text == "Struck by storm!":
+		if l.visible and l.text.begins_with("Struck by storm!"):
 			pop_st = true
 	check(pop_st, "a 'Struck by storm!' popup shows")
 	var safe_st = true
@@ -1551,7 +1578,7 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 1.0
+	tr.run_time = tuning.shift_seconds + 0.01
 	main.step(1.0 / 60.0)
 	check(main.hud._art.result_animal == 1 and main.hud._art.result_quote.begins_with("Captain Fox"), "the results screen shows the pilot and a quote (%s)" % main.hud._art.result_quote)
 	main._on_button("menu")
@@ -1575,8 +1602,6 @@ func _initialize() -> void:
 				break
 			main.step(1.0 / 60.0)
 		runs_seen.append([seq, wind0, main.airport])
-		if main.screen == main.SCREEN_CONTINUE:
-			main._on_button("end_shift")
 		for conn in tr.spawned.get_connections():
 			tr.spawned.disconnect(conn["callable"])
 	check(main.daily_mode and runs_seen[0][2] == 20000 % 6 and runs_seen[2][2] == 20001 % 6, "the daily airport depends on the day (%d, %d)" % [runs_seen[0][2], runs_seen[2][2]])
@@ -1596,12 +1621,12 @@ func _initialize() -> void:
 		main.start_daily()
 		tr.auto_spawn = false
 		var c0 = save.coins
-		meet_goals(main)
+		earn_coins(main, Airports.star_thresholds()[0])
 		tr.spawn_until = 0.0
-		tr.run_time = tuning.shift_seconds + 1.0
+		tr.run_time = tuning.shift_seconds + 0.01
 		main.step(1.0 / 60.0)
 		streaks.append(save.daily_streak())
-		var plain = main.shift_coins + main.shift.stars() * tuning.coins_per_star
+		var plain = main.shift.payout()
 		coin_gain.append(save.coins - c0)
 		bonus_given.append(save.coins - c0 - plain)
 	check(streaks == [1, 2, 2, 1], "the streak counts consecutive days and resets after a gap %s" % str(streaks))
@@ -1611,7 +1636,7 @@ func _initialize() -> void:
 	save.day_override = -1
 	main._show_menu()
 	check(not main.daily_mode, "back on the menu, the daily mode is off")
-	# Ad stubs: the rewarded continue, once per shift.
+	# Ad stubs: the rewarded fine refund, once per shift.
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	main.select_airport(2)
@@ -1623,33 +1648,28 @@ func _initialize() -> void:
 	var cb1 = tr.place(1, Vector2(3.0, -3.0), -PI * 0.5, MEDIUM)
 	for i in 300:
 		main.step(1.0 / 60.0)
-		if not main.alive:
+		if main.shift.conflicts > 0:
 			break
-	check(main.screen == main.SCREEN_CONTINUE and main.hud._cont.visible and main.hud.button_at(main.hud._art.btn_rect[main.hud._art.btn_id.find("ad_continue")].get_center()) == "ad_continue", "a conflict offers 'watch an ad to continue' once")
+	var ri = main.hud._art.btn_id.find("ad_refund")
+	check(main.screen == main.SCREEN_PLAY and ri >= 0 and main.hud.button_at(main.hud._art.btn_rect[ri].get_center()) == "ad_refund", "a fine offers 'watch an ad to refund it' during play")
+	var bal_fine = main.shift.balance()
 	var ads0 = main.ads_shown
-	main._on_button("ad_continue")
+	main._on_button("ad_refund")
 	check(main.screen == main.SCREEN_AD and main.hud._ad.visible and main.ads_shown == ads0 + 1, "the fake 'Ad playing' screen shows")
 	main._process(0.2)
 	check(main.screen == main.SCREEN_AD, "...for its full length")
 	main._process(0.4)
 	check(main.screen == main.SCREEN_PLAY and main.alive and not main.hud._ad.visible, "then the shift carries on")
-	check(ca1.pos.distance_to(cb1.pos) > tuning.conflict_distance + 0.3, "the two aircraft were pulled apart (%.2f apart)" % ca1.pos.distance_to(cb1.pos))
-	for i in 20:
-		main.step(1.0 / 60.0)
-	check(main.alive, "...and aren't in conflict again straight away")
-	ca1.pos = Vector2(0, 0)
-	cb1.pos = Vector2(0.3, 0.2)
-	ca1.entered = true
-	cb1.entered = true
-	tr.grace_until = 0.0
-	main.step(1.0 / 60.0)
-	check(main.screen == main.SCREEN_OVER, "a second conflict in the same shift just ends it")
+	check(main.shift.balance() == bal_fine + int(tuning.fine_conflict) and main._refund_used, "the fine came back (%d)" % main.shift.balance())
+	# A second fine: no second offer.
+	main._apply_fine(int(tuning.fine_hazard), "crash", "Crashed!", Vector2.ZERO)
+	check(not has_btn(main, "ad_refund"), "the refund is offered only once per shift")
 	# Double coins.
 	main.restart()
 	tr.auto_spawn = false
-	meet_goals(main)
+	earn_coins(main, 60)
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 1.0
+	tr.run_time = tuning.shift_seconds + 0.01
 	main.step(1.0 / 60.0)
 	check(main.screen == main.SCREEN_OVER and main.hud._art.btn_id.find("ad_double") >= 0, "the results offer 'watch an ad to double the coins'")
 	var coins_pre = save.coins
@@ -1673,7 +1693,7 @@ func _initialize() -> void:
 		check(main.screen == main.SCREEN_PLAY, "shift %d starts" % (shift_i + 1)) if false else null
 		tr.auto_spawn = false
 		tr.spawn_until = 0.0
-		tr.run_time = tuning.shift_seconds + 1.0
+		tr.run_time = tuning.shift_seconds + 0.01
 		main.step(1.0 / 60.0)
 		gaps.append(main.ads_shown - a_before)
 	var inter = 0
@@ -1744,14 +1764,12 @@ func _initialize() -> void:
 		best_seen = maxi(best_seen, main.score)
 		runs += 1
 		if main.screen == main.SCREEN_PLAY:
-			main._end_shift(main.HEADER_CONFLICT, "(test)", false)
-		elif main.screen == main.SCREEN_CONTINUE:
-			main._on_button("end_shift")
+			main._end_shift()
 		check(main.hud._over.visible, "run %d ends with the game-over screen (score %d)" % [runs, main.score])
 	var after = snapshot(main)
 	check(same_world(base, after), "4 whole runs created nothing new  [%s]" % describe(after))
 	check(save.best_for(main.airport) == best_seen, "the best score is remembered (%d)" % save.best_for(main.airport))
-	check(main.hud._over_body.text.contains("Aircraft landed: %d" % main.score), "the results screen shows the landings")
+	check(main.hud._over_body.text.contains("Landings +%d" % main.shift.earned), "the results screen shows the landing coins")
 	# Tap on the game-over screen restarts in place (after the 0.6 s guard).
 	await real_wait(0.7)
 	touch(main, 0, true, Vector2(540, 900))

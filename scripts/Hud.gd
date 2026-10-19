@@ -1,6 +1,6 @@
 class_name Hud
 extends CanvasLayer
-## All the 2D interface: score, shift bar, strikes, star goals, menu, shift results, floating popups,
+## All the 2D interface: coin total, star bar, shift clock, menu, shift results, floating popups,
 ## build stamp and the ?perf readout. Every node is created once; showing / hiding (and redrawing
 ## the little art control) is all that happens in a run.
 
@@ -11,11 +11,12 @@ const POPUP_POOL := 8
 ## The drawn parts of the HUD: shift bar, strike boxes, star goals and the big result stars.
 class Art extends Control:
 	var shift_frac := 0.0
-	var show_play := false           # shift bar, strikes, goals
-	var strikes := 0
-	var max_strikes := 3
+	var show_play := false           # shift bar and the coin / star bar
+	var balance := 0                 # the shift's coin total so far
+	var thresholds := PackedInt32Array([0, 0, 0])   # coins for 1, 2, 3 stars
+	var threshold_text := PackedStringArray(["", "", ""])
 	var goal_text := PackedStringArray(["", "", ""])
-	var goal_state := PackedInt32Array([0, 0, 0])      # 0 pending / 1 met / 2 failed
+	var goal_state := PackedInt32Array([0, 0, 0])      # results rows: 0 not reached / 1 reached
 	var show_result := false
 	var result_y := 640.0
 	var wind_toward := 0.0           # compass direction the wind blows toward (the arrow)
@@ -140,6 +141,23 @@ class Art extends Control:
 			draw_circle(c + Vector2(r * 0.35, -r * 0.2), r * 0.45, t["leaf"])
 			draw_circle(c + Vector2(-r * 0.4, r * 0.35), r * 0.3, (t["bg"] as Color).lightened(0.2))
 
+	## The coin bar: it fills as the balance grows, with a star at each threshold (lit once reached).
+	func _draw_star_bar() -> void:
+		var w := minf(size.x - 220.0, 640.0)
+		var x0 := size.x * 0.5 - w * 0.5
+		var y := 236.0
+		var top := float(maxi(thresholds[2], 1))
+		draw_rect(Rect2(x0, y, w, 20.0), Color(0, 0, 0, 0.55))
+		var f := clampf(float(balance) / top, 0.0, 1.0)
+		draw_rect(Rect2(x0, y, w * f, 20.0), Color(1.0, 0.84, 0.15, 0.9))
+		draw_rect(Rect2(x0, y, w, 20.0), Color(0.9, 0.9, 0.95, 0.7), false, 3.0)
+		for i in 3:
+			var x := x0 + w * float(thresholds[i]) / top
+			var lit := balance >= thresholds[i]
+			star(Vector2(x, y + 10.0), 25.0 if lit else 20.0, Color(1.0, 0.84, 0.15) if lit else Color(0.3, 0.32, 0.4))
+			draw_string_outline(_font, Vector2(x - 50.0, y + 64.0), threshold_text[i], HORIZONTAL_ALIGNMENT_CENTER, 100.0, 24, 6, Color.BLACK)
+			draw_string(_font, Vector2(x - 50.0, y + 64.0), threshold_text[i], HORIZONTAL_ALIGNMENT_CENTER, 100.0, 24, Color(1, 0.95, 0.7) if lit else Color.WHITE)
+
 	func size_x() -> float:
 		return maxf(size.x - 100.0, 200.0)
 
@@ -180,18 +198,7 @@ class Art extends Control:
 		if show_play:
 			draw_rect(Rect2(0, 0, size.x, 14), Color(0, 0, 0, 0.5))
 			draw_rect(Rect2(0, 0, size.x * clampf(shift_frac, 0.0, 1.0), 14), Color(0.4, 0.85, 1.0, 0.9))
-			var n := max_strikes
-			var x0 := size.x * 0.5 - (n - 1) * 36.0
-			for k in n:
-				var r := Rect2(x0 + k * 72.0 - 26.0, 212.0, 52.0, 52.0)
-				draw_rect(r, Color(0, 0, 0, 0.55))
-				draw_rect(r, Color(0.9, 0.9, 0.95, 0.7), false, 3.0)
-				if k < strikes:
-					draw_line(r.position + Vector2(8, 8), r.end - Vector2(8, 8), Color(1, 0.2, 0.15), 8.0)
-					draw_line(Vector2(r.end.x - 8, r.position.y + 8), Vector2(r.position.x + 8, r.end.y - 8), Color(1, 0.2, 0.15), 8.0)
-			draw_rect(Rect2(8.0, 276.0, 560.0, 190.0), Color(0.03, 0.05, 0.08, 0.45))
-			for i in 3:
-				_goal_row(310.0 + i * 56.0, i, 22.0, 32)
+			_draw_star_bar()
 		if show_result:
 			for i in 3:
 				var met := goal_state[i] == 1
@@ -216,9 +223,6 @@ var _ad: Control
 var _ad_title: Label
 var _ad_sub: Label
 var _ad_bar: ColorRect
-var _cont: Control
-var _cont_head: Label
-var _cont_body: Label
 var _select_info: Label
 var _select_title: Label
 var _over: Control
@@ -340,7 +344,7 @@ func _build_menu() -> void:
 	title.text = "PATTERN\nWORK"
 	_centered(title, -620, -320)
 	var how := _label(42, HORIZONTAL_ALIGNMENT_CENTER, _menu)
-	how.text = "Drag from an aircraft to the runway\nof its colour to land it.\nTap an aircraft to hold it in a circle.\nWatch the timer rings:\nwhen one runs out it is diverted (a strike).\n3 strikes end the shift.\nKeep them apart."
+	how.text = "Drag from an aircraft to the runway\nof its colour to land it. Each landing pays.\nTap an aircraft to hold it in a circle.\nA timer ring that runs out: diverted (-20).\nA conflict costs 100 and both aircraft.\nEarn stars before the clock runs out."
 	_centered(how, -270, 250)
 	var go := _label(76, HORIZONTAL_ALIGNMENT_CENTER, _menu)
 	go.text = "TAP TO START SHIFT"
@@ -399,28 +403,12 @@ func _build_ad() -> void:
 	_ad_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ad.add_child(_ad_bar)
 	_ad.visible = false
-	_cont = Control.new()
-	_cont.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_cont)
-	var cshade := ColorRect.new()
-	cshade.color = Color(0.1, 0.02, 0.02, 0.7)
-	cshade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	cshade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_cont.add_child(cshade)
-	_cont_head = _label(100, HORIZONTAL_ALIGNMENT_CENTER, _cont)
-	_centered(_cont_head, -520, -280)
-	_cont_head.add_theme_color_override("font_color", Color(1, 0.4, 0.35))
-	_cont_body = _label(48, HORIZONTAL_ALIGNMENT_CENTER, _cont)
-	_centered(_cont_body, -220, 60)
-	_cont.visible = false
 
 ## The fake ad: `title` says what it is for; `progress` (0..1) fills the bar.
 func show_ad(title: String) -> void:
 	_menu.visible = false
 	_over.visible = false
 	_select.visible = false
-	_cont.visible = false
 	_art.show_play = false
 	_art.show_result = false
 	_art.show_wind = false
@@ -435,24 +423,8 @@ func set_ad_progress(f: float) -> void:
 func hide_ad() -> void:
 	_ad.visible = false
 
-## After a conflict: the rewarded "watch an ad to undo it and keep going" prompt (or end the shift).
-func show_continue(header: String, reason: String) -> void:
-	_cont_head.text = header
-	_cont_body.text = reason + "\n\nWatch an ad to undo it\nand keep flying?"
-	_cont.visible = true
-	_over.visible = false
-	_select.visible = false
-	_art.show_play = false
-	_art.show_wind = false
-	var vp := get_viewport().get_visible_rect().size
-	_art.clear_buttons()
-	_art.add_button("ad_continue", "WATCH AD: CONTINUE", Rect2(vp.x * 0.5 - 380.0, vp.y * 0.5 + 120.0, 760.0, 120.0), 2)
-	_art.add_button("end_shift", "END SHIFT", Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 270.0, 500.0, 110.0))
-	_art.queue_redraw()
-
 ## Back to the shift after the ad: the HUD of a running shift, nothing else.
 func resume_play() -> void:
-	_cont.visible = false
 	_ad.visible = false
 	_over.visible = false
 	_art.clear_buttons()
@@ -460,10 +432,6 @@ func resume_play() -> void:
 	_art.show_wind = true
 	_art.show_result = false
 	_art.queue_redraw()
-
-func hide_continue() -> void:
-	_cont.visible = false
-	_art.clear_buttons()
 
 ## Results: the rewarded "double the coins" offer (once per shift).
 func set_double_button(on: bool, coins: int) -> void:
@@ -533,10 +501,10 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	_art.result_animal = animal
 	_art.result_quote = quote
 	_over_head.text = header
-	_over_body.text = "%s\n\nAircraft landed: %d%s\nCoins +%d%s   (total %d)\n\nTap anywhere to fly again" % [reason, shift.landed, "   NEW BEST!" if new_best else "   best %d" % best, coins_earned, "  (doubled!)" if doubled else "", coins_total]
+	_over_body.text = "%s\n\nPayout +%d coins%s   (total %d)\n%s\n\nTap anywhere to fly again" % [reason, coins_earned, "  (doubled!)" if doubled else "", coins_total, "NEW BEST!" if new_best else "best payout %d" % best]
 	for i in 3:
-		_art.goal_state[i] = shift.state(i)
-		_art.goal_text[i] = shift.goal_text(i)
+		_art.goal_state[i] = 1 if shift.balance() >= shift.thresholds[i] else 0
+		_art.goal_text[i] = "%d coins" % shift.thresholds[i]
 	_art.show_play = false
 	_art.show_result = true
 	_art.show_wind = false
@@ -665,7 +633,6 @@ func hide_screens() -> void:
 	_menu.visible = false
 	_over.visible = false
 	_select.visible = false
-	_cont.visible = false
 	_ad.visible = false
 	_art.clear_buttons()
 	_art.show_result = false
@@ -687,16 +654,36 @@ func reset_for_run(best: int) -> void:
 	_event_text = ""
 	_event_banner.visible = false
 	_art.shift_frac = 0.0
+	_secs_left = -1
+	_last_bal = 0
 	set_landed(0)
-	set_best(best)
+	set_timer(int(Tuning.shift_seconds))
+	_art.balance = 0
+	_score.text = "0"
+	_score.add_theme_color_override("font_color", Color.WHITE)
 
-func set_best(best: int) -> void:
-	_best.text = "best %d" % best if best > 0 else ""
+func set_best(_best_coins: int) -> void:
+	pass
+
+var _landed := 0
+var _secs_left := -1
+
+## The small line under the coin total: the shift clock and how many have landed.
+func _refresh_status() -> void:
+	_best.text = "%d:%02d     landed %d" % [maxi(_secs_left, 0) / 60, maxi(_secs_left, 0) % 60, _landed]
 
 func set_landed(n: int, punch: bool = false) -> void:
-	_score.text = str(n)
+	_landed = n
+	_refresh_status()
 	if punch and not DebugFlags.off("popup"):
 		_punch_ms = Time.get_ticks_msec()
+
+## The shift clock, whole seconds left (only touches the label when the second changes).
+func set_timer(secs_left: int) -> void:
+	if secs_left != _secs_left:
+		_secs_left = secs_left
+		_refresh_status()
+		_best.add_theme_color_override("font_color", Color(1.0, 0.4, 0.35) if secs_left <= 15 else Color.WHITE)
 
 ## The wind widget: an arrow showing where the air is going and the "WIND 270" label.
 func set_wind(from_deg: float, toward_deg: float) -> void:
@@ -720,16 +707,30 @@ func set_alert(on: bool) -> void:
 	_alert_on = on
 	_alert.visible = on
 
-## The three goal rows and the strike boxes (called when something changes, not every frame).
-func set_shift(shift: Shift, max_strikes: int) -> void:
+## The coin total (red when negative), the star bar and the results rows: called when something changes.
+func set_shift(shift: Shift) -> void:
+	var bal := shift.balance()
+	_score.text = str(bal)
+	_score.add_theme_color_override("font_color", Color(1.0, 0.35, 0.3) if bal < 0 else Color.WHITE)
+	_art.balance = bal
 	for i in 3:
-		_art.goal_state[i] = shift.state(i)
-		var prog := ""
-		if shift.goals[i]["kind"] != "no_strikes":
-			prog = "  %d/%d" % [mini(shift.progress(i), shift.target(i)), shift.target(i)]
-		_art.goal_text[i] = shift.goal_text(i) + prog
-	_art.strikes = shift.strikes
-	_art.max_strikes = max_strikes
+		_art.thresholds[i] = shift.thresholds[i]
+		_art.threshold_text[i] = str(shift.thresholds[i])
+		_art.goal_state[i] = 1 if bal >= shift.thresholds[i] else 0
+		_art.goal_text[i] = "%d coins" % shift.thresholds[i]
+	_art.queue_redraw()
+	if bal != _last_bal:
+		_last_bal = bal
+		_punch_ms = Time.get_ticks_msec()
+
+var _last_bal := 0
+
+## The rewarded "refund your last fine" button (amount 0 hides it).
+func set_refund_offer(amount: int) -> void:
+	_art.clear_buttons()
+	if amount > 0:
+		var vp := get_viewport().get_visible_rect().size
+		_art.add_button("ad_refund", "WATCH AD: REFUND -%d" % amount, Rect2(vp.x * 0.5 - 330.0, vp.y - 340.0, 660.0, 100.0), 2)
 	_art.queue_redraw()
 
 func set_shift_fraction(f: float) -> void:
@@ -819,7 +820,7 @@ func note_hitch(raw: float, used: float, why: String, context: String) -> void:
 		_hitch_log.pop_front()
 	print("[hitch] " + line)   # (also in the browser console)
 
-func set_clock(sim: float, wall: float) -> void:
+func set_perf_clock(sim: float, wall: float) -> void:
 	_clock_text = "sim %.1f s / wall %.1f s" % [sim, wall]
 
 func _update_perf(delta: float) -> void:
@@ -842,11 +843,16 @@ func begin_prewarm() -> void:
 	_score.text = "0123456789"
 	_alert.visible = true
 	_menu_info.text = "Home Field Regional County Island International\nCoins 0123456789    Stars 0123456789    Best 0123456789"
-	_over_head.text = "SHIFT COMPLETE  3 STRIKES  MID-AIR CONFLICT"
-	_over_body.text = "Two aircraft got too close. Aircraft landed: 0123456789   NEW BEST!\nCoins +0123456789   (total 0123456789)\n\nTap to continue"
+	_over_head.text = "SHIFT COMPLETE"
+	_over_body.text = "Landings +0123456789  Bonuses +0123456789  Fines -0123456789\nPayout +0123456789 coins  (doubled!)   (total 0123456789)\nNEW BEST!  best payout 0123456789\n\nTap anywhere to fly again"
+	_art.thresholds[0] = 100
+	_art.thresholds[1] = 200
+	_art.thresholds[2] = 300
 	for i in 3:
-		_art.goal_text[i] = "Land 0123 aircraft  0123/0123 No strikes helicopters jets gliders"
-		_art.goal_state[i] = i
+		_art.threshold_text[i] = str(100 * (i + 1))
+		_art.goal_text[i] = "%d coins" % (100 * (i + 1))
+		_art.goal_state[i] = i % 2
+	_art.balance = 150
 	_art.show_play = true
 	_art.show_result = true
 	_art.show_wind = true
@@ -854,7 +860,7 @@ func begin_prewarm() -> void:
 	_wind_banner.text = "Wind shifting to 270  in 8s"
 	_wind_banner.visible = true
 	set_event_banner("Gusty crosswind: ORANGE runway closing in 6s", true)
-	_art.strikes = 2
+	set_refund_offer(100)
 	_art.queue_redraw()
 	_best.text = "best 0123456789"
 	_menu.visible = true
@@ -866,10 +872,7 @@ func begin_prewarm() -> void:
 	_menu.visible = true
 	_over.visible = true
 	_ad_sub.text = "Reward: undo the conflict and keep flying\n\n(stub: no real ad is shown)"
-	_cont_head.text = "MID-AIR CONFLICT"
-	_cont_body.text = "Two aircraft got too close.\n\nWatch an ad to undo it\nand keep flying?"
 	_ad.visible = true
-	_cont.visible = true
 	_splash = Control.new()
 	_splash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_splash.mouse_filter = Control.MOUSE_FILTER_IGNORE

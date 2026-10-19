@@ -1,6 +1,6 @@
 class_name Airports
 extends RefCounted
-## The airports: static layout data and the lookups the game uses (runway geometry, goals, traffic mix).
+## The airports: static layout data and the lookups the game uses (runway geometry, star thresholds, traffic mix).
 ## `current` is the airport being played. Runway headings are degrees, 0 = up the screen; a runway lands
 ## planes toward its heading, and its approach end (threshold) is the end they come from.
 ## (No Tuning references: the smoke test can read this class while it compiles.)
@@ -28,42 +28,36 @@ static func _build() -> void:
 	var G := Aircraft.Type.GLIDER
 	var H := Aircraft.Type.HELI
 	var P := Aircraft.Type.SEAPLANE
-	var goal_land := func(n: int) -> Dictionary: return {"kind": "land", "n": n}
-	var goal_type := func(t: int, n: int) -> Dictionary: return {"kind": "land_type", "type": t, "n": n}
-	var no_strikes := {"kind": "no_strikes"}
 	_defs = [
 		{   # 1: one runway, usable in both directions
-			"name": "Grass Strip", "tag": "One runway, both directions",
+			"name": "Grass Strip", "stars": [100, 200, 320], "tag": "One runway, both directions",
 			"runways": [_rw(Vector2(0.0, 0.8), 0.0, 7.0, ORANGE, "ORANGE", 1.1)],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6),
 			"ground": Color(0.42, 0.68, 0.38),
 			"mix": {S: 0.55, M: 0.2, G: 0.25}, "specials": 0.0,
-			"goals": [goal_land.call(12), goal_type.call(G, 3), no_strikes],
 			"wind_scale": 1.6, "spawn_mult": 1.35, "unlock_stars": 0, "weather": [], "weather_scale": 1.0,
 		},
 		{   # 2: two crossing runways: simultaneous landings conflict
-			"name": "County", "tag": "Crossing runways",
+			"name": "County", "stars": [140, 280, 440], "tag": "Crossing runways",
 			"runways": [_rw(Vector2(0.0, 0.2), 0.0, 6.5, ORANGE, "ORANGE"), _rw(Vector2(0.0, 0.2), 80.0, 6.5, BLUE, "BLUE")],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-3.3, 3.7),
 			"ground": Color(0.5, 0.68, 0.36),
 			"mix": {S: 0.3, M: 0.55, G: 0.15}, "specials": 1.5,
-			"goals": [goal_land.call(20), {"kind": "land_vip", "n": 2}, no_strikes],
 			"wind_scale": 1.3, "spawn_mult": 1.15, "unlock_stars": 2, "weather": ["crosswind"], "weather_scale": 1.3,
 		},
 		{   # 3: parallel runways and a helipad
-			"name": "Regional", "tag": "Parallel runways + helipad",
+			"name": "Regional", "stars": [180, 350, 520], "tag": "Parallel runways + helipad",
 			"runways": [_rw(Vector2(-2.6, 0.3), 0.0, 7.8, ORANGE, "ORANGE"), _rw(Vector2(0.4, 0.3), 0.0, 7.8, BLUE, "BLUE")],
 			"pads": [{"center": Vector2(3.5, 3.4), "radius": 0.85, "color": PAD_COLOR}], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.2, 0.8),
 			"ground": Color(0.36, 0.62, 0.36),
 			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2}, "specials": 1.0,
-			"goals": [goal_land.call(25), goal_type.call(H, 3), no_strikes],
 			"wind_scale": 1.0, "spawn_mult": 1.0, "unlock_stars": 5, "weather": ["crosswind", "fog"], "weather_scale": 1.1,
 		},
 		{   # 4: terrain no-fly zones
-			"name": "Mountain Field", "tag": "Keep clear of the mountains",
+			"name": "Mountain Field", "stars": [200, 380, 560], "tag": "Keep clear of the mountains",
 			"runways": [_rw(Vector2(-1.9, 0.6), 8.0, 6.2, ORANGE, "ORANGE"), _rw(Vector2(1.7, 0.6), 8.0, 6.2, BLUE, "BLUE")],
 			"pads": [], "lanes": [],
 			"hazards": [
@@ -75,11 +69,10 @@ static func _build() -> void:
 			"tower": Vector2(0.0, 3.2), "windsock": Vector2(0.0, -1.2),
 			"ground": Color(0.46, 0.58, 0.42),
 			"mix": {S: 0.3, M: 0.35, G: 0.35}, "specials": 1.0,
-			"goals": [goal_land.call(22), goal_type.call(G, 4), no_strikes],
 			"wind_scale": 0.85, "spawn_mult": 1.0, "unlock_stars": 8, "weather": ["storm", "fog"], "weather_scale": 1.0,
 		},
 		{   # 5: an island in the water, with a seaplane lane
-			"name": "Island", "tag": "Water landing lane",
+			"name": "Island", "stars": [220, 420, 620], "tag": "Water landing lane",
 			"runways": [_rw(Vector2(-1.6, 0.3), 0.0, 7.4, ORANGE, "ORANGE"), _rw(Vector2(1.6, 0.3), 0.0, 7.4, BLUE, "BLUE")],
 			"pads": [],
 			"lanes": [{"center": Vector2(0.2, 5.3), "heading": 90.0, "length": 6.0, "width": 1.0, "color": LANE_COLOR}],
@@ -89,11 +82,10 @@ static func _build() -> void:
 			"tower": Vector2(0.0, 0.3), "windsock": Vector2(0.0, -3.0),
 			"ground": Color(0.2, 0.5, 0.78), "water": true,
 			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25}, "specials": 1.0,
-			"goals": [goal_land.call(28), goal_type.call(P, 3), no_strikes],
 			"wind_scale": 0.75, "spawn_mult": 0.95, "unlock_stars": 11, "weather": ["storm", "crosswind", "fog"], "weather_scale": 0.85,
 		},
 		{   # 6: long runways and multiples of everything
-			"name": "International", "tag": "Everything, all at once",
+			"name": "International", "stars": [260, 480, 700], "tag": "Everything, all at once",
 			"runways": [_rw(Vector2(-3.4, 0.0), 0.0, 8.4, ORANGE, "ORANGE"), _rw(Vector2(-1.1, 0.0), 0.0, 8.4, BLUE, "BLUE"), _rw(Vector2(1.2, 0.0), 0.0, 8.4, PINK, "PINK")],
 			"pads": [{"center": Vector2(3.9, -4.7), "radius": 0.7, "color": PAD_COLOR}, {"center": Vector2(3.9, -3.1), "radius": 0.7, "color": PAD_COLOR}],
 			"lanes": [{"center": Vector2(3.9, 1.8), "heading": 0.0, "length": 4.0, "width": 0.9, "color": LANE_COLOR},
@@ -104,7 +96,6 @@ static func _build() -> void:
 			"tower": Vector2(2.6, -2.6), "windsock": Vector2(2.6, 3.0),
 			"ground": Color(0.4, 0.6, 0.4),
 			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2}, "specials": 1.6,
-			"goals": [goal_land.call(35), {"kind": "land_emergency", "n": 2}, no_strikes],
 			"wind_scale": 0.6, "spawn_mult": 0.85, "unlock_stars": 14, "weather": ["storm", "crosswind", "fog"], "weather_scale": 0.7,
 		},
 	]
@@ -330,8 +321,9 @@ static func suitable_runway(type: int, i: int) -> bool:
 static func specials() -> float:
 	return def().get("specials", 1.0)
 
-static func goals(i: int = -1) -> Array:
-	return def(i)["goals"]
+## Coins a shift must bring in for one, two and three stars.
+static func star_thresholds(i: int = -1) -> Array:
+	return def(i)["stars"]
 
 static func mix(i: int = -1) -> Dictionary:
 	return def(i)["mix"]

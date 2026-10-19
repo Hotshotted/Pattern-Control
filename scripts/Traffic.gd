@@ -734,6 +734,11 @@ func _divert(p: Aircraft) -> void:
 	if p.pos.length() > 0.5:
 		p.heading = atan2(p.pos.x, -p.pos.y)
 
+## An aircraft is lost (a conflict or a crash): it leaves the field at once.
+func lose(p: Aircraft) -> void:
+	if p.active():
+		_remove(p)
+
 func _remove(p: Aircraft) -> void:
 	var i := planes.find(p)
 	p.reset()

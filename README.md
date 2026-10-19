@@ -14,14 +14,17 @@ You run an airport, one **shift** at a time.
   arrows) and it lands.
 - **Tap an aircraft** to make it circle in place (a holding pattern); tap again to let it go.
 - Every aircraft has a **timer ring** that runs down from the moment it is on screen (green, then yellow,
-  then red). Circling burns it more slowly. When it runs out the aircraft is **diverted: a strike**.
-  **3 strikes end the shift.**
-- **Two aircraft getting too close ends the shift immediately.** A warning ring grows around them first.
+  then red). Circling burns it more slowly. When it runs out the aircraft is **diverted: a small fine**.
+- **Two aircraft getting too close is a large fine and both are lost.** A warning ring grows around them first.
+- **Every shift is timed** (3 minutes by default, a countdown at the top). There is no instant game over.
+  Each landing pays coins (more for special aircraft; landings close together earn a quick-succession bonus).
+  Fines come off the balance (conflict large, diversion small, terrain/storm medium); it can go negative
+  during a shift but the payout never goes below zero.
 - New aircraft get a pulsing edge glow about 2 s before they appear (green slow, yellow medium, red fast).
 - **Wind:** a windsock and a wind arrow show it. Aircraft can only land on runway ends facing roughly into the wind (those are bright; the others are dull with an X). The wind shifts during a shift with a banner ~8 s ahead ("Wind shifting to 270"); aircraft already cleared to an end that closes get a dashed red path and must be re-routed.
 - **Six airports**, unlocked by total stars: Grass Strip (one runway, both directions), County (crossing
   runways: a landing on a crossing runway while the other is busy is a runway conflict), Regional (parallel
-  runways + a helipad), Mountain Field (terrain no-fly zones: flying into a mountain is a strike), Island
+  runways + a helipad), Mountain Field (terrain no-fly zones: flying into a mountain is a fine), Island
   (water and a seaplane lane) and International (three long runways, two helipads, two lanes). A second
   aircraft reaching a runway that is still busy goes around.
 - **Special aircraft** (each shows a one-line tip the first time it appears): **helicopters** land on the
@@ -34,7 +37,7 @@ You run an airport, one **shift** at a time.
   thinner traffic), *Better Comms* (longer timers), *Holding Fixes* (holding burns timers slower, tighter
   circles), *Fast Turnoffs* (runways clear faster).
 - **Weather** (later airports, later in a shift; each event is announced ~6 s ahead with a banner):
-  *storm cells* drift across the field (flying into one is a strike), *fog* hides aircraft until they get
+  *storm cells* drift across the field (flying into one is a fine), *fog* hides aircraft until they get
   close to the field (the Radar upgrade sees further into it), and a *gusty crosswind* closes one runway for
   a while (red X and a countdown; aircraft cleared to it are re-routed).
 - **Shop** (cosmetics only): airport *themes* (Autumn, Desert, Winter, Night: palette and scenery) and airline
@@ -45,8 +48,9 @@ You run an airport, one **shift** at a time.
 - **Ads (stubs, no real ads yet):** a rewarded "undo the conflict and keep going" (once per shift), a rewarded
   "double coins" on the results screen, and an interstitial only between shifts, at most every third one. Each
   shows a fake "Ad playing" screen.
-- Each shift has **three star goals** (land 25 aircraft, land 4 jets, finish with no strikes). Landings and
-  stars earn **coins**. Stars, coins and bests are saved.
+- Each airport has **three coin thresholds** that give the shift's stars. The rewarded ad becomes
+  "refund the last fine" (once per shift); "double coins" stays on the results. Stars, coins and bests are saved
+  (save format v3).
 
 ## Debug / tuning URLs
 

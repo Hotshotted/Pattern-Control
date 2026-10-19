@@ -88,9 +88,8 @@ var timer_yellow_fraction := 0.5
 var timer_red_fraction := 0.25
 ## A circling aircraft burns its timer at this fraction of the normal rate.
 var hold_drain_mult := 0.45
-## A timed-out aircraft is diverted: it flies off at this multiple of its speed. It is a strike.
+## A timed-out aircraft is diverted (and fined): it flies off at this multiple of its speed.
 var divert_speed_mult := 1.6
-var max_strikes := 3.0
 ## Ring colours: plenty of time / low / nearly out.
 var timer_color_ok := Color(0.35, 0.92, 0.5)
 var timer_color_low := Color(1.0, 0.86, 0.2)
@@ -163,11 +162,28 @@ var upg_radar_fog := 0.8            # the radar sees this much further into the 
 ## Crosswind: how long the runway stays closed.
 var crosswind_seconds := 16.0
 
-# ---------- Shifts, stars, coins ----------
-## Planes stop arriving after this long; the shift ends when the field is clear (or on 3 strikes / a conflict).
-var shift_seconds := 150.0
-var coins_per_landing := 5
-var coins_per_star := 25
+# ---------- Timed shifts, coins and fines ----------
+## A shift lasts exactly this long (seconds), shown as a countdown. Aircraft keep arriving until it ends.
+var shift_seconds := 180.0
+## What a landing pays, by aircraft type (special aircraft pay more).
+var pay_glider := 22
+var pay_heli := 18
+var pay_small := 10
+var pay_medium := 14
+var pay_jet := 20
+var pay_seaplane := 16
+## Quick-succession bonus: a landing within this many seconds of the previous one earns streak_bonus_coins per
+## landing already in the streak (capped at streak_bonus_cap).
+var streak_window_seconds := 4.0
+var streak_bonus_coins := 4
+var streak_bonus_cap := 5
+## Fines: a conflict (both aircraft are lost), a diverted aircraft, and a crash into terrain or a storm.
+var fine_conflict := 100
+var fine_timeout := 20
+var fine_hazard := 50
+## After a fine, the "watch an ad to refund it" offer stays up this long (once per shift).
+var refund_offer_seconds := 8.0
+## The first time a star is ever earned at an airport it pays this much extra.
 var coins_first_star_bonus := 100
 
 # ---------- Entry warning ----------
@@ -260,6 +276,9 @@ func timer_color(frac: float) -> Color:
 	if frac <= timer_yellow_fraction:
 		return timer_color_low
 	return timer_color_ok
+
+func landing_pay(type: int) -> int:
+	return [pay_glider, pay_heli, pay_small, pay_medium, pay_jet, pay_seaplane][type]
 
 func type_timer(type: int) -> float:
 	return [timer_glider, timer_heli, timer_small, timer_medium, timer_jet, timer_seaplane][type]
