@@ -411,8 +411,12 @@ func _initialize() -> void:
 	tr.auto_spawn = true
 	tr.release_all()
 	main.restart()
+	var auto_n = [0]
+	var auto_cb = func(_pl): auto_n[0] += 1
+	tr.spawned.connect(auto_cb)
 	run_sec(main, 30.0)
-	check(tr.active_count() + 0 >= 1 or main.score > 0 or not main.alive, "the spawner puts planes on the field by itself")
+	tr.spawned.disconnect(auto_cb)
+	check(auto_n[0] >= 2, "the spawner puts planes on the field by itself (%d in 30 s)" % auto_n[0])
 	tr.auto_spawn = false
 
 	print("6. conflicts")
