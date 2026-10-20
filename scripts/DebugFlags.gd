@@ -2,14 +2,14 @@ class_name DebugFlags
 extends RefCounted
 ## Debug switches, read from the page URL on web (or "--flag=value" user args elsewhere), so a
 ## suspected cause of a hitch can be switched off from a phone without a new build:
-##   ?nofx=burst,ripple,popup,haptic,glow,hold   turn those effects off ("all" = every one)
+##   ?nofx=burst,ripple,popup,haptic,glow,hold,sound   turn those effects off ("all" = every one)
 ##   ?noprewarm                                  skip the start-up pre-warm and splash
 ##   ?perf                                       show a worst-frame-time readout
 ##   ?tune                                       show the on-screen tuning panel (TUNE button, top-right)
 ##   ?god                                        planes never collide or run dry (to look at the traffic)
 ## Combine with "&", e.g.  ?perf&tune. The active flags are printed under the build stamp.
 
-const EFFECTS := ["burst", "ripple", "popup", "haptic", "glow", "hold"]
+const EFFECTS := ["burst", "ripple", "popup", "haptic", "glow", "hold", "sound"]
 
 static var _loaded := false
 static var _off := {}                  # effect name -> true

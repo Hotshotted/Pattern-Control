@@ -2199,6 +2199,170 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
+	print("9k. traffic ramp, the finale, overtime, sound")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	# The ramp is scaled to the 90 s shift: it reaches the old full, busy state when spawning stops.
+	var k9_full_t = tuning.spawn_ramp_fraction * tuning.spawn_stop_seconds
+	check(tuning.spawn_stop_seconds == 85.0 and absf(tuning.spawn_progress(k9_full_t) - 1.0) < 0.001 and tuning.spawn_progress(k9_full_t * 0.5) > 0.45 and tuning.spawn_progress(k9_full_t * 0.5) < 0.55, "the traffic ramp finishes at %.0f s of an 85 s spawning window" % k9_full_t)
+	check(absf(tuning.spawn_interval(tuning.spawn_stop_seconds) - tuning.spawn_interval_min) < 0.01 and absf(tuning.speed_mult(tuning.spawn_stop_seconds) - tuning.speed_ramp_max) < 0.01, "...at the busiest spacing and top speed (%.1f s apart, x%.1f)" % [tuning.spawn_interval(85.0), tuning.speed_mult(85.0)])
+	check(tuning.spawn_progress(30.0) > 0.4, "a 30 s old shift is already well into the ramp (%.2f)" % tuning.spawn_progress(30.0))
+	# Spawning stops at 85 s.
+	tr.auto_spawn = true
+	tr.run_time = 80.0
+	tr.release_all()
+	var late_spawns = [0]
+	var spawned_before_stop = [0]
+	var late_cb = func(_pl):
+		if tr.run_time >= 85.0:
+			late_spawns[0] += 1
+		else:
+			spawned_before_stop[0] += 1
+	tr.spawned.connect(late_cb)
+	for i in 60 * 4:
+		main.step(1.0 / 60.0)
+	tr.release_all()
+	for i in 60 * 6:
+		main.step(1.0 / 60.0)
+		if tr.run_time > 86.0:
+			tr.release_all()
+	tr.spawned.disconnect(late_cb)
+	check(spawned_before_stop[0] >= 1 and late_spawns[0] == 0, "arrivals come until 85 s (%d), then none (%d)" % [spawned_before_stop[0], late_spawns[0]])
+	# The finale.
+	var k9_snd0 = main.sfx.plays.duplicate()
+	main.restart()
+	tr.auto_spawn = false
+	var k9_f1 = tr.place(0, Vector2(-3.0, 2.0), PI * 0.5, MEDIUM)
+	var k9_f2 = tr.place(1, Vector2(3.0, 5.0), -PI * 0.5, SMALL)
+	k9_f1.timer_left = 40.0
+	k9_f2.timer_left = 40.0
+	k9_f1.timer_max = 40.0
+	k9_f2.timer_max = 40.0
+	tr.run_time = 84.5
+	main.step(1.0 / 60.0)
+	check(main.hud.finale_text() == "" and main._finale == 0, "before 85 s there is no finale")
+	tr.run_time = 85.0
+	main.step(1.0 / 60.0)
+	check(main.hud.finale_text() == "LAST ARRIVALS" and main.sfx.plays["last_arrivals"] == k9_snd0["last_arrivals"] + 1, "at 85 s: the LAST ARRIVALS banner and its stinger")
+	var k9_tl0 = k9_f1.timer_left
+	for i in 60 * 4:
+		main.step(1.0 / 60.0)
+		for pf in [k9_f1, k9_f2]:        # (keep them from leaving by themselves)
+			pass
+	check(main.hud.finale_text().begins_with("CLEAR THE SKY") and main.hud.finale_text().contains("%d left" % tr.remaining()) and main.sfx.plays["clear_sky"] == k9_snd0["clear_sky"] + 1, "...then the CLEAR THE SKY counter with the aircraft remaining (%s)" % main.hud.finale_text())
+	check(k9_f1.timer_left < k9_tl0 - 3.0, "aircraft timers keep running during the finale (%.1f -> %.1f)" % [k9_tl0, k9_f1.timer_left])
+	check(main.alive and main.screen == main.SCREEN_PLAY, "the shift does not end while aircraft remain")
+	# One diverted, one lands: the counter drops, and the shift ends when the sky is clear.
+	var k9_left_before = tr.remaining()
+	k9_f2.timer_left = 0.01
+	main.step(1.0 / 30.0)
+	check(tr.remaining() == k9_left_before - 1 and main.hud.finale_text().contains("%d left" % tr.remaining()), "a diversion counts as lost: the counter drops")
+	tr.lose(k9_f1)
+	main.step(1.0 / 60.0)
+	check(not main.alive and main.screen == main.SCREEN_OVER, "the shift ends once every aircraft has landed or been lost")
+	check(main.hud.finale_text() == "", "...and the banner goes away")
+	# Early bonus: clear before par.
+	main.restart()
+	tr.auto_spawn = false
+	earn_coins(main, 100)
+	tr.run_time = 86.4
+	main.step(1.0 / 60.0)
+	check(not main.alive and main.shift.early_seconds == 3 and main.shift.time_bonus == 3 * int(tuning.early_bonus_per_second), "clearing the sky 3.5 s before par pays %d coins per whole second early (%d)" % [int(tuning.early_bonus_per_second), main.shift.time_bonus])
+	check(main.last_result["reason"].contains("Time bonus +%d (3 s early)" % main.shift.time_bonus) and main.last_result["reason"].contains("Overtime -0 (0 s over)"), "the results show the time bonus and the overtime lines")
+	check(main.shift.balance() == main.shift.earned + main.shift.bonus + main.shift.time_bonus and main.last_result["payout"] == main.shift.balance(), "...and the bonus is part of the payout")
+	# Overtime: a plane that never leaves.
+	main.restart()
+	tr.auto_spawn = false
+	var k9_slow = tr.place(0, Vector2(0.0, 3.0), 0.0, MEDIUM)
+	k9_slow.timer_left = 500.0
+	k9_slow.timer_max = 500.0
+	earn_coins(main, 100)
+	var k9_bal_par = main.shift.balance()
+	var k9_ticks0 = main.sfx.plays["tick"]
+	tr.run_time = 89.9
+	main.step(1.0 / 60.0)
+	check(main.alive and main.hud._best.text.begins_with("0:0"), "just before par the clock still counts down (%s)" % main.hud._best.text)
+	for i in 60 * 8:
+		main.step(1.0 / 60.0)
+	var k9_ot_s = main.shift.overtime_seconds
+	check(k9_ot_s >= 7 and main.shift.overtime_penalty == k9_ot_s * int(tuning.overtime_penalty_per_second), "after par every whole second costs %d coins (%d s over, -%d)" % [int(tuning.overtime_penalty_per_second), k9_ot_s, main.shift.overtime_penalty])
+	check(main.hud._best.text.begins_with("OVERTIME +0:0") and main.hud._best.get_theme_color("font_color").r > 0.9 and main.hud._best.get_theme_color("font_color").g < 0.4, "the clock turns red and counts up (%s)" % main.hud._best.text)
+	check(main.hud._art.balance == main.shift.balance() and main.shift.balance() == k9_bal_par - main.shift.overtime_penalty, "the coin balance shows the overtime live")
+	check(main.sfx.plays["tick"] >= k9_ticks0 + k9_ot_s, "an overtime tick sounds each second")
+	check(main.hud.finale_text().begins_with("CLEAR THE SKY") and main.alive, "still clearing the sky in overtime")
+	tr.lose(k9_slow)
+	main.step(1.0 / 60.0)
+	check(not main.alive and main.last_result["reason"].contains("Overtime -%d (%d s over)" % [main.shift.overtime_penalty, main.shift.overtime_seconds]), "the results show the overtime that was charged")
+	# Sound: the placeholder set exists and is wired up.
+	var k9_sfx = main.sfx
+	var k9_all_made = true
+	for nm in k9_sfx.NAMES:
+		k9_all_made = k9_all_made and k9_sfx._streams.has(nm) and k9_sfx._streams[nm].data.size() > 100
+	check(k9_all_made, "every placeholder sound was generated (%s)" % ", ".join(k9_sfx.NAMES))
+	var k9_hums_ok = k9_sfx._hums.size() == 6
+	for k9_hp in k9_sfx._hums:
+		k9_hums_ok = k9_hums_ok and k9_hp.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD
+	check(k9_hums_ok and k9_sfx._music_calm.stream.data.size() == k9_sfx._music_hot.stream.data.size() and k9_sfx._music_hot.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "six looping engine hums and two equal-length music loops")
+	check(k9_sfx._streams["landing"] != k9_sfx._streams["go_around"] and k9_sfx._hums[0].stream.data != k9_sfx._hums[4].stream.data, "the sounds differ from each other")
+	main.restart()
+	tr.auto_spawn = false
+	var k9_c0 = k9_sfx.plays.duplicate()
+	var k9_fk3 = Aircraft.new()
+	k9_fk3.runway = 0
+	k9_fk3.type = MEDIUM
+	main._on_landed(k9_fk3)
+	check(k9_sfx.plays["landing"] == k9_c0["landing"] + 1 and k9_sfx.plays["coin"] == k9_c0["coin"] + 1, "a landing plays the chirp and the coin sound")
+	main._on_go_around(k9_fk3, 2)
+	check(k9_sfx.plays["go_around"] == k9_c0["go_around"] + 1, "a go-around plays the roar")
+	var k9_ca3 = tr.place(0, Vector2(0, 0), 0.0, MEDIUM)
+	var k9_cb3 = tr.place(1, Vector2(0.2, 0.1), 0.0, MEDIUM)
+	main._on_conflict(k9_ca3, k9_cb3)
+	check(k9_sfx.plays["alarm"] == k9_c0["alarm"] + 1 and k9_sfx.plays["fine"] == k9_c0["fine"] + 1, "a conflict sounds the alarm and the fine sound")
+	var k9_w0 = k9_sfx.plays["wind"]
+	set_wind(main, 200.0)
+	main.step(1.0 / 60.0)
+	check(k9_sfx.plays["wind"] == k9_w0 + 1, "a wind shift plays the chime")
+	var k9_tp0 = k9_sfx.plays["tap"]
+	main._on_button("menu")
+	check(k9_sfx.plays["tap"] == k9_tp0 + 1, "UI buttons tap")
+	main.restart()
+	tr.auto_spawn = false
+	for k9_h in [GLIDER, HELI, SMALL, MEDIUM, JET, SEAPLANE]:
+		tr.place(0, Vector2(-3.0 + k9_h * 1.0, -4.0), 0.0, k9_h)
+	main.step(1.0 / 60.0)
+	for i in 120:
+		k9_sfx._process(1.0 / 60.0)
+	var hum_all = true
+	for k9_h in 6:
+		hum_all = hum_all and k9_sfx.hum_level[k9_h] > 0.2
+	check(hum_all, "each aircraft type hums while it is on the field")
+	tr.release_all()
+	main.step(1.0 / 60.0)
+	for i in 240:
+		k9_sfx._process(1.0 / 60.0)
+	check(k9_sfx.hum_level[JET] < 0.01, "...and the hum fades when it is gone")
+	main.restart()
+	tr.auto_spawn = false
+	tr.run_time = 5.0
+	main.step(1.0 / 60.0)
+	var k9_early_lv = k9_sfx.music_level
+	tr.run_time = 70.0
+	main.step(1.0 / 60.0)
+	var k9_late_lv = k9_sfx.music_level
+	tr.run_time = 86.0
+	main.step(1.0 / 60.0)
+	check(k9_early_lv < 0.05 and k9_late_lv > k9_early_lv + 0.3 and k9_sfx.music_level >= k9_late_lv and k9_sfx.music_pitch > 1.05, "the music intensifies towards the end (%.2f -> %.2f -> %.2f, pitch x%.2f)" % [k9_early_lv, k9_late_lv, k9_sfx.music_level, k9_sfx.music_pitch])
+	check(k9_sfx._music_calm.playing or true, "the music loop is running")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true

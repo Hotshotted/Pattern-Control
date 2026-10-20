@@ -30,7 +30,7 @@ var runway_asphalt := Color(0.24, 0.25, 0.28)
 var speed_slow := 1.5
 var speed_medium := 2.2
 var speed_fast := 3.1
-## All speeds grow up to this multiple over `spawn_ramp_seconds`.
+## All speeds grow up to this multiple over the ramp.
 var speed_ramp_max := 1.3
 ## The plane's visual heading turns this fast (radians / s); its position always follows the path exactly.
 var plane_turn_rate := 7.0
@@ -48,10 +48,10 @@ var edge_turn_margin := 1.1
 var edge_turn_radius := 1.0
 
 # ---------- Traffic ----------
-## Seconds between new planes: starts at spawn_interval_start, shrinks to spawn_interval_min over spawn_ramp_seconds.
+## Seconds between new planes: starts at spawn_interval_start, shrinks to spawn_interval_min over the ramp.
 var spawn_interval_start := 5.0
 var spawn_interval_min := 1.7
-var spawn_ramp_seconds := 150.0
+var spawn_ramp_fraction := 0.8333    # the ramp finishes at this fraction of the spawning time (the old 3-minute shift: 150 of 180 s)
 var first_spawn_delay := 0.8
 ## No more than this many planes at once (the pool holds MAX_POOL).
 var max_planes := 12.0
@@ -164,7 +164,11 @@ var crosswind_seconds := 16.0
 
 # ---------- Timed shifts, coins and fines ----------
 ## A shift lasts exactly this long (seconds), shown as a countdown. Aircraft keep arriving until it ends.
-var shift_seconds := 90.0
+var shift_seconds := 90.0            # PAR time: finish by here for a bonus, after it the clock runs red and costs coins
+var spawn_stop_seconds := 85.0       # no new arrivals after this: "LAST ARRIVALS", then "CLEAR THE SKY"
+var early_bonus_per_second := 10     # coins per whole second the sky is clear before par
+var overtime_penalty_per_second := 6 # coins per whole second after par
+var last_arrivals_seconds := 3.0     # how long the "LAST ARRIVALS" banner shows before the "CLEAR THE SKY" counter
 ## What a landing pays, by aircraft type (special aircraft pay more).
 var pay_glider := 22
 var pay_heli := 18
@@ -289,8 +293,9 @@ func entry_lead() -> float:
 func view_size() -> float:
 	return ortho_size * (1.0 + upg_radar_zoom * upg("radar"))
 
+## How far up the traffic ramp we are, 0..1: it always reaches the full, busy finish by the time spawning stops.
 func spawn_progress(t: float) -> float:
-	return clampf(t / maxf(spawn_ramp_seconds, 1.0), 0.0, 1.0)
+	return clampf(t / maxf(spawn_ramp_fraction * spawn_stop_seconds, 1.0), 0.0, 1.0)
 
 func spawn_interval(t: float) -> float:
 	return lerpf(spawn_interval_start, spawn_interval_min, spawn_progress(t))

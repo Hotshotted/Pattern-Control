@@ -306,6 +306,12 @@ func _ready() -> void:
 	_wind_banner.offset_top = 480
 	_wind_banner.add_theme_color_override("font_color", Color(1.0, 0.92, 0.35))
 	_wind_banner.visible = false
+	_finale = _label(72, HORIZONTAL_ALIGNMENT_CENTER)
+	_finale.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_finale.offset_left = -520
+	_finale.offset_right = 520
+	_finale.offset_top = 340
+	_finale.visible = false
 	_event_banner = _label(44, HORIZONTAL_ALIGNMENT_CENTER)
 	_event_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_event_banner.offset_left = -480
@@ -742,7 +748,9 @@ func reset_for_run(best: int) -> void:
 	_event_text = ""
 	_event_banner.visible = false
 	_art.shift_frac = 0.0
-	_secs_left = -1
+	_secs_left = 99999
+	_finale.visible = false
+	_finale.text = ""
 	_last_bal = 0
 	set_landed(0)
 	set_timer(int(Tuning.shift_seconds))
@@ -754,10 +762,14 @@ func set_best(_best_coins: int) -> void:
 	pass
 
 var _landed := 0
-var _secs_left := -1
+var _secs_left := 99999        # (negative = overtime, see set_overtime)
 
 ## The small line under the coin total: the shift clock and how many have landed.
 func _refresh_status() -> void:
+	if _secs_left < 0:      # overtime: counting up (the value is -(1 + whole seconds over))
+		var over := -_secs_left - 1
+		_best.text = "OVERTIME +%d:%02d     landed %d" % [over / 60, over % 60, _landed]
+		return
 	_best.text = "%d:%02d     landed %d" % [maxi(_secs_left, 0) / 60, maxi(_secs_left, 0) % 60, _landed]
 
 func set_landed(n: int, punch: bool = false) -> void:
@@ -772,6 +784,30 @@ func set_timer(secs_left: int) -> void:
 		_secs_left = secs_left
 		_refresh_status()
 		_best.add_theme_color_override("font_color", Color(1.0, 0.4, 0.35) if secs_left <= 15 else Color.WHITE)
+
+## Past par: the clock turns red and counts up (whole seconds over).
+func set_overtime(over_secs: int) -> void:
+	var code := -(1 + over_secs)
+	if code != _secs_left:
+		_secs_left = code
+		_refresh_status()
+		_best.add_theme_color_override("font_color", Color(1.0, 0.25, 0.2))
+
+## The finale banner ("LAST ARRIVALS", then "CLEAR THE SKY  3 left"); "" hides it. Only touches the label on a change.
+func set_finale(text: String, color: Color, flash: bool) -> void:
+	_finale_flash = flash
+	if text != _finale.text:
+		_finale.text = text
+		_finale.visible = text != ""
+	_finale.add_theme_color_override("font_color", color)
+	if not flash:
+		_finale.modulate.a = 1.0
+
+func finale_text() -> String:
+	return _finale.text if _finale.visible else ""
+
+var _finale: Label
+var _finale_flash := false
 
 ## The wind widget: an arrow showing where the air is going and the "WIND 270" label.
 func set_wind(from_deg: float, toward_deg: float) -> void:
@@ -863,6 +899,8 @@ func _process(delta: float) -> void:
 	var now := Time.get_ticks_msec()
 	var pk := (now - _punch_ms) / (Tuning.score_punch * 1000.0)
 	_score.scale = Vector2.ONE * (1.0 + 0.45 * (1.0 - pk) * (1.0 - pk) if pk < 1.0 else 1.0)
+	if _finale_flash:
+		_finale.modulate.a = 0.6 + 0.4 * sin(now * 0.014)
 	var fa := (now - _flash_ms) / 450.0
 	_flash.color.a = 0.45 * (1.0 - fa) if fa < 1.0 else 0.0
 	for i in POPUP_POOL:

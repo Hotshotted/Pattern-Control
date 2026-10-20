@@ -16,7 +16,11 @@ You run an airport, one **shift** at a time.
 - Every aircraft has a **timer ring** that runs down from the moment it is on screen (green, then yellow,
   then red). Circling burns it more slowly. When it runs out the aircraft is **diverted: a small fine**.
 - **Two aircraft getting too close is a large fine and both are lost.** A warning ring grows around them first.
-- **Every shift is timed** (90 seconds by default, a countdown at the top). There is no instant game over.
+- **Every shift is timed** (90 seconds par, a countdown at the top). There is no instant game over. Arrivals stop
+  at 85 s ("LAST ARRIVALS"), then it is **CLEAR THE SKY**: the shift ends only when every aircraft has landed or been
+  lost (timers keep running). Clearing before par pays a bonus per second early; after par the clock turns red,
+  counts up, and costs coins per second (both rates in Tuning, both shown on the results). The traffic ramp is
+  scaled to the spawning window, so every shift builds to the same busy finish.
   Each landing pays coins (more for special aircraft; landings close together earn a quick-succession bonus).
   Fines come off the balance (conflict large, diversion small, terrain/storm medium); it can go negative
   during a shift but the payout never goes below zero.
@@ -68,6 +72,11 @@ You run an airport, one **shift** at a time.
 - **Pause** (top-left button, or automatically when the app loses focus) freezes the clock and all traffic and shows
   Resume, Restart Shift, Quit to Menu and sound / music volume sliders (saved; the audio buses are ready, there is
   no audio content yet).
+
+- **Sound** is generated in code (no audio files): engine hums per aircraft type, landing chirp, coin, go-around roar,
+  conflict alarm, fine, wind-shift chime, last-arrivals / clear-the-sky stingers, overtime tick, UI taps, and a
+  two-layer music loop that intensifies towards the finale. It plays through the SFX / Music buses that the pause
+  menu sliders control. `?nofx=sound` turns it off.
 
 ## Debug / tuning URLs
 

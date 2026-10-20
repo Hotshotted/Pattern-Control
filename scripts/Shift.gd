@@ -18,6 +18,10 @@ var diversions := 0
 var crashes := 0
 var biggest_fine := 0            # the largest single fine so far, for the results-screen "refund" ad (0 = nothing to refund)
 var refunded := 0
+var time_bonus := 0              # coins for clearing the sky before par
+var early_seconds := 0
+var overtime_penalty := 0        # coins lost to overtime (grows live after par)
+var overtime_seconds := 0
 var just_stars := 0              # bitmask: stars reached by the latest call (for the "STAR!" feedback)
 
 func _init() -> void:
@@ -39,11 +43,25 @@ func reset(star_thresholds: Array) -> void:
 	crashes = 0
 	biggest_fine = 0
 	refunded = 0
+	time_bonus = 0
+	early_seconds = 0
+	overtime_penalty = 0
+	overtime_seconds = 0
 	just_stars = 0
 
 ## The shift's coin total so far (negative after a bad fine).
 func balance() -> int:
-	return earned + bonus - fines
+	return earned + bonus + time_bonus - fines - overtime_penalty
+
+## Past par: whole seconds over, each costing `rate` coins (updated live, so the balance shows it).
+func set_overtime(seconds: float, rate: int) -> void:
+	overtime_seconds = maxi(floori(seconds), 0)
+	overtime_penalty = overtime_seconds * rate
+
+## The sky is clear at `t`: before par, every whole second early earns `rate` coins.
+func set_finish(t: float, par: float, rate: int) -> void:
+	early_seconds = maxi(floori(par - t), 0)
+	time_bonus = early_seconds * rate
 
 ## What actually gets paid out: never below zero.
 func payout() -> int:

@@ -44,6 +44,12 @@ var _paid_payout := 0                 # the payout already credited this shift (
 var _slider_drag := -1                # pause menu: the volume slider being dragged
 var _pause_since_ms := 0
 var _last_land_t := -100.0            # run time of the previous landing (quick-succession bonus)
+var sfx: Sfx
+var _finale := 0                      # 0 spawning, 1 'LAST ARRIVALS' banner, 2 'CLEAR THE SKY' counter
+var _finale_start := 0.0
+var _last_over := -1
+var _last_wind_deg := -1.0
+var _hum_counts := PackedInt32Array([0, 0, 0, 0, 0, 0])
 var _doubled := false                 # the rewarded "double coins" is once per shift
 var ads_shown := 0                    # (tests) how many fake ads have played
 var streak := 0                       # landings in a row, each within Tuning.streak_window_seconds of the last
@@ -115,6 +121,8 @@ func _ready() -> void:
 	airfield.show_upgrades()
 	apply_cosmetics()
 	_apply_volumes()
+	sfx = Sfx.new()
+	add_child(sfx)
 	rng_env.randomize()
 	hud.set_best(Save.best_for(airport))
 	if DebugFlags.tune_enabled():
@@ -204,6 +212,9 @@ func restart() -> void:
 	_last_land_t = -100.0
 	_results_ad_used = false
 	_paid_payout = 0
+	_finale = 0
+	_last_over = -1
+	hud.set_finale("", Color.WHITE, false)
 	_slider_drag = -1
 	hud.hide_pause()
 	_drag_index = -1
@@ -233,7 +244,7 @@ func restart() -> void:
 	traffic.half_w = view_size * 0.5
 	traffic.half_h = _half_height()
 	traffic.release_all()
-	traffic.spawn_until = Tuning.shift_seconds
+	traffic.spawn_until = Tuning.spawn_stop_seconds
 	wind.start(rng_env)
 	weather.start()
 	_event_key = ""
@@ -343,23 +354,70 @@ func step(delta: float) -> void:
 		if p.active():
 			worst = maxf(worst, p.warn)
 	hud.set_alert(alive and worst > 0.55)
-	hud.set_shift_fraction(traffic.run_time / maxf(Tuning.shift_seconds, 1.0))
-	if traffic.run_time < Tuning.shift_seconds or weather.phase != Weather.Phase.IDLE:
-		weather.step(delta, traffic.run_time / maxf(Tuning.shift_seconds, 1.0), rng_env, wind)
+	var t := traffic.run_time
+	var frac := clampf(t / maxf(Tuning.spawn_stop_seconds, 1.0), 0.0, 1.0)
+	hud.set_shift_fraction(frac)
+	if t < Tuning.spawn_stop_seconds or weather.phase != Weather.Phase.IDLE:
+		weather.step(delta, frac, rng_env, wind)
 		var key := "%d:%d" % [weather.phase, ceili(weather.left)]
 		if key != _event_key:    # (the banner text is only rebuilt when the second changes)
 			_event_key = key
 			hud.set_event_banner(weather.banner(), weather.phase == Weather.Phase.WARN)
-	if traffic.run_time < Tuning.shift_seconds:
-		wind.step(delta, traffic.run_time / maxf(Tuning.shift_seconds, 1.0), rng_env)
+	if t < Tuning.spawn_stop_seconds:
+		wind.step(delta, frac, rng_env)
 		if wind.warning:
 			hud.set_wind_warning(wind.next_deg, ceili(wind.countdown))
+	if wind.from_deg != _last_wind_deg:
+		if _last_wind_deg >= 0.0:
+			sfx.play("wind")
+		_last_wind_deg = wind.from_deg
 	if _drag_active and (_drag_plane == null or not _drag_plane.active()):
 		_cancel_drag()
-	hud.set_timer(ceili(maxf(Tuning.shift_seconds - traffic.run_time, 0.0)))
-	# The shift always ends at the clock.
-	if alive and traffic.run_time >= Tuning.shift_seconds:
+	_step_clock(t)
+	_update_audio(frac)
+
+## The shift clock, the overtime meter and the finale: spawning stops, the last arrivals come in, and the shift
+## ends only when every aircraft has landed or been lost.
+func _step_clock(t: float) -> void:
+	var par := Tuning.shift_seconds
+	if t < par:
+		hud.set_timer(ceili(par - t))
+	else:
+		var over := floori(t - par)
+		hud.set_overtime(over)
+		shift.set_overtime(t - par, int(Tuning.overtime_penalty_per_second))
+		if over != _last_over:
+			_last_over = over
+			if over > 0:
+				sfx.play("tick")
+			hud.set_shift(shift)
+	if t < Tuning.spawn_stop_seconds or not alive:
+		return
+	var left := traffic.remaining()
+	if _finale == 0:
+		_finale = 1
+		_finale_start = t
+		sfx.play("last_arrivals")
+		_note_event("last arrivals")
+	elif _finale == 1 and t - _finale_start >= Tuning.last_arrivals_seconds:
+		_finale = 2
+		sfx.play("clear_sky")
+	if _finale == 1:
+		hud.set_finale("LAST ARRIVALS", Color(1.0, 0.85, 0.3), true)
+	else:
+		hud.set_finale("CLEAR THE SKY  %d left" % left, Color(1.0, 0.45, 0.4) if t >= par else Color(0.7, 0.95, 1.0), false)
+	if left == 0:
 		_end_shift()
+
+## Hums follow the aircraft on the field; the music intensifies through the shift and towards the finale.
+func _update_audio(frac: float) -> void:
+	_hum_counts.fill(0)
+	for p in traffic.planes:
+		if p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD:
+			if p.entered and not p.fogged:
+				_hum_counts[p.type] += 1
+	sfx.set_hum_counts(_hum_counts)
+	sfx.set_music(true, frac, 1.0 if _finale > 0 else 0.0)
 
 # ---------- Game events ----------
 
@@ -384,6 +442,8 @@ func _on_landed(p: Aircraft) -> void:
 	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
 	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
+	sfx.play("landing")
+	sfx.play("coin")
 	hud.set_landed(score, true)
 	hud.set_shift(shift)
 	fx.burst(land_at, col)
@@ -425,6 +485,7 @@ func _star_feedback(at: Vector2) -> void:
 ## A fine: coins come off the balance (it may go negative) with a red popup.
 func _apply_fine(amount: int, kind: String, label: String, world_at: Vector2) -> void:
 	shift.fine(amount, kind)
+	sfx.play("fine")
 	hud.set_shift(shift)
 	hud.popup("%s  -%d" % [label, amount], Color(1.0, 0.25, 0.2), overlay.world_to_screen(world_at))
 	hud.flash(Color(1.0, 0.2, 0.15))
@@ -442,6 +503,7 @@ func _on_crashed(p: Aircraft, kind: int) -> void:
 ## A go-around: the aircraft climbs out along the runway heading and needs a new path (it keeps its timer).
 func _on_go_around(p: Aircraft, reason: int) -> void:
 	var why := Approach.reason_text(reason)
+	sfx.play("go_around")
 	hud.popup("Go-around!" if why == "" else "Go-around!\n%s" % why, Color(1, 0.85, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
 	overlay.ripple(p.pos, Color(1, 0.85, 0.3), 0.7)
 	if not DebugFlags.off("haptic"):
@@ -587,6 +649,7 @@ func _conflict(a: Aircraft, b: Aircraft, label: String) -> void:
 	if not alive:
 		return
 	var mid := (a.pos + b.pos) * 0.5
+	sfx.play("alarm")
 	fx.burst(mid, Color(1.0, 0.5, 0.1), true)
 	fx.burst(mid, Color(1.0, 0.15, 0.1), true)
 	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
@@ -611,6 +674,14 @@ func _end_shift() -> void:
 	_death_ms = Time.get_ticks_msec()
 	_paid_payout = 0
 	_daily_note = ""
+	hud.set_finale("", Color.WHITE, false)
+	var t_end := traffic.run_time
+	if t_end < Tuning.shift_seconds:
+		shift.set_finish(t_end, Tuning.shift_seconds, int(Tuning.early_bonus_per_second))
+	else:
+		shift.set_overtime(t_end - Tuning.shift_seconds, int(Tuning.overtime_penalty_per_second))
+	sfx.silence_hums()
+	sfx.play("clear_sky" if shift.balance() >= 0 else "fine")
 	var gained := _settle()
 	if not daily_mode:
 		Save.submit_best(airport, shift.landed)
@@ -663,7 +734,7 @@ func _settle() -> Dictionary:
 	return {"coins": coins, "first_stars": first_stars, "new_best": is_best, "note": note}
 
 func _reason_text() -> String:
-	return "Landings +%d   Bonuses +%d   Fines -%d\nShift total %d%s%s" % [shift.earned, shift.bonus, shift.fines, shift.balance(), "  (paid as 0)" if shift.balance() < 0 else "", _daily_note]
+	return "Landings +%d   Bonuses +%d   Fines -%d\nTime bonus +%d (%d s early)   Overtime -%d (%d s over)\nShift total %d%s%s" % [shift.earned, shift.bonus, shift.fines, shift.time_bonus, shift.early_seconds, shift.overtime_penalty, shift.overtime_seconds, shift.balance(), "  (paid as 0)" if shift.balance() < 0 else "", _daily_note]
 
 ## Fill in the results screen from `last_result`; the rewarded offers show until one has been used.
 func _show_results(doubled: bool) -> void:
@@ -677,6 +748,7 @@ func _show_results(doubled: bool) -> void:
 func pause_game() -> void:
 	if screen != SCREEN_PLAY or not alive:
 		return
+	sfx.play("tap")
 	screen = SCREEN_PAUSE
 	_pause_since_ms = Time.get_ticks_msec()
 	_cancel_drag()
@@ -767,6 +839,7 @@ func _touch_down(index: int, pos: Vector2) -> void:
 
 ## A button / card on the menu, results or airport screen.
 func _on_button(id: String) -> void:
+	sfx.play("tap")
 	if id == "airports":
 		_show_select()
 	elif id == "upgrades":

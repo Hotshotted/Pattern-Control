@@ -162,6 +162,14 @@ func _build_node() -> void:
 
 # ---------- Spawning ----------
 
+## Aircraft still to land or be lost (a diverting one counts as lost).
+func remaining() -> int:
+	var n := 0
+	for p in planes:
+		if p.state != Aircraft.State.IDLE and p.state != Aircraft.State.DIVERT:
+			n += 1
+	return n
+
 func active_count() -> int:
 	var n := 0
 	for p in planes:
