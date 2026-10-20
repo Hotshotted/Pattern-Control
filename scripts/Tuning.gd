@@ -164,10 +164,10 @@ var crosswind_seconds := 16.0
 
 # ---------- Timed shifts, coins and fines ----------
 ## A shift lasts exactly this long (seconds), shown as a countdown. Aircraft keep arriving until it ends.
-var shift_seconds := 90.0            # PAR time: finish by here for a bonus, after it the clock runs red and costs coins
+var shift_seconds := 100.0           # PAR time (15 s after spawning stops): finish by here for a bonus, after it the clock runs red and costs coins
 var spawn_stop_seconds := 85.0       # no new arrivals after this: "LAST ARRIVALS", then "CLEAR THE SKY"
-var early_bonus_per_second := 10     # coins per whole second the sky is clear before par
-var overtime_penalty_per_second := 6 # coins per whole second after par
+var early_bonus_per_second := 6      # coins per whole second the sky is clear before par
+var overtime_penalty_per_second := 4 # coins per whole second after par
 var last_arrivals_seconds := 3.0     # how long the "LAST ARRIVALS" banner shows before the "CLEAR THE SKY" counter
 ## What a landing pays, by aircraft type (special aircraft pay more).
 var pay_glider := 22
@@ -217,6 +217,7 @@ var bad_day_threshold_mult := 2.5    # ...so the star thresholds are higher
 var bad_day_bonus_mult := 2.0        # ...and so is the completion bonus
 var go_around_climb_seconds := 1.6   # how long the climb-out lift shows
 ## The first time a star is ever earned at an airport it pays this much extra.
+var landing_keep_fraction := 0.5   # the share of a shift's landing pay that is always kept, whatever the fines
 var coins_first_star_bonus := 100
 
 # ---------- Entry warning ----------

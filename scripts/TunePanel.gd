@@ -54,6 +54,7 @@ const ENTRIES := [
 	["student_go_around_floor", "Student pilots: go-around floor", 0.0, 1.0, 0.05],
 	["bad_day_go_around_floor", "Bad Pilot Day: go-around floor", 0.0, 1.0, 0.05],
 	["bad_day_pay_mult", "Bad Pilot Day: pay multiplier", 1.0, 5.0, 0.5],
+	["landing_keep_fraction", "Guaranteed share of landing pay", 0.0, 1.0, 0.05],
 	["pay_glider", "Pay: glider", 0.0, 100.0, 1.0],
 	["pay_heli", "Pay: helicopter", 0.0, 100.0, 1.0],
 	["pay_small", "Pay: small plane", 0.0, 100.0, 1.0],

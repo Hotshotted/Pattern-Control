@@ -514,7 +514,7 @@ func _initialize() -> void:
 		sx.timer_left = 0.01
 		main.step(1.0 / 60.0)
 	check(main.alive and main.shift.diversions == 3 and main.shift.balance() < 0, "three diversions don't end the shift; the balance is %d" % main.shift.balance())
-	check(main.shift.payout() == 0, "a negative balance pays out as zero")
+	check(main.shift.payout() == 0, "with nothing landed a negative balance pays out zero (the guaranteed share of nothing)")
 	tr.release_all()
 	tr.spawn_until = 0.0
 	tr.run_time = tuning.shift_seconds + 0.01
@@ -634,10 +634,10 @@ func _initialize() -> void:
 	var pay_pre = main.shift.payout()
 	main._on_button("ad_refund")
 	check(main.screen == main.SCREEN_OVER and main.shift.fines == int(tuning.fine_timeout) + int(tuning.fine_hazard), "watching it refunds the biggest fine (the %d one)" % int(tuning.fine_conflict))
-	check(main.shift.payout() == pay_pre + int(tuning.fine_conflict), "...so the payout goes up")
+	check(main.shift.payout() == maxi(main.shift.balance(), main.shift.kept()) and main.shift.payout() > pay_pre, "...so the payout goes up (the guaranteed %d -> %d)" % [pay_pre, main.shift.payout()])
 	var stars_now = main.shift.stars()
 	check(save.stars_of(main.airport) == stars_now and stars_now > stars_pre, "...and stars are re-awarded (%d -> %d)" % [stars_pre, stars_now])
-	check(save.coins == coins_pre9 + int(tuning.fine_conflict) + (stars_now - stars_pre) * int(tuning.coins_first_star_bonus), "...with the extra coins credited once (%d -> %d)" % [coins_pre9, save.coins])
+	check(save.coins == coins_pre9 + (main.shift.payout() - pay_pre) + (stars_now - stars_pre) * int(tuning.coins_first_star_bonus), "...with the extra coins credited once (%d -> %d)" % [coins_pre9, save.coins])
 	check(not has_btn(main, "ad_refund") and not has_btn(main, "ad_double") and has_btn(main, "menu"), "only one of the two ads per shift: both are gone now")
 	check(main.hud._over_body.text.contains("refunded"), "the results say the fine was refunded")
 	# ...and the other way round: doubling removes the refund.
@@ -1327,21 +1327,21 @@ func _initialize() -> void:
 	for k in main.hud._art.btn_count:
 		ids_menu.append(main.hud._art.btn_id[k])
 	check(ids_menu.has("upgrades") and ids_menu.has("airports"), "the menu has Airports and Upgrades buttons")
-	save.add_coins(200)
+	save.add_coins(100)
 	main._on_button("upgrades")
 	check(main.screen == main.SCREEN_UPGRADES and main.hud._select.visible and main.hud._select_title.text == "UPGRADES", "the upgrade shop opens")
 	var cards2 = {}
 	for k in main.hud._art.btn_count:
 		cards2[main.hud._art.btn_id[k]] = [main.hud._art.btn_rect[k], main.hud._art.btn_state[k], main.hud._art.btn_stars[k]]
 	check(cards2.has("upg:radar") and cards2.has("upg:turnoffs") and cards2.has("back"), "one card per upgrade, plus Back")
-	check(cards2["upg:comms"][1] == 2 and cards2["upg:radar"][1] == 1, "affordable cards are highlighted, unaffordable ones dim (200 coins)")
+	check(cards2["upg:comms"][1] == 2 and cards2["upg:radar"][1] == 1, "affordable cards are highlighted, unaffordable ones dim (100 coins)")
 	touch(main, 0, true, cards2["upg:radar"][0].get_center())
 	touch(main, 0, false, cards2["upg:radar"][0].get_center())
-	check(save.upgrade_level("radar") == 0 and save.coins == 200, "tapping an unaffordable card buys nothing")
+	check(save.upgrade_level("radar") == 0 and save.coins == 100, "tapping an unaffordable card buys nothing")
 	var snap_shop = snapshot(main)
 	touch(main, 0, true, cards2["upg:comms"][0].get_center())
 	touch(main, 0, false, cards2["upg:comms"][0].get_center())
-	check(save.upgrade_level("comms") == 1 and save.coins == 200 - Upgrades.cost("comms", 0), "tapping an affordable card buys it (%d coins left)" % save.coins)
+	check(save.upgrade_level("comms") == 1 and save.coins == 100 - Upgrades.cost("comms", 0), "tapping an affordable card buys it (%d coins left)" % save.coins)
 	check(main.screen == main.SCREEN_UPGRADES and main.hud._art.btn_text[main.hud._art.btn_id.find("upg:comms")].ends_with("Lv 1"), "the card shows the new level")
 	var pop_up = false
 	for l in main.hud._pop_labels:
@@ -2095,7 +2095,7 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 
 	print("9j. shift length, pause menu")
-	check(tuning.shift_seconds == 90.0, "a shift is 90 seconds")
+	check(tuning.shift_seconds == 100.0 and tuning.spawn_stop_seconds == 85.0, "par is 100 s, 15 s after spawning stops")
 	var th_txt = []
 	for ai in Airports.COUNT:
 		th_txt.append(str(Airports.star_thresholds(ai)))
@@ -2269,7 +2269,7 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	earn_coins(main, 100)
-	tr.run_time = 86.4
+	tr.run_time = tuning.shift_seconds - 3.6
 	main.step(1.0 / 60.0)
 	check(not main.alive and main.shift.early_seconds == 3 and main.shift.time_bonus == 3 * int(tuning.early_bonus_per_second), "clearing the sky 3.5 s before par pays %d coins per whole second early (%d)" % [int(tuning.early_bonus_per_second), main.shift.time_bonus])
 	check(main.last_result["reason"].contains("Time bonus +%d (3 s early)" % main.shift.time_bonus) and main.last_result["reason"].contains("Overtime -0 (0 s over)"), "the results show the time bonus and the overtime lines")
@@ -2283,7 +2283,7 @@ func _initialize() -> void:
 	earn_coins(main, 100)
 	var k9_bal_par = main.shift.balance()
 	var k9_ticks0 = main.sfx.plays["tick"]
-	tr.run_time = 89.9
+	tr.run_time = tuning.shift_seconds - 0.1
 	main.step(1.0 / 60.0)
 	check(main.alive and main.hud._best.text.begins_with("0:0"), "just before par the clock still counts down (%s)" % main.hud._best.text)
 	for i in 60 * 8:
@@ -2363,6 +2363,70 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
+	print("9l. guaranteed earnings, upgrade prices")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	# Shift bookkeeping on its own.
+	var sh = Shift.new()
+	sh.reset([50, 100, 160], 0.5)
+	sh.on_landed(MEDIUM, 100, 30)
+	check(sh.kept() == 50 and sh.balance() == 130 and sh.payout() == 130, "a clean shift pays everything: net 130, kept 50")
+	sh.fine(60, "conflict")
+	check(sh.balance() == 70 and sh.payout() == 70, "fines come off the bonuses and the other half of landing pay first (net 70)")
+	sh.fine(400, "conflict")
+	check(sh.balance() == -330 and sh.payout() == 50 and sh.stars() == 0, "a disaster still pays the guaranteed half of landing pay (50), and earns no stars")
+	sh.set_overtime(30.0, 4)
+	check(sh.payout() == 50 and sh.balance() == -330 - 120, "overtime cannot cut into the guaranteed share either")
+	sh.reset([50, 100, 160], 0.5)
+	sh.on_landed(MEDIUM, 100, 0)
+	sh.on_landed(MEDIUM, 25, 0)
+	check(sh.kept() == 62, "the guaranteed share rounds down (62 of 125)")
+	check(tuning.landing_keep_fraction == 0.5, "the guaranteed share is a Tuning value (50%%)")
+	# A failed shift in the real game: lots of landings, then conflicts.
+	var coins_before = save.coins
+	earn_coins(main, 100)
+	var earned_l = main.shift.earned
+	for k in 6:
+		main._apply_fine(int(tuning.fine_conflict), "conflict", "CONFLICT", Vector2.ZERO)
+	check(main.shift.balance() < 0, "six conflicts push the net negative (%d)" % main.shift.balance())
+	check(main.shift.stars() == 0, "...and stars use the net: none")
+	tr.release_all()
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 0.01
+	main.step(1.0 / 60.0)
+	check(main.last_result["payout"] == earned_l / 2 and save.coins == coins_before + earned_l / 2, "a failed shift still pays the guaranteed half of landing pay (%d)" % (earned_l / 2))
+	var body = main.hud._over_body.text
+	check(body.contains("Landings earned +%d" % earned_l) and body.contains("Fines -%d" % (6 * int(tuning.fine_conflict))) and body.contains("Kept (guaranteed) %d" % (earned_l / 2)) and body.contains("Net total %d" % main.shift.balance()) and body.contains("Total paid +%d" % (earned_l / 2)), "the results show landings earned, fines, kept and the total")
+	# A raised share is respected.
+	tuning.landing_keep_fraction = 0.8
+	main.restart()
+	tr.auto_spawn = false
+	earn_coins(main, 50)
+	check(main.shift.kept() == floori(main.shift.earned * 0.8), "the guaranteed share follows the Tuning value")
+	tuning.landing_keep_fraction = 0.5
+	# Upgrade prices: the first one is within reach after 1-2 poor shifts, and they keep coming.
+	var poor_kept = floori(5.0 * tuning.pay_medium * tuning.landing_keep_fraction)
+	var l1 = []
+	for id in Upgrades.IDS:
+		l1.append(Upgrades.cost(id, 0))
+	l1.sort()
+	check(l1[0] <= 2 * poor_kept, "the cheapest upgrade (%d) costs at most two poor shifts' guaranteed pay (2 x %d)" % [l1[0], poor_kept])
+	var steady = true
+	var cum_cost = 0
+	for k in l1.size():
+		cum_cost += l1[k]
+		steady = steady and cum_cost <= (k + 1) * 4 * poor_kept
+	check(steady, "...and the first six upgrades come steadily: all of them within %d poor shifts (%d coins in total)" % [ceili(float(cum_cost) / poor_kept), cum_cost])
+	check(tuning.shift_seconds - tuning.spawn_stop_seconds == 15.0 and tuning.early_bonus_per_second * 15.0 <= 100.0 and tuning.overtime_penalty_per_second < tuning.early_bonus_per_second, "par leaves a 15 s window; the early bonus tops out at %d coins, overtime costs %d per second" % [int(tuning.early_bonus_per_second * 15.0), int(tuning.overtime_penalty_per_second)])
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
@@ -2378,7 +2442,7 @@ func _initialize() -> void:
 		tr.auto_spawn = true
 		check(main.alive and main.score == 0 and tr.active_count() == 0, "run %d starts clean" % (run + 1))
 		# An autopilot: sends every plane that is on screen to its runway.
-		for i in 60 * 90:
+		for i in 60 * 100:
 			if not main.alive:
 				break
 			for pl in tr.planes:
@@ -2399,7 +2463,7 @@ func _initialize() -> void:
 	var after = snapshot(main)
 	check(same_world(base, after), "4 whole runs created nothing new  [%s]" % describe(after))
 	check(save.best_for(main.airport) == best_seen, "the best score is remembered (%d)" % save.best_for(main.airport))
-	check(main.hud._over_body.text.contains("Landings +%d" % main.shift.earned), "the results screen shows the landing coins")
+	check(main.hud._over_body.text.contains("Landings earned +%d" % main.shift.earned) and main.hud._over_body.text.contains("Kept (guaranteed) %d" % main.shift.kept()), "the results screen shows landings earned, fines, kept and the total")
 	# Tap on the game-over screen restarts in place (after the 0.6 s guard).
 	await real_wait(0.7)
 	touch(main, 0, true, Vector2(540, 900))

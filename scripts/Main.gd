@@ -114,7 +114,7 @@ func _ready() -> void:
 	Airports.current = airport
 	airfield.select(airport)
 	traffic.load_terrain()
-	shift.reset(Airports.star_thresholds())
+	shift.reset(Airports.star_thresholds(), Tuning.landing_keep_fraction)
 	wind.start(rng_env)
 	airfield.show_active(wind)
 	hud.set_wind(wind.from_deg, wind.toward_deg())
@@ -237,7 +237,7 @@ func restart() -> void:
 	Airports.current = airport
 	airfield.select(airport)
 	traffic.load_terrain()
-	shift.reset(_thresholds())
+	shift.reset(_thresholds(), Tuning.landing_keep_fraction)
 	fx.clear()
 	overlay.clear()
 	airfield.reset()
@@ -734,7 +734,10 @@ func _settle() -> Dictionary:
 	return {"coins": coins, "first_stars": first_stars, "new_best": is_best, "note": note}
 
 func _reason_text() -> String:
-	return "Landings +%d   Bonuses +%d   Fines -%d\nTime bonus +%d (%d s early)   Overtime -%d (%d s over)\nShift total %d%s%s" % [shift.earned, shift.bonus, shift.fines, shift.time_bonus, shift.early_seconds, shift.overtime_penalty, shift.overtime_seconds, shift.balance(), "  (paid as 0)" if shift.balance() < 0 else "", _daily_note]
+	var net_line := "Net total %d (stars)   Kept (guaranteed) %d" % [shift.balance(), shift.kept()]
+	if shift.balance() < shift.kept():
+		net_line += "  <- you keep this much"
+	return "Landings earned +%d   Bonuses +%d   Fines -%d\nTime bonus +%d (%d s early)   Overtime -%d (%d s over)\n%s%s" % [shift.earned, shift.bonus, shift.fines, shift.time_bonus, shift.early_seconds, shift.overtime_penalty, shift.overtime_seconds, net_line, _daily_note]
 
 ## Fill in the results screen from `last_result`; the rewarded offers show until one has been used.
 func _show_results(doubled: bool) -> void:

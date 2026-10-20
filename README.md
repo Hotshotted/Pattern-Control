@@ -16,14 +16,16 @@ You run an airport, one **shift** at a time.
 - Every aircraft has a **timer ring** that runs down from the moment it is on screen (green, then yellow,
   then red). Circling burns it more slowly. When it runs out the aircraft is **diverted: a small fine**.
 - **Two aircraft getting too close is a large fine and both are lost.** A warning ring grows around them first.
-- **Every shift is timed** (90 seconds par, a countdown at the top). There is no instant game over. Arrivals stop
+- **Every shift is timed** (100 seconds par, a countdown at the top). There is no instant game over. Arrivals stop
   at 85 s ("LAST ARRIVALS"), then it is **CLEAR THE SKY**: the shift ends only when every aircraft has landed or been
   lost (timers keep running). Clearing before par pays a bonus per second early; after par the clock turns red,
   counts up, and costs coins per second (both rates in Tuning, both shown on the results). The traffic ramp is
   scaled to the spawning window, so every shift builds to the same busy finish.
   Each landing pays coins (more for special aircraft; landings close together earn a quick-succession bonus).
   Fines come off the balance (conflict large, diversion small, terrain/storm medium); it can go negative
-  during a shift but the payout never goes below zero.
+  during a shift. **Every shift pays something:** half of the landing pay is always kept (Tuning
+  `landing_keep_fraction`), and fines and overtime only eat into what is above that. Stars use the net after fines.
+  The results show landings earned, fines, the guaranteed share kept, and the total paid.
 - New aircraft get a pulsing edge glow about 2 s before they appear (green slow, yellow medium, red fast).
 - **Wind:** a windsock and a wind arrow show it. Aircraft can only land on runway ends facing roughly into the wind (those are bright; the others are dull with an X). The wind shifts during a shift with a banner ~8 s ahead ("Wind shifting to 270"); aircraft already cleared to an end that closes get a dashed red path and must be re-routed.
 - **Six airports**, unlocked by total stars: Grass Strip (one runway, both directions), County (crossing
@@ -77,6 +79,12 @@ You run an airport, one **shift** at a time.
   conflict alarm, fine, wind-shift chime, last-arrivals / clear-the-sky stingers, overtime tick, UI taps, and a
   two-layer music loop that intensifies towards the finale. It plays through the SFX / Music buses that the pause
   menu sliders control. `?nofx=sound` turns it off.
+
+## Economy simulation
+
+`tools/economy_sim.gd` plays the real game with poor / average / good autopilots for their first 20 shifts and prints
+coins per shift, stars and when each upgrade becomes affordable (`godot --headless --path . --script
+tools/economy_sim.gd`, optional `-- shifts=5 modes=saving`). The last full run is in `tools/economy_sim_results.txt`.
 
 ## Debug / tuning URLs
 

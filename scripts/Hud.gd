@@ -553,8 +553,8 @@ func _build_over() -> void:
 	_over_head = _label(96, HORIZONTAL_ALIGNMENT_CENTER, _over)
 	_centered(_over_head, -700, -480)
 	_over_head.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
-	_over_body = _label(40, HORIZONTAL_ALIGNMENT_CENTER, _over)
-	_centered(_over_body, 330, 630)
+	_over_body = _label(36, HORIZONTAL_ALIGNMENT_CENTER, _over)
+	_centered(_over_body, 320, 630)
 	_over.visible = false
 
 ## Small "commit . build time" tag bottom-left (BuildInfo.gd is rewritten by the workflow), with any
@@ -596,7 +596,7 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	_art.result_animal = animal
 	_art.result_quote = quote
 	_over_head.text = header
-	_over_body.text = "%s\nPayout +%d coins%s   (total %d)\n%s\nTap anywhere to fly again" % [reason, coins_earned, "  (doubled!)" if doubled else "", coins_total, "NEW BEST!" if new_best else "best payout %d" % best]
+	_over_body.text = "%s\nTotal paid +%d coins%s   (bank %d)\n%s\nTap anywhere to fly again" % [reason, coins_earned, "  (doubled!)" if doubled else "", coins_total, "NEW BEST!" if new_best else "best payout %d" % best]
 	for i in 3:
 		_art.goal_state[i] = 1 if shift.balance() >= shift.thresholds[i] else 0
 		_art.goal_text[i] = "%d coins" % shift.thresholds[i]
