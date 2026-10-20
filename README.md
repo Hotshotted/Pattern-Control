@@ -16,7 +16,7 @@ You run an airport, one **shift** at a time.
 - Every aircraft has a **timer ring** that runs down from the moment it is on screen (green, then yellow,
   then red). Circling burns it more slowly. When it runs out the aircraft is **diverted: a small fine**.
 - **Two aircraft getting too close is a large fine and both are lost.** A warning ring grows around them first.
-- **Every shift is timed** (3 minutes by default, a countdown at the top). There is no instant game over.
+- **Every shift is timed** (90 seconds by default, a countdown at the top). There is no instant game over.
   Each landing pays coins (more for special aircraft; landings close together earn a quick-succession bonus).
   Fines come off the balance (conflict large, diversion small, terrain/storm medium); it can go negative
   during a shift but the payout never goes below zero.
@@ -48,8 +48,8 @@ You run an airport, one **shift** at a time.
 - **Ads (stubs, no real ads yet):** a rewarded "undo the conflict and keep going" (once per shift), a rewarded
   "double coins" on the results screen, and an interstitial only between shifts, at most every third one. Each
   shows a fake "Ad playing" screen.
-- Each airport has **three coin thresholds** that give the shift's stars. The rewarded ad becomes
-  "refund the last fine" (once per shift); "double coins" stays on the results. Stars, coins and bests are saved
+- Each airport has **three coin thresholds** that give the shift's stars. On the results screen
+  there is one rewarded ad per shift: "refund your biggest fine" or "double coins". Stars, coins and bests are saved
   (save format v3).
 
 - **Go-arounds are earned.** When an aircraft reaches short final its approach is scored: turning in the last
@@ -64,6 +64,10 @@ You run an airport, one **shift** at a time.
 - **Bad Pilot Day** is a second daily challenge on the menu (next to the Daily Shift): every aircraft is a student
   pilot, go-arounds are very likely and every landing pays big. It has its own airport, thresholds, best score and
   streak. Same seeded arrivals for everyone on the same day.
+
+- **Pause** (top-left button, or automatically when the app loses focus) freezes the clock and all traffic and shows
+  Resume, Restart Shift, Quit to Menu and sound / music volume sliders (saved; the audio buses are ready, there is
+  no audio content yet).
 
 ## Debug / tuning URLs
 

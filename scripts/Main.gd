@@ -10,6 +10,7 @@ const SCREEN_SELECT := 3
 const SCREEN_UPGRADES := 4
 const SCREEN_SHOP := 5
 const SCREEN_AD := 6
+const SCREEN_PAUSE := 7
 
 const HEADER_DONE := "SHIFT\nCOMPLETE"
 
@@ -38,8 +39,10 @@ var shop_tab := 0                     # 0 themes, 1 liveries
 var _ad_kind := ""
 var _ad_left := 0.0
 var _ad_done: Callable
-var _refund_used := false             # the rewarded "refund the last fine" is once per shift
-var _refund_until := 0.0              # run time until which the refund offer stays up
+var _results_ad_used := false        # on the results, one rewarded offer (double coins OR refund) per shift
+var _paid_payout := 0                 # the payout already credited this shift (a refund only adds the difference)
+var _slider_drag := -1                # pause menu: the volume slider being dragged
+var _pause_since_ms := 0
 var _last_land_t := -100.0            # run time of the previous landing (quick-succession bonus)
 var _doubled := false                 # the rewarded "double coins" is once per shift
 var ads_shown := 0                    # (tests) how many fake ads have played
@@ -111,6 +114,7 @@ func _ready() -> void:
 	hud.set_wind(wind.from_deg, wind.toward_deg())
 	airfield.show_upgrades()
 	apply_cosmetics()
+	_apply_volumes()
 	rng_env.randomize()
 	hud.set_best(Save.best_for(airport))
 	if DebugFlags.tune_enabled():
@@ -198,8 +202,10 @@ func restart() -> void:
 	_paused_total_ms = 0
 	_skip_frames = 0
 	_last_land_t = -100.0
-	_refund_used = false
-	_refund_until = 0.0
+	_results_ad_used = false
+	_paid_payout = 0
+	_slider_drag = -1
+	hud.hide_pause()
 	_drag_index = -1
 	_drag_plane = null
 	_drag_active = false
@@ -292,6 +298,8 @@ func _hitch_context() -> String:
 func _notification(what: int) -> void:
 	match what:
 		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+			if screen == SCREEN_PLAY and alive and not _warming:
+				pause_game()      # losing focus pauses the shift: it is waiting behind the pause menu when you come back
 			if not _suspended:
 				_suspended = true
 				_paused_since_ms = Time.get_ticks_msec()
@@ -314,7 +322,7 @@ func _process(raw_delta: float) -> void:
 	traffic.half_h = _half_height()
 	if screen == SCREEN_AD:
 		_tick_ad(raw_delta)
-	if _warming or not alive:
+	if _warming or not alive or screen == SCREEN_PAUSE:
 		return
 	var delta := _frame_delta(raw_delta)
 	if DebugFlags.perf_enabled():
@@ -325,8 +333,10 @@ func _process(raw_delta: float) -> void:
 	elapsed += delta
 	step(delta)
 
-## One simulation step (the tests call this directly).
+## One simulation step (the tests call this directly). A paused shift does not advance.
 func step(delta: float) -> void:
+	if screen == SCREEN_PAUSE:
+		return
 	traffic.step(delta)
 	var worst := 0.0
 	for p in traffic.planes:
@@ -347,9 +357,6 @@ func step(delta: float) -> void:
 	if _drag_active and (_drag_plane == null or not _drag_plane.active()):
 		_cancel_drag()
 	hud.set_timer(ceili(maxf(Tuning.shift_seconds - traffic.run_time, 0.0)))
-	if _refund_until > 0.0 and traffic.run_time > _refund_until:
-		_refund_until = 0.0
-		hud.set_refund_offer(0)
 	# The shift always ends at the clock.
 	if alive and traffic.run_time >= Tuning.shift_seconds:
 		_end_shift()
@@ -415,7 +422,7 @@ func _star_feedback(at: Vector2) -> void:
 	var vp := get_viewport().get_visible_rect().size
 	hud.popup("STAR!", Color(1.0, 0.84, 0.15), Vector2(vp.x * 0.5, vp.y * 0.3))
 
-## A fine: coins come off the balance (it may go negative), a red popup, and the refund ad is offered.
+## A fine: coins come off the balance (it may go negative) with a red popup.
 func _apply_fine(amount: int, kind: String, label: String, world_at: Vector2) -> void:
 	shift.fine(amount, kind)
 	hud.set_shift(shift)
@@ -423,9 +430,6 @@ func _apply_fine(amount: int, kind: String, label: String, world_at: Vector2) ->
 	hud.flash(Color(1.0, 0.2, 0.15))
 	if not DebugFlags.off("haptic"):
 		Input.vibrate_handheld(80)
-	if not _refund_used:
-		_refund_until = traffic.run_time + Tuning.refund_offer_seconds
-		hud.set_refund_offer(shift.last_fine)
 
 ## An aircraft flew into terrain or a storm cell: lost, and a medium fine.
 func _on_crashed(p: Aircraft, kind: int) -> void:
@@ -605,17 +609,43 @@ func _end_shift() -> void:
 	alive = false
 	screen = SCREEN_OVER
 	_death_ms = Time.get_ticks_msec()
-	hud.set_refund_offer(0)
+	_paid_payout = 0
+	_daily_note = ""
+	var gained := _settle()
+	if not daily_mode:
+		Save.submit_best(airport, shift.landed)
+	Save.shifts_played += 1
+	Save.ads["since"] = int(Save.ads.get("since", 0)) + 1
+	Save.write_file()
+	over_header = HEADER_DONE
+	new_best = gained["new_best"]
+	last_result = {"header": HEADER_DONE, "reason": _reason_text(), "coins": gained["coins"], "payout": shift.payout(), "stars": shift.stars(), "first_stars": gained["first_stars"], "new_best": new_best}
+	over_reason = last_result["reason"]
+	_cancel_drag()
+	hud.set_alert(false)
+	hud.set_event_banner("")
+	hud.flash(Color(1, 0.84, 0.15))
+	hud.set_shift(shift)
+	_show_results(false)
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(150)
+
+var _daily_note := ""
+
+## Credit what the shift is worth right now and return what was added: coins, first-time stars, a new best, a note.
+## Safe to call again after a refund: it pays only the difference, and each star and daily bonus only once.
+func _settle() -> Dictionary:
 	var payout := shift.payout()
-	var coins := payout
+	var coins := payout - _paid_payout
+	_paid_payout = payout
 	var first_stars := 0
 	var stars := shift.stars()
-	if not daily_mode:       # (the daily shift doesn't earn permanent stars)
+	if not daily_mode:       # (the daily shifts don't earn permanent stars)
 		for i in stars:
 			if Save.award_star(airport, i):
 				first_stars += 1
 				coins += Tuning.coins_first_star_bonus
-	var daily_note := ""
+	var note := ""
 	if daily_mode:
 		var kind := "bad" if bad_mode else "daily"
 		Save.daily_note_score(payout, kind)
@@ -625,28 +655,59 @@ func _end_shift() -> void:
 			if bad_mode:
 				bonus = roundi(bonus * Tuning.bad_day_bonus_mult)
 			coins += bonus
-			daily_note = "\n%s bonus +%d  (streak %d)" % ["Bad Pilot Day" if bad_mode else "Daily", bonus, streak_now]
+			note = "\n%s bonus +%d  (streak %d)" % ["Bad Pilot Day" if bad_mode else "Daily", bonus, streak_now]
+			_daily_note = note
 	Save.add_coins(coins)
-	new_best = false if daily_mode else Save.submit_best_coins(airport, payout)
-	if not daily_mode:
-		Save.submit_best(airport, shift.landed)
-	Save.shifts_played += 1
-	Save.ads["since"] = int(Save.ads.get("since", 0)) + 1
+	var is_best := (not daily_mode) and Save.submit_best_coins(airport, payout)
 	Save.write_file()
-	var reason := "Landings +%d   Bonuses +%d   Fines -%d\nShift total %d%s%s" % [shift.earned, shift.bonus, shift.fines, shift.balance(), "  (paid as 0)" if shift.balance() < 0 else "", daily_note]
-	over_header = HEADER_DONE
-	over_reason = reason
-	last_result = {"header": HEADER_DONE, "reason": reason, "coins": coins, "payout": payout, "stars": stars, "first_stars": first_stars, "new_best": new_best}
-	_cancel_drag()
-	hud.set_alert(false)
-	hud.set_event_banner("")
-	hud.flash(Color(1, 0.84, 0.15))
-	hud.set_shift(shift)
+	return {"coins": coins, "first_stars": first_stars, "new_best": is_best, "note": note}
+
+func _reason_text() -> String:
+	return "Landings +%d   Bonuses +%d   Fines -%d\nShift total %d%s%s" % [shift.earned, shift.bonus, shift.fines, shift.balance(), "  (paid as 0)" if shift.balance() < 0 else "", _daily_note]
+
+## Fill in the results screen from `last_result`; the rewarded offers show until one has been used.
+func _show_results(doubled: bool) -> void:
 	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
-	hud.show_results(HEADER_DONE, reason, shift, coins, Save.coins, Save.best_coins_for(airport), new_best, lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]])
-	hud.set_double_button(coins > 0, coins)
-	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(150)
+	hud.show_results(HEADER_DONE, last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_coins_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], doubled)
+	hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
+
+# ---------- Pause and volume ----------
+
+## Freeze the shift (the clock and all traffic) behind the pause menu.
+func pause_game() -> void:
+	if screen != SCREEN_PLAY or not alive:
+		return
+	screen = SCREEN_PAUSE
+	_pause_since_ms = Time.get_ticks_msec()
+	_cancel_drag()
+	hud.show_pause(Save.sound_volume, Save.music_volume)
+
+func resume_game() -> void:
+	if screen != SCREEN_PAUSE:
+		return
+	_paused_total_ms += Time.get_ticks_msec() - _pause_since_ms
+	_skip_frames = Tuning.resume_skip_frames
+	screen = SCREEN_PLAY
+	hud.hide_pause()
+
+## Bus 0 = sound, 1 = music. (There is no audio content yet; the buses are ready for it.)
+func _set_volume(which: int, v: float) -> void:
+	if which == 0:
+		Save.sound_volume = v
+	else:
+		Save.music_volume = v
+	_apply_volumes()
+
+func _apply_volumes() -> void:
+	for pair in [["SFX", Save.sound_volume], ["Music", Save.music_volume]]:
+		var idx := AudioServer.get_bus_index(pair[0])
+		if idx < 0:
+			AudioServer.add_bus()
+			idx = AudioServer.bus_count - 1
+			AudioServer.set_bus_name(idx, pair[0])
+			AudioServer.set_bus_send(idx, "Master")
+		AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(pair[1], 0.0001)))
+		AudioServer.set_bus_mute(idx, pair[1] <= 0.001)
 
 # ---------- Input ----------
 
@@ -671,10 +732,14 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.index, event.position)
 
 func _touch_down(index: int, pos: Vector2) -> void:
-	if screen == SCREEN_PLAY and alive:
-		var play_id := hud.button_at(pos)
-		if play_id != "":            # the refund offer (the only button during a shift)
-			_on_button(play_id)
+	if screen == SCREEN_PLAY and alive and hud.pause_hit(pos):
+		pause_game()
+		return
+	if screen == SCREEN_PAUSE:
+		var sl := hud.slider_at(pos)
+		if sl >= 0:
+			_slider_drag = sl
+			_set_volume(sl, hud.slider_set(sl, pos.x))
 			return
 	if screen != SCREEN_PLAY:
 		var id := hud.button_at(pos)
@@ -720,7 +785,15 @@ func _on_button(id: String) -> void:
 	elif id == "bad":
 		start_bad_day()
 	elif id == "ad_refund":
-		show_ad("Reward: refund your last fine", func(): _refund_last_fine(), SCREEN_PLAY)
+		show_ad("Reward: refund your biggest fine", func(): _refund_biggest_fine(), SCREEN_OVER)
+	elif id == "resume":
+		resume_game()
+	elif id == "restart":
+		resume_game()
+		restart()
+	elif id == "quit":
+		resume_game()
+		_show_menu()
 	elif id == "ad_double":
 		show_ad("Reward: double your coins", func(): _double_coins(), SCREEN_OVER)
 	elif id.begins_with("upg:"):
@@ -768,7 +841,6 @@ func apply_cosmetics() -> void:
 	_env.ambient_light_energy = t["ambient_energy"]
 	sun.light_energy = t["sun"]
 	traffic.set_livery(li)
-	hud.set_pilot(Cosmetics.LIVERIES[li]["animal"])
 
 func _show_shop() -> void:
 	screen = SCREEN_SHOP
@@ -871,29 +943,31 @@ func _tick_ad(raw_delta: float) -> void:
 		screen = _ad_return
 		_ad_done.call()
 
-## After the ad: the last fine is given back and the shift carries on (the clock was paused during the ad).
-func _refund_last_fine() -> void:
-	_refund_used = true
-	_refund_until = 0.0
-	var amount := shift.refund_last()
-	hud.set_refund_offer(0)
+## After the ad (results screen): the biggest fine is given back, so the payout, stars and bonuses are worked out again.
+func _refund_biggest_fine() -> void:
+	_results_ad_used = true
+	var amount := shift.refund_biggest()
+	var gained := _settle()
+	last_result["coins"] += gained["coins"]
+	last_result["payout"] = shift.payout()
+	last_result["stars"] = shift.stars()
+	last_result["first_stars"] += gained["first_stars"]
+	last_result["new_best"] = last_result["new_best"] or gained["new_best"]
+	last_result["reason"] = "%s\nBiggest fine refunded +%d" % [_reason_text(), amount]
+	over_reason = last_result["reason"]
+	screen = SCREEN_OVER
+	_death_ms = Time.get_ticks_msec()
 	hud.set_shift(shift)
-	hud.resume_play()
-	screen = SCREEN_PLAY
-	alive = true
-	if amount > 0:
-		var vp := get_viewport().get_visible_rect().size
-		hud.popup("Refunded +%d" % amount, Color(0.5, 1.0, 0.6), Vector2(vp.x * 0.5, vp.y * 0.42))
+	_show_results(false)
 
-## Results: the rewarded "double the coins" (once per shift).
+## Results: the rewarded "double the coins" (once per shift, instead of the refund).
 func _double_coins() -> void:
 	_doubled = true
+	_results_ad_used = true
 	Save.add_coins(last_result["coins"])
 	Save.write_file()
 	last_result["coins"] *= 2
-	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
-	hud.show_results(last_result["header"], last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], true)
-	hud.set_double_button(false, 0)
+	_show_results(true)
 
 ## ---- Debug (?tune) ----
 
@@ -943,6 +1017,9 @@ func _show_select() -> void:
 	hud.show_select(Save.stars_total(), open, stars, best, airport)
 
 func _touch_move(index: int, pos: Vector2) -> void:
+	if _slider_drag >= 0:
+		_set_volume(_slider_drag, hud.slider_set(_slider_drag, pos.x))
+		return
 	if index != _drag_index or _drag_plane == null:
 		return
 	var w := overlay.screen_to_world(pos)
@@ -968,6 +1045,10 @@ func feed_drag(w: Vector2) -> void:
 		_cancel_drag()
 
 func _touch_up(index: int, pos: Vector2) -> void:
+	if _slider_drag >= 0:
+		_slider_drag = -1
+		Save.write_file()
+		return
 	if index != _drag_index:
 		return
 	var p := _drag_plane

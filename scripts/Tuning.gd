@@ -124,8 +124,8 @@ var upg_turnoff_clear := 0.30       # runways clear this much faster per level
 
 # ---------- Daily shift and ad stubs ----------
 ## The first completed daily shift of a day pays this, plus this much per day of streak (up to 7 days).
-var daily_bonus_coins := 150
-var daily_streak_coins := 25
+var daily_bonus_coins := 75
+var daily_streak_coins := 13
 ## The fake "Ad playing" screen lasts this long (no real ads yet). An interstitial comes between shifts at most
 ## once per this many finished shifts.
 var ad_stub_seconds := 2.5
@@ -164,7 +164,7 @@ var crosswind_seconds := 16.0
 
 # ---------- Timed shifts, coins and fines ----------
 ## A shift lasts exactly this long (seconds), shown as a countdown. Aircraft keep arriving until it ends.
-var shift_seconds := 180.0
+var shift_seconds := 90.0
 ## What a landing pays, by aircraft type (special aircraft pay more).
 var pay_glider := 22
 var pay_heli := 18
@@ -182,7 +182,6 @@ var fine_conflict := 100
 var fine_timeout := 20
 var fine_hazard := 50
 ## After a fine, the "watch an ad to refund it" offer stays up this long (once per shift).
-var refund_offer_seconds := 8.0
 
 # Go-arounds: approach quality is scored when an aircraft reaches short final.
 var short_final_distance := 1.4      # the decision point: this far (along its path) before the threshold

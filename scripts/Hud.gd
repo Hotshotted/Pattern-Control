@@ -35,8 +35,11 @@ class Art extends Control:
 	var btn_state := PackedInt32Array()
 	var btn_stars := PackedInt32Array()      # -1: none, 0..3: stars earned (drawn on cards)
 	var btn_icon := PackedInt32Array()       # -1: none, 0..5: an animal pilot portrait, 100+: a theme's colour swatch
-	var pilot_animal := -1                   # the pilot shown in the corner while playing
-	var pilot_bounce := 0.0                  # 1 -> 0 after a landing
+	var show_pause := false                  # the pause menu is up: draw its volume sliders
+	var pause_rect := Rect2(10.0, 10.0, 80.0, 80.0)   # the pause button, top-left (the wind dial is on the right)
+	var slider_rect: Array[Rect2] = [Rect2(), Rect2()]
+	var slider_val := PackedFloat32Array([0.8, 0.8])
+	var slider_text := PackedStringArray(["SOUND", "MUSIC"])
 	var result_animal := -1
 	var result_quote := ""
 	var btn_count := 0
@@ -129,6 +132,26 @@ class Art extends Control:
 				for i in 3:
 					star(Vector2(r.end.x - 150.0 + i * 56.0, r.position.y + r.size.y * 0.5), 22.0, Color(1.0, 0.84, 0.15) if i < btn_stars[k] else Color(0.28, 0.3, 0.36))
 
+	## Two bars in a rounded square.
+	func _draw_pause_button() -> void:
+		var r := pause_rect
+		draw_rect(r, Color(0.03, 0.05, 0.08, 0.62))
+		draw_rect(r, Color(0.9, 0.93, 1.0, 0.85), false, 4.0)
+		var bw := r.size.x * 0.17
+		draw_rect(Rect2(r.position.x + r.size.x * 0.28, r.position.y + r.size.y * 0.24, bw, r.size.y * 0.52), Color.WHITE)
+		draw_rect(Rect2(r.position.x + r.size.x * 0.55, r.position.y + r.size.y * 0.24, bw, r.size.y * 0.52), Color.WHITE)
+
+	func _draw_sliders() -> void:
+		for i in 2:
+			var r := slider_rect[i]
+			var ty := r.position.y + r.size.y * 0.62
+			draw_string_outline(_font, Vector2(r.position.x, r.position.y + 28.0), "%s  %d%%" % [slider_text[i], roundi(slider_val[i] * 100.0)], HORIZONTAL_ALIGNMENT_LEFT, r.size.x, 40, 8, Color.BLACK)
+			draw_string(_font, Vector2(r.position.x, r.position.y + 28.0), "%s  %d%%" % [slider_text[i], roundi(slider_val[i] * 100.0)], HORIZONTAL_ALIGNMENT_LEFT, r.size.x, 40, Color.WHITE)
+			draw_line(Vector2(r.position.x, ty), Vector2(r.end.x, ty), Color(0, 0, 0, 0.8), 18.0)
+			draw_line(Vector2(r.position.x, ty), Vector2(r.position.x + r.size.x * slider_val[i], ty), Color(1.0, 0.84, 0.15), 10.0)
+			draw_circle(Vector2(r.position.x + r.size.x * slider_val[i], ty), 24.0, Color.BLACK)
+			draw_circle(Vector2(r.position.x + r.size.x * slider_val[i], ty), 19.0, Color.WHITE)
+
 	## A card's icon: an animal pilot portrait, or a theme's two colours.
 	func _draw_icon(icon: int, c: Vector2, r: float) -> void:
 		if icon < 100:
@@ -187,8 +210,10 @@ class Art extends Control:
 
 	func _draw() -> void:
 		_draw_buttons()
-		if show_play and pilot_animal >= 0:
-			Portraits.draw(self, Vector2(size.x - 84.0, size.y - 150.0 - 22.0 * sin(pilot_bounce * PI)), 52.0, pilot_animal)
+		if show_play and not show_pause:
+			_draw_pause_button()
+		if show_pause:
+			_draw_sliders()
 		if show_result and result_animal >= 0:
 			Portraits.draw(self, Vector2(size.x * 0.5, result_y + 470.0), 70.0, result_animal)
 			draw_string_outline(_font, Vector2(size.x * 0.5 - 450.0, result_y + 590.0), result_quote, HORIZONTAL_ALIGNMENT_CENTER, 900.0, 30, 8, Color.BLACK)
@@ -217,6 +242,7 @@ var _event_banner: Label
 var _event_text := ""
 var _tip_until := 0
 var _menu: Control
+var _pause: Control
 var _menu_info: Label
 var _select: Control
 var _ad: Control
@@ -304,6 +330,7 @@ func _ready() -> void:
 		_pop_labels.append(l)
 	_pop_born.resize(POPUP_POOL)
 	_pop_from.resize(POPUP_POOL)
+	_build_pause()
 	_build_menu()
 	_build_over()
 	_build_select()
@@ -329,6 +356,66 @@ func _centered(l: Label, top: float, bottom: float) -> void:
 	l.offset_top = top
 	l.offset_bottom = bottom
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+## The pause menu: a shade and a title here; its buttons and volume sliders are drawn by the art layer.
+func _build_pause() -> void:
+	_pause = Control.new()
+	_pause.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_pause.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_pause)
+	var shade := ColorRect.new()
+	shade.color = Color(0.03, 0.05, 0.09, 0.72)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pause.add_child(shade)
+	var title := _label(110, HORIZONTAL_ALIGNMENT_CENTER, _pause)
+	title.text = "PAUSED"
+	_centered(title, -620, -450)
+	_pause.visible = false
+
+func show_pause(sound: float, music: float) -> void:
+	var vp := get_viewport().get_visible_rect().size
+	_pause.visible = true
+	_art.show_pause = true
+	for i in 2:
+		_art.slider_rect[i] = Rect2(vp.x * 0.5 - 330.0, vp.y * 0.5 - 340.0 + i * 150.0, 660.0, 100.0)
+	_art.slider_val[0] = sound
+	_art.slider_val[1] = music
+	_art.clear_buttons()
+	_art.add_button("resume", "RESUME", Rect2(vp.x * 0.5 - 300.0, vp.y * 0.5 + 10.0, 600.0, 120.0), 2)
+	_art.add_button("restart", "RESTART SHIFT", Rect2(vp.x * 0.5 - 300.0, vp.y * 0.5 + 150.0, 600.0, 120.0))
+	_art.add_button("quit", "QUIT TO MENU", Rect2(vp.x * 0.5 - 300.0, vp.y * 0.5 + 290.0, 600.0, 120.0))
+	_art.queue_redraw()
+
+func hide_pause() -> void:
+	_pause.visible = false
+	_art.show_pause = false
+	_art.clear_buttons()
+	_art.queue_redraw()
+
+func pause_visible() -> bool:
+	return _pause.visible
+
+## Is this screen position on the pause button (a little generous for a finger)?
+func pause_hit(pos: Vector2) -> bool:
+	return _art.show_play and not _art.show_pause and _art.pause_rect.grow(6.0).has_point(pos)
+
+## Which volume slider (0 sound, 1 music) is at `pos`; -1 for none.
+func slider_at(pos: Vector2) -> int:
+	if not _art.show_pause:
+		return -1
+	for i in 2:
+		if _art.slider_rect[i].grow_individual(30.0, 10.0, 30.0, 10.0).has_point(pos):
+			return i
+	return -1
+
+## Move slider `i` to the finger at screen x; returns the new 0..1 value.
+func slider_set(i: int, x: float) -> float:
+	var r := _art.slider_rect[i]
+	var v := clampf((x - r.position.x) / r.size.x, 0.0, 1.0)
+	_art.slider_val[i] = v
+	_art.queue_redraw()
+	return v
 
 func _build_menu() -> void:
 	_menu = Control.new()
@@ -433,13 +520,15 @@ func resume_play() -> void:
 	_art.show_result = false
 	_art.queue_redraw()
 
-## Results: the rewarded "double the coins" offer (once per shift).
-func set_double_button(on: bool, coins: int) -> void:
+## Results: the rewarded offers, one of the two per shift. A zero amount leaves that button out.
+func set_results_ads(double_coins: int, refund: int) -> void:
 	_art.clear_buttons()
 	var vp := get_viewport().get_visible_rect().size
-	if on:
-		_art.add_button("ad_double", "WATCH AD: DOUBLE COINS (+%d)" % coins, Rect2(vp.x * 0.5 - 420.0, vp.y * 0.5 + 690.0, 840.0, 110.0), 2)
-	_art.add_button("menu", "MENU", Rect2(vp.x * 0.5 - 170.0, vp.y * 0.5 + 820.0, 340.0, 100.0))
+	if double_coins > 0:
+		_art.add_button("ad_double", "WATCH AD: DOUBLE COINS (+%d)" % double_coins, Rect2(vp.x * 0.5 - 480.0, vp.y * 0.5 + 640.0, 960.0, 95.0), 2)
+	if refund > 0:
+		_art.add_button("ad_refund", "WATCH AD: REFUND BIGGEST FINE (+%d)" % refund, Rect2(vp.x * 0.5 - 480.0, vp.y * 0.5 + 745.0, 960.0, 95.0), 2)
+	_art.add_button("menu", "MENU", Rect2(vp.x * 0.5 - 170.0, vp.y * 0.5 + 855.0, 340.0, 90.0))
 	_art.queue_redraw()
 
 func set_results_text(text: String) -> void:
@@ -458,8 +547,8 @@ func _build_over() -> void:
 	_over_head = _label(96, HORIZONTAL_ALIGNMENT_CENTER, _over)
 	_centered(_over_head, -700, -480)
 	_over_head.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
-	_over_body = _label(46, HORIZONTAL_ALIGNMENT_CENTER, _over)
-	_centered(_over_body, 360, 800)
+	_over_body = _label(40, HORIZONTAL_ALIGNMENT_CENTER, _over)
+	_centered(_over_body, 330, 630)
 	_over.visible = false
 
 ## Small "commit . build time" tag bottom-left (BuildInfo.gd is rewritten by the workflow), with any
@@ -478,7 +567,7 @@ func _build_stamp() -> void:
 		_perf_label = _label(26, HORIZONTAL_ALIGNMENT_LEFT)
 		_perf_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 		_perf_label.offset_left = 14
-		_perf_label.offset_top = 14
+		_perf_label.offset_top = 112       # (below the pause button)
 		_perf_label.modulate = Color(0.6, 1, 0.6, 0.9)
 
 # ---------- Screens ----------
@@ -501,7 +590,7 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	_art.result_animal = animal
 	_art.result_quote = quote
 	_over_head.text = header
-	_over_body.text = "%s\n\nPayout +%d coins%s   (total %d)\n%s\n\nTap anywhere to fly again" % [reason, coins_earned, "  (doubled!)" if doubled else "", coins_total, "NEW BEST!" if new_best else "best payout %d" % best]
+	_over_body.text = "%s\nPayout +%d coins%s   (total %d)\n%s\nTap anywhere to fly again" % [reason, coins_earned, "  (doubled!)" if doubled else "", coins_total, "NEW BEST!" if new_best else "best payout %d" % best]
 	for i in 3:
 		_art.goal_state[i] = 1 if shift.balance() >= shift.thresholds[i] else 0
 		_art.goal_text[i] = "%d coins" % shift.thresholds[i]
@@ -537,14 +626,6 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 			_art.add_button("locked:%d" % i, "%d  %s" % [i + 1, Airports.airport_name(i)], r, 1, "Locked: needs %d stars (you have %d)" % [Airports.unlock_stars(i), total_stars], -1)
 	_art.add_button("back", "BACK", Rect2(vp.x * 0.5 - 170.0, 230.0 + Airports.COUNT * 190.0 + 20.0, 340.0, 100.0))
 	_art.queue_redraw()
-
-## Which pilot sits in the corner while you play (an animal 0..5), with a hop after each landing.
-func set_pilot(animal: int) -> void:
-	_art.pilot_animal = animal
-	_art.queue_redraw()
-
-func pilot_hop() -> void:
-	_art.pilot_bounce = 1.0
 
 ## A generic list screen: optional tab buttons, then cards {id, title, sub, state, stars, icon}, then Back.
 func show_list(title: String, info: String, tabs: Array, cards: Array) -> void:
@@ -635,6 +716,8 @@ func _layout_menu_buttons() -> void:
 		_art.add_button(id, label, Rect2(x0 + col * (w + 30.0), vp.y * 0.5 + 585.0 + row * 120.0, w, 100.0), 0, sub)
 
 func hide_screens() -> void:
+	_pause.visible = false
+	_art.show_pause = false
 	_menu.visible = false
 	_over.visible = false
 	_select.visible = false
@@ -730,14 +813,6 @@ func set_shift(shift: Shift) -> void:
 
 var _last_bal := 0
 
-## The rewarded "refund your last fine" button (amount 0 hides it).
-func set_refund_offer(amount: int) -> void:
-	_art.clear_buttons()
-	if amount > 0:
-		var vp := get_viewport().get_visible_rect().size
-		_art.add_button("ad_refund", "WATCH AD: REFUND -%d" % amount, Rect2(vp.x * 0.5 - 330.0, vp.y - 340.0, 660.0, 100.0), 2)
-	_art.queue_redraw()
-
 func set_shift_fraction(f: float) -> void:
 	if absf(f - _art.shift_frac) > 0.002:
 		_art.shift_frac = f
@@ -802,8 +877,6 @@ func _process(delta: float) -> void:
 		l.position = _pop_from[i] + Vector2(0, -150.0 * a)
 		l.modulate.a = 1.0 - maxf(a - 0.5, 0.0) * 2.0
 		l.scale = Vector2.ONE * (1.0 + 0.3 * (1.0 - a) * (1.0 - a))
-	if _art.pilot_bounce > 0.0:
-		_art.pilot_bounce = maxf(_art.pilot_bounce - delta * 2.5, 0.0)
 		_art.queue_redraw()
 	if _tip.visible:
 		var left := _tip_until - now
@@ -865,7 +938,6 @@ func begin_prewarm() -> void:
 	_wind_banner.text = "Wind shifting to 270  in 8s"
 	_wind_banner.visible = true
 	set_event_banner("Gusty crosswind: ORANGE runway closing in 6s", true)
-	set_refund_offer(100)
 	_art.queue_redraw()
 	_best.text = "best 0123456789"
 	_menu.visible = true

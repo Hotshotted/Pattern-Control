@@ -437,7 +437,7 @@ func _initialize() -> void:
 	check(main.alive and main.screen == main.SCREEN_PLAY and main.shift.conflicts == 1, "a conflict doesn't end the shift")
 	check(main.shift.fines == int(tuning.fine_conflict) and main.shift.balance() == -int(tuning.fine_conflict), "...it costs the large fine, and the balance goes negative (%d)" % main.shift.balance())
 	check(not a.active() and not bb.active(), "...and both aircraft are lost")
-	check(has_btn(main, "ad_refund"), "...and the refund ad is offered")
+	check(not has_btn(main, "ad_refund") and main.screen == main.SCREEN_PLAY, "...and nothing interrupts play: no refund ad during the shift")
 	# Grounded and off-screen planes don't conflict.
 	main.restart()
 	tr.auto_spawn = false
@@ -590,7 +590,7 @@ func _initialize() -> void:
 	# Fines subtract and can drop a star again.
 	main.shift.fine(500, "conflict")
 	check(main.shift.stars() < 3 and main.shift.balance() < sth9[2], "a big fine takes the balance back under a threshold")
-	main.shift.refund_last()
+	main.shift.refund_biggest()
 	check(main.shift.stars() == 3, "...and refunding it restores the stars")
 	var payout_expect = main.shift.payout()
 	tr.spawn_until = 0.0
@@ -612,17 +612,54 @@ func _initialize() -> void:
 	tr.run_time = tuning.shift_seconds + 0.01
 	main.step(1.0 / 60.0)
 	check(save.coins == coins_after + pay2, "replaying: just the payout, no repeat first-time bonus (%d, expected %d)" % [save.coins, coins_after + pay2])
-	# Refund ad: a fine offers it once per shift; watching gives the fine back.
+	# Refund ad: only on the results screen, instead of the double-coins ad; it gives back the biggest fine.
+	save.reset_all()
 	main.restart()
 	tr.auto_spawn = false
-	earn_coins(main, 50)
-	var bal_before = main.shift.balance()
-	main._apply_fine(int(tuning.fine_conflict), "conflict", "CONFLICT", Vector2.ZERO)
-	check(main.shift.balance() == bal_before - int(tuning.fine_conflict) and has_btn(main, "ad_refund"), "a fine offers the refund ad")
-	main._on_button("ad_refund")
-	check(main.shift.balance() == bal_before and main._refund_used and main.screen == main.SCREEN_PLAY and main.alive, "the ad refunds the last fine and the shift carries on")
+	earn_coins(main, sth9[1])
+	var bal_hi = main.shift.balance()
 	main._apply_fine(int(tuning.fine_timeout), "diversion", "Diverted", Vector2.ZERO)
-	check(not has_btn(main, "ad_refund"), "...but it is only offered once per shift")
+	main._apply_fine(int(tuning.fine_conflict), "conflict", "CONFLICT", Vector2.ZERO)
+	main._apply_fine(int(tuning.fine_hazard), "crash", "Crashed!", Vector2.ZERO)
+	check(main.shift.biggest_fine == int(tuning.fine_conflict) and not has_btn(main, "ad_refund"), "fines track the biggest one; nothing is offered during play")
+	tr.release_all()
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 0.01
+	main.step(1.0 / 60.0)
+	check(main.screen == main.SCREEN_OVER and has_btn(main, "ad_refund") and has_btn(main, "ad_double"), "the results offer both the refund and double-coins ads")
+	var ri9 = main.hud._art.btn_id.find("ad_refund")
+	check(main.hud._art.btn_text[ri9].contains("REFUND BIGGEST FINE") and main.hud._art.btn_text[ri9].contains(str(int(tuning.fine_conflict))), "...worded 'refund biggest fine' with its amount (%s)" % main.hud._art.btn_text[ri9])
+	var stars_pre = save.stars_of(main.airport)
+	var coins_pre9 = save.coins
+	var pay_pre = main.shift.payout()
+	main._on_button("ad_refund")
+	check(main.screen == main.SCREEN_OVER and main.shift.fines == int(tuning.fine_timeout) + int(tuning.fine_hazard), "watching it refunds the biggest fine (the %d one)" % int(tuning.fine_conflict))
+	check(main.shift.payout() == pay_pre + int(tuning.fine_conflict), "...so the payout goes up")
+	var stars_now = main.shift.stars()
+	check(save.stars_of(main.airport) == stars_now and stars_now > stars_pre, "...and stars are re-awarded (%d -> %d)" % [stars_pre, stars_now])
+	check(save.coins == coins_pre9 + int(tuning.fine_conflict) + (stars_now - stars_pre) * int(tuning.coins_first_star_bonus), "...with the extra coins credited once (%d -> %d)" % [coins_pre9, save.coins])
+	check(not has_btn(main, "ad_refund") and not has_btn(main, "ad_double") and has_btn(main, "menu"), "only one of the two ads per shift: both are gone now")
+	check(main.hud._over_body.text.contains("refunded"), "the results say the fine was refunded")
+	# ...and the other way round: doubling removes the refund.
+	main.restart()
+	tr.auto_spawn = false
+	earn_coins(main, sth9[0])
+	main._apply_fine(int(tuning.fine_timeout), "diversion", "Diverted", Vector2.ZERO)
+	tr.release_all()
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 0.01
+	main.step(1.0 / 60.0)
+	main._on_button("ad_double")
+	check(not has_btn(main, "ad_refund") and not has_btn(main, "ad_double"), "doubling the coins uses up the shift's one ad: no refund after it")
+	# No fines: no refund offer.
+	main.restart()
+	tr.auto_spawn = false
+	earn_coins(main, 30)
+	tr.release_all()
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 0.01
+	main.step(1.0 / 60.0)
+	check(has_btn(main, "ad_double") and not has_btn(main, "ad_refund"), "with no fines there is nothing to refund")
 	# Save file: versioned, round trip, v1 migration, forward-compatible.
 	save.upgrades["test"] = 2
 	save.write_file()
@@ -1568,7 +1605,6 @@ func _initialize() -> void:
 	tr._sync(fx_plane, tr.planes.find(fx_plane))
 	var fi = tr.planes.find(fx_plane)
 	check(tr._tail_mats[fi].albedo_color.is_equal_approx(Cosmetics.LIVERIES[1]["tail"]) and tr._stripes[fi][0].visible, "aircraft wear the livery's tail and stripe")
-	check(main.hud._art.pilot_animal == 1, "the pilot's portrait sits in the corner of the HUD")
 	main.shop_pick("livery", 0)
 	check(not tr._stripes[fi][0].visible and tr._tail_mats[fi].albedo_color.is_equal_approx(tr._body_mats[fi].albedo_color), "the standard livery has no stripe and a body-coloured tail")
 	main.shop_pick("livery", 1)
@@ -1593,7 +1629,7 @@ func _initialize() -> void:
 	save.day_override = 20000
 	main._show_menu()
 	var daily_idx = main.hud._art.btn_id.find("daily")
-	check(main.hud._art.btn_sub[daily_idx].begins_with("streak 0") and main.hud._art.btn_sub[daily_idx].contains("+175"), "the Daily Shift button shows the streak and the bonus (%s)" % main.hud._art.btn_sub[daily_idx])
+	check(main.hud._art.btn_sub[daily_idx].begins_with("streak 0") and main.hud._art.btn_sub[daily_idx].contains("+%d" % (tuning.daily_bonus_coins + tuning.daily_streak_coins)), "the Daily Shift button shows the streak and the bonus (%s)" % main.hud._art.btn_sub[daily_idx])
 	var runs_seen = []
 	for run_i in 3:
 		save.day_override = 20000 if run_i < 2 else 20001
@@ -1635,13 +1671,15 @@ func _initialize() -> void:
 		coin_gain.append(save.coins - c0)
 		bonus_given.append(save.coins - c0 - plain)
 	check(streaks == [1, 2, 2, 1], "the streak counts consecutive days and resets after a gap %s" % str(streaks))
-	check(bonus_given == [175, 200, 0, 175], "bonus coins: 175, 200, none for a repeat, 175 again after a gap %s" % str(bonus_given))
+	var dbo1 = int(tuning.daily_bonus_coins + tuning.daily_streak_coins)
+	var dbo2 = int(tuning.daily_bonus_coins + 2 * tuning.daily_streak_coins)
+	check(bonus_given == [dbo1, dbo2, 0, dbo1], "bonus coins: %d, %d, none for a repeat, %d again after a gap %s" % [dbo1, dbo2, dbo1, str(bonus_given)])
 	check(save.stars_total() == stars_before, "the daily shift earns no permanent airport stars")
-	check(main.last_result["reason"].contains("Daily bonus") or bonus_given[3] == 175, "the results mention the bonus")
+	check(main.last_result["reason"].contains("Daily bonus") or bonus_given[3] == dbo1, "the results mention the bonus")
 	save.day_override = -1
 	main._show_menu()
 	check(not main.daily_mode, "back on the menu, the daily mode is off")
-	# Ad stubs: the rewarded fine refund, once per shift.
+	# Ad stubs: the rewarded fine refund is on the results screen.
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	main.select_airport(2)
@@ -1655,20 +1693,21 @@ func _initialize() -> void:
 		main.step(1.0 / 60.0)
 		if main.shift.conflicts > 0:
 			break
+	check(main.screen == main.SCREEN_PLAY and not has_btn(main, "ad_refund"), "a conflict during play offers no ad")
+	tr.release_all()
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 0.01
+	main.step(1.0 / 60.0)
 	var ri = main.hud._art.btn_id.find("ad_refund")
-	check(main.screen == main.SCREEN_PLAY and ri >= 0 and main.hud.button_at(main.hud._art.btn_rect[ri].get_center()) == "ad_refund", "a fine offers 'watch an ad to refund it' during play")
-	var bal_fine = main.shift.balance()
+	check(main.screen == main.SCREEN_OVER and ri >= 0 and main.hud.button_at(main.hud._art.btn_rect[ri].get_center()) == "ad_refund", "the results offer 'watch an ad to refund the biggest fine'")
+	var fines_pre = main.shift.fines
 	var ads0 = main.ads_shown
 	main._on_button("ad_refund")
 	check(main.screen == main.SCREEN_AD and main.hud._ad.visible and main.ads_shown == ads0 + 1, "the fake 'Ad playing' screen shows")
 	main._process(0.2)
 	check(main.screen == main.SCREEN_AD, "...for its full length")
 	main._process(0.4)
-	check(main.screen == main.SCREEN_PLAY and main.alive and not main.hud._ad.visible, "then the shift carries on")
-	check(main.shift.balance() == bal_fine + int(tuning.fine_conflict) and main._refund_used, "the fine came back (%d)" % main.shift.balance())
-	# A second fine: no second offer.
-	main._apply_fine(int(tuning.fine_hazard), "crash", "Crashed!", Vector2.ZERO)
-	check(not has_btn(main, "ad_refund"), "the refund is offered only once per shift")
+	check(main.screen == main.SCREEN_OVER and not main.hud._ad.visible and main.shift.fines == fines_pre - int(tuning.fine_conflict), "then the results come back with the fine refunded (%d -> %d)" % [fines_pre, main.shift.fines])
 	# Double coins.
 	main.restart()
 	tr.auto_spawn = false
@@ -2049,6 +2088,111 @@ func _initialize() -> void:
 	tuning.go_around_max = 0.0
 	main.daily_mode = false
 	main.bad_mode = false
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+
+	print("9j. shift length, pause menu")
+	check(tuning.shift_seconds == 90.0, "a shift is 90 seconds")
+	var th_txt = []
+	for ai in Airports.COUNT:
+		th_txt.append(str(Airports.star_thresholds(ai)))
+	check(Airports.star_thresholds(2) == [90, 175, 260] and Airports.star_thresholds(0) == [50, 100, 160], "star thresholds were halved with the shift %s" % ", ".join(th_txt))
+	check(tuning.daily_bonus_coins == 75 and tuning.daily_streak_coins == 13, "the daily completion bonus was halved too")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var pbtn = main.hud._art.pause_rect
+	var vpp = main.get_viewport().get_visible_rect().size
+	check(main.hud._art.show_play and pbtn.position.x < vpp.x * 0.25 and pbtn.position.y < vpp.y * 0.1 and pbtn.size.x >= 80.0, "a pause button sits in the top-left corner (%s)" % str(pbtn))
+	# It overlaps no other HUD element and no aircraft entry point.
+	var score_rect = Rect2(vpp.x * 0.5 - 300.0, 30.0, 600.0, 140.0)
+	var wind_rect = Rect2(vpp.x - 148.0, 140.0, 112.0, 112.0)
+	check(not pbtn.intersects(score_rect) and not pbtn.intersects(wind_rect), "...clear of the score and the wind dial")
+	var entry_clear = true
+	tr.rng.seed = 77
+	for k in 150:
+		tr.release_all()
+		var spn = tr.spawn()
+		if spn != null:
+			var sc = main.overlay.world_to_screen(spn.entry)
+			if pbtn.grow(10.0).has_point(sc):
+				entry_clear = false
+	check(entry_clear, "...and aircraft never enter the screen under it (150 arrivals)")
+	tr.release_all()
+	check(not ("pilot_animal" in main.hud._art), "the duck pilot portrait is gone from the play HUD")
+	# Pausing.
+	var pl9x = tr.place(0, Vector2(-3.0, 2.0), 0.0, MEDIUM)
+	run_sec(main, 2.0)
+	main._touch_down(0, pbtn.get_center())
+	main._touch_up(0, pbtn.get_center())
+	check(main.screen == main.SCREEN_PAUSE and main.hud.pause_visible(), "tapping it pauses and shows the pause menu")
+	var t_p = tr.run_time
+	var pos_p = pl9x.pos
+	var tl_p = pl9x.timer_left
+	for i in 120:
+		main.step(1.0 / 60.0)
+		main._process(1.0 / 60.0)
+	check(is_equal_approx(tr.run_time, t_p) and pl9x.pos.is_equal_approx(pos_p) and is_equal_approx(pl9x.timer_left, tl_p), "the shift clock and all traffic are frozen while paused")
+	check(has_btn(main, "resume") and has_btn(main, "restart") and has_btn(main, "quit"), "the menu has Resume, Restart Shift and Quit to Menu")
+	main._touch_down(0, Vector2(vpp.x * 0.5, 40.0))
+	main._touch_up(0, Vector2(vpp.x * 0.5, 40.0))
+	check(main.screen == main.SCREEN_PAUSE, "a tap elsewhere doesn't do anything (it won't start a new shift)")
+	# Volume sliders.
+	var sld = main.hud._art.slider_rect
+	main._touch_down(0, Vector2(sld[0].position.x + sld[0].size.x * 0.25, sld[0].position.y + sld[0].size.y * 0.6))
+	main._touch_move(0, Vector2(sld[0].position.x + sld[0].size.x * 0.3, sld[0].position.y + sld[0].size.y * 0.6))
+	main._touch_up(0, Vector2(sld[0].position.x + sld[0].size.x * 0.3, sld[0].position.y + sld[0].size.y * 0.6))
+	check(absf(save.sound_volume - 0.3) < 0.01 and absf(save.music_volume - 0.8) < 0.01, "dragging the sound slider sets the sound volume only (%.2f)" % save.sound_volume)
+	var sfx_bus = AudioServer.get_bus_index("SFX")
+	check(sfx_bus >= 0 and absf(AudioServer.get_bus_volume_db(sfx_bus) - linear_to_db(0.3)) < 0.1, "...on its own audio bus")
+	main._touch_down(0, Vector2(sld[1].position.x, sld[1].position.y + sld[1].size.y * 0.6))
+	main._touch_up(0, Vector2(sld[1].position.x, sld[1].position.y + sld[1].size.y * 0.6))
+	var mus_bus = AudioServer.get_bus_index("Music")
+	check(save.music_volume == 0.0 and AudioServer.is_bus_mute(mus_bus), "the music slider at zero mutes music")
+	save.write_file()
+	save.sound_volume = 1.0
+	save.load_file()
+	check(absf(save.sound_volume - 0.3) < 0.01 and save.music_volume == 0.0, "the volumes are saved")
+	# Resume.
+	main._on_button("resume")
+	check(main.screen == main.SCREEN_PLAY and not main.hud.pause_visible(), "Resume carries on")
+	run_sec(main, 1.0)
+	check(tr.run_time > t_p + 0.9 and not is_equal_approx(pl9x.pos.x, pos_p.x), "...and the clock and traffic run again")
+	# Restart Shift.
+	main.pause_game()
+	main._on_button("restart")
+	check(main.screen == main.SCREEN_PLAY and main.alive and tr.run_time < 0.1 and main.score == 0 and not main.hud.pause_visible(), "Restart Shift starts a fresh shift")
+	# Quit to Menu.
+	main.pause_game()
+	main._on_button("quit")
+	check(main.screen == main.SCREEN_MENU and not main.hud.pause_visible(), "Quit to Menu goes back to the menu")
+	# The pause button only exists during a shift.
+	check(not main.hud.pause_hit(pbtn.get_center()), "...where the pause button is gone")
+	# Auto-pause when the app loses focus (only during a shift).
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	check(main.screen == main.SCREEN_MENU, "losing focus on the menu pauses nothing")
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+	main.restart()
+	tr.auto_spawn = false
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	check(main.screen == main.SCREEN_PAUSE and main.hud.pause_visible(), "losing focus during a shift pauses it")
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+	check(main.screen == main.SCREEN_PAUSE, "...and it stays paused until you press Resume")
+	main._on_button("resume")
+	check(main.screen == main.SCREEN_PLAY and main.alive, "Resume after coming back")
+	# Paused near the end: the shift can't end while paused.
+	tr.run_time = tuning.shift_seconds - 0.5
+	main.pause_game()
+	for i in 120:
+		main.step(1.0 / 60.0)
+	check(main.alive and main.screen == main.SCREEN_PAUSE, "a paused shift doesn't run out its clock")
+	main._on_button("resume")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	main.select_airport(2)

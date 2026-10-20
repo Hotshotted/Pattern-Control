@@ -16,7 +16,7 @@ var fines := 0                   # total fines so far (a positive number)
 var conflicts := 0
 var diversions := 0
 var crashes := 0
-var last_fine := 0               # the most recent fine, for the "refund" ad (0 = nothing to refund)
+var biggest_fine := 0            # the largest single fine so far, for the results-screen "refund" ad (0 = nothing to refund)
 var refunded := 0
 var just_stars := 0              # bitmask: stars reached by the latest call (for the "STAR!" feedback)
 
@@ -37,7 +37,7 @@ func reset(star_thresholds: Array) -> void:
 	conflicts = 0
 	diversions = 0
 	crashes = 0
-	last_fine = 0
+	biggest_fine = 0
 	refunded = 0
 	just_stars = 0
 
@@ -78,7 +78,7 @@ func on_landed(type: int, base: int, extra: int, vip: bool = false, emergency: b
 ## A fine of `amount` coins. kind: "conflict", "diversion" or "crash".
 func fine(amount: int, kind: String) -> void:
 	fines += amount
-	last_fine = amount
+	biggest_fine = maxi(biggest_fine, amount)
 	match kind:
 		"conflict":
 			conflicts += 1
@@ -87,14 +87,14 @@ func fine(amount: int, kind: String) -> void:
 		_:
 			crashes += 1
 
-## Give the last fine back (the rewarded ad). Returns the coins refunded (0 if none).
-func refund_last() -> int:
-	var r := last_fine
+## Give the biggest fine back (the rewarded ad on the results screen). Returns the coins refunded (0 if none).
+func refund_biggest() -> int:
+	var r := biggest_fine
 	if r <= 0:
 		return 0
 	fines -= r
 	refunded += r
-	last_fine = 0
+	biggest_fine = 0
 	return r
 
 func _note_stars(before: int) -> void:

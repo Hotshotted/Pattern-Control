@@ -30,7 +30,7 @@ static func _build() -> void:
 	var P := Aircraft.Type.SEAPLANE
 	_defs = [
 		{   # 1: one runway, usable in both directions
-			"name": "Grass Strip", "stars": [100, 200, 320], "tag": "One runway, both directions",
+			"name": "Grass Strip", "stars": [50, 100, 160], "tag": "One runway, both directions",
 			"runways": [_rw(Vector2(0.0, 0.8), 0.0, 7.0, ORANGE, "ORANGE", 1.1)],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6),
@@ -39,7 +39,7 @@ static func _build() -> void:
 			"wind_scale": 1.6, "spawn_mult": 1.35, "unlock_stars": 0, "weather": [], "weather_scale": 1.0,
 		},
 		{   # 2: two crossing runways: simultaneous landings conflict
-			"name": "County", "stars": [140, 280, 440], "tag": "Crossing runways",
+			"name": "County", "stars": [70, 140, 220], "tag": "Crossing runways",
 			"runways": [_rw(Vector2(0.0, 0.2), 0.0, 6.5, ORANGE, "ORANGE"), _rw(Vector2(0.0, 0.2), 80.0, 6.5, BLUE, "BLUE")],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-3.3, 3.7),
@@ -48,7 +48,7 @@ static func _build() -> void:
 			"wind_scale": 1.3, "spawn_mult": 1.15, "unlock_stars": 2, "weather": ["crosswind"], "weather_scale": 1.3,
 		},
 		{   # 3: parallel runways and a helipad
-			"name": "Regional", "stars": [180, 350, 520], "tag": "Parallel runways + helipad",
+			"name": "Regional", "stars": [90, 175, 260], "tag": "Parallel runways + helipad",
 			"runways": [_rw(Vector2(-2.6, 0.3), 0.0, 7.8, ORANGE, "ORANGE"), _rw(Vector2(0.4, 0.3), 0.0, 7.8, BLUE, "BLUE")],
 			"pads": [{"center": Vector2(3.5, 3.4), "radius": 0.85, "color": PAD_COLOR}], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.2, 0.8),
@@ -57,7 +57,7 @@ static func _build() -> void:
 			"wind_scale": 1.0, "spawn_mult": 1.0, "unlock_stars": 5, "weather": ["crosswind", "fog"], "weather_scale": 1.1,
 		},
 		{   # 4: terrain no-fly zones
-			"name": "Mountain Field", "stars": [200, 380, 560], "tag": "Keep clear of the mountains",
+			"name": "Mountain Field", "stars": [100, 190, 280], "tag": "Keep clear of the mountains",
 			"runways": [_rw(Vector2(-1.9, 0.6), 8.0, 6.2, ORANGE, "ORANGE"), _rw(Vector2(1.7, 0.6), 8.0, 6.2, BLUE, "BLUE")],
 			"pads": [], "lanes": [],
 			"hazards": [
@@ -72,7 +72,7 @@ static func _build() -> void:
 			"wind_scale": 0.85, "spawn_mult": 1.0, "unlock_stars": 8, "weather": ["storm", "fog"], "weather_scale": 1.0,
 		},
 		{   # 5: an island in the water, with a seaplane lane
-			"name": "Island", "stars": [220, 420, 620], "tag": "Water landing lane",
+			"name": "Island", "stars": [110, 210, 310], "tag": "Water landing lane",
 			"runways": [_rw(Vector2(-1.6, 0.3), 0.0, 7.4, ORANGE, "ORANGE"), _rw(Vector2(1.6, 0.3), 0.0, 7.4, BLUE, "BLUE")],
 			"pads": [],
 			"lanes": [{"center": Vector2(0.2, 5.3), "heading": 90.0, "length": 6.0, "width": 1.0, "color": LANE_COLOR}],
@@ -85,7 +85,7 @@ static func _build() -> void:
 			"wind_scale": 0.75, "spawn_mult": 0.95, "unlock_stars": 11, "weather": ["storm", "crosswind", "fog"], "weather_scale": 0.85,
 		},
 		{   # 6: long runways and multiples of everything
-			"name": "International", "stars": [260, 480, 700], "tag": "Everything, all at once",
+			"name": "International", "stars": [130, 240, 350], "tag": "Everything, all at once",
 			"runways": [_rw(Vector2(-3.4, 0.0), 0.0, 8.4, ORANGE, "ORANGE"), _rw(Vector2(-1.1, 0.0), 0.0, 8.4, BLUE, "BLUE"), _rw(Vector2(1.2, 0.0), 0.0, 8.4, PINK, "PINK")],
 			"pads": [{"center": Vector2(3.9, -4.7), "radius": 0.7, "color": PAD_COLOR}, {"center": Vector2(3.9, -3.1), "radius": 0.7, "color": PAD_COLOR}],
 			"lanes": [{"center": Vector2(3.9, 1.8), "heading": 0.0, "length": 4.0, "width": 0.9, "color": LANE_COLOR},

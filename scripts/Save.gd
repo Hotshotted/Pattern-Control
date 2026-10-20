@@ -26,6 +26,8 @@ var bad_day := {}                    # Bad Pilot Day: the same fields, its own b
 var shifts_played := 0
 var ads := {}                        # ad stub bookkeeping: shifts since the last interstitial
 var selected_airport := 0
+var sound_volume := 0.8              # pause-menu volume sliders, 0..1 (absent in older saves: the default)
+var music_volume := 0.8
 
 func _ready() -> void:
 	load_file()
@@ -46,6 +48,8 @@ func _defaults() -> void:
 	bad_day = {}
 	shifts_played = 0
 	selected_airport = 0
+	sound_volume = 0.8
+	music_volume = 0.8
 	ads = {}
 
 func load_file() -> void:
@@ -81,6 +85,8 @@ func load_file() -> void:
 	shifts_played = int(data.get("shifts_played", 0))
 	selected_airport = clampi(int(data.get("selected_airport", 0)), 0, AIRPORT_SLOTS - 1)
 	ads = _dict(data.get("ads"))
+	sound_volume = clampf(float(data.get("sound_volume", 0.8)), 0.0, 1.0)
+	music_volume = clampf(float(data.get("music_volume", 0.8)), 0.0, 1.0)
 
 func _dict(v) -> Dictionary:
 	return v if v is Dictionary else {}
@@ -92,6 +98,7 @@ func write_file() -> void:
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
 			"upgrades": upgrades, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
 			"daily": daily, "bad_day": bad_day, "shifts_played": shifts_played, "selected_airport": selected_airport, "ads": ads,
+			"sound_volume": sound_volume, "music_volume": music_volume,
 		}))
 
 # ---------- Stars ----------
