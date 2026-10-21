@@ -1298,7 +1298,10 @@ func set_event_banner(text: String, warning: bool = false) -> void:
 	_art.chip_weather = _short_weather(text)
 	_art.chip_weather_glyph = kind
 	if was_empty and text != "":
-		post_banner(_short_weather(text).get_slice(" ", 0), C_GOLD if warning else C_SOFT, kind, 2.4)
+		if kind == "fog":
+			post_banner("FOG ROLLING IN", C_SOFT, "fog", 3.0)
+		else:
+			post_banner(_short_weather(text).get_slice(" ", 0), C_GOLD if warning else C_SOFT, kind, 2.4)
 	_art.queue_redraw()
 
 func _weather_glyph(text: String) -> String:

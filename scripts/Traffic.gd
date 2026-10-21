@@ -13,7 +13,6 @@ signal inactive_end(plane: Aircraft, runway: int, end: int)  # ...or for an end 
 signal rerouted(plane: Aircraft)   # the wind shifted: its path now ends on a closed end
 signal spawned(plane: Aircraft)
 signal crashed(plane: Aircraft, kind: int)   # flew into terrain (kind 0) or a storm cell (kind 1)
-signal revealed(plane: Aircraft)       # came out of the fog
 signal go_around(plane: Aircraft, reason: int)   # climbing out: the runway was busy, or the approach was poor (Approach.Reason)
 signal runway_conflict(a: Aircraft, b: Aircraft)   # landed on a crossing runway while it was busy
 signal refused(plane: Aircraft, text: String, at: Vector2)   # a path / tap the aircraft can't follow (with why)
@@ -87,6 +86,8 @@ func _ready() -> void:
 	for i in MAX_POOL:
 		planes.append(Aircraft.new())
 		_build_node()
+	for n in _nodes:
+		Prim.lift(n)          # (aircraft are drawn above the fog)
 
 func _build_node() -> void:
 	var root := Node3D.new()
@@ -634,7 +635,7 @@ func step(delta: float) -> void:
 			_sync(p, i)
 	_check_conflicts()
 
-## Storm cells drift (and leave); the fog thickens or clears; aircraft beyond the visible radius are hidden.
+## Storm cells drift (and leave); the fog thickens or clears (it hides nothing: it is only drawn behind everything).
 func _update_weather(dt: float) -> void:
 	for k in range(hz_count - 1, -1, -1):
 		if hz_kind[k] == 1:
@@ -642,15 +643,6 @@ func _update_weather(dt: float) -> void:
 			if absf(hz_pos[k].x) > half_w + hz_r[k] + 2.0 or absf(hz_pos[k].y) > half_h + hz_r[k] + 2.0:
 				_remove_hazard(k)
 	fog_amount = move_toward(fog_amount, fog_target, dt / maxf(Tuning.fog_fade_seconds, 0.1))
-	var center := Airports.field_center()
-	var radius := lerpf(60.0, Tuning.fog_radius_eff(), fog_amount)
-	for p in planes:
-		if not p.active():
-			continue
-		var hide: bool = fog_amount > 0.001 and p.entered and p.state != Aircraft.State.LANDING and p.pos.distance_to(center) > radius
-		if p.fogged and not hide:
-			revealed.emit(p)
-		p.fogged = hide
 
 func _move(p: Aircraft, dt: float, mult: float) -> void:
 	var speed := p.speed * mult
@@ -766,7 +758,8 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 		prev = q
 	var arrive := run_time + dist / maxf(p.speed * mult, 0.01)
 	approach.evaluate(p, arrive - _last_td[p.runway], wind.from_deg if wind != null else -1.0)
-	var chance := approach.chance
+	# Fog makes a POOR approach a little riskier; a clean one has no chance to multiply, so it is unaffected.
+	var chance := minf(approach.chance * lerpf(1.0, Tuning.fog_poor_go_around_mult, fog_amount), Tuning.go_around_max)
 	if p.student:
 		if all_students:
 			chance = minf(chance * Tuning.bad_day_go_around_mult + Tuning.bad_day_go_around_floor, Tuning.go_around_max)

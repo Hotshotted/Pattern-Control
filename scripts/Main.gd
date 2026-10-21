@@ -19,6 +19,7 @@ const HEADER_DONE := "SHIFT\nCOMPLETE"
 @onready var airfield: Airfield = $Airfield
 @onready var traffic: Traffic = $Traffic
 @onready var ribbons: PathRibbons = $Ribbons
+var fog_layer: FogLayer
 @onready var fx: Fx = $Fx
 @onready var overlay: Overlay = $Overlay
 @onready var hud: Hud = $Hud
@@ -97,13 +98,16 @@ func _ready() -> void:
 	traffic.go_around.connect(_on_go_around)
 	traffic.runway_conflict.connect(_on_runway_conflict)
 	traffic.refused.connect(_on_refused)
-	traffic.revealed.connect(_on_revealed)
 	wind.reopened.connect(_on_runway_reopened)
 	weather.warned.connect(_on_weather_warned)
 	weather.started.connect(_on_weather_started)
 	weather.ended.connect(_on_weather_ended)
 	traffic.appeared.connect(_on_appeared)
 	ribbons.traffic = traffic
+	fog_layer = FogLayer.new()
+	fog_layer.traffic = traffic
+	fog_layer.wind = wind
+	add_child(fog_layer)
 	overlay.camera = camera
 	traffic.landed.connect(_on_landed)
 	traffic.conflict.connect(_on_conflict)
@@ -424,6 +428,7 @@ func _update_audio(frac: float) -> void:
 				_hum_counts[p.type] += 1
 	sfx.set_hum_counts(_hum_counts)
 	sfx.set_music(true, frac, 1.0 if _finale > 0 else 0.0)
+	sfx.set_fog(traffic.fog_amount)
 
 # ---------- Game events ----------
 
@@ -641,10 +646,6 @@ func _on_runway_reopened(r: int) -> void:
 	airfield.show_active(wind)
 	overlay.ripple(Airports.rw_center(r), Airports.rw_color(r), 1.2)
 	hud.popup("%s runway open" % Airports.rw_name(r), Color(0.6, 1.0, 0.7), overlay.world_to_screen(Airports.rw_center(r)))
-
-## An aircraft came out of the fog.
-func _on_revealed(p: Aircraft) -> void:
-	overlay.ripple(p.pos, Color(0.9, 0.95, 1.0), 0.5)
 
 ## Debug (?tune): announce a weather event now.
 func trigger_weather(kind: String) -> void:

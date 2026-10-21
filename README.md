@@ -43,8 +43,10 @@ You run an airport, one **shift** at a time.
   thinner traffic), *Better Comms* (longer timers), *Holding Fixes* (holding burns timers slower, tighter
   circles), *Fast Turnoffs* (runways clear faster).
 - **Weather** (later airports, later in a shift; each event is announced ~6 s ahead with a banner):
-  *storm cells* drift across the field (flying into one is a fine), *fog* hides aircraft until they get
-  close to the field (the Radar upgrade sees further into it), and a *gusty crosswind* closes one runway for
+  *storm cells* drift across the field (flying into one is a fine), *fog* ("FOG ROLLING IN") is atmospheric: drifting translucent
+  waves dim the ground and scenery, while aircraft, paths, timers, banners and runways stay on top and fully readable;
+  the mood is muted colors, a soft ambience and tenser music, and poor approaches go around slightly more often
+  (never on Grass Strip or County); and a *gusty crosswind* closes one runway for
   a while (red X and a countdown; aircraft cleared to it are re-routed).
 - **Shop** (cosmetics only): airport *themes* (Autumn, Desert, Winter, Night: palette and scenery) and airline
   *liveries* with an animal pilot (Fox Air, Owl Express, Penguin Pacific, Bear Cargo, Cat Airways). The pilot's

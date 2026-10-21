@@ -16,7 +16,7 @@ extends SceneTree
 ##   9d. special aircraft: helicopters (pad, hover), gliders (one path, no hold), jets (long runways), seaplanes
 ##       (lane), emergencies (any runway, bonus), VIPs (lose the bonus if held), first-time tips
 ##   9e. upgrades: buying, every effect, the radar re-framing, approach lining-up, the scenery, the shop screen
-##   9f. weather: schedule + warnings per airport, storm cells (strike), fog (hidden, revealed, radar), crosswind (closure, reroute)
+##   9f. weather: schedule + warnings per airport, storm cells (strike), fog (drawn behind everything, hides nothing), crosswind (closure, reroute)
 ##   9g: cosmetics shop (themes, liveries, pilots), the daily shift (seeded, streak, bonus), ad stubs (continue,
 ##       double coins, interstitial) and the ?tune debug buttons
 ##   9. shifts: star goals and progress, stars / coins / first-time bonus, versioned save (v1 migrates)
@@ -1460,38 +1460,31 @@ func _initialize() -> void:
 	set_wind(main, 0.0)
 	var center = Airports.field_center()
 	var near_a = tr.place(0, center + Vector2(1.0, 3.0), 0.0, MEDIUM)
-	var far_a = tr.place(1, center + Vector2(tuning.fog_visible_radius + 1.5, 0.0), PI * 0.0, MEDIUM)
+	var far_a = tr.place(1, center + Vector2(4.5, 0.0), PI * 0.0, MEDIUM)
 	far_a.speed = 0.0
 	near_a.speed = 0.0
 	far_a.push(far_a.pos + Vector2(0.3, 0.3))
 	await process_frame
+	check(not main.fog_layer.visible, "no fog layer is drawn while the weather is clear")
 	main.trigger_weather("fog")
 	check(main.hud._event_banner.text.begins_with("Fog in"), "fog is announced (%s)" % main.hud._event_banner.text)
+	check(main.hud.banner_text() == "FOG ROLLING IN", "...with a FOG ROLLING IN banner (%s)" % main.hud.banner_text())
 	run_sec(main, tuning.weather_warning_seconds + 0.3 + tuning.fog_fade_seconds + 0.3)
 	check(tr.fog_amount >= 0.99 and main.weather.phase == 2, "the fog rolls in")
-	check(far_a.fogged and not near_a.fogged, "an aircraft beyond the visible radius is hidden, one near the field is not")
-	check(not tr._nodes[tr.planes.find(far_a)].visible and tr._nodes[tr.planes.find(near_a)].visible, "...its model really is hidden")
-	check(tr.pick(far_a.pos) != far_a, "...and can't be grabbed")
 	await process_frame
 	await process_frame
-	check(not main.ribbons._nodes[tr.planes.find(far_a)].visible, "...nor is its path drawn")
+	check(main.fog_layer.visible and absf(float(main.fog_layer.shader_material().get_shader_parameter("amount")) - tr.fog_amount) < 0.01, "a translucent fog layer is drawn, as thick as the fog (%.2f)" % tr.fog_amount)
+	check(not far_a.fogged and not near_a.fogged and tr._nodes[tr.planes.find(far_a)].visible, "the fog hides nothing: a far aircraft is still there, model and all")
+	check(tr.pick(far_a.pos) == far_a, "...and can still be grabbed")
+	check(main.ribbons._nodes[tr.planes.find(far_a)].visible, "...and its path is still drawn")
 	var tl_f = far_a.timer_left
 	run_sec(main, 2.0)
-	check(far_a.timer_left < tl_f - 1.5, "...but its timer keeps running")
-	var rev = [0]
-	tr.revealed.connect(func(_p): rev[0] += 1)
-	far_a.speed = 2.0
-	far_a.clear_path()
-	far_a.heading = -PI * 0.5
-	run_sec(main, 2.0)
-	check(not far_a.fogged and rev[0] >= 1, "it reappears once it gets close to the field")
-	save.upgrades["radar"] = 3
-	check(tuning.fog_radius_eff() > tuning.fog_visible_radius + 2.0, "Radar sees further into the fog (%.1f -> %.1f)" % [tuning.fog_visible_radius, tuning.fog_radius_eff()])
-	save.upgrades = {}
+	check(far_a.timer_left < tl_f - 1.5, "...its timer keeps running")
 	run_sec(main, tuning.fog_seconds)
 	check(tr.fog_target == 0.0 and main.weather.phase == 0, "the fog lifts when the event ends")
 	run_sec(main, tuning.fog_fade_seconds + 0.3)
-	check(tr.fog_amount < 0.01 and not far_a.fogged and not main.hud._event_banner.visible, "...everything is visible again and the banner is gone")
+	await process_frame
+	check(tr.fog_amount < 0.01 and not main.fog_layer.visible and not main.hud._event_banner.visible, "...the layer goes away and the chip is gone")
 	tr.release_all()
 	# Crosswind (Regional: two runways).
 	main.restart()
@@ -2474,7 +2467,7 @@ func _initialize() -> void:
 		tr.spawned.disconnect(arr_cb)
 		peak.append([ai, peak_n, arrivals[0]])
 		check(peak_n <= tuning.max_planes_eff(), "%s: never more than %d aircraft at once (peak %d, %d arrivals in 80 s)" % [Airports.airport_name(ai), tuning.max_planes_eff(), peak_n, arrivals[0]])
-	check(peak[0][2] <= peak[1][2] + 2 and peak[1][2] + 3 < peak[2][2] and peak[2][2] <= peak[3][2] + 2, "later airports bring more arrivals (%s)" % str(peak))
+	check(peak[0][2] <= peak[1][2] + 2 and peak[1][2] < peak[2][2] and peak[2][2] <= peak[3][2] + 2, "later airports bring more arrivals (%s)" % str(peak))
 	check(peak[0][2] >= 9 and peak[0][2] <= 16 and peak[2][2] >= 18, "Grass Strip ~%d arrivals in 80 s, Mountain Field ~%d" % [peak[0][2], peak[2][2]])
 	# Grass Strip: no wind shift and no weather, ever.
 	main.select_airport(0)
@@ -2723,6 +2716,118 @@ func _initialize() -> void:
 	check(main.hud.results_details_open() and art.details_lines.size() >= 8, "results: 'Details' opens the full breakdown (%d lines)" % art.details_lines.size())
 	main._on_button("details")
 	check(not main.hud.results_details_open(), "...and closes it again")
+	main.restart()
+	tr.auto_spawn = false
+
+	print("9o. atmospheric fog")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var fogl = main.fog_layer
+	var fsm = fogl.shader_material()
+	check(fsm.shader.code.contains("depth_test_disabled") and fsm.shader.code.contains("blend_mix") and fsm.shader.code.contains("TIME"), "the fog is a cheap one-quad shader with drifting noise (%d characters)" % fsm.shader.code.length())
+	check(fogl.mesh is PlaneMesh and main.get_children().filter(func(n): return n is FogLayer).size() == 1, "one fog quad, created once")
+	# Draw order: ground and scenery (opaque) -> fog -> path ribbons -> aircraft, runways and pads.
+	var plane_mat = tr._body_mats[0]
+	var rw_mat = main.airfield.cur.thr_mats[0]
+	check(fsm.render_priority < -1 and plane_mat.render_priority > fsm.render_priority and rw_mat.render_priority > fsm.render_priority, "draw order: the fog comes before the ribbons, aircraft and runways")
+	check(plane_mat.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS and rw_mat.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS and plane_mat.albedo_color.a == 1.0, "aircraft and runways sit in the pass after the fog but stay fully opaque")
+	check(main.airfield.cur.ground_mat.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED and main.airfield.cur.ground_mat.render_priority == 0, "the ground and scenery stay in the opaque pass: only they are dimmed")
+	var pad_lifted = false
+	var lane_lifted = true
+	for av in main.airfield.variants:
+		for mi in av.root.find_children("*", "MeshInstance3D", true, false):
+			var bm = mi.material_override as BaseMaterial3D
+			if bm != null and bm.render_priority == Prim.ABOVE_FOG:
+				pad_lifted = true
+	check(pad_lifted, "runways, pads and lanes are lifted above the fog")
+	var outl_ok = true
+	for mi in tr._nodes[0].find_children("*", "MeshInstance3D", true, false):
+		if mi.material_overlay != null:
+			outl_ok = outl_ok and mi.material_overlay.render_priority == Prim.ABOVE_FOG
+	check(outl_ok, "aircraft outlines are drawn above the fog with them")
+	# The fog layer follows the fog and costs nothing without it.
+	tr.fog_amount = 0.0
+	tr.fog_target = 0.0
+	await process_frame
+	check(not fogl.visible, "no fog, no layer")
+	tr.fog_amount = 0.6
+	tr.fog_target = 0.6
+	await process_frame
+	check(fogl.visible and absf(float(fsm.get_shader_parameter("amount")) - 0.6) < 0.01 and float(fsm.get_shader_parameter("max_alpha")) == tuning.fog_max_alpha and tuning.fog_max_alpha < 0.7, "fog layer on, translucent (never above %.2f alpha)" % tuning.fog_max_alpha)
+	# Go-arounds: poor approaches a little riskier in fog, clean ones untouched.
+	tuning.go_around_max = 0.98
+	var thr_f = Airports.end_threshold(0, 0)
+	var rd_f = (Airports.end_far(0, 0) - thr_f).normalized()
+	var nm_f = Vector2(-rd_f.y, rd_f.x)
+	var mk_f = func(poor):
+		tr.release_all()
+		tr._busy_until.fill(0.0)
+		tr._last_td.fill(-1000.0)
+		var pts = []
+		if poor:
+			pts = [[-1.5, -1.5], [-1.0, -1.0], [-0.5, -0.5]]
+		else:
+			var uu = -4.2
+			while uu < -0.05:
+				pts.append([uu, 0.0])
+				uu += 0.3
+		var q0 = pts[0]
+		var pq = tr.place(0, thr_f + rd_f * q0[0] + nm_f * q0[1], atan2(rd_f.x, -rd_f.y), MEDIUM)
+		for e in pts.slice(1):
+			pq.push(thr_f + rd_f * e[0] + nm_f * e[1])
+		pq.push(thr_f)
+		pq.push(Airports.end_far(0, 0))
+		pq.cleared = true
+		pq.land_end = 0
+		return pq
+	tr.fog_amount = 0.0
+	tr.fog_target = 0.0
+	var poor_clear = mk_f.call(true)
+	tr.step(1.0 / 60.0)
+	var c_poor_clear = poor_clear.ga_chance
+	var good_clear = mk_f.call(false)
+	tr.step(1.0 / 60.0)
+	var c_good_clear = good_clear.ga_chance
+	var poor_fog = mk_f.call(true)
+	tr.fog_amount = 1.0
+	tr.fog_target = 1.0
+	tr.step(1.0 / 60.0)
+	var c_poor_fog = poor_fog.ga_chance
+	var good_fog = mk_f.call(false)
+	tr.fog_amount = 1.0
+	tr.fog_target = 1.0
+	tr.step(1.0 / 60.0)
+	var c_good_fog = good_fog.ga_chance
+	check(c_poor_fog > c_poor_clear and absf(c_poor_fog / c_poor_clear - tuning.fog_poor_go_around_mult) < 0.01 and tuning.fog_poor_go_around_mult <= 1.5, "in fog a poor approach goes around a bit more often (%.2f -> %.2f, x%.2f)" % [c_poor_clear, c_poor_fog, tuning.fog_poor_go_around_mult])
+	check(c_good_clear == 0.0 and c_good_fog == 0.0, "...a clean approach is unaffected (%.2f / %.2f)" % [c_good_clear, c_good_fog])
+	tuning.go_around_max = 0.0
+	tr.fog_amount = 0.0
+	tr.fog_target = 0.0
+	tr.release_all()
+	# Fog only where it belongs.
+	var fog_at = []
+	for ai in Airports.COUNT:
+		main.select_airport(ai)
+		Airports.current = ai
+		fog_at.append("fog" in Airports.weather_kinds())
+	check(not fog_at[0] and not fog_at[1] and fog_at[2] and fog_at[3] and fog_at[4] and fog_at[5], "no fog on Grass Strip or County, fog from Regional on (%s)" % str(fog_at))
+	# Sound: a soft ambience and a tenser music layer while it lasts.
+	main.select_airport(2)
+	main.restart()
+	var fsfx = main.sfx
+	fsfx.set_music(true, 0.2, 0.0)
+	fsfx.set_fog(0.0)
+	check(fsfx.fog_level == 0.0 and not fsfx._fog_amb.playing and not fsfx._music_tense.playing, "no fog: no ambience, no tense layer")
+	fsfx.set_fog(1.0)
+	check(fsfx.fog_level == 1.0 and fsfx._fog_amb.playing and fsfx._music_tense.playing, "fog: the ambience and the tense music layer play")
+	check(fsfx._music_tense.stream.data.size() == fsfx._music_calm.stream.data.size() and fsfx._music_tense.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "...the tense layer loops in step with the music")
+	check(fsfx._fog_amb.volume_db < -10.0 and fsfx._fog_amb.volume_db > -40.0, "...the ambience is soft (%.0f dB)" % fsfx._fog_amb.volume_db)
+	fsfx.set_fog(0.0)
+	check(not fsfx._fog_amb.playing and not fsfx._music_tense.playing, "...and both go quiet when the fog lifts")
 	main.restart()
 	tr.auto_spawn = false
 

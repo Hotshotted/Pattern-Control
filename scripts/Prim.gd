@@ -14,6 +14,36 @@ static func outline() -> ShaderMaterial:
 		_outline.set_shader_parameter("thickness", Tuning.outline_thickness)
 	return _outline
 
+static var _outline_top: ShaderMaterial
+
+## The same outline for things that must be drawn above the fog (see lift()).
+static func outline_top() -> ShaderMaterial:
+	if _outline_top == null:
+		_outline_top = ShaderMaterial.new()
+		_outline_top.shader = preload("res://shaders/outline_part_top.gdshader")
+		_outline_top.set_shader_parameter("outline_color", Color.BLACK)
+		_outline_top.set_shader_parameter("thickness", Tuning.outline_thickness)
+		_outline_top.render_priority = ABOVE_FOG
+	return _outline_top
+
+## Render priority of everything that sits above the fog (the fog layer draws at FogLayer.PRIORITY, far below).
+const ABOVE_FOG := 2
+
+## Move a node's meshes into the transparent pass, after the fog: their materials become "alpha with depth
+## pre-pass" (they still look opaque and depth-sort correctly) at a priority above the fog layer, and the
+## outlines switch to the transparent-pass outline. The ground and scenery are left alone, so only they are dimmed.
+static func lift(node: Node) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		var m := mi.material_override as BaseMaterial3D
+		if m != null:
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS
+			m.render_priority = ABOVE_FOG
+		if mi.material_overlay != null:
+			mi.material_overlay = outline_top()
+	for c in node.get_children():
+		lift(c)
+
 static func mat(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color

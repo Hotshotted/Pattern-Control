@@ -16,6 +16,7 @@ var plays := {}                # sound name -> how many times it was triggered
 var hum_level := PackedFloat32Array()    # per aircraft type: current hum volume 0..1 (for the tests)
 var music_level := 0.0         # the intense layer's volume 0..1
 var music_pitch := 1.0
+var fog_level := 0.0           # 0..1: the fog ambience and the tense music layer follow it
 
 var _streams := {}
 var _pool: Array[AudioStreamPlayer] = []
@@ -24,6 +25,8 @@ var _hums: Array[AudioStreamPlayer] = []
 var _hum_target := PackedFloat32Array()
 var _music_calm: AudioStreamPlayer
 var _music_hot: AudioStreamPlayer
+var _music_tense: AudioStreamPlayer
+var _fog_amb: AudioStreamPlayer
 var _music_on := false
 
 func _ready() -> void:
@@ -48,6 +51,12 @@ func _ready() -> void:
 	_music_hot.stream = _music(true)
 	_music_calm.volume_db = -80.0
 	_music_hot.volume_db = -80.0
+	_music_tense = _player("Music")
+	_music_tense.stream = _music_tense_loop()
+	_music_tense.volume_db = -80.0
+	_fog_amb = _player("SFX")
+	_fog_amb.stream = _fog_ambience()
+	_fog_amb.volume_db = -80.0
 
 func _player(bus: String) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
@@ -93,6 +102,26 @@ func set_music(on: bool, progress: float = 0.0, urgency: float = 0.0) -> void:
 	_music_hot.pitch_scale = music_pitch
 	_music_calm.volume_db = -12.0 if on else -80.0
 	_music_hot.volume_db = linear_to_db(maxf(hot * 0.8, 0.0001)) - 8.0 if on else -80.0
+
+## Fog: a soft ambient bed, and a tense music layer on top of the music while it is around.
+func set_fog(level: float) -> void:
+	fog_level = clampf(level, 0.0, 1.0)
+	if not enabled:
+		return
+	if fog_level > 0.01:
+		if not _fog_amb.playing:
+			_fog_amb.play()
+		_fog_amb.volume_db = linear_to_db(fog_level) + Tuning.fog_ambient_db
+	elif _fog_amb.playing:
+		_fog_amb.stop()
+	var tense := fog_level * Tuning.fog_music_tension if _music_on else 0.0
+	if tense > 0.01:
+		if not _music_tense.playing:
+			_music_tense.play()
+		_music_tense.volume_db = linear_to_db(tense) - 8.0
+		_music_tense.pitch_scale = music_pitch
+	elif _music_tense.playing:
+		_music_tense.stop()
 
 func _process(delta: float) -> void:
 	for t in 6:
@@ -240,6 +269,34 @@ func _music(hot: bool) -> AudioStreamWAV:
 			var kb := fmod(beat, 1.0)
 			v += 0.5 * sin(TAU * lerpf(110.0, 45.0, minf(kb * 8.0, 1.0)) * kb * BEAT) * exp(-kb * 9.0)
 		out[i] = v * 0.5
+	return _wav(out, LOOP_RATE, true)
+
+## Fog ambience: a soft airy bed (a one-second loop of many quiet partials) that swells and fades slowly.
+func _fog_ambience() -> AudioStreamWAV:
+	var count := LOOP_RATE * 2
+	var out := PackedFloat32Array()
+	out.resize(count)
+	for i in count:
+		var s := float(i) / LOOP_RATE
+		var v := 0.0
+		for k in 10:
+			v += 0.07 * sin(TAU * (90.0 + 41.0 * k) * s + k * 2.1) * (0.6 + 0.4 * sin(TAU * 0.5 * s + k))
+		out[i] = v * 0.5
+	return _wav(out, LOOP_RATE, true)
+
+## A low tense drone for the fog: a tritone pair that slowly shivers, in the same 8-beat length as the other layers.
+func _music_tense_loop() -> AudioStreamWAV:
+	var secs := BEAT * 8.0
+	var count := int(secs * LOOP_RATE)
+	var out := PackedFloat32Array()
+	out.resize(count)
+	for i in count:
+		var t := float(i) / LOOP_RATE
+		var f1 := roundf(55.0 * secs) / secs          # whole cycles per loop: no click at the seam
+		var f2 := roundf(77.8 * secs) / secs
+		var trem := 0.65 + 0.35 * sin(TAU * roundf(2.5 * secs) / secs * t)
+		var v := (sin(TAU * f1 * t) + 0.8 * sin(TAU * f2 * t) + 0.3 * sin(TAU * f2 * 2.0 * t)) * trem
+		out[i] = v * 0.3
 	return _wav(out, LOOP_RATE, true)
 
 func _wav(samples: PackedFloat32Array, rate: int, loop: bool = false) -> AudioStreamWAV:

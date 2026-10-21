@@ -150,9 +150,11 @@ var storm_radius := 1.5
 var storm_speed := 0.8
 ## Fog: how long, how close to the field aircraft must be to be seen, and how fast it rolls in and out.
 var fog_seconds := 22.0
-var fog_visible_radius := 3.8
+var fog_max_alpha := 0.55               # how opaque the densest mist gets (it never hides anything: aircraft are drawn above it)
+var fog_poor_go_around_mult := 1.3      # in full fog a POOR approach's go-around chance is this much higher (clean ones: unchanged)
+var fog_ambient_db := -22.0             # the soft fog ambience at full fog
+var fog_music_tension := 0.8            # the tense music layer at full fog (0..1)
 var fog_fade_seconds := 2.5
-var upg_radar_fog := 0.8            # the radar sees this much further into the fog per level
 ## Crosswind: how long the runway stays closed.
 var crosswind_seconds := 16.0
 
@@ -330,9 +332,6 @@ func weather_first_eff() -> float:
 
 func upg(id: String) -> int:
 	return Save.upgrade_level(id)
-
-func fog_radius_eff() -> float:
-	return fog_visible_radius + upg_radar_fog * upg("radar")
 
 func timer_mult() -> float:
 	return (1.0 + upg_comms_timer * upg("comms")) * float(profile()["timer"]) * (intro_timer_scale if intro_active else 1.0)

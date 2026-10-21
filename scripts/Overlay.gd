@@ -104,7 +104,6 @@ func _draw_all() -> void:
 		if p.entered and not p.fogged and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD):
 			_draw_timer_ring(p, t)
 	_draw_closures(t)
-	_draw_fog()
 	if selected != null and selected.active():
 		_c.draw_arc(selected.pos, 0.85, 0.0, TAU, 32, Color(1, 1, 1, 0.9), 0.07)
 	for i in RIPPLES:
@@ -174,17 +173,6 @@ func _draw_storm(c: Vector2, r: float, t: float, k: int) -> void:
 		_c.draw_line(p0, p1, Color(1.0, 0.97, 0.6), 0.1)
 		_c.draw_line(p1, p2, Color(1.0, 0.97, 0.6), 0.1)
 		_c.draw_line(p2, p3, Color(1.0, 0.97, 0.6), 0.1)
-
-## The fog: rings of grey that get thicker away from the field, hiding everything beyond the visible radius.
-func _draw_fog() -> void:
-	if traffic.fog_amount <= 0.001:
-		return
-	var center := Airports.field_center()
-	var vis := lerpf(60.0, Tuning.fog_radius_eff(), traffic.fog_amount)
-	for i in 26:
-		var r := vis + i * 0.8
-		var a := traffic.fog_amount * minf(0.12 + 0.88 * float(i + 1) / 10.0, 0.93)
-		_c.draw_arc(center, r + 0.4, 0.0, TAU, 72, Color(0.82, 0.86, 0.9, a), 0.85)
 
 ## A closed runway: a red X across it and the time left.
 func _draw_closures(t: float) -> void:

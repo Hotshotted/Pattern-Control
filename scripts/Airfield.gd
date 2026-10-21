@@ -166,18 +166,22 @@ func _runway(v: AirportScene, i: int) -> void:
 			Prim.box(root, Vector3(0.08, 0.14, 0.4), Vector3(-0.27 + k * 0.18, 0.07, sign * (len * 0.5 - 0.9)), white, false)
 	for k in 5:
 		Prim.box(root, Vector3(0.09, 0.14, 0.36), Vector3(0, 0.07, (k - 2) * 1.0), white, false)
+	Prim.lift(root)       # runways are drawn above the fog
 
 ## A round helipad with an H.
 func _pad(root: Node3D, pad: Dictionary) -> void:
+	var holder := Node3D.new()
+	root.add_child(holder)
 	var c: Vector2 = pad["center"]
 	var r: float = pad["radius"]
-	Prim.cyl(root, r, r, 0.1, 14, Vector3(c.x, 0.05, c.y), Prim.mat(Tuning.runway_asphalt))
-	Prim.cyl(root, r * 0.86, r * 0.86, 0.12, 14, Vector3(c.x, 0.05, c.y), Prim.mat(pad["color"]), false)
-	Prim.cyl(root, r * 0.74, r * 0.74, 0.14, 14, Vector3(c.x, 0.06, c.y), Prim.mat(Tuning.runway_asphalt), false)
+	Prim.cyl(holder, r, r, 0.1, 14, Vector3(c.x, 0.05, c.y), Prim.mat(Tuning.runway_asphalt))
+	Prim.cyl(holder, r * 0.86, r * 0.86, 0.12, 14, Vector3(c.x, 0.05, c.y), Prim.mat(pad["color"]), false)
+	Prim.cyl(holder, r * 0.74, r * 0.74, 0.14, 14, Vector3(c.x, 0.06, c.y), Prim.mat(Tuning.runway_asphalt), false)
 	var white := Prim.mat(Color(0.95, 0.95, 0.92))
-	Prim.box(root, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x - r * 0.28, 0.07, c.y), white, false)
-	Prim.box(root, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x + r * 0.28, 0.07, c.y), white, false)
-	Prim.box(root, Vector3(r * 0.56, 0.16, 0.1), Vector3(c.x, 0.07, c.y), white, false)
+	Prim.box(holder, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x - r * 0.28, 0.07, c.y), white, false)
+	Prim.box(holder, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x + r * 0.28, 0.07, c.y), white, false)
+	Prim.box(holder, Vector3(r * 0.56, 0.16, 0.1), Vector3(c.x, 0.07, c.y), white, false)
+	Prim.lift(holder)       # pads are drawn above the fog
 
 ## A strip of water marked out for seaplanes.
 func _lane(root: Node3D, lane: Dictionary) -> void:
@@ -196,6 +200,7 @@ func _lane(root: Node3D, lane: Dictionary) -> void:
 	var white := Prim.mat(Color(0.95, 0.97, 1.0))
 	for k in int(len / 1.0) - 1:
 		Prim.box(n, Vector3(0.08, 0.08, 0.34), Vector3(0, 0.07, -len * 0.5 + 0.9 + k * 1.0), white, false)
+	Prim.lift(n)            # lanes are drawn above the fog
 
 ## A low-poly mountain: two peaks with snow caps. Its radius is the no-fly zone.
 func _mountain(root: Node3D, c: Vector2, r: float) -> void:
