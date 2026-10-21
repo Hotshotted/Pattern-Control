@@ -257,6 +257,7 @@ var outline_thickness := 0.05
 
 # ---------- Airport difficulty ----------
 ## One profile per airport, in order: easy first, building up. Keys:
+##   shift          seconds of arrivals (the spawning window); par is 15 s later
 ##   max_planes     peak traffic: no new arrival while this many aircraft are on the field
 ##   spawn_start / spawn_min   seconds between arrivals at the start / at the busiest point
 ##   ramp           how soon the busiest point is reached, as a fraction of the spawning window (lower = steeper)
@@ -271,18 +272,18 @@ var outline_thickness := 0.05
 ##                  (types: 0 glider, 1 helicopter, 2 small, 3 medium, 4 jet, 5 seaplane)
 ## Today's (pre-profile) intensity was: 12 planes, 5.0 -> 1.7 s, ramp 0.83, speed 1, timer 1, specials 1.
 var airport_profiles := [
-	{"name": "Grass Strip", "max_planes": 3, "spawn_start": 7.0, "spawn_min": 4.4, "ramp": 0.9, "speed": 0.75, "timer": 1.5,
-		"specials": 0.0, "weather": 0.0, "wind": 0.0, "weather_first": 999.0, "wind_first": 999.0, "fines": 0.4, "stars": [30, 65, 100], "beats": [[5.0, 0]]},
-	{"name": "County", "max_planes": 4, "spawn_start": 6.5, "spawn_min": 4.0, "ramp": 0.9, "speed": 0.85, "timer": 1.35,
-		"specials": 0.3, "weather": 0.0, "wind": 2.2, "weather_first": 999.0, "wind_first": 35.0, "fines": 0.6, "stars": [40, 85, 130], "beats": [[5.0, 2]]},
-	{"name": "Regional", "max_planes": 6, "spawn_start": 6.0, "spawn_min": 3.2, "ramp": 0.85, "speed": 0.92, "timer": 1.2,
-		"specials": 0.6, "weather": 1.6, "wind": 1.5, "weather_first": 50.0, "wind_first": 38.0, "fines": 0.8, "stars": [55, 115, 170], "beats": [[5.0, 1], [24.0, 4]]},
-	{"name": "Mountain Field", "max_planes": 10, "spawn_start": 5.2, "spawn_min": 2.2, "ramp": 0.83, "speed": 1.0, "timer": 1.0,
-		"specials": 1.0, "weather": 1.0, "wind": 1.0, "weather_first": 45.0, "wind_first": 35.0, "fines": 1.0, "stars": [75, 150, 225], "beats": [[5.0, 2]]},
-	{"name": "Island", "max_planes": 12, "spawn_start": 4.8, "spawn_min": 1.9, "ramp": 0.8, "speed": 1.05, "timer": 0.95,
-		"specials": 1.1, "weather": 0.85, "wind": 0.8, "weather_first": 40.0, "wind_first": 32.0, "fines": 1.0, "stars": [95, 190, 285], "beats": [[5.0, 5]]},
-	{"name": "International", "max_planes": 14, "spawn_start": 4.2, "spawn_min": 1.5, "ramp": 0.75, "speed": 1.12, "timer": 0.9,
-		"specials": 1.5, "weather": 0.7, "wind": 0.6, "weather_first": 35.0, "wind_first": 30.0, "fines": 1.0, "stars": [110, 215, 320], "beats": [[5.0, 1], [22.0, 5], [40.0, 4]]},
+	{"name": "Grass Strip", "shift": 45, "max_planes": 3, "spawn_start": 7.0, "spawn_min": 4.4, "ramp": 0.9, "speed": 0.75, "timer": 1.5,
+		"specials": 0.0, "weather": 0.0, "wind": 0.0, "weather_first": 999.0, "wind_first": 999.0, "fines": 0.4, "stars": [15, 35, 55], "beats": [[5.0, 0]]},
+	{"name": "County", "shift": 60, "max_planes": 4, "spawn_start": 6.5, "spawn_min": 4.0, "ramp": 0.9, "speed": 0.85, "timer": 1.35,
+		"specials": 0.3, "weather": 0.0, "wind": 2.2, "weather_first": 999.0, "wind_first": 35.0, "fines": 0.6, "stars": [30, 60, 90], "beats": [[5.0, 2]]},
+	{"name": "Regional", "shift": 75, "max_planes": 6, "spawn_start": 6.0, "spawn_min": 3.2, "ramp": 0.85, "speed": 0.92, "timer": 1.2,
+		"specials": 0.6, "weather": 1.6, "wind": 1.5, "weather_first": 50.0, "wind_first": 38.0, "fines": 0.8, "stars": [50, 100, 150], "beats": [[5.0, 1], [24.0, 4]]},
+	{"name": "Mountain Field", "shift": 75, "max_planes": 10, "spawn_start": 5.2, "spawn_min": 2.2, "ramp": 0.83, "speed": 1.0, "timer": 1.0,
+		"specials": 1.0, "weather": 1.0, "wind": 1.0, "weather_first": 45.0, "wind_first": 35.0, "fines": 1.0, "stars": [65, 130, 200], "beats": [[5.0, 2]]},
+	{"name": "Island", "shift": 90, "max_planes": 12, "spawn_start": 4.8, "spawn_min": 1.9, "ramp": 0.8, "speed": 1.05, "timer": 0.95,
+		"specials": 1.1, "weather": 0.85, "wind": 0.8, "weather_first": 40.0, "wind_first": 32.0, "fines": 1.0, "stars": [100, 200, 300], "beats": [[5.0, 5]]},
+	{"name": "International", "shift": 90, "max_planes": 14, "spawn_start": 4.2, "spawn_min": 1.5, "ramp": 0.75, "speed": 1.12, "timer": 0.9,
+		"specials": 1.5, "weather": 0.7, "wind": 0.6, "weather_first": 35.0, "wind_first": 30.0, "fines": 1.0, "stars": [115, 230, 340], "beats": [[5.0, 1], [22.0, 5], [40.0, 4]]},
 ]
 ## An airport's first shift is gentler: arrivals this much further apart, timers this much longer.
 var intro_spawn_scale := 1.3
@@ -295,6 +296,13 @@ var beat_gap := 10.0
 # ---------- Derived ----------
 func profile(i: int = -1) -> Dictionary:
 	return airport_profiles[clampi(Airports.current if i < 0 else i, 0, airport_profiles.size() - 1)]
+
+## This airport's shift: arrivals for this long (45 / 60 / 75 / 90 s by airport), then par a fixed window later.
+func spawn_stop_eff() -> float:
+	return float(profile()["shift"])
+
+func par_eff() -> float:
+	return spawn_stop_eff() + (shift_seconds - spawn_stop_seconds)
 
 func star_thresholds(i: int = -1) -> Array:
 	return profile(i)["stars"]
@@ -363,7 +371,7 @@ func view_size() -> float:
 
 ## How far up the traffic ramp we are, 0..1: it always reaches the full, busy finish by the time spawning stops.
 func spawn_progress(t: float) -> float:
-	return clampf(t / maxf(float(profile()["ramp"]) * spawn_stop_seconds, 1.0), 0.0, 1.0)
+	return clampf(t / maxf(float(profile()["ramp"]) * spawn_stop_eff(), 1.0), 0.0, 1.0)
 
 func speed_mult(t: float) -> float:
 	return lerpf(1.0, speed_ramp_max, spawn_progress(t)) * float(profile()["speed"])

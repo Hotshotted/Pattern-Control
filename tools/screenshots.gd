@@ -105,7 +105,7 @@ func _walk(save) -> void:
 		main.shift.on_landed(3, 14, 0)
 	main.shift.fine(40, "conflict")
 	main.hud.set_shift(main.shift)
-	tr.run_time = main.get_node("/root/Tuning").shift_seconds - 4.0
+	tr.run_time = main.get_node("/root/Tuning").par_eff() - 4.0
 	main.step(1.0 / 60.0)
 	await _shot("13_results")
 	main.hud.toggle_details()
@@ -115,7 +115,7 @@ func _walk(save) -> void:
 	main.shift.on_landed(3, 14, 0)
 	main.shift.fine(100, "conflict")
 	main.hud.set_shift(main.shift)
-	tr.run_time = main.get_node("/root/Tuning").shift_seconds + 8.0
+	tr.run_time = main.get_node("/root/Tuning").par_eff() + 8.0
 	main.step(1.0 / 60.0)
 	await _shot("13c_results_bad_shift")
 	main._show_menu()

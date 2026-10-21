@@ -11,18 +11,18 @@ const POPUP_POOL := 8
 const MAX_POPUPS_SHOWN := 3
 
 # The three text sizes, and the colours (everything on screen comes from these).
-const SZ_XL := 110
-const SZ_M := 56
-const SZ_S := 30
-const C_TEXT := Color(1.0, 1.0, 1.0)
-const C_SOFT := Color(0.74, 0.82, 0.93)
-const C_QUIET := Color(0.56, 0.63, 0.75)
-const C_GOLD := Color(1.0, 0.84, 0.15)
-const C_GREEN := Color(0.2, 0.7, 0.45)
-const C_RED := Color(1.0, 0.36, 0.3)
-const C_PANEL := Color(0.09, 0.13, 0.21, 0.94)
-const C_LINE := Color(0.62, 0.72, 0.9, 0.9)
-const C_DIM := Color(0.04, 0.06, 0.1)
+const SZ_XL := Style.SZ_XL
+const SZ_M := Style.SZ_M
+const SZ_S := Style.SZ_S
+const C_TEXT := Style.TEXT
+const C_SOFT := Style.TEXT_SOFT
+const C_QUIET := Style.TEXT_QUIET
+const C_GOLD := Style.ACCENT
+const C_GREEN := Style.SUCCESS
+const C_RED := Style.DANGER
+const C_PANEL := Color(Style.SURFACE_DARK, 0.95)
+const C_LINE := Style.LINE
+const C_DIM := Style.SCRIM
 
 ## The drawn parts of the HUD: icons, buttons and cards, the star bar, the results and the little pills.
 class Art extends Control:
@@ -53,7 +53,7 @@ class Art extends Control:
 	var details_lines := PackedStringArray()
 	# ---- the pause menu ----
 	var show_pause := false
-	var pause_rect := Rect2(10.0, 10.0, 80.0, 80.0)   # the pause button, top-left (the wind dial is on the right)
+	var pause_rect := Rect2(Style.GUTTER * 0.5, 10.0, 80.0, 80.0)   # the pause button, top-left (the wind dial is on the right)
 	var slider_rect: Array[Rect2] = [Rect2(), Rect2()]
 	var slider_val := PackedFloat32Array([0.8, 0.8])
 	var slider_glyph := PackedStringArray(["speaker", "note"])
@@ -77,7 +77,18 @@ class Art extends Control:
 	var _p4 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 	var _p5 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 	var _line := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
-	var _font: Font
+	var press_k := -1                  # the button being pressed (drawn pushed in), -1 none
+	var top := 0.0                     # safe-area insets (notch, corners, home indicator)
+	var left := 0.0
+	var right := 0.0
+	var _gp := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
+	var _gc := PackedColorArray([Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE])
+	var _sheen_s: StyleBoxFlat
+	var _sheen_m: StyleBoxFlat
+	var _sheen_l: StyleBoxFlat
+	var _sb_lip: StyleBoxFlat
+	var _sb_lip_gold: StyleBoxFlat
+	var _sb_ghost: StyleBoxFlat
 	var _sb_normal: StyleBoxFlat
 	var _sb_disabled: StyleBoxFlat
 	var _sb_accent: StyleBoxFlat
@@ -114,35 +125,55 @@ class Art extends Control:
 		for a in [btn_state, btn_stars, btn_icon, btn_kind, btn_pips, btn_cost, btn_badge, btn_lock]:
 			a.resize(MAX_BTN)
 		_pts.resize(10)
-		_font = ThemeDB.fallback_font
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		_sb_normal = _box(C_PANEL, C_LINE, 22)
-		_sb_disabled = _box(Color(0.06, 0.07, 0.1, 0.9), Color(0.3, 0.33, 0.4, 0.9), 22)
-		_sb_accent = _box(Color(0.12, 0.45, 0.32, 0.97), Color(0.75, 1.0, 0.85, 0.95), 22)
-		_sb_primary = _box(Color(0.14, 0.62, 0.4, 1.0), Color(0.88, 1.0, 0.93, 1.0), 38, 7)
-		_sb_gold = _box(Color(0.3, 0.24, 0.06, 0.96), C_GOLD, 22)
-		_sb_pill = _box(Color(0.03, 0.05, 0.09, 0.78), Color(0.8, 0.88, 1.0, 0.55), 40, 3)
-		_sb_sheet = _box(Color(0.05, 0.07, 0.12, 0.98), C_LINE, 30, 3)
-		_sb_banner = _box(Color(0.03, 0.05, 0.09, 0.82), Color.WHITE, 40, 3)
-		_sb_tip = _box(Color(0.03, 0.05, 0.09, 0.85), Color(0.7, 0.95, 0.85), 40, 3)
+		_sb_normal = Style.box(C_PANEL, Color(Style.LINE, 0.55), Style.R_M)
+		_sb_disabled = Style.box(Color(0.07, 0.09, 0.14, 0.9), Color(0.3, 0.33, 0.4, 0.7), Style.R_M, 3, false)
+		_sb_accent = Style.box(Color(Style.SUCCESS_DARK, 0.97), Color(0.75, 1.0, 0.85, 0.9), Style.R_M)
+		_sb_primary = Style.box(Style.SUCCESS, Color(0.9, 1.0, 0.95, 0.95), Style.R_L, 5, false)
+		_sb_lip = Style.box(Style.SUCCESS_DARK, Style.SUCCESS_DARK, Style.R_L, 0)
+		_sb_lip_gold = Style.box(Style.ACCENT_DARK, Style.ACCENT_DARK, Style.R_M, 0)
+		_sb_gold = Style.box(Color(0.3, 0.24, 0.06, 0.96), C_GOLD, Style.R_M)
+		_sb_ghost = Style.box(Color(Style.SCRIM, 0.35), Color(Style.LINE, 0.35), Style.R_PILL, 2, false)
+		_sb_pill = Style.box(Color(Style.INK, 0.78), Color(0.8, 0.88, 1.0, 0.5), Style.R_PILL, 3)
+		_sb_sheet = Style.box(Color(Style.SURFACE_DARK, 0.98), C_LINE, Style.R_L, 3)
+		_sb_banner = Style.box(Color(Style.INK, 0.82), Color.WHITE, Style.R_PILL, 3)
+		_sb_tip = Style.box(Color(Style.INK, 0.85), Color(0.7, 0.95, 0.85), Style.R_PILL, 3)
+		_sheen_s = Style.sheen(Style.R_S)
+		_sheen_m = Style.sheen(Style.R_M)
+		_sheen_l = Style.sheen(Style.R_L, 0.16)
 
-	func _box(fill: Color, border: Color, radius: int, width: int = 4) -> StyleBoxFlat:
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = fill
-		sb.border_color = border
-		sb.set_border_width_all(width)
-		sb.set_corner_radius_all(radius)
-		return sb
+	## A panel with its soft highlight: a rounded cap at the top fading down into the face (the style's gradient).
+	func panel(sb: StyleBoxFlat, r: Rect2, sheen_sb: StyleBoxFlat = null) -> void:
+		draw_style_box(sb, r)
+		var sh := sheen_sb if sheen_sb != null else _sheen_m
+		var inset := float(sb.border_width_left) + 2.0
+		var rad := float(sh.corner_radius_top_left)
+		var h := maxf(r.size.y * 0.5 - inset, rad + 2.0)
+		var x0 := r.position.x + inset
+		var x1 := r.end.x - inset
+		var y0 := r.position.y + inset
+		draw_style_box(sh, Rect2(x0, y0, x1 - x0, rad))
+		var a := sh.bg_color.a
+		_gp[0] = Vector2(x0, y0 + rad)
+		_gp[1] = Vector2(x1, y0 + rad)
+		_gp[2] = Vector2(x1, y0 + h)
+		_gp[3] = Vector2(x0, y0 + h)
+		_gc[0] = Color(1, 1, 1, a)
+		_gc[1] = _gc[0]
+		_gc[2] = Color(1, 1, 1, 0.0)
+		_gc[3] = _gc[2]
+		draw_polygon(_gp, _gc)
 
 	# ---------- text ----------
 
 	func text(s: String, pos: Vector2, size_px: int, col: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0) -> void:
-		draw_string_outline(_font, pos, s, align, width, size_px, maxi(size_px / 8, 4), Color(0, 0, 0, col.a))
-		draw_string(_font, pos, s, align, width, size_px, col)
+		var f := Style.font_for(s, size_px)
+		draw_string_outline(f, pos, s, align, width, size_px, maxi(size_px / 8, 4), Color(Style.INK, col.a))
+		draw_string(f, pos, s, align, width, size_px, col)
 
 	func text_width(s: String, size_px: int) -> float:
-		return _font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+		return Style.font_for(s, size_px).get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
 
 	# ---------- shapes ----------
 
@@ -261,7 +292,7 @@ class Art extends Control:
 					draw_line(c + Vector2(cos(a), sin(a)) * r * 0.7, c + Vector2(cos(a), sin(a)) * r * 1.0, Color(1.0, 0.82, 0.25, col.a), w * 1.3)
 			"bad":
 				draw_rect(Rect2(c.x - r * 0.8, c.y - r * 0.8, r * 1.6, r * 1.6), Color(1.0, 0.62, 0.15, col.a))
-				text("L", c + Vector2(-r * 0.8, r * 0.58), int(r * 1.7), Color(1, 1, 1, col.a), HORIZONTAL_ALIGNMENT_CENTER, r * 1.6)
+				line3(c + Vector2(-r * 0.3, -r * 0.5), c + Vector2(-r * 0.3, r * 0.5), c + Vector2(r * 0.45, r * 0.5), Color(1, 1, 1, col.a), w * 2.0)
 			"radar":
 				draw_arc(c, r * 0.9, 0.0, TAU, 24, col, w)
 				draw_arc(c, r * 0.5, 0.0, TAU, 20, col, w)
@@ -376,9 +407,20 @@ class Art extends Control:
 			var st := btn_state[k]
 			var kind := btn_kind[k]
 			var ink := C_TEXT if st != 1 else Color(0.5, 0.53, 0.6)
+			var pressed := press_k == k and st != 1
+			if pressed and kind != 2:
+				r.position.y += 5.0
 			match kind:
-				2:      # the primary button: big, green, XL text with its icon right beside it
-					draw_style_box(_sb_primary, r)
+				2:      # the primary button: big, green, chunky (a dark lip under it that the press squashes), XL text with its icon
+					var face := Rect2(r.position.x, r.position.y, r.size.x, r.size.y - Style.LIP)
+					if st == 1:
+						draw_style_box(_sb_disabled, face)
+					else:
+						draw_style_box(_sb_lip, Rect2(face.position.x, face.position.y + Style.LIP, face.size.x, face.size.y))
+						if pressed:
+							face.position.y += Style.LIP - 3.0
+						panel(_sb_primary, face, _sheen_l)
+					r = face
 					var tw := text_width(btn_text[k], SZ_XL)
 					var gw := r.size.y * 0.34 if btn_glyph[k] != "" else 0.0
 					var x0 := r.get_center().x - (tw + gw) * 0.5
@@ -388,8 +430,10 @@ class Art extends Control:
 				3:      # a round icon button with a small label under it
 					var c := r.get_center() - Vector2(0, 16.0)
 					var rad := minf(r.size.x, r.size.y) * 0.5 - 18.0
+					draw_circle(c + Style.SHADOW_OFFSET, rad + 4.0, Style.SHADOW_COLOR)
 					draw_circle(c, rad + 4.0, C_LINE if st != 1 else Color(0.3, 0.33, 0.4))
 					draw_circle(c, rad, C_PANEL if st != 2 else Color(0.14, 0.5, 0.35))
+					draw_circle(c + Vector2(0, -rad * 0.28), rad * 0.62, Color(1, 1, 1, 0.07))
 					glyph(btn_glyph[k], c, rad * 0.5, ink)
 					text(btn_text[k], Vector2(r.position.x, r.end.y - 4.0), SZ_S, C_SOFT if st != 1 else C_QUIET, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
 					var b := btn_badge[k]
@@ -402,11 +446,12 @@ class Art extends Control:
 						else:
 							text(str(b), bc + Vector2(-20.0, 10.0), 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, 40.0)
 				4:      # a small chip: glyph + a few words
-					draw_style_box(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
-					var tw2 := text_width(btn_text[k], SZ_S)
-					if btn_text[k] == "" and btn_glyph[k] != "":
+					if btn_text[k] == "" and btn_glyph[k] != "":      # an icon-only button is a ghost: a quiet round chip
+						draw_style_box(_sb_ghost, r)
 						glyph(btn_glyph[k], r.get_center(), r.size.y * 0.3, ink)
 						continue
+					panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r, _sheen_s)
+					var tw2 := text_width(btn_text[k], SZ_S)
 					var total := tw2 + (text_width(btn_sub[k], SZ_S) + 16.0 if btn_sub[k] != "" else 0.0) + (r.size.y * 0.5 + 12.0 if btn_glyph[k] != "" else 0.0)
 					var x0 := r.get_center().x - total * 0.5
 					if btn_glyph[k] != "":
@@ -417,7 +462,7 @@ class Art extends Control:
 						text(btn_sub[k], Vector2(x0 + tw2 + 16.0, r.get_center().y + SZ_S * 0.35), SZ_S, C_GOLD)
 				1:      # a card
 					var sb := _sb_gold if (st == 2 and btn_cost[k] == 0) else (_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal))
-					draw_style_box(sb, r)
+					panel(sb, r)
 					var left := r.position.x + 36.0
 					var cy := r.get_center().y
 					var iconed := btn_icon[k] >= 0 or btn_glyph[k] != ""
@@ -452,7 +497,7 @@ class Art extends Control:
 					elif btn_cost[k] == 0:
 						text("MAX", Vector2(rx - 190.0, cy + 38.0), SZ_S, C_GOLD)
 				_:
-					draw_style_box(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
+					panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
 					var gw := r.size.y * 0.5 if btn_glyph[k] != "" else 0.0
 					var tw4 := text_width(btn_text[k], SZ_M)
 					var sx := r.get_center().x - (tw4 + gw) * 0.5
@@ -465,7 +510,7 @@ class Art extends Control:
 	## Two bars in a rounded square.
 	func _draw_pause_button() -> void:
 		var r := pause_rect
-		draw_style_box(_sb_pill, r)
+		draw_style_box(_sb_ghost, r)
 		glyph("pause", r.get_center(), r.size.x * 0.3, Color.WHITE)
 
 	func _draw_sliders() -> void:
@@ -482,7 +527,7 @@ class Art extends Control:
 	func _draw_star_bar() -> void:
 		var w := minf(size.x - 380.0, 560.0)
 		var x0 := size.x * 0.5 - w * 0.5
-		var y := 224.0
+		var y := 224.0 + top
 		var top := float(maxi(thresholds[2], 1)) * 1.04
 		draw_rect(Rect2(x0, y, w, 12.0), Color(0, 0, 0, 0.6))
 		var f := clampf(bar_shown / top, 0.0, 1.0)
@@ -493,7 +538,7 @@ class Art extends Control:
 			glyph("star" if lit else "star_off", Vector2(x, y + 6.0), 20.0 if lit else 16.0)
 
 	func _draw_wind() -> void:
-		var c := Vector2(size.x - 78.0, 96.0)
+		var c := Vector2(size.x - 78.0 - right, 96.0 + top)
 		draw_circle(c, 52.0, Color(0.03, 0.05, 0.08, 0.55))
 		var ring := C_GOLD if wind_warn and int(Time.get_ticks_msec() / 250.0) % 2 == 0 else Color(0.85, 0.9, 1.0, 0.8)
 		draw_arc(c, 52.0, 0.0, TAU, 40, ring, 4.0)
@@ -518,7 +563,7 @@ class Art extends Control:
 		if mode_glyph != "":
 			glyph(mode_glyph, Vector2(50.0, 146.0), 26.0, C_SOFT)
 		_draw_star_bar()
-		var y := 300.0
+		var y := 300.0 + top
 		if chip_finale != "":
 			_pill(Vector2(size.x * 0.5, y), "plane", chip_finale, SZ_M, C_RED if chip_finale_red else C_TEXT)
 			y += 86.0
@@ -605,11 +650,11 @@ class Art extends Control:
 	func _draw() -> void:
 		if header_text != "":
 			var hw := text_width(header_text, SZ_M)
-			glyph(header_glyph, Vector2(size.x - 40.0 - hw - 40.0, 62.0), 26.0)
-			text(header_text, Vector2(size.x - 40.0 - hw, 78.0), SZ_M, C_TEXT)
+			glyph(header_glyph, Vector2(size.x - 40.0 - right - hw - 40.0, 62.0 + top), 26.0)
+			text(header_text, Vector2(size.x - 40.0 - right - hw, 78.0 + top), SZ_M, C_TEXT)
 		if header2_text != "":
-			glyph(header2_glyph, Vector2(64.0, 62.0), 26.0)
-			text(header2_text, Vector2(104.0, 78.0), SZ_M, C_TEXT)
+			glyph(header2_glyph, Vector2(64.0 + left, 62.0 + top), 26.0)
+			text(header2_text, Vector2(104.0 + left, 78.0 + top), SZ_M, C_TEXT)
 		_draw_buttons()
 		if show_play and not show_pause:
 			_draw_hud()
@@ -734,12 +779,44 @@ func _ready() -> void:
 	_build_stamp()
 	_set_play_labels(false)
 	set_landed(0)
+	Style.detect_safe(get_viewport().get_visible_rect().size)
+	apply_safe()
+
+## Fit the HUD to the device's safe area (notch / rounded corners / home indicator): the shift's top row, the pause
+## button and the top-anchored labels move in; screens read Style.safe_* when they are laid out.
+func apply_safe() -> void:
+	var t := Style.safe_top
+	_art.top = t
+	_art.left = Style.safe_left
+	_art.right = Style.safe_right
+	_art.pause_rect = Rect2(Style.GUTTER * 0.5 + Style.safe_left, 10.0 + t, 80.0, 80.0)
+	_score.offset_top = 56 + t
+	_best.offset_top = 6 + t
+	_wind_banner.offset_top = 470 + t
+	_select_title.offset_top = 40 + t
+	_tip.offset_top = -270 - Style.safe_bottom
+	_tip.offset_bottom = -190 - Style.safe_bottom
+	_art.queue_redraw()
+
+## A finger is down on a button: it draws pushed in (and the activation follows at once).
+func press(pos: Vector2) -> void:
+	_art.press_k = _art.button_at(pos)
+	_art.queue_redraw()
+
+func release() -> void:
+	if _art.press_k != -1:
+		_art.press_k = -1
+		_art.queue_redraw()
+
+func pressed_id() -> String:
+	return _art.btn_id[_art.press_k] if _art.press_k >= 0 else ""
 
 func _label(size: int, align: HorizontalAlignment, parent: Node = null) -> Label:
 	var l := Label.new()
 	l.horizontal_alignment = align
 	l.add_theme_font_size_override("font_size", size)
-	l.add_theme_color_override("font_outline_color", Color.BLACK)
+	l.add_theme_font_override("font", Style.display() if size >= SZ_M else Style.text())
+	l.add_theme_color_override("font_outline_color", Style.INK)
 	l.add_theme_constant_override("outline_size", maxi(size / 8, 4))
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	(parent if parent != null else self).add_child(l)
@@ -978,7 +1055,7 @@ func set_results_ads(double_coins: int, refund: int) -> void:
 		x += 420.0
 	if refund > 0:
 		_art.add_button("ad_refund", "Refund fine", Rect2(x, cy + 600.0, 400.0, 84.0), 0, "+%d" % refund, -1, -1, {"kind": 4, "glyph": "ad"})
-	_art.add_button("menu", "", Rect2(10.0, 10.0, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "home"})
+	_art.add_button("menu", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "home"})
 	_art.queue_redraw()
 
 ## "Details": show / hide the full breakdown.
@@ -1021,9 +1098,9 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 	_art.header_text = str(total_stars)
 	var vp := get_viewport().get_visible_rect().size
 	_art.clear_buttons()
-	_art.add_button("back", "", Rect2(10.0, 10.0, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+	_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
 	for i in Airports.COUNT:
-		var r := Rect2(40.0, 150.0 + i * 190.0, vp.x - 80.0, 170.0)
+		var r := Rect2(40.0, 150.0 + Style.safe_top + i * 190.0, vp.x - 80.0, 170.0)
 		if open[i] != 0:
 			_art.add_button("airport:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, "", stars[i], -1, {"kind": 1, "glyph": "airport"})
 		else:
@@ -1039,8 +1116,8 @@ func show_list(title: String, coins: int, tabs: Array, cards: Array) -> void:
 	_art.header_text = str(coins)
 	var vp := get_viewport().get_visible_rect().size
 	_art.clear_buttons()
-	_art.add_button("back", "", Rect2(10.0, 10.0, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
-	var y := 130.0
+	_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+	var y := 130.0 + Style.safe_top
 	if not tabs.is_empty():
 		var w := (vp.x - 80.0 - 20.0 * (tabs.size() - 1)) / tabs.size()
 		for k in tabs.size():
@@ -1060,12 +1137,12 @@ func show_upgrades(coins: int, levels: PackedInt32Array) -> void:
 	_art.header_text = str(coins)
 	var vp := get_viewport().get_visible_rect().size
 	_art.clear_buttons()
-	_art.add_button("back", "", Rect2(10.0, 10.0, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+	_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
 	for i in Upgrades.IDS.size():
 		var id: String = Upgrades.IDS[i]
 		var lvl := levels[i]
 		var price := Upgrades.cost(id, lvl)
-		var r := Rect2(40.0, 150.0 + i * 190.0, vp.x - 80.0, 170.0)
+		var r := Rect2(40.0, 150.0 + Style.safe_top + i * 190.0, vp.x - 80.0, 170.0)
 		var state := 0
 		if price < 0:
 			state = 2
@@ -1148,7 +1225,7 @@ func reset_for_run(_best_coins: int) -> void:
 	_coin_shown = 0.0
 	_art.bar_shown = 0.0
 	set_landed(0)
-	set_timer(int(Tuning.shift_seconds))
+	set_timer(int(Tuning.par_eff()))
 	_art.balance = 0
 	_score.text = "0"
 	_score.add_theme_color_override("font_color", Color.WHITE)
@@ -1351,7 +1428,7 @@ func _start_banner(text: String, color: Color, glyph: String, secs: float) -> vo
 	var vp := get_viewport().get_visible_rect().size
 	var font := _wind_banner.get_theme_font("font")
 	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, SZ_M).x
-	_art.banner_rect = Rect2(vp.x * 0.5 - (tw + 84.0 + 80.0) * 0.5, 470.0, tw + 84.0 + 80.0, 90.0)
+	_art.banner_rect = Rect2(vp.x * 0.5 - (tw + 84.0 + 80.0) * 0.5, 470.0 + Style.safe_top, tw + 84.0 + 80.0, 90.0)
 	_art.banner_alpha = 0.0
 
 func banner_text() -> String:
@@ -1376,7 +1453,7 @@ func _start_tip(text: String, glyph: String) -> void:
 	var tfont := _tip.get_theme_font("font")
 	var tw := tfont.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, SZ_S).x
 	var pw := minf(tw + (84.0 if glyph != "" else 0.0) + 90.0, vp.x - 60.0)
-	_art.tip_rect = Rect2(vp.x * 0.5 - pw * 0.5, vp.y - 280.0, pw, 100.0)
+	_art.tip_rect = Rect2(vp.x * 0.5 - pw * 0.5, vp.y - 280.0 - Style.safe_bottom, pw, 100.0)
 	_art.tip_alpha = 1.0
 
 ## A quick colour wash over the whole screen.

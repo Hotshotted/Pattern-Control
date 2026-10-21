@@ -518,7 +518,7 @@ func _initialize() -> void:
 	check(main.shift.payout() == 0, "with nothing landed a negative balance pays out zero (the guaranteed share of nothing)")
 	tr.release_all()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(not main.alive and main.over_header == main.HEADER_DONE and main.hud._over.visible, "the shift ends at the clock")
 	check(save.coins == coins0 and main.shift.stars() == 0, "...earning no coins and no stars (%d -> %d)" % [coins0, save.coins])
@@ -595,7 +595,7 @@ func _initialize() -> void:
 	check(main.shift.stars() == 3, "...and refunding it restores the stars")
 	var payout_expect = main.shift.payout()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds - 0.01
+	tr.run_time = tuning.par_eff() - 0.01
 	main.step(1.0 / 30.0)
 	check(not main.alive and main.over_header == main.HEADER_DONE, "the shift ends exactly when the clock runs out, whatever is flying")
 	check(save.stars_of(main.airport) == 3, "three stars earned and saved")
@@ -610,7 +610,7 @@ func _initialize() -> void:
 	earn_coins(main, sth9[2])
 	var pay2 = main.shift.payout()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(save.coins == coins_after + pay2, "replaying: just the payout, no repeat first-time bonus (%d, expected %d)" % [save.coins, coins_after + pay2])
 	# Refund ad: only on the results screen, instead of the double-coins ad; it gives back the biggest fine.
@@ -625,7 +625,7 @@ func _initialize() -> void:
 	check(main.shift.biggest_fine == int(tuning.fine_conflict) and not has_btn(main, "ad_refund"), "fines track the biggest one; nothing is offered during play")
 	tr.release_all()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(main.screen == main.SCREEN_OVER and has_btn(main, "ad_refund") and has_btn(main, "ad_double"), "the results offer both the refund and double-coins ads")
 	var ri9 = main.hud._art.btn_id.find("ad_refund")
@@ -648,7 +648,7 @@ func _initialize() -> void:
 	main._apply_fine(int(tuning.fine_timeout), "diversion", "Diverted", Vector2.ZERO)
 	tr.release_all()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	main._on_button("ad_double")
 	check(not has_btn(main, "ad_refund") and not has_btn(main, "ad_double"), "doubling the coins uses up the shift's one ad: no refund after it")
@@ -658,7 +658,7 @@ func _initialize() -> void:
 	earn_coins(main, 30)
 	tr.release_all()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(has_btn(main, "ad_double") and not has_btn(main, "ad_refund"), "with no fines there is nothing to refund")
 	# Save file: versioned, round trip, v1 migration, forward-compatible.
@@ -1613,7 +1613,7 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(main.hud._art.show_result and main.hud._over.visible, "the results screen shows")
 	main._on_button("menu")
@@ -1658,7 +1658,7 @@ func _initialize() -> void:
 		var c0 = save.coins
 		earn_coins(main, tuning.star_thresholds()[0])
 		tr.spawn_until = 0.0
-		tr.run_time = tuning.shift_seconds + 0.01
+		tr.run_time = tuning.par_eff() + 0.01
 		main.step(1.0 / 60.0)
 		streaks.append(save.daily_streak())
 		var plain = main.shift.payout()
@@ -1690,7 +1690,7 @@ func _initialize() -> void:
 	check(main.screen == main.SCREEN_PLAY and not has_btn(main, "ad_refund"), "a conflict during play offers no ad")
 	tr.release_all()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	var ri = main.hud._art.btn_id.find("ad_refund")
 	check(main.screen == main.SCREEN_OVER and ri >= 0 and main.hud.button_at(main.hud._art.btn_rect[ri].get_center()) == "ad_refund", "the results offer 'watch an ad to refund the biggest fine'")
@@ -1707,7 +1707,7 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 	earn_coins(main, 60)
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(main.screen == main.SCREEN_OVER and main.hud._art.btn_id.find("ad_double") >= 0, "the results offer 'watch an ad to double the coins'")
 	var coins_pre = save.coins
@@ -1731,7 +1731,7 @@ func _initialize() -> void:
 		check(main.screen == main.SCREEN_PLAY, "shift %d starts" % (shift_i + 1)) if false else null
 		tr.auto_spawn = false
 		tr.spawn_until = 0.0
-		tr.run_time = tuning.shift_seconds + 0.01
+		tr.run_time = tuning.par_eff() + 0.01
 		main.step(1.0 / 60.0)
 		gaps.append(main.ads_shown - a_before)
 	var inter = 0
@@ -2056,7 +2056,7 @@ func _initialize() -> void:
 		earn_coins(main, main.shift.thresholds[0])
 		var plain_b = main.shift.payout()
 		tr.spawn_until = 0.0
-		tr.run_time = tuning.shift_seconds + 0.01
+		tr.run_time = tuning.par_eff() + 0.01
 		main.step(1.0 / 60.0)
 		streaks_b.append(save.daily_streak("bad"))
 		bonus_b.append(save.coins - cb0 - plain_b)
@@ -2184,7 +2184,7 @@ func _initialize() -> void:
 	main._on_button("resume")
 	check(main.screen == main.SCREEN_PLAY and main.alive, "Resume after coming back")
 	# Paused near the end: the shift can't end while paused.
-	tr.run_time = tuning.shift_seconds - 0.5
+	tr.run_time = tuning.par_eff() - 0.5
 	main.pause_game()
 	for i in 120:
 		main.step(1.0 / 60.0)
@@ -2204,18 +2204,18 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 	set_wind(main, 0.0)
 	# The ramp is scaled to the 90 s shift: it reaches the old full, busy state when spawning stops.
-	var k9_full_t = float(tuning.profile()["ramp"]) * tuning.spawn_stop_seconds
-	check(tuning.spawn_stop_seconds == 85.0 and absf(tuning.spawn_progress(k9_full_t) - 1.0) < 0.001 and tuning.spawn_progress(k9_full_t * 0.5) > 0.45 and tuning.spawn_progress(k9_full_t * 0.5) < 0.55, "the traffic ramp finishes at %.0f s of an 85 s spawning window" % k9_full_t)
-	check(absf(tuning.spawn_interval(tuning.spawn_stop_seconds) - float(tuning.profile()["spawn_min"]) * (tuning.intro_spawn_scale if tuning.intro_active else 1.0)) < 0.01 and absf(tuning.speed_mult(tuning.spawn_stop_seconds) - tuning.speed_ramp_max * float(tuning.profile()["speed"])) < 0.01, "...at the busiest spacing and top speed (%.1f s apart, x%.1f)" % [tuning.spawn_interval(85.0), tuning.speed_mult(85.0)])
+	var k9_full_t = float(tuning.profile()["ramp"]) * tuning.spawn_stop_eff()
+	check(absf(tuning.spawn_progress(k9_full_t) - 1.0) < 0.001 and tuning.spawn_progress(k9_full_t * 0.5) > 0.45 and tuning.spawn_progress(k9_full_t * 0.5) < 0.55, "the traffic ramp finishes at %.0f s of a %.0f s spawning window" % [k9_full_t, tuning.spawn_stop_eff()])
+	check(absf(tuning.spawn_interval(tuning.spawn_stop_eff()) - float(tuning.profile()["spawn_min"]) * (tuning.intro_spawn_scale if tuning.intro_active else 1.0)) < 0.01 and absf(tuning.speed_mult(tuning.spawn_stop_eff()) - tuning.speed_ramp_max * float(tuning.profile()["speed"])) < 0.01, "...at the busiest spacing and top speed (%.1f s apart, x%.1f)" % [tuning.spawn_interval(tuning.spawn_stop_eff()), tuning.speed_mult(tuning.spawn_stop_eff())])
 	check(tuning.spawn_progress(30.0) > 0.4, "a 30 s old shift is already well into the ramp (%.2f)" % tuning.spawn_progress(30.0))
 	# Spawning stops at 85 s.
 	tr.auto_spawn = true
-	tr.run_time = 80.0
+	tr.run_time = tuning.spawn_stop_eff() - 5.0
 	tr.release_all()
 	var late_spawns = [0]
 	var spawned_before_stop = [0]
 	var late_cb = func(_pl):
-		if tr.run_time >= 85.0:
+		if tr.run_time >= tuning.spawn_stop_eff():
 			late_spawns[0] += 1
 		else:
 			spawned_before_stop[0] += 1
@@ -2225,10 +2225,10 @@ func _initialize() -> void:
 	tr.release_all()
 	for i in 60 * 6:
 		main.step(1.0 / 60.0)
-		if tr.run_time > 86.0:
+		if tr.run_time > tuning.spawn_stop_eff() + 1.0:
 			tr.release_all()
 	tr.spawned.disconnect(late_cb)
-	check(spawned_before_stop[0] >= 1 and late_spawns[0] == 0, "arrivals come until 85 s (%d), then none (%d)" % [spawned_before_stop[0], late_spawns[0]])
+	check(spawned_before_stop[0] >= 1 and late_spawns[0] == 0, "arrivals come until the shift length (%d), then none (%d)" % [spawned_before_stop[0], late_spawns[0]])
 	# The finale.
 	var k9_snd0 = main.sfx.plays.duplicate()
 	main.restart()
@@ -2239,12 +2239,12 @@ func _initialize() -> void:
 	k9_f2.timer_left = 40.0
 	k9_f1.timer_max = 40.0
 	k9_f2.timer_max = 40.0
-	tr.run_time = 84.5
+	tr.run_time = tuning.spawn_stop_eff() - 0.5
 	main.step(1.0 / 60.0)
-	check(main.hud.finale_text() == "" and main._finale == 0, "before 85 s there is no finale")
-	tr.run_time = 85.0
+	check(main.hud.finale_text() == "" and main._finale == 0, "before the shift length there is no finale")
+	tr.run_time = tuning.spawn_stop_eff()
 	main.step(1.0 / 60.0)
-	check(main.hud.finale_text() == "LAST ARRIVALS" and main.sfx.plays["last_arrivals"] == k9_snd0["last_arrivals"] + 1, "at 85 s: the LAST ARRIVALS banner and its stinger")
+	check(main.hud.finale_text() == "LAST ARRIVALS" and main.sfx.plays["last_arrivals"] == k9_snd0["last_arrivals"] + 1, "at the shift length: the LAST ARRIVALS banner and its stinger")
 	var k9_tl0 = k9_f1.timer_left
 	for i in 60 * 4:
 		main.step(1.0 / 60.0)
@@ -2266,7 +2266,7 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	earn_coins(main, 100)
-	tr.run_time = tuning.shift_seconds - 3.6
+	tr.run_time = tuning.par_eff() - 3.6
 	main.step(1.0 / 60.0)
 	check(not main.alive and main.shift.early_seconds == 3 and main.shift.time_bonus == 3 * int(tuning.early_bonus_per_second), "clearing the sky 3.5 s before par pays %d coins per whole second early (%d)" % [int(tuning.early_bonus_per_second), main.shift.time_bonus])
 	check(main.last_result["reason"].contains("Early bonus|+%d (3 s)" % main.shift.time_bonus) and main.last_result["reason"].contains("Overtime|-0 (0 s)"), "the results show the time bonus and the overtime lines")
@@ -2280,7 +2280,7 @@ func _initialize() -> void:
 	earn_coins(main, 100)
 	var k9_bal_par = main.shift.balance()
 	var k9_ticks0 = main.sfx.plays["tick"]
-	tr.run_time = tuning.shift_seconds - 0.1
+	tr.run_time = tuning.par_eff() - 0.1
 	main.step(1.0 / 60.0)
 	check(main.alive and main.hud._best.text.begins_with("0:0"), "just before par the clock still counts down (%s)" % main.hud._best.text)
 	for i in 60 * 8:
@@ -2392,7 +2392,7 @@ func _initialize() -> void:
 	check(main.shift.stars() == 0, "...and stars use the net: none")
 	tr.release_all()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(main.last_result["payout"] == earned_l / 2 and save.coins == coins_before + earned_l / 2, "a failed shift still pays the guaranteed half of landing pay (%d)" % (earned_l / 2))
 	var body = main.hud._over_body.text
@@ -2466,9 +2466,9 @@ func _initialize() -> void:
 				break
 		tr.spawned.disconnect(arr_cb)
 		peak.append([ai, peak_n, arrivals[0]])
-		check(peak_n <= tuning.max_planes_eff(), "%s: never more than %d aircraft at once (peak %d, %d arrivals in 80 s)" % [Airports.airport_name(ai), tuning.max_planes_eff(), peak_n, arrivals[0]])
+		check(peak_n <= tuning.max_planes_eff(), "%s: never more than %d aircraft at once (peak %d, %d arrivals in a shift)" % [Airports.airport_name(ai), tuning.max_planes_eff(), peak_n, arrivals[0]])
 	check(peak[0][2] <= peak[1][2] + 2 and peak[1][2] < peak[2][2] and peak[2][2] <= peak[3][2] + 2, "later airports bring more arrivals (%s)" % str(peak))
-	check(peak[0][2] >= 9 and peak[0][2] <= 16 and peak[2][2] >= 18, "Grass Strip ~%d arrivals in 80 s, Mountain Field ~%d" % [peak[0][2], peak[2][2]])
+	check(peak[0][2] >= 5 and peak[0][2] <= 12 and peak[2][2] >= 12, "Grass Strip ~%d arrivals in its 45 s shift, Mountain Field ~%d in 75 s" % [peak[0][2], peak[2][2]])
 	# Grass Strip: no wind shift and no weather, ever.
 	main.select_airport(0)
 	main.restart()
@@ -2520,7 +2520,7 @@ func _initialize() -> void:
 	var tp_first = tr.place(0, Vector2(-3, 0), 0.0, MEDIUM)
 	tr.release_all()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(not main.alive and save.airport_plays[2] == 1, "finishing it is recorded")
 	main.restart()
@@ -2696,7 +2696,7 @@ func _initialize() -> void:
 	earn_coins(main, 100)
 	tr.release_all()
 	tr.spawn_until = 0.0
-	tr.run_time = tuning.shift_seconds + 0.01
+	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(main.screen == main.SCREEN_OVER and not main.hud._score.visible and not main.hud._best.visible, "results: the shift HUD is gone")
 	check(art.res_t < 1.0 and not main.hud.results_revealed() and not main.hud._over_body.visible and not main.hud.results_details_open(), "results: the stars and total are revealed in sequence; the breakdown is hidden")
@@ -2828,6 +2828,75 @@ func _initialize() -> void:
 	check(fsfx._fog_amb.volume_db < -10.0 and fsfx._fog_amb.volume_db > -40.0, "...the ambience is soft (%.0f dB)" % fsfx._fog_amb.volume_db)
 	fsfx.set_fog(0.0)
 	check(not fsfx._fog_amb.playing and not fsfx._music_tense.playing, "...and both go quiet when the fog lifts")
+	main.restart()
+	tr.auto_spawn = false
+
+	print("9p. visual identity: tokens, fonts, safe areas, button states")
+	save.reset_all()
+	main.restart()
+	tr.auto_spawn = false
+	var sdoc = FileAccess.get_file_as_string("res://docs/style.md")
+	var tokens_ok = true
+	for tk in [Style.PRIMARY, Style.PRIMARY_DARK, Style.ACCENT, Style.ACCENT_DARK, Style.SUCCESS, Style.SUCCESS_DARK, Style.WARNING, Style.DANGER, Style.DANGER_DARK, Style.INK, Style.SURFACE_DARK, Style.SURFACE_DARK_2, Style.SURFACE_LIGHT, Style.SURFACE_LIGHT_2, Style.TEXT, Style.TEXT_SOFT, Style.TEXT_QUIET, Style.TEXT_ON_LIGHT, Style.SCRIM]:
+		tokens_ok = tokens_ok and sdoc.contains("#" + tk.to_html(false))
+	check(tokens_ok, "docs/style.md lists every palette colour of Style.gd")
+	check(sdoc.contains("Fredoka") and sdoc.contains("Nunito") and sdoc.contains("Safe areas") and sdoc.contains("ease-out-back") and sdoc.contains("Ghost"), "...and the typography, buttons, safe areas and motion")
+	check(FileAccess.file_exists("res://assets/fonts/OFL.txt") and FileAccess.get_file_as_string("res://assets/fonts/OFL.txt").contains("SIL OPEN FONT LICENSE") and FileAccess.file_exists("res://assets/fonts/OFL-Nunito.txt"), "both fonts ship with their OFL licence file")
+	var lum = func(c: Color):
+		var f = func(v): return v / 12.92 if v <= 0.03928 else pow((v + 0.055) / 1.055, 2.4)
+		return 0.2126 * f.call(c.r) + 0.7152 * f.call(c.g) + 0.0722 * f.call(c.b)
+	var contrast = func(a: Color, b: Color):
+		var la = lum.call(a)
+		var lb = lum.call(b)
+		return (maxf(la, lb) + 0.05) / (minf(la, lb) + 0.05)
+	check(contrast.call(Style.TEXT, Style.SURFACE_DARK) >= 4.5 and contrast.call(Style.TEXT_SOFT, Style.SURFACE_DARK) >= 4.5 and contrast.call(Style.ACCENT, Style.SURFACE_DARK) >= 4.5 and contrast.call(Style.TEXT_ON_LIGHT, Style.SURFACE_LIGHT) >= 4.5, "text and gold on the dark surface (and dark on light) are at least 4.5:1")
+	var fd = Style.display()
+	var ft = Style.text()
+	check(fd is FontVariation and ft is FontVariation and fd.base_font.resource_path.ends_with("Fredoka.ttf") and ft.base_font.resource_path.ends_with("Nunito.ttf") and fd.variation_opentype[Style.WGHT] == 600.0 and ft.variation_opentype[Style.WGHT] == 700.0, "one display weight (Fredoka 600) and one text weight (Nunito 700)")
+	check(Style.font_for("PLAY", 110) == fd and Style.font_for("Radar", 30) == ft and Style.font_for("160", 30) == fd and Style.font_for("+40", 30) == fd, "titles and numbers use the display face, small words the text face")
+	check(main.hud._score.get_theme_font("font") == fd and main.hud._ad_sub.get_theme_font("font") == ft, "labels use them too")
+	var no_emoji = true
+	for fn in DirAccess.get_files_at("res://scripts"):
+		if fn.ends_with(".gd"):
+			for ch in FileAccess.get_file_as_string("res://scripts/" + fn):
+				var cp = ch.unicode_at(0)
+				if cp >= 0x1F000 or (cp >= 0x2600 and cp <= 0x27BF):
+					no_emoji = false
+	check(no_emoji, "no emoji anywhere: the icons are all drawn")
+	check(Style.R_S < Style.R_M and Style.R_M < Style.R_L and Style.T_FAST < Style.T_BASE and Style.T_BASE < Style.T_SLOW and absf(Style.ease_out_back(1.0) - 1.0) < 0.001 and Style.ease_out_back(0.7) > 1.0 and Style.ease_out_cubic(0.0) == 0.0, "radii, timings and easing are consistent")
+	# Buttons: pressed state.
+	main._show_menu()
+	await process_frame
+	var pl_k = -1
+	for bk in main.hud._art.btn_count:
+		if main.hud._art.btn_id[bk] == "play":
+			pl_k = bk
+	var pl_pos = main.hud._art.btn_rect[pl_k].get_center()
+	main.hud.press(pl_pos)
+	check(main.hud.pressed_id() == "play", "a finger on a button draws it pressed")
+	main.hud.release()
+	check(main.hud.pressed_id() == "", "...and lifting releases it")
+	main.hud.press(Vector2(5, 5))
+	check(main.hud.pressed_id() == "", "a touch on empty space presses nothing")
+	main.hud.release()
+	# Safe areas.
+	var base_pause = main.hud._art.pause_rect.position.y
+	var base_score = main.hud._score.offset_top
+	Style.set_safe(70.0, 50.0, 12.0, 12.0)
+	main.hud.apply_safe()
+	main._show_upgrades()
+	var back_ok = false
+	for bk in main.hud._art.btn_count:
+		if main.hud._art.btn_id[bk] == "back":
+			back_ok = main.hud._art.btn_rect[bk].position.y >= 70.0 and main.hud._art.btn_rect[bk].position.x >= 12.0
+	check(main.hud._art.pause_rect.position.y == base_pause + 70.0 and main.hud._score.offset_top == base_score + 70.0 and back_ok, "a notch pushes the pause button, coin total, clock and back buttons down")
+	var first_card = main.hud._art.btn_rect[1].position.y
+	main.hud.post_banner("Safe", Color.WHITE, "wind", 1.0)
+	main.hud.show_tip("Tip", "plane")
+	check(main.hud._art.tip_rect.end.y <= main.get_viewport().get_visible_rect().size.y - 50.0 and first_card >= 150.0 + 70.0, "...lists start below it and the tip clears the home indicator")
+	Style.set_safe(0.0, 0.0, 0.0, 0.0)
+	main.hud.apply_safe()
+	check(main.hud._art.pause_rect.position.y == base_pause and main.hud._score.offset_top == base_score, "no notch: everything is back where it was")
 	main.restart()
 	tr.auto_spawn = false
 

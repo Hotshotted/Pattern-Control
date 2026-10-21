@@ -250,7 +250,7 @@ func restart() -> void:
 	traffic.half_w = view_size * 0.5
 	traffic.half_h = _half_height()
 	traffic.release_all()
-	traffic.spawn_until = Tuning.spawn_stop_seconds
+	traffic.spawn_until = Tuning.spawn_stop_eff()
 	wind.start(rng_env)
 	_last_wind_deg = wind.from_deg      # (a new shift's starting wind is not a "shift": no chime)
 	weather.start()
@@ -365,15 +365,15 @@ func step(delta: float) -> void:
 			worst = maxf(worst, p.warn)
 	hud.set_alert(alive and worst > 0.55)
 	var t := traffic.run_time
-	var frac := clampf(t / maxf(Tuning.spawn_stop_seconds, 1.0), 0.0, 1.0)
+	var frac := clampf(t / maxf(Tuning.spawn_stop_eff(), 1.0), 0.0, 1.0)
 	hud.set_shift_fraction(frac)
-	if t < Tuning.spawn_stop_seconds or weather.phase != Weather.Phase.IDLE:
+	if t < Tuning.spawn_stop_eff() or weather.phase != Weather.Phase.IDLE:
 		weather.step(delta, frac, rng_env, wind)
 		var key := "%d:%d" % [weather.phase, ceili(weather.left)]
 		if key != _event_key:    # (the banner text is only rebuilt when the second changes)
 			_event_key = key
 			hud.set_event_banner(weather.banner(), weather.phase == Weather.Phase.WARN)
-	if t < Tuning.spawn_stop_seconds:
+	if t < Tuning.spawn_stop_eff():
 		wind.step(delta, frac, rng_env)
 		if wind.warning:
 			hud.set_wind_warning(wind.next_deg, ceili(wind.countdown))
@@ -389,7 +389,7 @@ func step(delta: float) -> void:
 ## The shift clock, the overtime meter and the finale: spawning stops, the last arrivals come in, and the shift
 ## ends only when every aircraft has landed or been lost.
 func _step_clock(t: float) -> void:
-	var par := Tuning.shift_seconds
+	var par := Tuning.par_eff()
 	if t < par:
 		hud.set_timer(ceili(par - t))
 	else:
@@ -401,7 +401,7 @@ func _step_clock(t: float) -> void:
 			if over > 0:
 				sfx.play("tick")
 			hud.set_shift(shift)
-	if t < Tuning.spawn_stop_seconds or not alive:
+	if t < Tuning.spawn_stop_eff() or not alive:
 		return
 	var left := traffic.remaining()
 	if _finale == 0:
@@ -604,7 +604,7 @@ func _on_weather_warned(_kind: String, text: String) -> void:
 func _on_weather_started(kind: String) -> void:
 	match kind:
 		"storm":
-			var n := 1 + (1 if rng_env.randf() < 0.3 + 0.5 * traffic.run_time / maxf(Tuning.shift_seconds, 1.0) else 0)
+			var n := 1 + (1 if rng_env.randf() < 0.3 + 0.5 * traffic.run_time / maxf(Tuning.par_eff(), 1.0) else 0)
 			for k in n:
 				_spawn_storm()
 		"fog":
@@ -689,10 +689,10 @@ func _end_shift() -> void:
 	_daily_note = ""
 	hud.set_finale("", Color.WHITE, false)
 	var t_end := traffic.run_time
-	if t_end < Tuning.shift_seconds:
-		shift.set_finish(t_end, Tuning.shift_seconds, int(Tuning.early_bonus_per_second))
+	if t_end < Tuning.par_eff():
+		shift.set_finish(t_end, Tuning.par_eff(), int(Tuning.early_bonus_per_second))
 	else:
-		shift.set_overtime(t_end - Tuning.shift_seconds, int(Tuning.overtime_penalty_per_second))
+		shift.set_overtime(t_end - Tuning.par_eff(), int(Tuning.overtime_penalty_per_second))
 	sfx.silence_hums()
 	sfx.play("clear_sky" if shift.balance() >= 0 else "fine")
 	var gained := _settle()
@@ -839,6 +839,7 @@ func _touch_down(index: int, pos: Vector2) -> void:
 			_set_volume(sl, hud.slider_set(sl, pos.x))
 			return
 	if screen != SCREEN_PLAY:
+		hud.press(pos)
 		var id := hud.button_at(pos)
 		if id != "":
 			_on_button(id)
@@ -1147,6 +1148,7 @@ func feed_drag(w: Vector2) -> void:
 		_cancel_drag()
 
 func _touch_up(index: int, pos: Vector2) -> void:
+	hud.release()
 	if _slider_drag >= 0:
 		_slider_drag = -1
 		Save.write_file()
