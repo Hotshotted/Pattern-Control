@@ -8,7 +8,7 @@ extends Node
 const RATE := 11025            # effects
 const LOOP_RATE := 8000        # hums and music (lo-fi on purpose: it is a placeholder)
 const POOL := 8
-const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "star", "slam"]
+const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "star", "slam", "back", "toggle", "buy", "error", "whoosh", "unlock"]
 const BEAT := 0.6              # music: seconds per beat, 8 beats per loop
 
 var enabled := true
@@ -28,6 +28,15 @@ var _music_hot: AudioStreamPlayer
 var _music_tense: AudioStreamPlayer
 var _fog_amb: AudioStreamPlayer
 var _music_on := false
+var _menu_on := false
+var _calm_db := -80.0                  # what the players are at now; the targets come from the mode (a smooth crossfade)
+var _hot_db := -80.0
+var _calm_target := -80.0
+var _hot_target := -80.0
+var _pitch_target := 1.0
+const FADE_DB_PER_S := 60.0
+const MENU_CALM_DB := -19.0
+const SHIFT_CALM_DB := -12.0
 
 func _ready() -> void:
 	hum_level.resize(6)
@@ -91,18 +100,37 @@ func set_music(on: bool, progress: float = 0.0, urgency: float = 0.0) -> void:
 	var hot := clampf(maxf(smoothstep(0.55, 1.0, progress), urgency), 0.0, 1.0)
 	music_level = hot if on else 0.0
 	music_pitch = 1.0 + 0.1 * hot
+	_retarget(hot)
+
+## The menu's music: the calm layer alone, quieter and a little slower. It crossfades with the shift's music.
+func set_menu_music(on: bool) -> void:
+	if on != _menu_on:
+		_menu_on = on
+		_retarget(music_level)
+
+## Work out where each layer should be; the players glide there in _process (no jumps, no clicks).
+func _retarget(hot: float) -> void:
+	_calm_target = SHIFT_CALM_DB if _music_on else (MENU_CALM_DB if _menu_on else -80.0)
+	_hot_target = linear_to_db(maxf(hot * 0.8, 0.0001)) - 8.0 if _music_on else -80.0
+	_pitch_target = music_pitch if _music_on else (0.92 if _menu_on else 1.0)
 	if not enabled:
 		return
-	if on and not _music_calm.playing:
+	if (_calm_target > -70.0 or _hot_target > -70.0) and not _music_calm.playing:
 		_music_calm.play()
 		_music_hot.play()
-	elif not on and _music_calm.playing:
+
+func _glide_music(delta: float) -> void:
+	_calm_db = move_toward(_calm_db, _calm_target, FADE_DB_PER_S * delta)
+	_hot_db = move_toward(_hot_db, _hot_target, FADE_DB_PER_S * delta)
+	var k := 1.0 - exp(-delta * 2.0)
+	var pitch := lerpf(_music_calm.pitch_scale, _pitch_target, k)
+	_music_calm.pitch_scale = pitch
+	_music_hot.pitch_scale = pitch
+	_music_calm.volume_db = _calm_db
+	_music_hot.volume_db = _hot_db
+	if _music_calm.playing and _calm_db <= -75.0 and _hot_db <= -75.0 and _calm_target <= -70.0:
 		_music_calm.stop()
 		_music_hot.stop()
-	_music_calm.pitch_scale = music_pitch
-	_music_hot.pitch_scale = music_pitch
-	_music_calm.volume_db = -12.0 if on else -80.0
-	_music_hot.volume_db = linear_to_db(maxf(hot * 0.8, 0.0001)) - 8.0 if on else -80.0
 
 ## Fog: a soft ambient bed, and a tense music layer on top of the music while it is around.
 func set_fog(level: float) -> void:
@@ -125,6 +153,8 @@ func set_fog(level: float) -> void:
 		_music_tense.stop()
 
 func _process(delta: float) -> void:
+	if enabled:
+		_glide_music(delta)
 	for t in 6:
 		hum_level[t] = move_toward(hum_level[t], _hum_target[t], delta * 1.5)
 		if not enabled:
@@ -164,6 +194,18 @@ func _build_effects() -> void:
 	_streams["star"] = _wav(_seq([[988.0, 0.07, 0.4], [1319.0, 0.07, 0.4], [1760.0, 0.2, 0.4]], RATE, 0.5, false, true), RATE)
 	# a results star slamming in: a low thud with a ring on top
 	_streams["slam"] = _wav(_mix(_sweep(180.0, 55.0, 0.22, 0.9, RATE), _seq([[1175.0, 0.3, 0.3]], RATE, 0.3, false, true)), RATE)
+	# going back: a soft falling pair
+	_streams["back"] = _wav(_seq([[560.0, 0.04, 0.3], [415.0, 0.07, 0.3]], RATE), RATE)
+	# a toggle (details, tabs): a tiny tick
+	_streams["toggle"] = _wav(_seq([[920.0, 0.03, 0.35]], RATE, 0.8), RATE)
+	# a purchase: a rising three-note ping
+	_streams["buy"] = _wav(_seq([[784.0, 0.06, 0.4], [1047.0, 0.06, 0.4], [1568.0, 0.2, 0.4]], RATE, 0.5, false, true), RATE)
+	# can't do that: a muted low buzz
+	_streams["error"] = _wav(_seq([[196.0, 0.08, 0.3], [147.0, 0.14, 0.3]], RATE, 0.7, true), RATE)
+	# a screen sliding: a short airy swish
+	_streams["whoosh"] = _wav(_whoosh(0.22, RATE), RATE)
+	# a new airport: a little fanfare
+	_streams["unlock"] = _wav(_seq([[523.0, 0.1, 0.4], [659.0, 0.1, 0.4], [784.0, 0.1, 0.4], [1047.0, 0.45, 0.45]], RATE, 0.6, false, true), RATE)
 	# a finger going down on a button: a short, soft low click
 	_streams["press"] = _wav(_seq([[420.0, 0.03, 0.25]], RATE, 0.9), RATE)
 
@@ -195,6 +237,21 @@ func _sweep(f0: float, f1: float, secs: float, vol: float, rate: int) -> PackedF
 		var k := float(i) / count
 		ph += TAU * lerpf(f0, f1, k) / rate
 		out[i] = sin(ph) * vol * (1.0 - k) * minf(float(i) / 30.0, 1.0)
+	return out
+
+## Filtered noise whose brightness rises and falls: a swish.
+func _whoosh(secs: float, rate: int) -> PackedFloat32Array:
+	var count := int(secs * rate)
+	var out := PackedFloat32Array()
+	out.resize(count)
+	var seed_v := 777
+	var lp := 0.0
+	for i in count:
+		seed_v = (seed_v * 1103515245 + 12345) & 0x7fffffff
+		var noise := float(seed_v) / 1073741823.5 - 1.0
+		var k := float(i) / count
+		lp += (noise - lp) * lerpf(0.05, 0.5, sin(PI * k))
+		out[i] = lp * sin(PI * k) * 0.5
 	return out
 
 ## Two sounds played together.

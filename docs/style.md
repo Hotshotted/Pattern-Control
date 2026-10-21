@@ -98,5 +98,18 @@ back slides from the left. Nothing moves slower than 0.5 s unless it is a celebr
 
 ## Audio
 
-Short, soft and rounded: a bright pop for taps, a lower thud for back, a rising two-note for rewards, a muted buzz for
-errors. Music has a calm and a tense layer that cross-fade; fog adds ambience. All procedural, no files.
+Short, soft and rounded, all procedural (no audio files). Every kind of tap has its own sound: a soft click when a finger
+goes down, then a bright blip going forward (`tap`), a falling pair going back (`back`), a tiny tick for a toggle
+(`toggle`), a rising ping for a purchase (`buy`), a low muted buzz when something cannot be done (`error`), a swish when a
+screen slides (`whoosh`) and a small fanfare for a new airport or a reward (`unlock`). Stars have a rising arpeggio on
+the bar (`star`) and a thud with a ring when they slam in on the results (`slam`, a little higher each time).
+
+Music: the menu has the calm layer alone, quieter and slightly slower; a shift has the calm layer plus an intense layer
+that fades in towards the end; fog adds a tense layer and an ambience. Every change is a glide (at most 60 dB a second),
+never a cut, so going menu -> shift -> results -> menu is one continuous mix.
+
+## App icon and splash
+
+A gold aircraft with a dark outline and soft shadow, banking across a runway, on a sky-blue rounded square with a top
+highlight (`icon.svg`, rendered to `icons/` by `tools/make_icons.gd`). The boot splash is the same mark on the dark
+surface (`assets/splash.svg`), followed in the game by the studio mark (a placeholder name) and the game's logo.

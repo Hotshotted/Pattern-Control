@@ -102,6 +102,9 @@ func _ready() -> void:
 	traffic.crashed.connect(_on_crashed)
 	traffic.go_around.connect(_on_go_around)
 	hud.star_reached.connect(_on_star_reached)
+	hud.transition_started.connect(func(_d: int): if not _warming: sfx.play("whoosh"))
+	hud.unlock_shown.connect(func(): sfx.play("unlock"))
+	hud.confetti_started.connect(func(): sfx.play("unlock"))
 	hud.star_slam.connect(_on_star_slam)
 	traffic.runway_conflict.connect(_on_runway_conflict)
 	traffic.refused.connect(_on_refused)
@@ -362,6 +365,10 @@ func run_wall_time() -> float:
 
 func _process(raw_delta: float) -> void:
 	_tick_shake(raw_delta)
+	# Music: the shift's own while playing; the calm menu bed everywhere else; the two crossfade.
+	if screen != SCREEN_PLAY and screen != SCREEN_PAUSE:
+		sfx.set_music(false)
+	sfx.set_menu_music(not _warming and screen != SCREEN_PLAY and screen != SCREEN_PAUSE and screen != SCREEN_AD)
 	view_size = lerpf(view_size, Tuning.view_size(), 1.0 - exp(-raw_delta * 3.0))   # the radar re-frames the view smoothly
 	_update_camera()
 	traffic.half_w = view_size * 0.5
@@ -376,6 +383,7 @@ func _process(raw_delta: float) -> void:
 	var delta := _frame_delta(raw_delta)
 	if DebugFlags.perf_enabled():
 		hud.set_perf_clock(sim_time, run_wall_time())
+		hud.perf_extra = "draw: overlay %d us, hud %d us" % [overlay.last_draw_us, hud._art.last_draw_us]
 	if delta <= 0.0:
 		return
 	sim_time += delta
@@ -915,6 +923,7 @@ func _touch_down(index: int, pos: Vector2) -> void:
 				Input.vibrate_handheld(12)
 			return
 		if hud.ui_hit(pos):
+			sfx.play("error")
 			return   # a disabled button
 	if screen == SCREEN_OVER and not hud.results_revealed():
 		hud.skip_animations()         # a tap on the empty screen finishes the reveal; the buttons do the rest
@@ -937,7 +946,10 @@ func _touch_down(index: int, pos: Vector2) -> void:
 
 ## A button / card on the menu, results or airport screen.
 func _on_button(id: String) -> void:
-	sfx.play("tap")
+	var coins_before := Save.coins
+	var snd := _ui_sound(id)
+	if snd != "":
+		sfx.play(snd)
 	if id == "play" or id == "again":
 		begin_shift()
 	elif id == "details":
@@ -983,6 +995,24 @@ func _on_button(id: String) -> void:
 		bad_mode = false
 		select_airport(int(id.substr(8)))
 		begin_shift()
+	# Buying is judged by whether it cost anything.
+	if id.begins_with("upg:"):
+		sfx.play("buy" if Save.coins < coins_before else "error")
+	elif id.begins_with("theme:") or id.begins_with("livery:"):
+		sfx.play("buy" if Save.coins < coins_before else "toggle")
+
+## Each kind of tap has its own sound: forward, back, a small toggle, the confirm of a reward. (Purchases sound
+## after the fact, by what they cost.)
+func _ui_sound(id: String) -> String:
+	if id == "back" or id == "menu" or id == "quit" or id == "restart" or id == "resume":
+		return "back"
+	if id == "details" or id.begins_with("shop_tab:"):
+		return "toggle"
+	if id == "unlock_ok" or id.begins_with("ad_"):
+		return "unlock"
+	if id.begins_with("upg:") or id.begins_with("theme:") or id.begins_with("livery:"):
+		return ""
+	return "tap"
 
 func _show_upgrades() -> void:
 	screen = SCREEN_UPGRADES

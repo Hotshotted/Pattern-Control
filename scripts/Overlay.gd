@@ -19,6 +19,7 @@ var active_runway := -1              # runway the dragged plane is aiming for (i
 var glows_drawn := 0                 # entry glows drawn last frame
 
 var _c: Control
+var last_draw_us := 0               # how long the last overlay draw took (microseconds; shown by ?perf)
 var _font: Font
 var _rip_pos := PackedVector2Array()
 var _rip_col := PackedColorArray()
@@ -28,7 +29,7 @@ var _next_rip := 0
 
 func _ready() -> void:
 	layer = 1
-	_font = ThemeDB.fallback_font
+	_font = Style.text()
 	_c = Control.new()
 	_c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_c.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -77,6 +78,11 @@ func clear() -> void:
 func _draw_all() -> void:
 	if traffic == null:
 		return
+	var t_start := Time.get_ticks_usec()
+	_draw_all_inner()
+	last_draw_us = Time.get_ticks_usec() - t_start
+
+func _draw_all_inner() -> void:
 	var now := Time.get_ticks_msec()
 	var t := now / 1000.0
 	_c.draw_set_transform_matrix(xf)
@@ -196,7 +202,7 @@ func _draw_closures(t: float) -> void:
 			_c.draw_line(p0, p1, Color(1.0, 0.18, 0.12, a), 0.2)
 
 func _tag(at: Vector2, text: String, col: Color) -> void:
-	_c.draw_string_outline(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, 120.0, 30, 8, Color.BLACK)
+	_c.draw_string_outline(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, 120.0, 30, 8, Style.INK)
 	_c.draw_string(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, 120.0, 30, col)
 
 ## Helipad and water-lane markers: a ring on each landing spot (always open), like a runway's approach end.

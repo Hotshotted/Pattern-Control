@@ -85,6 +85,7 @@ class Art extends Control:
 	var press_t := 0.0
 	var rel_k := -1                    # the button just released (it bounces back)
 	var rel_t := 99.0
+	var last_draw_us := 0                # how long the last draw of the art took (microseconds)
 	var fc_pos := PackedVector2Array()       # flying coins: where, and how big (0 = not flying)
 	var fc_s := PackedFloat32Array()
 	var star_t := PackedFloat32Array([-1.0, -1.0, -1.0])   # seconds since each star on the bar lit (< 0 = not animating)
@@ -107,6 +108,8 @@ class Art extends Control:
 	var _sheen_l: StyleBoxFlat
 	var _sb_lip: StyleBoxFlat
 	var _sb_logo: StyleBoxFlat
+	var _sb_track: StyleBoxFlat
+	var _sb_fill: StyleBoxFlat
 	var _sb_lip_gold: StyleBoxFlat
 	var _sb_ghost: StyleBoxFlat
 	var _sb_normal: StyleBoxFlat
@@ -161,12 +164,14 @@ class Art extends Control:
 		_sb_lip = Style.box(Style.SUCCESS_DARK, Style.SUCCESS_DARK, Style.R_L, 0)
 		_sb_lip_gold = Style.box(Style.ACCENT_DARK, Style.ACCENT_DARK, Style.R_M, 0)
 		_sb_gold = Style.box(Color(0.3, 0.24, 0.06, 0.96), C_GOLD, Style.R_M)
+		_sb_track = Style.box(Color(Style.INK, 0.85), Color(Style.LINE, 0.25), 11, 2, false)
+		_sb_fill = Style.box(Style.ACCENT, Style.ACCENT, 11, 0, false)
 		_sb_logo = Style.box(Style.SURFACE_DARK_2, Style.ACCENT, Style.R_L, 4)
 		_sb_ghost = Style.box(Color(Style.SCRIM, 0.35), Color(Style.LINE, 0.35), Style.R_PILL, 2, false)
 		_sb_pill = Style.box(Color(Style.INK, 0.78), Color(0.8, 0.88, 1.0, 0.5), Style.R_PILL, 3)
 		_sb_sheet = Style.box(Color(Style.SURFACE_DARK, 0.98), C_LINE, Style.R_L, 3)
 		_sb_banner = Style.box(Color(Style.INK, 0.82), Color.WHITE, Style.R_PILL, 3)
-		_sb_tip = Style.box(Color(Style.INK, 0.85), Color(0.7, 0.95, 0.85), Style.R_PILL, 3)
+		_sb_tip = Style.box(Color(Style.INK, 0.85), Style.SUCCESS.lightened(0.5), Style.R_PILL, 3)
 		_sheen_s = Style.sheen(Style.R_S)
 		_sheen_m = Style.sheen(Style.R_M)
 		_sheen_l = Style.sheen(Style.R_L, 0.16)
@@ -242,8 +247,8 @@ class Art extends Control:
 		match id:
 			"coin":
 				draw_circle(c, r, Color(0, 0, 0, col.a))
-				draw_circle(c, r - 3.0, Color(1.0, 0.82, 0.2, col.a))
-				draw_arc(c, r * 0.62, 0.0, TAU, 20, Color(0.78, 0.52, 0.05, col.a), w * 0.8)
+				draw_circle(c, r - 3.0, Color(Style.ACCENT, col.a))
+				draw_arc(c, r * 0.62, 0.0, TAU, 20, Color(Style.ACCENT_DARK, col.a), w * 0.8)
 			"star":
 				star(c, r, Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, col.a), true)
 			"star_off":
@@ -266,7 +271,7 @@ class Art extends Control:
 			"home":
 				tri(c + Vector2(-r * 0.9, -r * 0.05), c + Vector2(0, -r * 0.85), c + Vector2(r * 0.9, -r * 0.05), col)
 				draw_rect(Rect2(c.x - r * 0.6, c.y - r * 0.05, r * 1.2, r * 0.85), col)
-				draw_rect(Rect2(c.x - r * 0.17, c.y + r * 0.3, r * 0.34, r * 0.5), Color(0.08, 0.1, 0.16, col.a))
+				draw_rect(Rect2(c.x - r * 0.17, c.y + r * 0.3, r * 0.34, r * 0.5), Color(Style.INK, col.a))
 			"restart":
 				draw_arc(c, r * 0.7, -PI * 0.15, PI * 1.5, 24, col, w * 1.5)
 				tri(c + Vector2(r * 0.95, -r * 0.05), c + Vector2(r * 0.3, -r * 0.2), c + Vector2(r * 0.85, -r * 0.8), col)
@@ -295,7 +300,7 @@ class Art extends Control:
 			"airport":
 				draw_rect(Rect2(c.x - r * 0.3, c.y - r * 0.95, r * 0.6, r * 1.9), col)
 				for k in 3:
-					draw_rect(Rect2(c.x - r * 0.06, c.y - r * 0.7 + k * r * 0.55, r * 0.12, r * 0.28), Color(0.08, 0.1, 0.16, col.a))
+					draw_rect(Rect2(c.x - r * 0.06, c.y - r * 0.7 + k * r * 0.55, r * 0.12, r * 0.28), Color(Style.INK, col.a))
 			"upgrades":
 				tri(c + Vector2(-r * 0.8, r * 0.05), c + Vector2(r * 0.8, r * 0.05), c + Vector2(0, -r * 0.9), col)
 				draw_rect(Rect2(c.x - r * 0.28, c.y + r * 0.05, r * 0.56, r * 0.85), col)
@@ -311,15 +316,15 @@ class Art extends Control:
 				_pts[7] = c + Vector2(r * 0.7, r * 0.05)
 				draw_colored_polygon(_pts, col)
 				tri(c + Vector2(r * 0.3, -r * 0.8), c + Vector2(r * 0.95, -r * 0.35), c + Vector2(r * 0.7, r * 0.05), col)
-				tri(c + Vector2(-r * 0.3, -r * 0.8), c + Vector2(r * 0.3, -r * 0.8), c + Vector2(0, -r * 0.5), Color(0.08, 0.1, 0.16, col.a))
+				tri(c + Vector2(-r * 0.3, -r * 0.8), c + Vector2(r * 0.3, -r * 0.8), c + Vector2(0, -r * 0.5), Color(Style.INK, col.a))
 				_pts.resize(10)
 			"daily":      # a sun: a new shift every day
-				draw_circle(c, r * 0.45, Color(1.0, 0.82, 0.25, col.a))
+				draw_circle(c, r * 0.45, Color(Style.ACCENT, col.a))
 				for k in 8:
 					var a := k * PI / 4.0
-					draw_line(c + Vector2(cos(a), sin(a)) * r * 0.7, c + Vector2(cos(a), sin(a)) * r * 1.0, Color(1.0, 0.82, 0.25, col.a), w * 1.3)
+					draw_line(c + Vector2(cos(a), sin(a)) * r * 0.7, c + Vector2(cos(a), sin(a)) * r * 1.0, Color(Style.ACCENT, col.a), w * 1.3)
 			"bad":
-				draw_rect(Rect2(c.x - r * 0.8, c.y - r * 0.8, r * 1.6, r * 1.6), Color(1.0, 0.62, 0.15, col.a))
+				draw_rect(Rect2(c.x - r * 0.8, c.y - r * 0.8, r * 1.6, r * 1.6), Color(Style.WARNING, col.a))
 				line3(c + Vector2(-r * 0.3, -r * 0.5), c + Vector2(-r * 0.3, r * 0.5), c + Vector2(r * 0.45, r * 0.5), Color(1, 1, 1, col.a), w * 2.0)
 			"radar":
 				draw_arc(c, r * 0.9, 0.0, TAU, 24, col, w)
@@ -357,7 +362,7 @@ class Art extends Control:
 				glyph("plane", c + Vector2(0, -r * 0.15), r * 0.8, col)
 				draw_line(c + Vector2(-r * 0.9, r * 0.8), c + Vector2(r * 0.9, r * 0.8), Color(0.45, 0.75, 1.0, col.a), w * 1.2)
 			"emergency":
-				tri(c + Vector2(-r, r * 0.85), c + Vector2(r, r * 0.85), c + Vector2(0, -r * 0.9), Color(1.0, 0.35, 0.3, col.a))
+				tri(c + Vector2(-r, r * 0.85), c + Vector2(r, r * 0.85), c + Vector2(0, -r * 0.9), Color(Style.DANGER, col.a))
 				draw_line(c + Vector2(0, -r * 0.3), c + Vector2(0, r * 0.25), Color.WHITE, w * 1.2)
 				draw_circle(c + Vector2(0, r * 0.55), w * 0.9, Color.WHITE)
 			"vip":
@@ -490,7 +495,7 @@ class Art extends Control:
 				if b != 0:
 					var bc := c + Vector2(rad * 0.75, -rad * 0.75)
 					draw_circle(bc, 22.0, Color.BLACK)
-					draw_circle(bc, 19.0, Color(0.2, 0.75, 0.45) if b < 0 else Color(1.0, 0.55, 0.15))
+					draw_circle(bc, 19.0, Style.SUCCESS if b < 0 else Style.WARNING)
 					if b < 0:
 						glyph("check", bc, 11.0, Color.WHITE)
 					else:
@@ -568,10 +573,14 @@ class Art extends Control:
 			var r := slider_rect[i]
 			var ty := r.get_center().y
 			glyph(slider_glyph[i], Vector2(r.position.x - 70.0, ty), 34.0, C_TEXT)
-			draw_line(Vector2(r.position.x, ty), Vector2(r.end.x, ty), Color(0, 0, 0, 0.85), 22.0)
-			draw_line(Vector2(r.position.x, ty), Vector2(r.position.x + r.size.x * slider_val[i], ty), C_GOLD, 12.0)
-			draw_circle(Vector2(r.position.x + r.size.x * slider_val[i], ty), 28.0, Color.BLACK)
-			draw_circle(Vector2(r.position.x + r.size.x * slider_val[i], ty), 22.0, Color.WHITE)
+			var track := Rect2(r.position.x, ty - 11.0, r.size.x, 22.0)
+			draw_style_box(_sb_track, track)
+			var fx := maxf(r.size.x * slider_val[i], 22.0)
+			draw_style_box(_sb_fill, Rect2(r.position.x, ty - 11.0, fx, 22.0))
+			var kc := Vector2(r.position.x + r.size.x * slider_val[i], ty)
+			draw_circle(kc + Style.SHADOW_OFFSET * 0.6, 30.0, Style.SHADOW_COLOR)
+			draw_circle(kc, 30.0, Style.INK)
+			draw_circle(kc, 24.0, Color.WHITE)
 
 	## The slim star bar: it fills as the balance grows, with a tick (a small star) at each threshold.
 	func _draw_star_bar() -> void:
@@ -658,7 +667,7 @@ class Art extends Control:
 		if tip_alpha > 0.01 and tip_text != "":
 			var r2 := tip_rect
 			_sb_tip.bg_color.a = 0.85 * tip_alpha
-			_sb_tip.border_color = Color(0.7, 0.95, 0.85, tip_alpha)
+			_sb_tip.border_color = Color(Style.SUCCESS.lightened(0.5), tip_alpha)
 			draw_style_box(_sb_tip, r2)
 			var x2 := r2.position.x + 40.0
 			if tip_glyph != "":
@@ -711,9 +720,9 @@ class Art extends Control:
 		var tw := text_width(label, SZ_XL)
 		var ty := cy - 150.0
 		glyph("coin", Vector2(cx - tw * 0.5 - 56.0, ty - SZ_XL * 0.32), 40.0)
-		text(label, Vector2(cx - tw * 0.5, ty), SZ_XL, C_GOLD if not res_doubled else Color(0.6, 1.0, 0.7))
+		text(label, Vector2(cx - tw * 0.5, ty), SZ_XL, C_GOLD if not res_doubled else Style.SUCCESS.lightened(0.35))
 		if res_doubled:
-			text("x2", Vector2(cx + tw * 0.5 + 24.0, ty), SZ_M, Color(0.6, 1.0, 0.7))
+			text("x2", Vector2(cx + tw * 0.5 + 24.0, ty), SZ_M, Style.SUCCESS.lightened(0.35))
 		# One quiet line: a new best, or the best so far.
 		var k2 := clampf((res_t - (t_count + 1.0)) / 0.4, 0.0, 1.0)
 		if res_new_best:
@@ -792,6 +801,11 @@ class Art extends Control:
 			_sparks(lc + Vector2(0, -60.0), sp, 60.0, 280.0, 12, Style.ACCENT)
 
 	func _draw() -> void:
+		var t_start := Time.get_ticks_usec()
+		_draw_all()
+		last_draw_us = Time.get_ticks_usec() - t_start
+
+	func _draw_all() -> void:
 		if logo_t >= 0.0:
 			_draw_logo()
 			return
@@ -1006,6 +1020,8 @@ signal coin_arrived
 signal star_reached(index: int)       # a star on the shift's bar just lit
 signal star_slam(index: int)          # a results star just slammed in
 signal unlock_shown
+signal transition_started(dir: int)     # a screen slides (+1 forward, -1 back) or pops (0)
+signal confetti_started
 
 const FLY_POOL := 10
 const FLY_TIME := 0.75
@@ -1103,6 +1119,7 @@ func _go(kind: String) -> void:
 	_art.press_k = -1
 	_art.rel_k = -1
 	_apply_transition()
+	transition_started.emit(_tr_dir)
 
 func transition_kind() -> String:
 	return _tr_kind
@@ -1146,6 +1163,7 @@ func _tick_celebrations(delta: float) -> void:
 		if _art.res_stars >= 3 and not _confetti_done and _art.res_t >= Art.STAR_T0 + Art.STAR_GAP * 2.0 + Art.SLAM:
 			_confetti_done = true
 			_spawn_confetti()
+			confetti_started.emit()
 		if _unlock_pending != "" and _art.res_t >= UNLOCK_AT and _art.unlock_t < 0.0:
 			_begin_unlock()
 	if _art.unlock_t >= 0.0:
@@ -1420,7 +1438,7 @@ func _build_ad() -> void:
 	_ad_sub.add_theme_color_override("font_color", C_SOFT)
 	_centered(_ad_sub, -20, 60)
 	_ad_bar = ColorRect.new()
-	_ad_bar.color = Color(0.4, 0.85, 1.0)
+	_ad_bar.color = Style.PRIMARY
 	_ad_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_ad_bar.offset_left = -400
 	_ad_bar.offset_right = 400
@@ -2052,12 +2070,14 @@ func _build_stamp() -> void:
 	l.offset_left = 14
 	l.offset_top = -48 if flags == "" else -84
 	l.modulate = Color(1, 1, 1, 0.4)
+	l.add_theme_font_override("font", Style.text())
 	if DebugFlags.perf_enabled():
 		_perf_label = _label(26, HORIZONTAL_ALIGNMENT_LEFT)
 		_perf_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 		_perf_label.offset_left = 14
 		_perf_label.offset_top = 112       # (below the pause button)
 		_perf_label.modulate = Color(0.6, 1, 0.6, 0.9)
+		_perf_label.add_theme_font_override("font", Style.text())
 
 func note_hitch(raw: float, used: float, why: String, context: String) -> void:
 	_hitch_count += 1
@@ -2070,6 +2090,8 @@ func note_hitch(raw: float, used: float, why: String, context: String) -> void:
 func set_perf_clock(sim: float, wall: float) -> void:
 	_clock_text = "sim %.1f s / wall %.1f s" % [sim, wall]
 
+var perf_extra := ""              # one more ?perf line (the overlay / art draw times), set by Main
+
 func _update_perf(delta: float) -> void:
 	if _perf_label == null:
 		return
@@ -2079,7 +2101,7 @@ func _update_perf(delta: float) -> void:
 		_perf_shown = _perf_worst
 		_perf_worst = 0.0
 		_perf_window_start = now
-	_perf_label.text = "worst frame (3s): %.0f ms   %.0f fps\n%s\nhitches (over 50 ms):\n%s" % [_perf_shown, Engine.get_frames_per_second(), _clock_text, "\n".join(_hitch_log)]
+	_perf_label.text = "worst frame (3s): %.0f ms   %.0f fps\n%s\n%s\nhitches (over 50 ms):\n%s" % [_perf_shown, Engine.get_frames_per_second(), _clock_text, perf_extra, "\n".join(_hitch_log)]
 
 # ---------- Start-up pre-warm ----------
 
@@ -2127,7 +2149,7 @@ func begin_prewarm() -> void:
 	_splash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_splash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var bg := ColorRect.new()
-	bg.color = Color(0.08, 0.1, 0.16, 0.93)
+	bg.color = Color(Style.SURFACE_DARK, 0.95)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_splash.add_child(bg)
@@ -2136,9 +2158,30 @@ func begin_prewarm() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 90)
+	title.add_theme_font_override("font", Style.display())
+	title.add_theme_color_override("font_outline_color", Style.INK)
+	title.add_theme_constant_override("outline_size", 10)
 	title.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_splash.add_child(title)
+	# Every glyph of both faces at every size, drawn faintly behind the splash, so no letter is first seen mid-game.
+	var ascii := ""
+	for cp in range(32, 127):
+		ascii += char(cp)
+	var row := 0
+	for face in 2:
+		for sz in [SZ_S, SZ_M, SZ_XL]:
+			var wl := Label.new()
+			wl.text = ascii
+			wl.add_theme_font_size_override("font_size", sz)
+			wl.add_theme_font_override("font", Style.display() if face == 0 else Style.text())
+			wl.add_theme_color_override("font_outline_color", Style.INK)
+			wl.add_theme_constant_override("outline_size", maxi(sz / 8, 4))
+			wl.modulate = Color(1, 1, 1, 0.06)
+			wl.position = Vector2(0.0, 60.0 + row * 150.0)
+			wl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_splash.add_child(wl)
+			row += 1
 	add_child(_splash)
 
 func prewarm_tip() -> void:

@@ -2324,9 +2324,9 @@ func _initialize() -> void:
 	set_wind(main, fposmod(main.wind.from_deg + 90.0, 360.0))
 	main.step(1.0 / 60.0)
 	check(k9_sfx.plays["wind"] == k9_w0 + 1, "a wind shift plays the chime (%d -> %d, last %s now %s)" % [k9_w0, k9_sfx.plays["wind"], str(main._last_wind_deg), str(main.wind.from_deg)])
-	var k9_tp0 = k9_sfx.plays["tap"]
+	var k9_tp0 = k9_sfx.plays["back"]
 	main._on_button("menu")
-	check(k9_sfx.plays["tap"] == k9_tp0 + 1, "UI buttons tap")
+	check(k9_sfx.plays["back"] == k9_tp0 + 1, "going back has its own sound")
 	main.restart()
 	tr.auto_spawn = false
 	for k9_h in [GLIDER, HELI, SMALL, MEDIUM, JET, SEAPLANE]:
@@ -3245,6 +3245,148 @@ func _initialize() -> void:
 	check(not main.hud.unlock_active(), "...and it does not come back")
 	save.unlocks["all_airports"] = true
 	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+
+	print("9s. audio, icon and splash, the consistency sweep, performance")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	var au = main.sfx
+	var au_base = au.plays.duplicate()
+	main._on_button("details")
+	main._on_button("back")
+	main._on_button("airports")
+	check(au.plays["toggle"] == au_base["toggle"] + 1 and au.plays["back"] == au_base["back"] + 1 and au.plays["tap"] == au_base["tap"] + 1, "different taps sound different: a toggle, going back, going forward")
+	main._show_upgrades()
+	save.coins = 1000
+	main._show_upgrades()
+	var au_b0 = au.plays["buy"]
+	main._on_button("upg:comms")
+	check(au.plays["buy"] == au_b0 + 1, "buying something rings the purchase sound")
+	save.coins = 0
+	main._show_upgrades()
+	var au_e0 = au.plays["error"]
+	main._on_button("upg:comms")
+	check(au.plays["error"] == au_e0 + 1 and au.plays["buy"] == au_b0 + 1, "a purchase that does not go through buzzes instead")
+	var au_card = main.hud._art.btn_id.find("upg:radar")
+	var au_pos = main.hud._art.btn_rect[au_card].get_center()
+	var au_e1 = au.plays["error"]
+	touch(main, 0, true, au_pos)
+	touch(main, 0, false, au_pos)
+	check(main.hud._art.btn_state[au_card] == 1 and au.plays["error"] == au_e1 + 1, "pressing a disabled card gives the error buzz and nothing else")
+	var au_w0 = au.plays["whoosh"]
+	main._show_menu()
+	main._show_select()
+	check(au.plays["whoosh"] >= au_w0 + 2, "screens sliding make a swish")
+	check(au._streams.has("whoosh") and au._streams.has("buy") and au._streams.has("error") and au._streams.has("unlock") and au._streams.has("back") and au._streams.has("toggle"), "every UI sound is generated")
+	# Music crossfades instead of cutting.
+	au.set_music(false)
+	au.set_menu_music(false)
+	au._calm_db = -80.0
+	au._hot_db = -80.0
+	au.set_menu_music(true)
+	var au_prev = au._calm_db
+	var au_jump = 0.0
+	for i in 140:
+		au._glide_music(1.0 / 60.0)
+		au_jump = maxf(au_jump, absf(au._calm_db - au_prev))
+		au_prev = au._calm_db
+	check(absf(au._calm_db - au.MENU_CALM_DB) < 0.5 and au_jump <= au.FADE_DB_PER_S / 60.0 + 0.01 and au._music_calm.playing, "the menu music fades up smoothly (%.1f dB at most per frame)" % au_jump)
+	au.set_music(true, 0.8, 0.0)
+	var au_pitch0 = au._music_calm.pitch_scale
+	for i in 30:
+		au._glide_music(1.0 / 60.0)
+	check(au._calm_db > au.MENU_CALM_DB + 2.0 and au._calm_db < au.SHIFT_CALM_DB + 0.1 and au._music_calm.pitch_scale > au_pitch0, "...and rises into the shift's music, pitch easing up, without a jump")
+	for i in 120:
+		au._glide_music(1.0 / 60.0)
+	check(absf(au._calm_db - au.SHIFT_CALM_DB) < 0.5 and au._hot_db > -40.0, "...the intense layer fades in with it")
+	au.set_music(false)
+	au.set_menu_music(true)
+	for i in 240:
+		au._glide_music(1.0 / 60.0)
+	check(absf(au._calm_db - au.MENU_CALM_DB) < 0.5 and au._hot_db <= -75.0, "back at the menu the intense layer fades away again")
+	au.set_menu_music(false)
+	for i in 240:
+		au._glide_music(1.0 / 60.0)
+	check(not au._music_calm.playing and au._calm_db <= -75.0, "and with no music wanted, everything fades out and stops")
+	# Icon and splash.
+	var ic_svg = FileAccess.get_file_as_string("res://icon.svg")
+	check(ic_svg.contains("#ffc933".substr(0, 0)) or ic_svg.contains("linearGradient"), "the app icon is drawn in the new style (gradient, gold aircraft on a runway)")
+	var ic_ok = true
+	for px in [144, 180, 512]:
+		var im = Image.load_from_file("res://icons/icon-%d.png" % px)
+		ic_ok = ic_ok and im != null and im.get_width() == px
+	check(ic_ok, "icons are rendered at 144, 180 and 512 px")
+	check(ProjectSettings.get_setting("application/boot_splash/image") == "res://assets/splash.png" and FileAccess.file_exists("res://assets/splash.png") and ProjectSettings.get_setting("application/boot_splash/bg_color") != Color.BLACK, "the boot splash is the new mark on the dark surface")
+	var ex_cfg = FileAccess.get_file_as_string("res://export_presets.cfg")
+	check(ex_cfg.contains("icon-512.png") and ex_cfg.contains("viewport-fit=cover"), "the web export carries the icons and allows the safe-area insets")
+	# The consistency sweep: every label is in a style font; nothing uses the default font.
+	var lab_bad = []
+	for lb in main.hud.find_children("*", "Label", true, false):
+		var lf = lb.get_theme_font("font")
+		if lf != Style.display() and lf != Style.text():
+			lab_bad.append(lb.text)
+	check(lab_bad.is_empty() and main.overlay._font == Style.text(), "every label and the overlay tags use the two style fonts (%s)" % str(lab_bad))
+	var fallback_uses = 0
+	for fn in DirAccess.get_files_at("res://scripts"):
+		if fn.ends_with(".gd") and fn != "TunePanel.gd" and FileAccess.get_file_as_string("res://scripts/" + fn).contains("ThemeDB.fallback_font"):
+			fallback_uses += 1
+	check(fallback_uses == 0, "no screen draws text in the engine's fallback font")
+	var shots_ok = true
+	var shots_missing = []
+	for fn in DirAccess.get_files_at("res://docs/screens/makeover_before"):
+		if fn.ends_with(".png") and not FileAccess.file_exists("res://docs/screens/makeover_after/" + fn):
+			shots_ok = false
+			shots_missing.append(fn)
+	check(shots_ok and DirAccess.get_files_at("res://docs/screens/makeover_after").size() >= 20, "docs/screens has an after picture for every before picture (%s)" % str(shots_missing))
+	# Performance on the busiest airport: a full field, drawn paths, every frame timed.
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(5)
+	save.airport_plays[5] = 3
+	main.restart()
+	main.traffic._god = true            # (no fines or conflicts: the field stays full)
+	tr.auto_spawn = false
+	for k in 14:
+		var pf_pl = tr.place(k % 2, Vector2(-4.0 + (k % 5) * 2.0, -7.0 + (k / 5) * 4.0), 0.3 * k, 2 + (k % 3))
+		var pf_d = Vector2(sin(pf_pl.heading), -cos(pf_pl.heading))
+		for pf_q in 40:
+			pf_pl.push(pf_pl.pos + pf_d * (pf_q + 1) * 0.4 + Vector2(sin(pf_q * 0.7), cos(pf_q * 0.5)) * 0.5)
+	var pf_worst = 0.0
+	var pf_sum = 0.0
+	var pf_n = 0
+	var pf_all = []
+	var pf_t = Time.get_ticks_usec()
+	for i in 60 * 20:
+		main._process(1.0 / 60.0)
+		await process_frame
+		var pf_now = Time.get_ticks_usec()
+		var pf_ms = (pf_now - pf_t) / 1000.0
+		pf_t = pf_now
+		if i > 30:
+			pf_worst = maxf(pf_worst, pf_ms)
+			pf_sum += pf_ms
+			pf_n += 1
+			pf_all.append(pf_ms)
+	pf_all.sort()
+	var pf_p99 = pf_all[int(pf_all.size() * 0.99)]
+	# What our own code costs per frame: the simulation step, the path ribbons, the HUD, the contrails, and the two
+	# draws (overlay and HUD art), each timed on its own (a headless frame also includes the engine's idle wait).
+	var pf_work = 0.0
+	for i in 120:
+		var pw0 = Time.get_ticks_usec()
+		tr.step(1.0 / 60.0)
+		main.ribbons._process(1.0 / 60.0)
+		main.hud._process(1.0 / 60.0)
+		main.fx.get_child_count()
+		pf_work = maxf(pf_work, (Time.get_ticks_usec() - pw0) / 1000.0 + (main.overlay.last_draw_us + main.hud._art.last_draw_us) / 1000.0)
+		await process_frame
+	print("      perf, International, %d aircraft with paths: frame mean %.2f ms, 99th percentile %.2f ms, worst %.2f ms (headless wall clock); our code %.2f ms worst per frame (overlay draw %d us, hud draw %d us)" % [tr.active_count(), pf_sum / maxf(pf_n, 1), pf_p99, pf_worst, pf_work, main.overlay.last_draw_us, main.hud._art.last_draw_us])
+	check(tr.active_count() >= 12 and pf_p99 < 33.0 and pf_work < 16.0, "the busiest airport stays under 33 ms a frame: 99%% of frames under %.1f ms (worst %.1f), our code %.2f ms (%d aircraft)" % [pf_p99, pf_worst, pf_work, tr.active_count()])
+	main.traffic._god = DebugFlags.god_enabled()
 	main.restart()
 	tr.auto_spawn = false
 

@@ -127,3 +127,11 @@ test before every export). Same conventions as sky-dodge: everything is pooled a
 splash at boot, nothing is allocated during a run, and restarting is in place.
 
 Run the smoke test locally: `godot --headless --path . --script res://tests/smoke_test.gd`
+
+
+## Look and feel
+
+`docs/style.md` is the style guide (palette, type, radii, shadows, buttons, icons, spacing, safe areas, motion, audio);
+`scripts/Style.gd` holds the same tokens in code. Before / after pictures of every screen: `docs/screens/makeover_before`
+and `docs/screens/makeover_after`, with the pictures taken after each makeover phase in `docs/screens/makeover_phase1..3`.
+Shift lengths differ by airport (45 / 60 / 75 / 75 / 90 / 90 s of arrivals, par 15 s later).
