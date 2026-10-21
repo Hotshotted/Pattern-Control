@@ -89,6 +89,13 @@ at most, slow aircraft, long timers, no weather, no wind shifts); County adds a 
 difficulty then steps up to today's full intensity at Mountain Field and beyond it at International. The first shift
 at an airport is gentler still (arrivals further apart, longer timers).
 
+## Screens
+
+Every screen has one primary element (big and high-contrast), the rest smaller and quieter, icons instead of words,
+three text sizes (XL / M / S), one banner and one tip at a time, and numbers that roll up. `tools/screenshots.gd`
+renders them all (`xvfb-run -a godot --path . --rendering-driver opengl3 --resolution 1080x1920 --script
+tools/screenshots.gd -- out=DIR`); the before / after images from the clarity pass are in `docs/screens/`.
+
 ## Economy simulation
 
 `tools/economy_sim.gd` plays the real game with poor / average / good autopilots for their first 20 shifts and prints

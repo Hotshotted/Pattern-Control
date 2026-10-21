@@ -1,0 +1,127 @@
+extends SceneTree
+## Renders every screen to PNGs (needs a display: xvfb-run -a godot --path . --script tools/screenshots.gd -- out=/tmp/shots/before).
+## Used for the clarity pass: it walks the menu, airport select, HUD, banners, pause, results, upgrades, shop,
+## the daily modes and the aircraft tip, and saves one image each.
+
+var out := "/tmp/shots"
+var main: Node
+
+func _initialize() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("out="):
+			out = a.substr(4)
+	DirAccess.make_dir_recursive_absolute(out)
+	var save = root.get_node("Save")
+	save.path = "user://shots_save.json"
+	save.reset_all()
+	root.get_node("Tuning").ad_stub_seconds = 0.0
+	main = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main)
+	current_scene = main
+	var guard := 0
+	while not main._warming and guard < 120:       # the pre-warm starts a moment after the scene is ready
+		await process_frame
+		guard += 1
+	guard = 0
+	while main._warming and guard < 6000:
+		await process_frame
+		guard += 1
+	guard = 0
+	while is_instance_valid(main.hud._splash) and guard < 600:
+		await process_frame
+		guard += 1
+	await _frames(30)
+	print("state: warming=", main._warming, " splash=", is_instance_valid(main.hud._splash), " ad=", main.hud._ad.visible, " menu=", main.hud._menu.visible, " screen=", main.screen)
+	await _walk(save)
+	quit()
+
+func _frames(n: int) -> void:
+	for i in n:
+		await process_frame
+
+func _shot(name: String) -> void:
+	main.hud.skip_animations()
+	await _frames(6)
+	var img := root.get_viewport().get_texture().get_image()
+	img.save_png("%s/%s.png" % [out, name])
+	print("saved ", name, " ", img.get_size())
+
+func _walk(save) -> void:
+	# a save with some progress so the screens have something to show
+	save.coins = 240
+	save.stars[0] = 3
+	save.stars[1] = 2
+	save.stars[2] = 1
+	save.best_coins[0] = 120
+	save.unlocks["all_airports"] = false
+	save.upgrades["comms"] = 1
+	save.upgrades["holding"] = 2
+	await _shot("01_menu")
+	main._on_button("airports")
+	await _shot("02_airport_select")
+	main._on_button("upgrades")
+	await _shot("03_upgrades")
+	main._on_button("shop")
+	await _shot("04_shop")
+	main._show_menu()
+	main.select_airport(2)
+	main.restart()
+	main.traffic.auto_spawn = false
+	var tr = main.traffic
+	# a busy-looking field
+	for k in 4:
+		var p = tr.place(k % 2, Vector2(-3.0 + k * 2.0, -3.0 + k), 0.4 * k, 2 + (k % 3))
+		p.timer_left = p.timer_max * (0.9 - 0.25 * k)
+	for i in 120:
+		main.step(1.0 / 60.0)
+	main.shift.on_landed(3, 14, 0)
+	main.shift.on_landed(3, 14, 0)
+	main.shift.on_landed(3, 14, 4)
+	main.hud.set_shift(main.shift)
+	await _shot("05_hud")
+	tr.run_time = 85.0
+	main.step(1.0 / 60.0)
+	await _shot("06_last_arrivals")
+	tr.run_time = 90.0
+	for i in 5:
+		main.step(1.0 / 60.0)
+	await _shot("07_clear_the_sky")
+	tr.run_time = 104.0
+	main.step(1.0 / 60.0)
+	await _shot("08_overtime")
+	main.hud.set_wind_warning(270.0, 6)
+	await _shot("09_wind_warning")
+	main.pause_game()
+	await _shot("10_pause")
+	main.resume_game()
+	main.hud.show_tip("Helicopters land on the H pad", "heli")
+	await _shot("11_tip")
+	main._apply_fine(80, "conflict", "CONFLICT", Vector2.ZERO)
+	await _shot("12_fine_popup")
+	tr.release_all()
+	main.restart()
+	tr.auto_spawn = false
+	for k in 15:
+		main.shift.on_landed(3, 14, 0)
+	main.shift.fine(40, "conflict")
+	main.hud.set_shift(main.shift)
+	tr.run_time = main.get_node("/root/Tuning").shift_seconds - 4.0
+	main.step(1.0 / 60.0)
+	await _shot("13_results")
+	main.hud.toggle_details()
+	await _shot("13b_results_details")
+	main.restart()
+	tr.auto_spawn = false
+	main.shift.on_landed(3, 14, 0)
+	main.shift.fine(100, "conflict")
+	main.hud.set_shift(main.shift)
+	tr.run_time = main.get_node("/root/Tuning").shift_seconds + 8.0
+	main.step(1.0 / 60.0)
+	await _shot("13c_results_bad_shift")
+	main._show_menu()
+	await _shot("14_menu_after")
+	main.start_daily()
+	await _shot("15_daily_hud")
+	main._show_menu()
+	main.start_bad_day()
+	await _shot("16_bad_day_hud")

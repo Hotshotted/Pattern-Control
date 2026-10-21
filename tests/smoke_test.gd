@@ -241,6 +241,7 @@ func _initialize() -> void:
 	run_sec(main, 12.0)
 	check(main.score == score_before + 1, "the plane lands: score +1 (%d)" % main.score)
 	check(tr.active_count() == 0, "a landed plane leaves the field (pooled, not freed)")
+	main.hud.skip_animations()
 	check(main.hud._score.text == str(main.shift.balance()) and main.shift.landed == 1, "the score label shows the coin balance (%s)" % main.hud._score.text)
 	check(count_visible(main.hud._pop_labels) >= 1, "a '+1' popup is showing")
 	var emitting2 = 0
@@ -628,7 +629,7 @@ func _initialize() -> void:
 	main.step(1.0 / 60.0)
 	check(main.screen == main.SCREEN_OVER and has_btn(main, "ad_refund") and has_btn(main, "ad_double"), "the results offer both the refund and double-coins ads")
 	var ri9 = main.hud._art.btn_id.find("ad_refund")
-	check(main.hud._art.btn_text[ri9].contains("REFUND BIGGEST FINE") and main.hud._art.btn_text[ri9].contains(str(int(tuning.fine_conflict))), "...worded 'refund biggest fine' with its amount (%s)" % main.hud._art.btn_text[ri9])
+	check(main.hud._art.btn_text[ri9] == "Refund fine" and main.hud._art.btn_sub[ri9] == "+%d" % int(tuning.fine_conflict) and main.hud._art.btn_kind[ri9] == 4, "...a small chip: 'Refund fine' with its amount (%s %s)" % [main.hud._art.btn_text[ri9], main.hud._art.btn_sub[ri9]])
 	var stars_pre = save.stars_of(main.airport)
 	var coins_pre9 = save.coins
 	var pay_pre = main.shift.payout()
@@ -749,13 +750,13 @@ func _initialize() -> void:
 	main.wind.force_shift(180.0)
 	check(is_equal_approx(warned_to[0], 180.0), "the shift is announced with its new direction")
 	main.step(1.0 / 60.0)
-	check(main.hud._wind_banner.visible and main.hud._wind_banner.text.begins_with("Wind shifting to 180"), "the banner reads '%s'" % main.hud._wind_banner.text)
+	check(main.hud.banner_text() == "Wind to 180" and main.hud._art.wind_warn, "the banner reads '%s' and the dial flashes" % main.hud.banner_text())
 	check(main.hud._art.wind_warn, "the wind widget flags the coming shift")
 	check(absf(main.wind.countdown - tuning.wind_warning_seconds) < 0.1, "about %.0f s of warning" % tuning.wind_warning_seconds)
 	check(main.wind.is_active(0, 0), "the old ends stay active during the warning")
 	run_sec(main, tuning.wind_warning_seconds + 0.5)
 	check(is_equal_approx(main.wind.from_deg, 180.0) and main.wind.is_active(0, 1) and not main.wind.is_active(0, 0), "after the warning the wind and the active ends have changed")
-	check(not main.hud._wind_banner.visible and main.hud._art.wind_text == "WIND 180", "the banner clears and the widget shows the new wind")
+	check(not main.hud._art.wind_warn and main.hud._art.wind_text == "180", "the dial stops flashing and shows the new wind")
 	check(rr.active() and not rr.cleared and rr.path_invalid, "a plane cleared for the closed end loses its clearance and its path is marked invalid")
 	check(rr.count == cnt - 2 or rr.count == 0 or not rr.active(), "its approach points are dropped (%d -> %d)" % [cnt, rr.count])
 	await process_frame
@@ -838,7 +839,7 @@ func _initialize() -> void:
 	for k in main.hud._art.btn_count:
 		cards[main.hud._art.btn_id[k]] = main.hud._art.btn_rect[k]
 	check(cards.has("airport:0") and cards.has("locked:1") and cards.has("locked:5") and cards.has("back"), "airport 1 is open, the others show as locked, with a Back button")
-	check(main.hud._art.btn_sub[1].contains("needs 2 stars"), "a locked card says what unlocks it (%s)" % main.hud._art.btn_sub[1])
+	check(main.hud._art.btn_lock[main.hud._art.btn_id.find("locked:1")] == 2 and main.hud._art.btn_state[main.hud._art.btn_id.find("locked:1")] == 1, "a locked card shows a padlock and the stars it needs")
 	var locked_pos = cards["locked:1"].get_center()
 	touch(main, 0, true, locked_pos)
 	touch(main, 0, false, locked_pos)
@@ -1342,7 +1343,7 @@ func _initialize() -> void:
 	touch(main, 0, true, cards2["upg:comms"][0].get_center())
 	touch(main, 0, false, cards2["upg:comms"][0].get_center())
 	check(save.upgrade_level("comms") == 1 and save.coins == 100 - Upgrades.cost("comms", 0), "tapping an affordable card buys it (%d coins left)" % save.coins)
-	check(main.screen == main.SCREEN_UPGRADES and main.hud._art.btn_text[main.hud._art.btn_id.find("upg:comms")].ends_with("Lv 1"), "the card shows the new level")
+	check(main.screen == main.SCREEN_UPGRADES and main.hud._art.btn_pips[main.hud._art.btn_id.find("upg:comms")] == 1, "the card shows the new level (pips)")
 	var pop_up = false
 	for l in main.hud._pop_labels:
 		if l.visible and l.text == "Better Comms level 1!":
@@ -1575,8 +1576,8 @@ func _initialize() -> void:
 	check(shop_ids.has("shop_tab:0") and shop_ids.has("shop_tab:1") and shop_ids.has("theme:4") and shop_ids.has("back"), "two tabs, five theme cards and Back")
 	var card_state = {}
 	for k in main.hud._art.btn_count:
-		card_state[main.hud._art.btn_id[k]] = [main.hud._art.btn_state[k], main.hud._art.btn_sub[k], main.hud._art.btn_icon[k], main.hud._art.btn_rect[k]]
-	check(card_state["theme:0"][1] == "EQUIPPED" and card_state["theme:1"][1].begins_with("Tap to buy") and card_state["theme:3"][0] == 1, "Classic is equipped, Autumn is for sale, Winter is out of reach")
+		card_state[main.hud._art.btn_id[k]] = [main.hud._art.btn_state[k], main.hud._art.btn_sub[k], main.hud._art.btn_icon[k], main.hud._art.btn_rect[k], main.hud._art.btn_cost[k]]
+	check(card_state["theme:0"][1] == "In use" and card_state["theme:1"][4] == 300 and card_state["theme:1"][0] == 0 and card_state["theme:3"][0] == 1, "Classic is equipped, Autumn is for sale, Winter is out of reach")
 	check(card_state["theme:2"][2] == 102, "theme cards show a colour swatch")
 	var snap_c = snapshot(main)
 	touch(main, 0, true, card_state["theme:1"][3].get_center())
@@ -1621,7 +1622,7 @@ func _initialize() -> void:
 	tr.spawn_until = 0.0
 	tr.run_time = tuning.shift_seconds + 0.01
 	main.step(1.0 / 60.0)
-	check(main.hud._art.result_animal == 1 and main.hud._art.result_quote.begins_with("Captain Fox"), "the results screen shows the pilot and a quote (%s)" % main.hud._art.result_quote)
+	check(main.hud._art.show_result and main.hud._over.visible, "the results screen shows")
 	main._on_button("menu")
 	# Daily shift.
 	save.reset_all()
@@ -1629,7 +1630,7 @@ func _initialize() -> void:
 	save.day_override = 20000
 	main._show_menu()
 	var daily_idx = main.hud._art.btn_id.find("daily")
-	check(main.hud._art.btn_sub[daily_idx].begins_with("streak 0") and main.hud._art.btn_sub[daily_idx].contains("+%d" % (tuning.daily_bonus_coins + tuning.daily_streak_coins)), "the Daily Shift button shows the streak and the bonus (%s)" % main.hud._art.btn_sub[daily_idx])
+	check(main.hud._art.btn_kind[daily_idx] == 3 and main.hud._art.btn_text[daily_idx] == "Daily" and main.hud._art.btn_badge[daily_idx] == 0, "the Daily button is a round icon with no badge before the first streak")
 	var runs_seen = []
 	for run_i in 3:
 		save.day_override = 20000 if run_i < 2 else 20001
@@ -2077,7 +2078,7 @@ func _initialize() -> void:
 	var bi = main.hud._art.btn_id.find("bad")
 	var br = main.hud._art.btn_rect[bi]
 	var vpz = main.get_viewport().get_visible_rect().size
-	check(br.end.y <= vpz.y and br.position.y > vpz.y * 0.5 + 500.0, "...which fits on screen (%s)" % str(br))
+	check(br.end.y <= vpz.y and br.end.x <= vpz.x and br.position.y > vpz.y * 0.5 + 200.0, "...which fits on screen (%s)" % str(br))
 	main._on_button("bad")
 	check(main.bad_mode and main.screen == main.SCREEN_PLAY, "pressing it starts the shift")
 	save.write_file()
@@ -2275,7 +2276,7 @@ func _initialize() -> void:
 	tr.run_time = tuning.shift_seconds - 3.6
 	main.step(1.0 / 60.0)
 	check(not main.alive and main.shift.early_seconds == 3 and main.shift.time_bonus == 3 * int(tuning.early_bonus_per_second), "clearing the sky 3.5 s before par pays %d coins per whole second early (%d)" % [int(tuning.early_bonus_per_second), main.shift.time_bonus])
-	check(main.last_result["reason"].contains("Time bonus +%d (3 s early)" % main.shift.time_bonus) and main.last_result["reason"].contains("Overtime -0 (0 s over)"), "the results show the time bonus and the overtime lines")
+	check(main.last_result["reason"].contains("Early bonus|+%d (3 s)" % main.shift.time_bonus) and main.last_result["reason"].contains("Overtime|-0 (0 s)"), "the results show the time bonus and the overtime lines")
 	check(main.shift.balance() == main.shift.earned + main.shift.bonus + main.shift.time_bonus and main.last_result["payout"] == main.shift.balance(), "...and the bonus is part of the payout")
 	# Overtime: a plane that never leaves.
 	main.restart()
@@ -2293,13 +2294,13 @@ func _initialize() -> void:
 		main.step(1.0 / 60.0)
 	var k9_ot_s = main.shift.overtime_seconds
 	check(k9_ot_s >= 7 and main.shift.overtime_penalty == k9_ot_s * int(tuning.overtime_penalty_per_second), "after par every whole second costs %d coins (%d s over, -%d)" % [int(tuning.overtime_penalty_per_second), k9_ot_s, main.shift.overtime_penalty])
-	check(main.hud._best.text.begins_with("OVERTIME +0:0") and main.hud._best.get_theme_color("font_color").r > 0.9 and main.hud._best.get_theme_color("font_color").g < 0.4, "the clock turns red and counts up (%s)" % main.hud._best.text)
+	check(main.hud._best.text.begins_with("+0:0") and main.hud._best.get_theme_color("font_color").r > 0.9 and main.hud._best.get_theme_color("font_color").g < 0.4, "the clock turns red and counts up (%s)" % main.hud._best.text)
 	check(main.hud._art.balance == main.shift.balance() and main.shift.balance() == k9_bal_par - main.shift.overtime_penalty, "the coin balance shows the overtime live")
 	check(main.sfx.plays["tick"] >= k9_ticks0 + k9_ot_s, "an overtime tick sounds each second")
 	check(main.hud.finale_text().begins_with("CLEAR THE SKY") and main.alive, "still clearing the sky in overtime")
 	tr.lose(k9_slow)
 	main.step(1.0 / 60.0)
-	check(not main.alive and main.last_result["reason"].contains("Overtime -%d (%d s over)" % [main.shift.overtime_penalty, main.shift.overtime_seconds]), "the results show the overtime that was charged")
+	check(not main.alive and main.last_result["reason"].contains("Overtime|-%d (%d s)" % [main.shift.overtime_penalty, main.shift.overtime_seconds]), "the results show the overtime that was charged")
 	# Sound: the placeholder set exists and is wired up.
 	var k9_sfx = main.sfx
 	var k9_all_made = true
@@ -2326,9 +2327,9 @@ func _initialize() -> void:
 	main._on_conflict(k9_ca3, k9_cb3)
 	check(k9_sfx.plays["alarm"] == k9_c0["alarm"] + 1 and k9_sfx.plays["fine"] == k9_c0["fine"] + 1, "a conflict sounds the alarm and the fine sound")
 	var k9_w0 = k9_sfx.plays["wind"]
-	set_wind(main, 200.0)
+	set_wind(main, fposmod(main.wind.from_deg + 90.0, 360.0))
 	main.step(1.0 / 60.0)
-	check(k9_sfx.plays["wind"] == k9_w0 + 1, "a wind shift plays the chime")
+	check(k9_sfx.plays["wind"] == k9_w0 + 1, "a wind shift plays the chime (%d -> %d, last %s now %s)" % [k9_w0, k9_sfx.plays["wind"], str(main._last_wind_deg), str(main.wind.from_deg)])
 	var k9_tp0 = k9_sfx.plays["tap"]
 	main._on_button("menu")
 	check(k9_sfx.plays["tap"] == k9_tp0 + 1, "UI buttons tap")
@@ -2402,7 +2403,7 @@ func _initialize() -> void:
 	main.step(1.0 / 60.0)
 	check(main.last_result["payout"] == earned_l / 2 and save.coins == coins_before + earned_l / 2, "a failed shift still pays the guaranteed half of landing pay (%d)" % (earned_l / 2))
 	var body = main.hud._over_body.text
-	check(body.contains("Landings earned +%d" % earned_l) and body.contains("Fines -%d" % (6 * int(tuning.fine_conflict))) and body.contains("Kept (guaranteed) %d" % (earned_l / 2)) and body.contains("Net total %d" % main.shift.balance()) and body.contains("Total paid +%d" % (earned_l / 2)), "the results show landings earned, fines, kept and the total")
+	check(body.contains("Landings earned +%d" % earned_l) and body.contains("Fines -%d" % (6 * int(tuning.fine_conflict))) and body.contains("Guaranteed kept %d" % (earned_l / 2)) and body.contains("Net total (stars) %d" % main.shift.balance()) and body.contains("Total paid +%d" % (earned_l / 2)), "the results show landings earned, fines, kept and the total")
 	# A raised share is respected.
 	tuning.landing_keep_fraction = 0.8
 	main.restart()
@@ -2569,6 +2570,161 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
+	print("9n. clarity pass: one primary element per screen, three text sizes, one banner / tip at a time")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	var art = main.hud._art
+	var area = func(k): return art.btn_rect[k].size.x * art.btn_rect[k].size.y
+	var words_ok = func(t): return t.split(" ", false).size() <= 4
+	# Menu.
+	main._show_menu()
+	var primaries = []
+	var biggest = 0.0
+	var big_id = ""
+	for k in art.btn_count:
+		if art.btn_kind[k] == 2:
+			primaries.append(art.btn_id[k])
+		if area.call(k) > biggest:
+			biggest = area.call(k)
+			big_id = art.btn_id[k]
+	check(primaries == ["play"] and big_id == "play", "menu: one primary button (PLAY), and it is the biggest thing on screen")
+	var menu_words = true
+	for k in art.btn_count:
+		menu_words = menu_words and words_ok.call(art.btn_text[k]) and art.btn_sub[k] == ""
+	check(menu_words and art.btn_count <= 6, "menu: short labels, no descriptions (%d buttons)" % art.btn_count)
+	var round_n = 0
+	for k in art.btn_count:
+		if art.btn_kind[k] == 3:
+			round_n += 1
+			menu_words = menu_words and art.btn_glyph[k] != ""
+	check(round_n == 4 and menu_words, "menu: the secondary actions are four round icon buttons")
+	check(not main.hud._score.visible and not main.hud._best.visible, "menu: no leftover shift numbers behind it")
+	check(not main.hud._ad.visible, "menu: nothing else is covering it")
+	# The three text sizes: every label in the interface uses one of them.
+	var sizes_ok = true
+	var sizes_seen = {}
+	for ch in main.hud.get_children():
+		if ch is Label and ch != main.hud._perf_label and ch.text.find("dev") < 0 and ch.text.find("local") < 0:
+			var sz = ch.get_theme_font_size("font_size")
+			sizes_seen[sz] = true
+			sizes_ok = sizes_ok and (sz == main.hud.SZ_XL or sz == main.hud.SZ_M or sz == main.hud.SZ_S or sz == 26)
+	for scr in [main.hud._menu, main.hud._over, main.hud._select, main.hud._pause, main.hud._ad]:
+		for ch in scr.get_children():
+			if ch is Label:
+				var sz2 = ch.get_theme_font_size("font_size")
+				sizes_seen[sz2] = true
+				sizes_ok = sizes_ok and (sz2 == main.hud.SZ_XL or sz2 == main.hud.SZ_M or sz2 == main.hud.SZ_S)
+	check(sizes_ok, "every label uses one of the three text sizes %s (seen %s)" % [str([main.hud.SZ_XL, main.hud.SZ_M, main.hud.SZ_S]), str(sizes_seen.keys())])
+	# Airport select: just a name, stars and a lock.
+	main._on_button("airports")
+	var sel_ok = true
+	var cards_n = 0
+	for k in art.btn_count:
+		if art.btn_kind[k] == 1:
+			cards_n += 1
+			sel_ok = sel_ok and art.btn_sub[k] == "" and words_ok.call(art.btn_text[k])
+	check(cards_n == Airports.COUNT and sel_ok, "airport select: one big card per airport with only its name, stars and lock")
+	main._show_menu()
+	# Upgrades: icon, name, one line, pips, cost.
+	main._on_button("upgrades")
+	var up_ok = true
+	for k in art.btn_count:
+		if art.btn_kind[k] == 1:
+			up_ok = up_ok and art.btn_glyph[k] != "" and art.btn_sub[k].length() <= 26 and art.btn_sub[k].length() > 0 and art.btn_pips[k] >= 0 and art.btn_cost[k] >= 0 and words_ok.call(art.btn_text[k]) and art.btn_stars[k] == -1
+	check(up_ok and art.btn_id.find("upg:radar") >= 0, "upgrades: each card has an icon, a name, one short line, level pips and a cost")
+	main._show_menu()
+	# Shop.
+	for tab in [0, 1]:
+		main.shop_tab = tab
+		main._show_shop()
+		var shop_ok = true
+		for k in art.btn_count:
+			if art.btn_kind[k] == 1:
+				shop_ok = shop_ok and art.btn_icon[k] >= 0 and art.btn_sub[k].length() <= 10 and words_ok.call(art.btn_text[k])
+		check(shop_ok, "shop (tab %d): cards are an icon, a name and a price or a status, no paragraphs" % tab)
+	main.shop_tab = 0
+	main._show_menu()
+	# HUD: only the clock, the coins and the star bar.
+	main.restart()
+	tr.auto_spawn = false
+	check(main.hud._score.visible and main.hud._best.visible and art.show_play, "HUD: the coin total and the clock")
+	check(art.chip_finale == "" and art.chip_weather == "" and art.banner_text == "" and art.tip_alpha == 0.0 and not main.hud._tip.visible, "HUD: no banners, chips or tips until something happens (%s|%s|%s|%.1f|%s)" % [art.chip_finale, art.chip_weather, art.banner_text, art.tip_alpha, str(main.hud._tip.visible)])
+	check(not main.hud._best.text.contains("landed") and main.hud._best.text.length() <= 5, "HUD: the clock is just m:ss (%s)" % main.hud._best.text)
+	check(art.thresholds[2] > art.thresholds[1] and art.thresholds[1] > art.thresholds[0], "HUD: a slim bar with three star ticks")
+	# Numbers roll up.
+	var sh_roll = Shift.new()
+	sh_roll.reset([50, 100, 160], 0.5)
+	sh_roll.on_landed(MEDIUM, 100, 0)
+	main.hud.set_shift(sh_roll)
+	main.hud._process(0.016)
+	var mid_v = int(main.hud._score.text)
+	check(mid_v > 0 and mid_v < 100, "the coin total rolls up instead of jumping (%d on the first frame)" % mid_v)
+	for i in 120:
+		main.hud._process(0.016)
+	check(main.hud._score.text == "100" and absf(art.bar_shown - 100.0) < 1.0, "...and arrives (%s)" % main.hud._score.text)
+	main.hud.skip_animations()
+	main.hud.set_shift(main.shift)
+	main.hud.skip_animations()
+	# One banner at a time, one tip at a time.
+	main.hud.post_banner("LAST ARRIVALS", main.hud.C_GOLD, "plane", 2.0)
+	main.hud.post_banner("Wind to 270", main.hud.C_GOLD, "wind", 2.0)
+	check(main.hud.banner_text() == "LAST ARRIVALS" and main.hud._banner_q.size() == 1, "banners: the first shows, the second waits its turn")
+	main.hud._process(2.5)
+	check(main.hud.banner_text() == "Wind to 270" and main.hud._banner_q.is_empty(), "...and takes over once the first has gone")
+	main.hud._process(2.5)
+	main.hud._process(0.5)
+	check(main.hud.banner_text() == "" and art.banner_alpha == 0.0, "...then it gets out of the way")
+	main.hud.show_tip("First tip", "plane")
+	main.hud.show_tip("Second tip", "jet")
+	check(main.hud._tip.text == "First tip" and main.hud._tip_q.size() == 1, "tips: one at a time")
+	var tip_len_ok = true
+	for key in main.TIPS:
+		tip_len_ok = tip_len_ok and main.TIPS[key][0].split(" ").size() <= 8 and main.TIPS[key][1] != ""
+	check(tip_len_ok, "every tip is an icon and one short line")
+	main.hud._tip_until = 0
+	main.hud._process(0.016)
+	check(main.hud._tip.text == "Second tip" and main.hud._tip_q.is_empty(), "...the next one follows when the first is done")
+	main.hud._tip_until = 0
+	main.hud._process(0.016)
+	# Pause: nothing from the HUD shows through; one primary button.
+	main.pause_game()
+	var pause_prim = []
+	for k in art.btn_count:
+		if art.btn_kind[k] == 2:
+			pause_prim.append(art.btn_id[k])
+	check(pause_prim == ["resume"] and not main.hud._score.visible and not main.hud._best.visible, "pause: RESUME is the one primary button and the HUD is hidden behind it")
+	main._on_button("resume")
+	check(main.hud._score.visible and main.hud._best.visible, "...and comes back on resume")
+	# Results.
+	earn_coins(main, 100)
+	tr.release_all()
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 0.01
+	main.step(1.0 / 60.0)
+	check(main.screen == main.SCREEN_OVER and not main.hud._score.visible and not main.hud._best.visible, "results: the shift HUD is gone")
+	check(art.res_t < 1.0 and not main.hud.results_revealed() and not main.hud._over_body.visible and not main.hud.results_details_open(), "results: the stars and total are revealed in sequence; the breakdown is hidden")
+	var res_prim = []
+	var res_small = true
+	for k in art.btn_count:
+		if art.btn_kind[k] == 2:
+			res_prim.append(art.btn_id[k])
+		elif art.btn_id[k] != "again":
+			res_small = res_small and area.call(k) < area.call(art.btn_id.find("again")) * 0.3
+	check(res_prim == ["again"] and res_small, "results: one big PLAY AGAIN button; the ads and the rest are small chips")
+	main.hud._process(1.0)
+	var t_mid = art.res_t
+	main.hud._process(5.0)
+	check(t_mid > 0.9 and main.hud.results_revealed(), "results: the reveal plays out (%.1f s)" % t_mid)
+	main._on_button("details")
+	check(main.hud.results_details_open() and art.details_lines.size() >= 8, "results: 'Details' opens the full breakdown (%d lines)" % art.details_lines.size())
+	main._on_button("details")
+	check(not main.hud.results_details_open(), "...and closes it again")
+	main.restart()
+	tr.auto_spawn = false
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
@@ -2605,12 +2761,18 @@ func _initialize() -> void:
 	var after = snapshot(main)
 	check(same_world(base, after), "4 whole runs created nothing new  [%s]" % describe(after))
 	check(save.best_for(main.airport) == best_seen, "the best score is remembered (%d)" % save.best_for(main.airport))
-	check(main.hud._over_body.text.contains("Landings earned +%d" % main.shift.earned) and main.hud._over_body.text.contains("Kept (guaranteed) %d" % main.shift.kept()), "the results screen shows landings earned, fines, kept and the total")
-	# Tap on the game-over screen restarts in place (after the 0.6 s guard).
-	await real_wait(0.7)
-	touch(main, 0, true, Vector2(540, 900))
-	check(main.screen == main.SCREEN_PLAY and main.alive and main.score == 0, "a tap on the game-over screen restarts in place")
-	touch(main, 0, false, Vector2(540, 900))
+	check(main.hud._over_body.text.contains("Landings earned +%d" % main.shift.earned) and main.hud._over_body.text.contains("Guaranteed kept %d" % main.shift.kept()), "the results details list landings earned, fines, kept and the total")
+	# The PLAY AGAIN button restarts in place; a tap on the empty results screen only skips the reveal.
+	var empty_tap = Vector2(540, 60)
+	main.hud._art.res_t = 0.0
+	touch(main, 0, true, empty_tap)
+	touch(main, 0, false, empty_tap)
+	check(main.screen == main.SCREEN_OVER and main.hud.results_revealed(), "a tap on the empty results screen skips the reveal but doesn't restart")
+	var again_i = main.hud._art.btn_id.find("again")
+	var again_c = main.hud._art.btn_rect[again_i].get_center()
+	touch(main, 0, true, again_c)
+	check(main.screen == main.SCREEN_PLAY and main.alive and main.score == 0, "PLAY AGAIN restarts in place")
+	touch(main, 0, false, again_c)
 
 	print("11. ?tune panel")
 	var tp = main.tune_panel

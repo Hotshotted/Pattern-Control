@@ -252,6 +252,7 @@ func restart() -> void:
 	weather.start()
 	_event_key = ""
 	airfield.show_active(wind)
+	hud.mode = "bad" if bad_mode else ("daily" if daily_mode else "")
 	hud.reset_for_run(Save.best_for(airport))
 	hud.set_wind(wind.from_deg, wind.toward_deg())
 	hud.set_shift(shift)
@@ -261,10 +262,12 @@ func _show_menu() -> void:
 	alive = false
 	daily_mode = false
 	bad_mode = false
-	hud.bad_sub = "done today - streak %d" % Save.daily_streak("bad") if Save.daily_done_today("bad") else "all student pilots   streak %d" % Save.daily_streak("bad")
-	hud.daily_label = "DAILY SHIFT"
-	hud.daily_sub = "done today - streak %d" % Save.daily_streak() if Save.daily_done_today() else "streak %d   bonus +%d" % [Save.daily_streak(), _daily_bonus(Save.daily_streak() + 1)]
-	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport))
+	hud.mode = ""
+	hud.daily_streak = Save.daily_streak()
+	hud.daily_done = Save.daily_done_today()
+	hud.bad_streak = Save.daily_streak("bad")
+	hud.bad_done = Save.daily_done_today("bad")
+	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport), Save.stars_of(airport))
 
 # ---------- Frame time: the simulation can never run ahead of the clock ----------
 # However long the real frame was, the simulation advances by at most Tuning.max_frame_delta; a stall (a tab
@@ -523,12 +526,14 @@ func _on_refused(_p: Aircraft, text: String, at: Vector2) -> void:
 
 ## First time a kind of aircraft is on screen: a one-line tip. Emergencies announce themselves every time.
 const TIPS := {
-	"glider": "Glider: no engine. It can't hold and only gets one path.",
-	"heli": "Helicopter: lands on the helipad only. Tap to hover.",
-	"jet": "Jet: fast, and needs a long runway.",
-	"seaplane": "Seaplane: lands on the water lane.",
-	"emergency": "Emergency! Flashing aircraft can use any suitable runway. Land them fast.",
-	"vip": "VIP flight: bonus coins, but not if you hold it.",
+	"drag": ["Drag from an aircraft to its runway", "plane"],
+	"glider": ["Glider: one path, no holding", "glider"],
+	"heli": ["Helicopters land on the H pad", "heli"],
+	"jet": ["Jets need a long runway", "jet"],
+	"seaplane": ["Seaplanes land on water", "seaplane"],
+	"emergency": ["Emergency: land it fast", "emergency"],
+	"vip": ["VIP: don't hold it for a bonus", "vip"],
+	"student": ["Student pilot: more go-arounds, 2x pay", "student"],
 }
 
 func _on_appeared(p: Aircraft) -> void:
@@ -539,6 +544,8 @@ func _on_appeared(p: Aircraft) -> void:
 		key = "emergency"
 	elif p.vip:
 		key = "vip"
+	elif p.student:
+		key = "student"
 	else:
 		match p.type:
 			Aircraft.Type.GLIDER:
@@ -549,10 +556,12 @@ func _on_appeared(p: Aircraft) -> void:
 				key = "jet"
 			Aircraft.Type.SEAPLANE:
 				key = "seaplane"
+	if key == "" and not Save.tips_seen.has("drag"):
+		key = "drag"
 	if key != "" and not Save.tips_seen.has(key):
 		Save.tips_seen[key] = true
 		Save.write_file()
-		hud.show_tip(TIPS[key])
+		hud.show_tip(TIPS[key][0], TIPS[key][1])
 
 func _on_cleared(p: Aircraft) -> void:
 	overlay.ripple(Airports.land_threshold(p.tkind, p.runway, p.land_end), Airports.land_color(p.tkind, p.runway), 0.5)
@@ -731,18 +740,25 @@ func _settle() -> Dictionary:
 			if bad_mode:
 				bonus = roundi(bonus * Tuning.bad_day_bonus_mult)
 			coins += bonus
-			note = "\n%s bonus +%d  (streak %d)" % ["Bad Pilot Day" if bad_mode else "Daily", bonus, streak_now]
+			note = "\n%s bonus|+%d (streak %d)" % ["Bad day" if bad_mode else "Daily", bonus, streak_now]
 			_daily_note = note
 	Save.add_coins(coins)
 	var is_best := (not daily_mode) and Save.submit_best_coins(airport, payout)
 	Save.write_file()
 	return {"coins": coins, "first_stars": first_stars, "new_best": is_best, "note": note}
 
+## The results breakdown, one "label|value" line each (the "Details" panel draws them as two columns).
 func _reason_text() -> String:
-	var net_line := "Net total %d (stars)   Kept (guaranteed) %d" % [shift.balance(), shift.kept()]
-	if shift.balance() < shift.kept():
-		net_line += "  <- you keep this much"
-	return "Landings earned +%d   Bonuses +%d   Fines -%d\nTime bonus +%d (%d s early)   Overtime -%d (%d s over)\n%s%s" % [shift.earned, shift.bonus, shift.fines, shift.time_bonus, shift.early_seconds, shift.overtime_penalty, shift.overtime_seconds, net_line, _daily_note]
+	var lines: Array[String] = [
+		"Landings earned|+%d" % shift.earned,
+		"Bonuses|+%d" % shift.bonus,
+		"Early bonus|+%d (%d s)" % [shift.time_bonus, shift.early_seconds],
+		"Fines|-%d" % shift.fines,
+		"Overtime|-%d (%d s)" % [shift.overtime_penalty, shift.overtime_seconds],
+		"Net total (stars)|%d" % shift.balance(),
+		"Guaranteed kept|%d" % shift.kept(),
+	]
+	return "\n".join(lines) + _daily_note
 
 ## Fill in the results screen from `last_result`; the rewarded offers show until one has been used.
 func _show_results(doubled: bool) -> void:
@@ -828,8 +844,10 @@ func _touch_down(index: int, pos: Vector2) -> void:
 			return
 		if hud.ui_hit(pos):
 			return   # a disabled button
-	if screen == SCREEN_MENU or (screen == SCREEN_OVER and Time.get_ticks_msec() - _death_ms > 600):
-		begin_shift()
+	if screen == SCREEN_OVER and not hud.results_revealed():
+		hud.skip_animations()         # a tap on the empty screen finishes the reveal; the buttons do the rest
+		return
+	if screen == SCREEN_MENU or screen == SCREEN_OVER:
 		return
 	if screen != SCREEN_PLAY or not alive or _drag_index != -1:
 		return
@@ -848,7 +866,11 @@ func _touch_down(index: int, pos: Vector2) -> void:
 ## A button / card on the menu, results or airport screen.
 func _on_button(id: String) -> void:
 	sfx.play("tap")
-	if id == "airports":
+	if id == "play" or id == "again":
+		begin_shift()
+	elif id == "details":
+		hud.toggle_details()
+	elif id == "airports":
 		_show_select()
 	elif id == "upgrades":
 		_show_upgrades()
@@ -934,19 +956,17 @@ func _show_shop() -> void:
 		var owned := Save.owns(kind, d["id"])
 		var state := 0
 		var sub := ""
+		var cost := -1
 		if Save.equipped_id(kind) == d["id"]:
 			state = 2
-			sub = "EQUIPPED"
+			sub = "In use"
 		elif owned:
-			sub = "Owned - tap to equip"
-		elif Save.coins >= d["cost"]:
-			sub = "Tap to buy: %d coins" % d["cost"]
+			sub = "Owned"
 		else:
-			state = 1
-			sub = "%d coins (need %d more)" % [d["cost"], d["cost"] - Save.coins]
-		var title: String = d["name"] if shop_tab == 0 else "%s  -  %s" % [d["name"], d["pilot"]]
-		cards.append({"id": "%s:%d" % [kind, i], "title": title, "sub": sub, "state": state, "icon": (100 + i) if shop_tab == 0 else d["animal"]})
-	hud.show_list("SHOP", "Coins %d" % Save.coins, [
+			cost = d["cost"]
+			state = 0 if Save.coins >= d["cost"] else 1
+		cards.append({"id": "%s:%d" % [kind, i], "title": d["name"], "sub": sub, "state": state, "icon": (100 + i) if shop_tab == 0 else d["animal"], "cost": cost})
+	hud.show_list("SHOP", Save.coins, [
 		{"id": "shop_tab:0", "title": "THEMES", "selected": shop_tab == 0},
 		{"id": "shop_tab:1", "title": "LIVERIES", "selected": shop_tab == 1}], cards)
 
@@ -1034,7 +1054,7 @@ func _refund_biggest_fine() -> void:
 	last_result["stars"] = shift.stars()
 	last_result["first_stars"] += gained["first_stars"]
 	last_result["new_best"] = last_result["new_best"] or gained["new_best"]
-	last_result["reason"] = "%s\nBiggest fine refunded +%d" % [_reason_text(), amount]
+	last_result["reason"] = "%s\nFine refunded|+%d" % [_reason_text(), amount]
 	over_reason = last_result["reason"]
 	screen = SCREEN_OVER
 	_death_ms = Time.get_ticks_msec()

@@ -8,16 +8,20 @@ const MAX_LEVEL := 3
 const IDS := ["radar", "approach", "tower", "comms", "holding", "turnoffs"]
 
 const DATA := {
-	"radar": {"name": "Radar", "costs": [160, 360, 700], "text": "Wider view, earlier arrival warnings"},
-	"approach": {"name": "Approach Control", "costs": [200, 450, 800], "text": "Arrivals line up with active runways"},
-	"tower": {"name": "Tower Staff", "costs": [120, 280, 550], "text": "Slightly slower, thinner traffic"},
-	"comms": {"name": "Better Comms", "costs": [50, 140, 320], "text": "Every aircraft timer lasts longer"},
-	"holding": {"name": "Holding Fixes", "costs": [70, 180, 380], "text": "Holding: slower timers, tighter circles"},
-	"turnoffs": {"name": "Fast Turnoffs", "costs": [90, 220, 450], "text": "Runways clear faster after landing"},
+	"radar": {"name": "Radar", "costs": [160, 360, 700], "text": "See further"},
+	"approach": {"name": "Approach Control", "costs": [200, 450, 800], "text": "Lined-up arrivals"},
+	"tower": {"name": "Tower Staff", "costs": [120, 280, 550], "text": "Calmer traffic"},
+	"comms": {"name": "Better Comms", "costs": [50, 140, 320], "text": "Longer timers"},
+	"holding": {"name": "Holding Fixes", "costs": [70, 180, 380], "text": "Holds cost less time"},
+	"turnoffs": {"name": "Fast Turnoffs", "costs": [90, 220, 450], "text": "Runways clear faster"},
 }
 
 static func upgrade_name(id: String) -> String:
 	return DATA[id]["name"]
+
+## The icon drawn on the upgrade's card (the HUD has one glyph per upgrade, named after it).
+static func glyph(id: String) -> String:
+	return id
 
 static func description(id: String) -> String:
 	return DATA[id]["text"]
