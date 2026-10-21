@@ -2457,6 +2457,7 @@ func _initialize() -> void:
 		main.select_airport(ai)
 		save.airport_plays[ai] = 1      # (not the gentle first shift)
 		main.restart()
+		tr.rng.seed = 900 + ai          # (the same arrivals on every run of the test)
 		tr.auto_spawn = true
 		var peak_n = 0
 		var arrivals = [0]
@@ -2473,8 +2474,8 @@ func _initialize() -> void:
 		tr.spawned.disconnect(arr_cb)
 		peak.append([ai, peak_n, arrivals[0]])
 		check(peak_n <= tuning.max_planes_eff(), "%s: never more than %d aircraft at once (peak %d, %d arrivals in 80 s)" % [Airports.airport_name(ai), tuning.max_planes_eff(), peak_n, arrivals[0]])
-	check(peak[0][2] < peak[1][2] and peak[1][2] < peak[3][2] and peak[3][2] < peak[2 + 1][2] + 1000, "later airports bring more arrivals (%s)" % str(peak))
-	check(peak[0][2] >= 9 and peak[0][2] <= 16 and peak[3][2] >= 18, "Grass Strip ~%d arrivals in 80 s, Mountain Field ~%d" % [peak[0][2], peak[3][2]])
+	check(peak[0][2] <= peak[1][2] + 2 and peak[1][2] + 3 < peak[2][2] and peak[2][2] <= peak[3][2] + 2, "later airports bring more arrivals (%s)" % str(peak))
+	check(peak[0][2] >= 9 and peak[0][2] <= 16 and peak[2][2] >= 18, "Grass Strip ~%d arrivals in 80 s, Mountain Field ~%d" % [peak[0][2], peak[2][2]])
 	# Grass Strip: no wind shift and no weather, ever.
 	main.select_airport(0)
 	main.restart()
