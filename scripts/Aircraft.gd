@@ -53,6 +53,10 @@ var ga_band := 0                # 0 green, 1 yellow, 2 red
 var student := false            # student pilot: far more go-arounds, double coins
 var go_arounds := 0             # how many times it has gone around
 var climb := 0.0                # seconds of go-around climb-out left (a small lift on screen)
+var bank := 0.0                 # roll angle (radians) into a turn: drawn, smoothed
+var prev_vis := 0.0             # last frame's drawn heading (for the turn rate)
+var touched := false            # the wheels are down (the touchdown puff happened)
+var pop_t := 0.0                # seconds of touchdown 'pop' left
 var warn_other: Aircraft = null    # the plane it is close to (for the warning line)
 
 # Path: points[head .. head+count) are still to be flown (a plain array that compacts when full).
@@ -81,6 +85,9 @@ func reset() -> void:
 	ga_chance = 0.0
 	ga_band = 0
 	climb = 0.0
+	bank = 0.0
+	touched = false
+	pop_t = 0.0
 	student = false
 	go_arounds = 0
 	any_target = false

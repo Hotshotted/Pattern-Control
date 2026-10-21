@@ -26,6 +26,10 @@ const C_DIM := Style.SCRIM
 
 ## The drawn parts of the HUD: icons, buttons and cards, the star bar, the results and the little pills.
 class Art extends Control:
+	const CONFETTI := 72
+	const STAR_T0 := 0.35            # when the first results star lands, and the gap between stars
+	const STAR_GAP := 0.5
+	const SLAM := 0.2
 	# ---- the HUD of a running shift ----
 	var show_play := false
 	var balance := 0                 # the shift's coin total (the target; `bar_shown` rolls towards it)
@@ -83,6 +87,14 @@ class Art extends Control:
 	var rel_t := 99.0
 	var fc_pos := PackedVector2Array()       # flying coins: where, and how big (0 = not flying)
 	var fc_s := PackedFloat32Array()
+	var star_t := PackedFloat32Array([-1.0, -1.0, -1.0])   # seconds since each star on the bar lit (< 0 = not animating)
+	var cf_pos := PackedVector2Array()       # confetti
+	var cf_rot := PackedFloat32Array()
+	var cf_col := PackedColorArray()
+	var cf_size := PackedVector2Array()
+	var cf_on := PackedByteArray()
+	var unlock_name := ""            # the new-airport reveal (empty = none)
+	var unlock_t := -1.0
 	var logo_t := -1.0                 # the title intro (studio mark, then the game's logo); < 0 = off
 	var btn_age := 99.0                # seconds since the screen's buttons appeared (they pop in, staggered)
 	var top := 0.0                     # safe-area insets (notch, corners, home indicator)
@@ -94,6 +106,7 @@ class Art extends Control:
 	var _sheen_m: StyleBoxFlat
 	var _sheen_l: StyleBoxFlat
 	var _sb_lip: StyleBoxFlat
+	var _sb_logo: StyleBoxFlat
 	var _sb_lip_gold: StyleBoxFlat
 	var _sb_ghost: StyleBoxFlat
 	var _sb_normal: StyleBoxFlat
@@ -133,6 +146,11 @@ class Art extends Control:
 			a.resize(MAX_BTN)
 		_pts.resize(10)
 		fc_pos.resize(10)
+		cf_pos.resize(CONFETTI)
+		cf_rot.resize(CONFETTI)
+		cf_col.resize(CONFETTI)
+		cf_size.resize(CONFETTI)
+		cf_on.resize(CONFETTI)
 		fc_s.resize(10)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -143,6 +161,7 @@ class Art extends Control:
 		_sb_lip = Style.box(Style.SUCCESS_DARK, Style.SUCCESS_DARK, Style.R_L, 0)
 		_sb_lip_gold = Style.box(Style.ACCENT_DARK, Style.ACCENT_DARK, Style.R_M, 0)
 		_sb_gold = Style.box(Color(0.3, 0.24, 0.06, 0.96), C_GOLD, Style.R_M)
+		_sb_logo = Style.box(Style.SURFACE_DARK_2, Style.ACCENT, Style.R_L, 4)
 		_sb_ghost = Style.box(Color(Style.SCRIM, 0.35), Color(Style.LINE, 0.35), Style.R_PILL, 2, false)
 		_sb_pill = Style.box(Color(Style.INK, 0.78), Color(0.8, 0.88, 1.0, 0.5), Style.R_PILL, 3)
 		_sb_sheet = Style.box(Color(Style.SURFACE_DARK, 0.98), C_LINE, Style.R_L, 3)
@@ -566,7 +585,16 @@ class Art extends Control:
 		for i in 3:
 			var x := x0 + w * float(thresholds[i]) / top
 			var lit := balance >= thresholds[i]
-			glyph("star" if lit else "star_off", Vector2(x, y + 6.0), 20.0 if lit else 16.0)
+			var c := Vector2(x, y + 6.0)
+			var k := star_t[i] / 0.6 if star_t[i] >= 0.0 else 1.0
+			if k < 1.0:
+				var s := Style.ease_out_back(minf(k * 1.4, 1.0))
+				draw_set_transform(c * (1.0 - s), 0.0, Vector2(s, s))
+				glyph("star", c, 20.0)
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				_sparks(c, k, 22.0, 60.0, 8, Style.ACCENT)
+			else:
+				glyph("star" if lit else "star_off", c, 20.0 if lit else 16.0)
 
 	func _draw_wind() -> void:
 		var c := Vector2(size.x - 78.0 - right, 96.0 + top)
@@ -588,6 +616,14 @@ class Art extends Control:
 		draw_style_box(_sb_pill, Rect2(c.x - w * 0.5, c.y - h * 0.5, w, h))
 		glyph(g, Vector2(c.x - w * 0.5 + h * 0.62, c.y), h * 0.32, col)
 		text(s, Vector2(c.x - w * 0.5 + h * 1.12, c.y + size_px * 0.34), size_px, col)
+
+	## A ring and a few short rays thrown outwards from `c` as `k` goes 0 -> 1.
+	func _sparks(c: Vector2, k: float, r0: float, r1: float, rays: int, col: Color) -> void:
+		var a := 1.0 - k
+		draw_arc(c, lerpf(r0, r1, Style.ease_out_cubic(k)), 0.0, TAU, 28, Color(col.r, col.g, col.b, a * 0.9), 4.0)
+		for j in rays:
+			var d := Vector2(cos(j * TAU / rays + 0.3), sin(j * TAU / rays + 0.3))
+			draw_line(c + d * lerpf(r0, r1, Style.ease_out_cubic(k)) * 0.9, c + d * lerpf(r0 * 1.3, r1 * 1.5, Style.ease_out_cubic(k)), Color(col.r, col.g, col.b, a), 5.0)
 
 	func _draw_hud() -> void:
 		_draw_pause_button()
@@ -653,16 +689,22 @@ class Art extends Control:
 		if details_open:
 			_draw_details()
 			return
-		# The stars, one after another, each popping in.
+		# The stars, one after another: each slams down from big with an impact ring, rays and a little shake.
 		for i in 3:
-			var t0 := 0.35 + 0.5 * i
-			var k := clampf((res_t - t0) / 0.4, 0.0, 1.0)
+			var t0 := STAR_T0 + STAR_GAP * i
 			var c := Vector2(cx + (i - 1) * 230.0, cy - 470.0 - (50.0 if i == 1 else 0.0))
 			star(c, 110.0, Color(0.22, 0.25, 0.32), true)
-			if i < res_stars and k > 0.0:
-				star(c, 110.0 * _ease_out_back(k), C_GOLD, true)
+			if i < res_stars and res_t >= t0:
+				var k := clampf((res_t - t0) / SLAM, 0.0, 1.0)
+				var imp := res_t - t0 - SLAM
+				var jit := Vector2.ZERO
+				if imp >= 0.0 and imp < 0.22:
+					jit = Vector2(sin(imp * 160.0), cos(imp * 190.0)) * 9.0 * (1.0 - imp / 0.22)
+				star(c + jit, 110.0 * lerpf(2.6, 1.0, Style.ease_out_cubic(k)), Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, 0.35 + 0.65 * k), true)
+				if imp >= 0.0 and imp < 0.5:
+					_sparks(c, imp / 0.5, 110.0, 330.0, 10, C_GOLD)
 		# The total paid, rolling up once the stars are in.
-		var t_count := 0.35 + 0.5 * 3.0
+		var t_count := STAR_T0 + STAR_GAP * 3.0
 		var f := clampf((res_t - t_count) / 1.0, 0.0, 1.0)
 		var shown := roundi(res_total * (1.0 - pow(1.0 - f, 3.0)))
 		var label := "+%d" % shown
@@ -688,10 +730,9 @@ class Art extends Control:
 			var a := clampf(minf(t / 0.2, (1.0 - t) / 0.2), 0.0, 1.0)
 			draw_set_transform(Vector2(cx, cy) * (1.0 - k), 0.0, Vector2(k, k))
 			var r := Rect2(cx - 90.0, cy - 150.0, 180.0, 180.0)
-			var sb := _sb_sheet
-			sb.border_color = Color(Style.ACCENT, a)
-			sb.bg_color = Color(Style.SURFACE_DARK_2, a)
-			panel(sb, r, _sheen_l)
+			_sb_logo.border_color = Color(Style.ACCENT, a)
+			_sb_logo.bg_color = Color(Style.SURFACE_DARK_2, a)
+			panel(_sb_logo, r, _sheen_l)
 			glyph("plane", r.get_center() + Vector2(0, 4.0), 56.0, Color(Style.ACCENT, a))
 			text("TAILWIND STUDIO", Vector2(cx - 400.0, cy + 110.0), SZ_M, Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 800.0)
 			text("placeholder studio", Vector2(cx - 400.0, cy + 160.0), SZ_S, Color(Style.TEXT_QUIET, a), HORIZONTAL_ALIGNMENT_CENTER, 800.0)
@@ -715,6 +756,41 @@ class Art extends Control:
 			glyph("plane", pc, 46.0, Color(Style.ACCENT, a2))
 			pc.y += 0.0
 
+	func _draw_confetti() -> void:
+		for i in CONFETTI:
+			if cf_on[i] == 0:
+				continue
+			draw_set_transform(cf_pos[i], cf_rot[i], Vector2.ONE)
+			draw_rect(Rect2(-cf_size[i] * 0.5, cf_size[i]), cf_col[i])
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	## The new-airport reveal: a dimmed screen, a card that pops in, a padlock that springs open with a burst.
+	func _draw_unlock() -> void:
+		var cx := size.x * 0.5
+		var cy := size.y * 0.5 - 120.0
+		var a := clampf(unlock_t / 0.25, 0.0, 1.0)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(Style.SCRIM, 0.78 * a))
+		var k := Style.ease_out_back(unlock_t / 0.45)
+		draw_set_transform(Vector2(cx, cy) * (1.0 - k), 0.0, Vector2(k, k))
+		var card := Rect2(cx - 430.0, cy - 340.0, 860.0, 680.0)
+		panel(_sb_sheet, card, _sheen_l)
+		text("NEW AIRPORT", Vector2(cx - 400.0, cy - 40.0), SZ_S, Style.ACCENT, HORIZONTAL_ALIGNMENT_CENTER, 800.0)
+		text(unlock_name, Vector2(cx - 420.0, cy + 90.0), SZ_XL, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, 840.0)
+		text("ready for flights", Vector2(cx - 400.0, cy + 170.0), SZ_S, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_CENTER, 800.0)
+		# The padlock: the shackle pops up and swings open at 0.55 s.
+		var lc := Vector2(cx, cy - 190.0)
+		var open := Style.ease_out_back(clampf((unlock_t - 0.55) / 0.35, 0.0, 1.0))
+		var gold := Style.ACCENT
+		draw_arc(lc + Vector2(-36.0 * open, -44.0 - 30.0 * open), 52.0, PI, TAU - 1.0 * open, 20, Color(Style.INK, 1.0), 30.0)
+		draw_arc(lc + Vector2(-36.0 * open, -44.0 - 30.0 * open), 52.0, PI, TAU - 1.0 * open, 20, Color(0.85, 0.88, 0.95), 18.0)
+		draw_rect(Rect2(lc.x - 78.0, lc.y - 44.0, 156.0, 124.0), Color(Style.INK, 1.0))
+		draw_rect(Rect2(lc.x - 70.0, lc.y - 36.0, 140.0, 108.0), gold)
+		draw_circle(lc + Vector2(0, 14.0), 14.0, Color(Style.ACCENT_DARK, 1.0))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var sp := (unlock_t - 0.55) / 0.7
+		if sp >= 0.0 and sp < 1.0:
+			_sparks(lc + Vector2(0, -60.0), sp, 60.0, 280.0, 12, Style.ACCENT)
+
 	func _draw() -> void:
 		if logo_t >= 0.0:
 			_draw_logo()
@@ -726,6 +802,10 @@ class Art extends Control:
 		if header2_text != "":
 			glyph(header2_glyph, Vector2(64.0 + left, 62.0 + top), 26.0)
 			text(header2_text, Vector2(104.0 + left, 78.0 + top), SZ_M, C_TEXT)
+		if show_result:
+			_draw_results()
+		if unlock_t >= 0.0:
+			_draw_unlock()
 		_draw_buttons()
 		if show_play and not show_pause:
 			_draw_hud()
@@ -733,9 +813,8 @@ class Art extends Control:
 			pass
 		if show_pause:
 			_draw_sliders()
-		if show_result:
-			_draw_results()
 		_draw_pills()
+		_draw_confetti()
 		for i in fc_s.size():
 			if fc_s[i] > 0.01:
 				glyph("coin", fc_pos[i], 26.0 * fc_s[i])
@@ -849,6 +928,8 @@ func _ready() -> void:
 		l.visible = false
 		_pop_labels.append(l)
 	_pop_born.resize(POPUP_POOL)
+	_cf_vel.resize(Art.CONFETTI)
+	_cf_spin.resize(Art.CONFETTI)
 	_fc_on.resize(FLY_POOL)
 	_fc_on.fill(false)
 	_fc_from.resize(FLY_POOL)
@@ -869,6 +950,14 @@ func _ready() -> void:
 
 # ---------- Header numbers (they roll) ----------
 
+var _star_lit: Array[bool] = [false, false, false]
+var _slam_next := 0
+var _confetti_done := false
+var _cf_vel := PackedVector2Array()
+var _cf_spin := PackedFloat32Array()
+var _cf_rng := RandomNumberGenerator.new()
+var _unlock_pending := ""
+const UNLOCK_AT := 3.6        # results seconds: after the stars and the total have landed
 var _hdr_shown := PackedFloat32Array([0.0, 0.0])
 var _hdr_target := PackedFloat32Array([0.0, 0.0])
 var _hdr_delay := PackedFloat32Array([0.0, 0.0])
@@ -914,6 +1003,9 @@ func _roll_headers(delta: float) -> void:
 # ---------- Coins flying to the counter ----------
 
 signal coin_arrived
+signal star_reached(index: int)       # a star on the shift's bar just lit
+signal star_slam(index: int)          # a results star just slammed in
+signal unlock_shown
 
 const FLY_POOL := 10
 const FLY_TIME := 0.75
@@ -1036,6 +1128,86 @@ func _apply_transition() -> void:
 		transform = Transform2D(0.0, Vector2(sc, sc), 0.0, vp * 0.5 * (1.0 - sc))
 	for n in _tr_nodes:
 		n.modulate.a = a
+
+# ---------- Celebrations: star bar sparkle, results slam, confetti, the unlock reveal ----------
+
+func _tick_celebrations(delta: float) -> void:
+	var redraw := false
+	for i in 3:
+		if _art.star_t[i] >= 0.0:
+			_art.star_t[i] += delta
+			redraw = true
+			if _art.star_t[i] > 0.7:
+				_art.star_t[i] = -1.0
+	if _art.show_result:
+		while _slam_next < _art.res_stars and _art.res_t >= Art.STAR_T0 + Art.STAR_GAP * _slam_next + Art.SLAM:
+			star_slam.emit(_slam_next)
+			_slam_next += 1
+		if _art.res_stars >= 3 and not _confetti_done and _art.res_t >= Art.STAR_T0 + Art.STAR_GAP * 2.0 + Art.SLAM:
+			_confetti_done = true
+			_spawn_confetti()
+		if _unlock_pending != "" and _art.res_t >= UNLOCK_AT and _art.unlock_t < 0.0:
+			_begin_unlock()
+	if _art.unlock_t >= 0.0:
+		_art.unlock_t += delta
+		redraw = true
+	if confetti_count() > 0:
+		_tick_confetti(delta)
+		redraw = true
+	if redraw:
+		_art.queue_redraw()
+
+func _spawn_confetti() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var cols := [Style.ACCENT, Style.PRIMARY, Style.SUCCESS, Style.WARNING, Style.DANGER, Color.WHITE]
+	_cf_rng.seed = 5
+	for i in Art.CONFETTI:
+		_art.cf_on[i] = 1
+		_art.cf_pos[i] = Vector2(_cf_rng.randf_range(0.0, vp.x), _cf_rng.randf_range(-260.0, -20.0))
+		_cf_vel[i] = Vector2(_cf_rng.randf_range(-140.0, 140.0), _cf_rng.randf_range(160.0, 420.0))
+		_cf_spin[i] = _cf_rng.randf_range(-9.0, 9.0)
+		_art.cf_rot[i] = _cf_rng.randf_range(0.0, TAU)
+		_art.cf_col[i] = cols[i % cols.size()]
+		_art.cf_size[i] = Vector2(_cf_rng.randf_range(14.0, 26.0), _cf_rng.randf_range(8.0, 14.0))
+
+func _tick_confetti(delta: float) -> void:
+	var h := get_viewport().get_visible_rect().size.y + 60.0
+	for i in Art.CONFETTI:
+		if _art.cf_on[i] == 0:
+			continue
+		_art.cf_pos[i] += _cf_vel[i] * delta
+		_cf_vel[i].x += sin(_art.cf_pos[i].y * 0.02 + float(i)) * 260.0 * delta
+		_art.cf_rot[i] += _cf_spin[i] * delta
+		if _art.cf_pos[i].y > h:
+			_art.cf_on[i] = 0
+
+func confetti_count() -> int:
+	var c := 0
+	for i in Art.CONFETTI:
+		c += _art.cf_on[i]
+	return c
+
+## Call after show_results: a new airport opened with this shift. Its reveal plays once the stars and the total are in.
+func queue_unlock(airport_name: String) -> void:
+	_unlock_pending = airport_name
+
+func _begin_unlock() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	_art.unlock_name = _unlock_pending
+	_unlock_pending = ""
+	_art.unlock_t = 0.0
+	_art.clear_buttons()
+	_art.add_button("unlock_ok", "NICE!", Rect2(vp.x * 0.5 - 300.0, vp.y * 0.5 + 280.0, 600.0, 200.0), 0, "", -1, -1, {"kind": 2, "glyph": "check"})
+	unlock_shown.emit()
+
+func unlock_active() -> bool:
+	return _art.unlock_t >= 0.0
+
+func hide_unlock() -> void:
+	_art.unlock_t = -1.0
+	_art.unlock_name = ""
+	_art.clear_buttons()
+	_art.queue_redraw()
 
 # ---------- Intro ----------
 
@@ -1330,6 +1502,11 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	_art.res_doubled = doubled
 	if not _art.show_result or _art.res_t > 60.0:
 		_art.res_t = 0.0
+	_slam_next = 0
+	_confetti_done = false
+	_unlock_pending = ""
+	_art.unlock_t = -1.0
+	_art.cf_on.fill(0)
 	_art.details_open = false
 	_over_body.visible = false
 	var lines := reason.split("\n")
@@ -1389,6 +1566,7 @@ func skip_animations() -> void:
 	_apply_headers()
 	for i in FLY_POOL:
 		_fc_on[i] = false
+	_art.star_t.fill(-1.0)
 	_art.res_t = 99.0
 	_coin_shown = float(_coin_target)
 	_art.bar_shown = float(_art.balance)
@@ -1535,6 +1713,9 @@ func reset_for_run(_best_coins: int) -> void:
 	_coin_target = 0
 	_coin_shown = 0.0
 	_art.bar_shown = 0.0
+	_star_lit.fill(false)
+	_art.star_t.fill(-1.0)
+	_art.cf_on.fill(0)
 	set_landed(0)
 	set_timer(int(Tuning.par_eff()))
 	_art.balance = 0
@@ -1627,6 +1808,11 @@ func set_shift(shift: Shift) -> void:
 	_score.add_theme_color_override("font_color", C_RED if bal < 0 else Color.WHITE)
 	for i in 3:
 		_art.thresholds[i] = shift.thresholds[i]
+		var lit := bal >= shift.thresholds[i]
+		if lit and not _star_lit[i] and _art.show_play:
+			_art.star_t[i] = 0.0
+			star_reached.emit(i)
+		_star_lit[i] = lit
 	_art.queue_redraw()
 	if bal != _last_bal:
 		_last_bal = bal
@@ -1640,7 +1826,7 @@ func _layout_coin_icon() -> void:
 	var font := _score.get_theme_font("font")
 	var w := font.get_string_size(_score.text, HORIZONTAL_ALIGNMENT_LEFT, -1, SZ_XL).x
 	var vp := get_viewport().get_visible_rect().size
-	_art.coin_icon = Vector2(vp.x * 0.5 - w * 0.5 - 78.0, 56.0 + SZ_XL * 0.62)
+	_art.coin_icon = Vector2(vp.x * 0.5 - w * 0.5 - 78.0, 56.0 + Style.safe_top + SZ_XL * 0.62)
 
 ## A floating word that rises from a screen position and fades. At most a few show at once: older ones fade fast.
 func popup(text: String, color: Color, at: Vector2) -> void:
@@ -1849,6 +2035,7 @@ func _process(delta: float) -> void:
 	_roll_headers(delta)
 	_update_coins(delta)
 	_tick_logo(delta)
+	_tick_celebrations(delta)
 	_update_perf(delta)
 
 # ---------- ?perf ----------
@@ -1988,6 +2175,8 @@ func end_prewarm() -> void:
 	_art.header2_text = ""
 	_hdr_on[0] = false
 	_hdr_on[1] = false
+	_art.cf_on.fill(0)
+	_art.unlock_t = -1.0
 	_art.res_t = 0.0
 	_art.balance = 0
 	_art.bar_shown = 0.0

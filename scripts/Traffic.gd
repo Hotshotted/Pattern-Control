@@ -17,12 +17,17 @@ signal go_around(plane: Aircraft, reason: int)   # climbing out: the runway was 
 signal runway_conflict(a: Aircraft, b: Aircraft)   # landed on a crossing runway while it was busy
 signal refused(plane: Aircraft, text: String, at: Vector2)   # a path / tap the aircraft can't follow (with why)
 signal appeared(plane: Aircraft)       # it just came on screen (first-time tips hook in here)
+signal touchdown(plane: Aircraft)      # the wheels just touched the runway (dust puff, a little pop)
 
 const MAX_POOL := 16
 var pool_n := MAX_POOL                  # (the menu's scenic traffic keeps a small pool)
 var scenic := false                     # the menu diorama: no timers, conflicts or random go-arounds
 const MAX_HAZARDS := 16
 const PLANE_Y := 0.35
+const TOUCH_POP := 0.3
+const TRAIL_N := 8                     # contrail puffs kept per aircraft
+const TRAIL_EVERY := 0.1               # seconds between puffs
+const MAX_BANK := 0.5                  # radians
 
 var planes: Array[Aircraft] = []
 var run_time := 0.0
@@ -69,6 +74,19 @@ var beats: Array = []                  # the airport's intro beats for this shif
 var _beat := 0
 var _spawn_timer := 0.0
 var _god := false
+var _dt := 0.0                         # the step in progress (0 outside a step: animation holds)
+var _shadows: Array[MeshInstance3D] = []
+var _shadow_mats: Array[ShaderMaterial] = []
+var _shadow_size: Array[Vector2] = []
+var _prop_discs: Array[MeshInstance3D] = []
+var _trail: MultiMeshInstance3D
+var _trail_mm: MultiMesh
+var _trail_pos := PackedVector2Array()
+var _trail_y := PackedFloat32Array()
+var _trail_age := PackedFloat32Array()
+var _trail_peak := PackedFloat32Array()   # opacity a puff starts at (0 = unused)
+var _trail_head := PackedInt32Array()
+var _trail_clock := PackedFloat32Array()
 
 func _ready() -> void:
 	rng.randomize()
@@ -90,6 +108,52 @@ func _ready() -> void:
 		_build_node()
 	for n in _nodes:
 		Prim.lift(n)          # (aircraft are drawn above the fog)
+	_build_extras()
+
+## Soft drop shadows (one quad each) and the contrails (one MultiMesh of round puffs for the whole pool).
+func _build_extras() -> void:
+	var sh := preload("res://shaders/shadow_blob.gdshader")
+	for i in pool_n:
+		var mi := MeshInstance3D.new()
+		var pm := PlaneMesh.new()
+		pm.size = Vector2(1.0, 1.0)
+		mi.mesh = pm
+		var m := ShaderMaterial.new()
+		m.shader = sh
+		m.render_priority = 3          # after the runways and aircraft (which sit at 2): depth-tested, so planes cover their own shadow
+		m.set_shader_parameter("alpha", 0.3)
+		mi.material_override = m
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.visible = false
+		add_child(mi)
+		_shadows.append(mi)
+		_shadow_mats.append(m)
+		_shadow_size.append(Vector2(1.5, 1.5))
+	_trail_mm = MultiMesh.new()
+	_trail_mm.transform_format = MultiMesh.TRANSFORM_3D
+	_trail_mm.use_colors = true
+	var qm := PlaneMesh.new()
+	qm.size = Vector2(1.0, 1.0)
+	_trail_mm.mesh = qm
+	_trail_mm.instance_count = pool_n * TRAIL_N
+	_trail_mm.visible_instance_count = 0
+	_trail = MultiMeshInstance3D.new()
+	_trail.multimesh = _trail_mm
+	var tm := ShaderMaterial.new()
+	tm.shader = preload("res://shaders/puff.gdshader")
+	tm.render_priority = 3
+	_trail.material_override = tm
+	_trail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_trail)
+	var n := pool_n * TRAIL_N
+	_trail_pos.resize(n)
+	_trail_y.resize(n)
+	_trail_age.resize(n)
+	_trail_peak.resize(n)
+	_trail_head.resize(pool_n)
+	_trail_clock.resize(pool_n)
+	for k in n:
+		_trail_age[k] = 99.0
 
 func _build_node() -> void:
 	var root := Node3D.new()
@@ -119,6 +183,13 @@ func _build_node() -> void:
 	var nose := Prim.cyl(fus, 0.0, 0.15, 0.42, 6, Vector3(0, 0, -0.76), body)
 	nose.rotation.x = deg_to_rad(-90.0)
 	Prim.box(fus, Vector3(0.15, 0.1, 0.3), Vector3(0, 0.15, -0.32), dark, false)
+	var disc_m := StandardMaterial3D.new()          # propeller blur: a pale translucent disc at the nose
+	disc_m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	disc_m.albedo_color = Color(1, 1, 1, 0.3)
+	disc_m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var disc := Prim.cyl(fus, 0.3, 0.3, 0.015, 12, Vector3(0, 0, -0.98), disc_m, false)
+	disc.rotation.x = deg_to_rad(90.0)
+	_prop_discs.append(disc)
 	var wing_root := Node3D.new()
 	group.add_child(wing_root)
 	_wings.append(wing_root)
@@ -208,6 +279,7 @@ func place(target: int, pos: Vector2, heading: float, type: int, entered: bool =
 	p.entry = pos
 	p.heading = heading
 	p.vis_heading = heading
+	p.prev_vis = heading
 	p.entered = entered
 	var i := planes.find(p)
 	_set_model(i, type, p.speed_class)
@@ -242,10 +314,19 @@ func _set_model(i: int, type: int, cls: int) -> void:
 	_glider_groups[i].visible = type == Aircraft.Type.GLIDER
 	_heli_groups[i].visible = type == Aircraft.Type.HELI
 	_float_groups[i].visible = type == Aircraft.Type.SEAPLANE
+	_prop_discs[i].visible = type == Aircraft.Type.SMALL or type == Aircraft.Type.MEDIUM or type == Aircraft.Type.SEAPLANE
 	var long: float = [0.85, 1.0, 1.3][cls]
 	var span: float = [1.2, 1.0, 0.78][cls]
 	_fuselages[i].scale = Vector3(1.0, 1.0, long)
 	_wings[i].scale = Vector3(span, 1.0, 1.0)
+	if i < _shadow_size.size():
+		match type:
+			Aircraft.Type.GLIDER:
+				_shadow_size[i] = Vector2(2.7, 1.5)
+			Aircraft.Type.HELI:
+				_shadow_size[i] = Vector2(1.5, 1.5)
+			_:
+				_shadow_size[i] = Vector2(1.5 * span, 1.35 * long)
 
 ## A new plane from a random screen edge. It starts far enough out that it reaches the edge in
 ## Tuning.entry_warning_seconds, and the overlay shows a glow at that entry point until it appears.
@@ -597,12 +678,17 @@ func release_all() -> void:
 	for i in pool_n:
 		planes[i].reset()
 		_nodes[i].visible = false
+		_shadows[i].visible = false
+	for k in _trail_age.size():
+		_trail_age[k] = 99.0
+	_trail_mm.visible_instance_count = 0
 	run_time = 0.0
 	_beat = 0
 	_spawn_timer = Tuning.first_spawn_delay
 
 func step(delta: float) -> void:
 	run_time += delta
+	_dt = delta
 	if auto_spawn and run_time < spawn_until:
 		var quiet := false
 		if _beat < beats.size():
@@ -630,12 +716,16 @@ func step(delta: float) -> void:
 		p.age += delta
 		if p.climb > 0.0:
 			p.climb = maxf(p.climb - delta, 0.0)
+		if p.pop_t > 0.0:
+			p.pop_t = maxf(p.pop_t - delta, 0.0)
 		_move(p, delta, mult)
 		if p.active():
 			if p.cleared and p.state == Aircraft.State.FLY and p.can_go_around():
 				_score_approach(p, mult)
 			_sync(p, i)
 	_check_conflicts()
+	_update_trails(delta)
+	_dt = 0.0
 
 ## Storm cells drift (and leave); the fog thickens or clears (it hides nothing: it is only drawn behind everything).
 func _update_weather(dt: float) -> void:
@@ -670,6 +760,10 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 			var e := 1.0 - (1.0 - minf(p.roll_t, 1.0)) * (1.0 - minf(p.roll_t, 1.0))
 			p.pos = p.roll_from.lerp(Airports.land_far(p.tkind, p.runway, p.land_end), e)
 			p.ground = p.roll_t >= Tuning.touchdown_fraction
+			if p.ground and not p.touched:
+				p.touched = true
+				p.pop_t = TOUCH_POP
+				touchdown.emit(p)
 			if p.roll_t >= 1.0:
 				landed.emit(p)
 				_remove(p)
@@ -817,6 +911,7 @@ func _remove(p: Aircraft) -> void:
 	var i := planes.find(p)
 	p.reset()
 	_nodes[i].visible = false
+	_shadows[i].visible = false
 
 func _check_conflicts() -> void:
 	for p in planes:
@@ -845,15 +940,40 @@ func _check_conflicts() -> void:
 					conflict.emit(a, b)
 					return
 
-## Copy a plane's state onto its node (position, heading, size, colours, spinning rotor, emergency flash).
+## Copy a plane's state onto its node (position, heading, bank, pitch, size, colours, spinning rotor, emergency flash),
+## its shadow and the prop blur.
 func _sync(p: Aircraft, i: int) -> void:
 	var n := _nodes[i]
 	n.visible = not p.fogged
-	var alt := 1.0 if p.state != Aircraft.State.LANDING else 1.0 - 0.35 * minf(p.roll_t / maxf(Tuning.touchdown_fraction, 0.01), 1.0)
-	var lift := 0.0 if p.climb <= 0.0 else 0.3 * sin(PI * clampf(p.climb / maxf(Tuning.go_around_climb_seconds, 0.1), 0.0, 1.0))
-	n.position = Vector3(p.pos.x, PLANE_Y * alt + lift, p.pos.y)
-	n.rotation.y = -p.vis_heading
-	n.scale = Vector3.ONE * (0.9 + 0.1 * alt)
+	var landing := p.state == Aircraft.State.LANDING
+	var alt := 1.0 if not landing else 1.0 - 0.35 * minf(p.roll_t / maxf(Tuning.touchdown_fraction, 0.01), 1.0)
+	var lift_f := 0.0 if p.climb <= 0.0 else sin(PI * clampf(p.climb / maxf(Tuning.go_around_climb_seconds, 0.1), 0.0, 1.0))
+	var lift := 0.3 * lift_f
+	# Bank into turns: roll follows how fast the drawn heading is turning, eased.
+	if _dt > 0.0:
+		var yaw_rate := wrapf(p.vis_heading - p.prev_vis, -PI, PI) / _dt
+		var target := 0.0
+		if not landing and p.state != Aircraft.State.IDLE:
+			target = clampf(yaw_rate * (0.2 if p.type == Aircraft.Type.HELI else 0.3), -MAX_BANK, MAX_BANK)
+		p.bank = lerpf(p.bank, target, 1.0 - exp(-9.0 * _dt))
+		p.prev_vis = p.vis_heading
+	# Nose up a touch on a go-around climb and in the flare just before touchdown.
+	var pitch := 0.22 * lift_f
+	if landing:
+		pitch = 0.14 * (1.0 - minf(p.roll_t / maxf(Tuning.touchdown_fraction, 0.01), 1.0))
+	var h := PLANE_Y * alt + lift
+	n.position = Vector3(p.pos.x, h, p.pos.y)
+	n.rotation = Vector3(pitch, -p.vis_heading, -p.bank)
+	var pop := 1.0 + 0.22 * sin(PI * clampf(1.0 - p.pop_t / TOUCH_POP, 0.0, 1.0)) if p.pop_t > 0.0 else 1.0
+	n.scale = Vector3.ONE * (0.9 + 0.1 * alt) * pop
+	# The shadow: on the ground, further away (and fainter) the higher the aircraft is.
+	var sh := _shadows[i]
+	sh.visible = n.visible
+	var up := (h - PLANE_Y * 0.65) / 0.5
+	sh.position = Vector3(p.pos.x + 0.1 + 0.4 * up, 0.14, p.pos.y + 0.08 + 0.3 * up)
+	sh.rotation.y = -p.vis_heading
+	sh.scale = Vector3(_shadow_size[i].x, 1.0, _shadow_size[i].y) * (0.9 + 0.1 * alt)
+	_shadow_mats[i].set_shader_parameter("alpha", 0.34 - 0.12 * clampf(up, 0.0, 1.5))
 	var base := Airports.land_color(p.tkind, p.runway)
 	var wing := base.lerp(Color.WHITE, 0.35)
 	if p.emergency and p.state != Aircraft.State.LANDING and sin(TAU * 3.0 * p.age) > 0.0:
@@ -867,6 +987,48 @@ func _sync(p: Aircraft, i: int) -> void:
 		_stripe_mats[i].albedo_color = lv["stripe"]
 	if p.type == Aircraft.Type.HELI:
 		_rotors[i].rotation.y = p.age * 22.0
+
+## Contrails: every aircraft in the air leaves a short fading string of soft puffs (jets the most; gliders and
+## helicopters none). The whole pool is one MultiMesh, rewritten from preallocated arrays.
+func _update_trails(dt: float) -> void:
+	var any := false
+	for i in pool_n:
+		var p := planes[i]
+		var peak := 0.0
+		if p.active() and p.state != Aircraft.State.LANDING and p.entered:
+			match p.type:
+				Aircraft.Type.JET:
+					peak = 0.6
+				Aircraft.Type.MEDIUM:
+					peak = 0.28
+				Aircraft.Type.SMALL, Aircraft.Type.SEAPLANE:
+					peak = 0.16
+		if peak > 0.0:
+			_trail_clock[i] += dt
+			if _trail_clock[i] >= TRAIL_EVERY:
+				_trail_clock[i] = 0.0
+				var k := i * TRAIL_N + _trail_head[i]
+				_trail_head[i] = (_trail_head[i] + 1) % TRAIL_N
+				var back := Vector2(-sin(p.vis_heading), cos(p.vis_heading)) * 0.5
+				_trail_pos[k] = p.pos + back
+				_trail_y[k] = PLANE_Y + 0.3 * p.climb
+				_trail_age[k] = 0.0
+				_trail_peak[k] = peak
+	var life := TRAIL_N * TRAIL_EVERY
+	var vis := 0
+	for k in pool_n * TRAIL_N:
+		if _trail_age[k] >= life:
+			_trail_peak[k] = 0.0
+			continue
+		_trail_age[k] += dt
+		var f := clampf(_trail_age[k] / life, 0.0, 1.0)
+		var size := 0.16 + 0.34 * f
+		_trail_mm.set_instance_transform(vis, Transform3D(Basis.from_scale(Vector3(size, 1.0, size)), Vector3(_trail_pos[k].x, _trail_y[k], _trail_pos[k].y)))
+		_trail_mm.set_instance_color(vis, Color(1, 1, 1, _trail_peak[k] * (1.0 - f)))
+		vis += 1
+		any = true
+	_trail_mm.visible_instance_count = vis
+	_trail.visible = any
 
 ## The pre-warm: every pooled plane drawn at once, alternating normal and flashing.
 func prewarm_show() -> void:

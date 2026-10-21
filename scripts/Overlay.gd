@@ -103,6 +103,9 @@ func _draw_all() -> void:
 			_draw_warning(p, t)
 		if p.entered and not p.fogged and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD):
 			_draw_timer_ring(p, t)
+	for p in traffic.planes:
+		if p.active() and p.climb > 0.0 and not p.fogged:
+			_draw_go_around(p, t)
 	_draw_closures(t)
 	if selected != null and selected.active():
 		_c.draw_arc(selected.pos, 0.85, 0.0, TAU, 32, Color(1, 1, 1, 0.9), 0.07)
@@ -268,6 +271,21 @@ func _draw_entry_glow(p: Aircraft, t: float) -> void:
 		var wing: Vector2 = tip - dir * 0.4 + side * s * 0.3
 		_c.draw_line(tip, wing, Color(0, 0, 0, 0.8 * fade), 0.2)
 		_c.draw_line(tip, wing, Color(col.r, col.g, col.b, fade), 0.1)
+
+## A go-around, made obvious: gold chevrons streaming ahead of the climbing aircraft and a ring that closes as it levels off.
+func _draw_go_around(p: Aircraft, t: float) -> void:
+	var f := clampf(p.climb / maxf(Tuning.go_around_climb_seconds, 0.1), 0.0, 1.0)
+	var dir := Vector2(sin(p.heading), -cos(p.heading))
+	var side := Vector2(-dir.y, dir.x)
+	for k in 3:
+		var u := fposmod(t * 1.8 - k * 0.33, 1.0)
+		var c := p.pos + dir * (0.9 + u * 1.5)
+		var a := (1.0 - u) * clampf(f * 1.6, 0.0, 1.0)
+		_c.draw_line(c - side * 0.32 - dir * 0.2, c + dir * 0.12, Color(0, 0, 0, a * 0.7), 0.17)
+		_c.draw_line(c + side * 0.32 - dir * 0.2, c + dir * 0.12, Color(0, 0, 0, a * 0.7), 0.17)
+		_c.draw_line(c - side * 0.32 - dir * 0.2, c + dir * 0.12, Color(1.0, 0.85, 0.3, a), 0.09)
+		_c.draw_line(c + side * 0.32 - dir * 0.2, c + dir * 0.12, Color(1.0, 0.85, 0.3, a), 0.09)
+	_c.draw_arc(p.pos, 0.55 + 0.7 * (1.0 - f), 0.0, TAU, 28, Color(1.0, 0.85, 0.3, 0.7 * f), 0.07)
 
 func _draw_warning(p: Aircraft, t: float) -> void:
 	var w := p.warn

@@ -19,6 +19,10 @@ const HEADER_DONE := "SHIFT\nCOMPLETE"
 @onready var airfield: Airfield = $Airfield
 @onready var traffic: Traffic = $Traffic
 var diorama: Diorama
+var _shake_left := 0.0
+var _shake_dur := 0.3
+var _shake_mag := 0.0
+var shake_offset := Vector2.ZERO          # the camera's current shake (world units)
 @onready var ribbons: PathRibbons = $Ribbons
 var fog_layer: FogLayer
 @onready var fx: Fx = $Fx
@@ -97,6 +101,8 @@ func _ready() -> void:
 	traffic.rerouted.connect(_on_rerouted)
 	traffic.crashed.connect(_on_crashed)
 	traffic.go_around.connect(_on_go_around)
+	hud.star_reached.connect(_on_star_reached)
+	hud.star_slam.connect(_on_star_slam)
 	traffic.runway_conflict.connect(_on_runway_conflict)
 	traffic.refused.connect(_on_refused)
 	wind.reopened.connect(_on_runway_reopened)
@@ -114,6 +120,7 @@ func _ready() -> void:
 	add_child(diorama)
 	overlay.camera = camera
 	traffic.landed.connect(_on_landed)
+	traffic.touchdown.connect(_on_touchdown)
 	traffic.conflict.connect(_on_conflict)
 	traffic.timed_out.connect(_on_timed_out)
 	traffic.cleared.connect(_on_cleared)
@@ -354,6 +361,7 @@ func run_wall_time() -> float:
 	return maxf((Time.get_ticks_msec() - _run_start_ms - _paused_total_ms) / 1000.0, 0.0)
 
 func _process(raw_delta: float) -> void:
+	_tick_shake(raw_delta)
 	view_size = lerpf(view_size, Tuning.view_size(), 1.0 - exp(-raw_delta * 3.0))   # the radar re-frames the view smoothly
 	_update_camera()
 	traffic.half_w = view_size * 0.5
@@ -452,6 +460,11 @@ func _update_audio(frac: float) -> void:
 
 # ---------- Game events ----------
 
+## The wheels touch the runway: a puff of dust and a little pop of the aircraft.
+func _on_touchdown(p: Aircraft) -> void:
+	if p.tkind != Aircraft.Kind.PAD:
+		fx.puff(p.pos)
+
 func _on_landed(p: Aircraft) -> void:
 	if not alive:
 		return
@@ -479,6 +492,7 @@ func _on_landed(p: Aircraft) -> void:
 	hud.set_shift(shift)
 	fx.burst(land_at, col)
 	fx.burst(land_at, Color.WHITE)
+	fx.sparkle(land_at)
 	overlay.ripple(land_at, col, 1.0)
 	overlay.ripple(land_at, Color.WHITE, 0.6)
 	if p.tkind == Aircraft.Kind.RUNWAY:
@@ -530,6 +544,7 @@ func _on_crashed(p: Aircraft, kind: int) -> void:
 		return
 	fx.burst(p.pos, Color(0.85, 0.6, 0.4), true)
 	overlay.ripple(p.pos, Color(1, 0.35, 0.2), 1.1)
+	shake(0.2, 0.25)
 	_apply_fine(Tuning.fine_amount(Tuning.fine_hazard), "crash", "Struck by storm!" if kind == 1 else ("No room to land!" if kind == 2 else "Crashed!"), p.pos)
 
 ## A go-around: the aircraft climbs out along the runway heading and needs a new path (it keeps its timer).
@@ -544,6 +559,19 @@ func _on_go_around(p: Aircraft, reason: int) -> void:
 ## Two aircraft landed on crossing runways at once: a conflict.
 func _on_runway_conflict(a: Aircraft, b: Aircraft) -> void:
 	_conflict(a, b, "RUNWAY CONFLICT")
+
+## A star lit on the bar during a shift.
+func _on_star_reached(_i: int) -> void:
+	sfx.play("star")
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(20)
+
+## A results star slammed in: an impact sound that rises with each star.
+func _on_star_slam(i: int) -> void:
+	sfx.play("slam", 1.0 + 0.14 * i)
+	shake(0.12, 0.18)
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(25)
 
 ## The aircraft can't follow a path or tap (and the reason is shown where it happened).
 func _on_refused(_p: Aircraft, text: String, at: Vector2) -> void:
@@ -687,6 +715,10 @@ func _conflict(a: Aircraft, b: Aircraft, label: String) -> void:
 	fx.burst(mid, Color(1.0, 0.5, 0.1), true)
 	fx.burst(mid, Color(1.0, 0.15, 0.1), true)
 	overlay.ripple(mid, Color(1, 0.3, 0.2), 1.3)
+	overlay.ripple(mid, Color.WHITE, 2.4)
+	shake(0.32, 0.32)
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(150)
 	traffic.lose(a)
 	traffic.lose(b)
 	_cancel_drag()
@@ -726,7 +758,7 @@ func _end_shift() -> void:
 	Save.write_file()
 	over_header = HEADER_DONE
 	new_best = gained["new_best"]
-	last_result = {"header": HEADER_DONE, "reason": _reason_text(), "coins": gained["coins"], "payout": shift.payout(), "stars": shift.stars(), "first_stars": gained["first_stars"], "new_best": new_best}
+	last_result = {"header": HEADER_DONE, "reason": _reason_text(), "coins": gained["coins"], "payout": shift.payout(), "stars": shift.stars(), "first_stars": gained["first_stars"], "new_best": new_best, "unlocked": gained["unlocked"]}
 	over_reason = last_result["reason"]
 	_cancel_drag()
 	hud.set_alert(false)
@@ -747,6 +779,9 @@ func _settle() -> Dictionary:
 	_paid_payout = payout
 	var first_stars := 0
 	var stars := shift.stars()
+	var open_before := PackedByteArray()
+	for i in Airports.COUNT:
+		open_before.append(1 if Save.airport_open(i) else 0)
 	if not daily_mode:       # (the daily shifts don't earn permanent stars)
 		for i in stars:
 			if Save.award_star(airport, i):
@@ -767,7 +802,11 @@ func _settle() -> Dictionary:
 	Save.add_coins(coins)
 	var is_best := (not daily_mode) and Save.submit_best_coins(airport, payout)
 	Save.write_file()
-	return {"coins": coins, "first_stars": first_stars, "new_best": is_best, "note": note}
+	var unlocked: Array[int] = []
+	for i in Airports.COUNT:
+		if open_before[i] == 0 and Save.airport_open(i):
+			unlocked.append(i)
+	return {"coins": coins, "first_stars": first_stars, "new_best": is_best, "note": note, "unlocked": unlocked}
 
 ## The results breakdown, one "label|value" line each (the "Details" panel draws them as two columns).
 func _reason_text() -> String:
@@ -787,6 +826,10 @@ func _show_results(doubled: bool) -> void:
 	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
 	hud.show_results(HEADER_DONE, last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_coins_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], doubled)
 	hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
+	var unlocked: Array = last_result.get("unlocked", [])
+	if not unlocked.is_empty() and not last_result.get("unlock_seen", false):
+		last_result["unlock_seen"] = true
+		hud.queue_unlock(Airports.airport_name(unlocked[0]))
 
 # ---------- Pause and volume ----------
 
@@ -899,6 +942,9 @@ func _on_button(id: String) -> void:
 		begin_shift()
 	elif id == "details":
 		hud.toggle_details()
+	elif id == "unlock_ok":
+		hud.hide_unlock()
+		hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
 	elif id == "airports":
 		_show_select()
 	elif id == "upgrades":
@@ -1083,6 +1129,9 @@ func _refund_biggest_fine() -> void:
 	last_result["payout"] = shift.payout()
 	last_result["stars"] = shift.stars()
 	last_result["first_stars"] += gained["first_stars"]
+	if not gained["unlocked"].is_empty():
+		last_result["unlocked"] = last_result.get("unlocked", []) + gained["unlocked"]
+		last_result["unlock_seen"] = false
 	last_result["new_best"] = last_result["new_best"] or gained["new_best"]
 	last_result["reason"] = "%s\nFine refunded|+%d" % [_reason_text(), amount]
 	over_reason = last_result["reason"]
@@ -1204,7 +1253,27 @@ func _cancel_drag() -> void:
 
 # ---------- Camera ----------
 
+## A short, sharp camera shake: `mag` in world units, dying away over `dur` seconds.
+func shake(mag: float, dur: float = 0.3) -> void:
+	if DebugFlags.off("shake"):
+		return
+	_shake_mag = maxf(_shake_mag if _shake_left > 0.0 else 0.0, mag)
+	_shake_dur = dur
+	_shake_left = dur
+
+func _tick_shake(raw_delta: float) -> void:
+	if _shake_left > 0.0:
+		_shake_left = maxf(_shake_left - raw_delta, 0.0)
+		var k := _shake_left / maxf(_shake_dur, 0.01)
+		var t := Time.get_ticks_msec() / 1000.0
+		shake_offset = Vector2(sin(t * 95.0), cos(t * 113.0)) * _shake_mag * k * k
+	elif shake_offset != Vector2.ZERO:
+		shake_offset = Vector2.ZERO
+		_shake_mag = 0.0
+
 func _update_camera() -> void:
+	camera.h_offset = shake_offset.x
+	camera.v_offset = shake_offset.y
 	var tilt := deg_to_rad(Tuning.camera_tilt_deg)
 	camera.size = view_size
 	camera.position = Vector3(0, cos(tilt), sin(tilt)) * 30.0

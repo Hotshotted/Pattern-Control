@@ -127,6 +127,7 @@ func _walk(save) -> void:
 	main.start_bad_day()
 	await _shot("16_bad_day_hud")
 	await _motion_shots()
+	await _polish_shots()
 
 ## Motion: frames of the logo intro, a screen mid-transition, the living menu, coins in flight.
 func _motion_shots() -> void:
@@ -176,3 +177,65 @@ func _save_raw(name: String) -> void:
 	var img := root.get_viewport().get_texture().get_image()
 	img.save_png("%s/%s.png" % [out, name])
 	print("saved ", name)
+
+## In-game polish: banking aircraft with shadows and contrails, a touchdown puff, a go-around, the star bar, results.
+func _polish_shots() -> void:
+	var hud = main.hud
+	var tr = main.traffic
+	var tuning = root.get_node("Tuning")
+	main.select_airport(3)
+	main.restart()
+	tr.auto_spawn = false
+	var a = tr.place(0, Vector2(-2.0, -2.0), 0.3, 4)
+	a.heading = 1.4
+	var b = tr.place(1, Vector2(2.2, -3.6), -0.4, 3)
+	b.heading = -1.2
+	var c = tr.place(0, Vector2(0.4, 1.8), 0.0, 2)
+	var thr = Airports.end_threshold(0, 0)
+	var rd = Airports.end_dir(0, 0)
+	var l = tr.place(0, thr - rd * 0.9, atan2(rd.x, -rd.y), 3)
+	l.push(thr)
+	l.push(Airports.end_far(0, 0))
+	l.cleared = true
+	l.land_end = 0
+	var seen := false
+	for i in 220:
+		main.step(1.0 / 60.0)
+		if l.pop_t > 0.1 and not seen:
+			seen = true
+			await _frames(2)
+			_save_raw("22_touchdown_puff")
+	for p in [a, b, c]:
+		p.timer_left = p.timer_max * 0.9
+	tr._start_go_around(c, 0)
+	c.climb = tuning.go_around_climb_seconds * 0.5
+	main.step(1.0 / 60.0)
+	await _frames(2)
+	_save_raw("23_banking_goaround")
+	main.restart()
+	tr.auto_spawn = false
+	for i in 40:
+		main.shift.on_landed(3, 14, 0)
+	main.hud.set_shift(main.shift)
+	hud._process(0.01)
+	await _frames(2)
+	_save_raw("24_star_sparkle")
+	tr.run_time = tuning.par_eff() - 4.0
+	main.step(1.0 / 60.0)
+	main.step(1.0 / 60.0)
+	hud._art.res_t = 0.0
+	for i in 28:
+		hud._process(0.05)
+	await _frames(2)
+	_save_raw("25_results_slam")
+	for i in 22:
+		hud._process(0.05)
+	await _frames(2)
+	_save_raw("26_results_confetti")
+	hud.queue_unlock("Regional")
+	hud._art.res_t = 3.7
+	hud._process(0.01)
+	for i in 14:
+		hud._process(0.05)
+	await _frames(2)
+	_save_raw("27_unlock_reveal")

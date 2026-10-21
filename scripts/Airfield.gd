@@ -24,6 +24,13 @@ class AirportScene:
 	var leaf_mat: StandardMaterial3D
 	var trunk_mat: StandardMaterial3D
 	var tree_styles: Array = [[], [], []]   # per tree style: the holders to show
+	var strips: Array = []              # taxiway strips [from, to] (world x, z): ground vehicles drive along them
+	var veh: Array[Node3D] = []         # ground vehicles
+	var veh_strip := PackedInt32Array()
+	var veh_t := PackedFloat32Array()   # 0..2 along the strip and back
+	var veh_speed := PackedFloat32Array()
+	var veh_beacon: Array[StandardMaterial3D] = []
+	var lights: MultiMeshInstance3D
 
 var wind: Wind                        # set by Main
 var variants: Array[AirportScene] = []
@@ -77,6 +84,9 @@ func _build_airport() -> AirportScene:
 		_lane(root, lane)
 	for h in Airports.hazards():
 		_mountain(root, h["center"], h["radius"])
+	_taxiways(v)
+	_lights(v)
+	_vehicles(v)
 	var tp := Airports.tower_pos()
 	_tower(root, Vector3(tp.x, 0.0, tp.y))
 	var sp := Airports.windsock_pos()
@@ -92,6 +102,12 @@ func _trees(v: AirportScene) -> void:
 	v.trunk_mat = Prim.mat(Color(0.45, 0.3, 0.18))
 	for t in [Vector2(-4.4, 6.4), Vector2(-3.6, 7.6), Vector2(4.3, 6.9), Vector2(4.5, -6.5), Vector2(-4.4, -6.9), Vector2(3.7, -7.8), Vector2(-4.2, -3.9), Vector2(4.5, 4.4)]:
 		var blocked := false
+		for st in v.strips:
+			var sa: Vector2 = st[0]
+			var sab: Vector2 = (st[1] as Vector2) - sa
+			var su := clampf((t - sa).dot(sab) / maxf(sab.length_squared(), 0.0001), 0.0, 1.0)
+			if t.distance_to(sa + sab * su) < 1.0:
+				blocked = true
 		for h in Airports.hazards():
 			if (h["center"] as Vector2).distance_to(t) < h["radius"] + 0.7:
 				blocked = true
@@ -167,6 +183,128 @@ func _runway(v: AirportScene, i: int) -> void:
 	for k in 5:
 		Prim.box(root, Vector3(0.09, 0.14, 0.36), Vector3(0, 0.07, (k - 2) * 1.0), white, false)
 	Prim.lift(root)       # runways are drawn above the fog
+
+## A parallel taxiway beside each runway that has room for one: asphalt strip, yellow centre dashes and two stubs to the
+## runway. All of it lies on the ground, under everything that moves.
+func _taxiways(v: AirportScene) -> void:
+	if v.water:
+		return
+	var asphalt := Prim.mat(Tuning.runway_asphalt.darkened(0.12))
+	var yellow := Prim.mat(Color(0.95, 0.8, 0.2))
+	for i in Airports.rw_count():
+		var h := deg_to_rad(Airports.rw_heading_deg(i))
+		var dir := Vector2(sin(h), -cos(h))
+		var perp := Vector2(cos(h), sin(h))
+		var c := Airports.rw_center(i)
+		var len := Airports.rw_length(i)
+		var w := Airports.rw_width(i)
+		var half := len * 0.34
+		for side in [1.0, -1.0]:
+			var off: float = w * 0.5 + 0.95
+			var a: Vector2 = c + perp * off * side - dir * half
+			var b: Vector2 = c + perp * off * side + dir * half
+			var free := true
+			for f in [0.0, 0.5, 1.0]:
+				if not _spot_free(a.lerp(b, f), 0.4, 8.6):
+					free = false
+			if not free:
+				continue
+			var n := Node3D.new()
+			n.position = Vector3(c.x, 0.0, c.y)
+			n.rotation.y = -h
+			v.root.add_child(n)
+			Prim.box(n, Vector3(0.6, 0.05, half * 2.0), Vector3(side * off, 0.03, 0), asphalt, false)
+			var stub := off - w * 0.5
+			for z in [-half, half]:
+				Prim.box(n, Vector3(stub + 0.3, 0.05, 0.6), Vector3(side * (w * 0.5 + stub * 0.5 - 0.15), 0.032, z), asphalt, false)
+			for k in int(half * 2.0 / 0.6):
+				Prim.box(n, Vector3(0.05, 0.06, 0.24), Vector3(side * off, 0.05, -half + 0.3 + k * 0.6), yellow, false)
+			v.strips.append([a, b])
+			break
+
+## Runway edge lights and the approach strobes: one MultiMesh per airport; the shader makes them shimmer / run.
+func _lights(v: AirportScene) -> void:
+	var pts: Array = []        # [Vector3 position, phase, strobe]
+	for i in Airports.rw_count():
+		var h := deg_to_rad(Airports.rw_heading_deg(i))
+		var dir := Vector2(sin(h), -cos(h))
+		var perp := Vector2(cos(h), sin(h))
+		var c := Airports.rw_center(i)
+		var len := Airports.rw_length(i)
+		var w := Airports.rw_width(i)
+		var lz := -len * 0.5 + 0.35
+		var k := 0
+		while lz < len * 0.5 - 0.2:
+			for side in [-1.0, 1.0]:
+				var p: Vector2 = c - dir * lz + perp * side * (w * 0.5 + 0.06)
+				pts.append([Vector3(p.x, 0.15, p.y), float(k % 7) / 7.0, 0.0])
+			lz += 0.8
+			k += 1
+		for e in 2:
+			var sign := 1.0 if e == 0 else -1.0
+			for j in 8:
+				var p2: Vector2 = c - dir * (sign * (len * 0.5 + 0.55 + j * 0.5))
+				pts.append([Vector3(p2.x, 0.04, p2.y), float(7 - j) / 8.0, 1.0])
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.09, 0.04, 0.09)
+	mm.mesh = bm
+	mm.instance_count = pts.size()
+	for k in pts.size():
+		mm.set_instance_transform(k, Transform3D(Basis.IDENTITY, pts[k][0]))
+		mm.set_instance_color(k, Color(pts[k][1], pts[k][2], 0.0, 1.0))
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://shaders/runway_lights.gdshader")
+	mat.render_priority = 3
+	var mi := MultiMeshInstance3D.new()
+	mi.multimesh = mm
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	v.root.add_child(mi)
+	v.lights = mi
+
+## A couple of ground vehicles driving up and down the first taxiway.
+func _vehicles(v: AirportScene) -> void:
+	if v.strips.is_empty():
+		return
+	var colors := [Color(0.95, 0.78, 0.18), Color(0.92, 0.93, 0.96)]
+	for k in 2:
+		var n := Node3D.new()
+		v.root.add_child(n)
+		var body := Prim.mat(colors[k])
+		Prim.box(n, Vector3(0.2, 0.1, 0.38), Vector3(0, 0.1, 0), body)
+		Prim.box(n, Vector3(0.18, 0.09, 0.14), Vector3(0, 0.19, -0.08), Prim.mat(Color(0.2, 0.28, 0.38)), false)
+		var bm := Prim.mat(Color(1.0, 0.25, 0.2))
+		Prim.box(n, Vector3(0.06, 0.05, 0.06), Vector3(0, 0.25, 0.1), bm, false)
+		v.veh.append(n)
+		v.veh_beacon.append(bm)
+		v.veh_strip.append(0)
+		v.veh_t.append(0.0 if k == 0 else 1.1)
+		v.veh_speed.append(0.07 if k == 0 else 0.05)
+	_place_vehicles(v)
+
+func _place_vehicles(v: AirportScene) -> void:
+	for k in v.veh.size():
+		var st: Array = v.strips[v.veh_strip[k]]
+		var a: Vector2 = st[0]
+		var b: Vector2 = st[1]
+		var t := v.veh_t[k]
+		var u := t if t < 1.0 else 2.0 - t
+		var p := a.lerp(b, u)
+		var d := (b - a) * (1.0 if t < 1.0 else -1.0)
+		v.veh[k].position = Vector3(p.x, 0.0, p.y)
+		v.veh[k].rotation.y = -atan2(d.x, -d.y)
+
+## A cheap breath of life: vehicles roll along the taxiway, their beacons blink.
+func _animate_ground(delta: float, now: int) -> void:
+	var on := int(now / 350.0) % 2 == 0
+	for k in cur.veh.size():
+		cur.veh_t[k] = fposmod(cur.veh_t[k] + cur.veh_speed[k] * delta, 2.0)
+		cur.veh_beacon[k].albedo_color = Color(1.0, 0.25, 0.2) if on else Color(0.3, 0.08, 0.06)
+	if not cur.veh.is_empty():
+		_place_vehicles(cur)
 
 ## A round helipad with an H.
 func _pad(root: Node3D, pad: Dictionary) -> void:
@@ -272,6 +410,7 @@ func _process(delta: float) -> void:
 		var on := cur.active[k]
 		m.albedo_color = cur.thr_colors[k] if on else Color(0.38, 0.39, 0.42)
 		m.emission_energy_multiplier = (0.45 if on else 0.0) + flash
+	_animate_ground(delta, now)
 	if wind != null and cur.sock != null:
 		_sock_deg += wrapf(wind.toward_deg() - _sock_deg, -180.0, 180.0) * minf(delta * 2.5, 1.0)
 		var wiggle := sin(now / 260.0) * 6.0

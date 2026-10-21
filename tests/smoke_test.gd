@@ -3047,6 +3047,207 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
+	print("9r. in-game polish: bank, shadows, contrails, touchdown, airport details, celebrations, results")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	# --- aircraft: banking into turns
+	var r_p = tr.place(0, Vector2(0.0, 2.0), 0.0, SMALL)
+	r_p.speed = 0.0
+	var r_i = tr.planes.find(r_p)
+	r_p.heading = 1.2
+	for i in 12:
+		main.step(1.0 / 60.0)
+	check(r_p.bank > 0.1 and r_p.bank <= tr.MAX_BANK and tr._nodes[r_i].rotation.z < -0.1, "a right turn banks the aircraft (bank %.2f, roll %.2f)" % [r_p.bank, tr._nodes[r_i].rotation.z])
+	for i in 120:
+		main.step(1.0 / 60.0)
+	check(absf(r_p.bank) < 0.03, "...and it rolls level when the turn is done (%.3f)" % r_p.bank)
+	r_p.heading = r_p.vis_heading - 1.2
+	for i in 12:
+		main.step(1.0 / 60.0)
+	check(r_p.bank < -0.1 and tr._nodes[r_i].rotation.z > 0.1, "a left turn banks the other way")
+	# --- soft drop shadows
+	var r_sh_n = tr._shadows[r_i]
+	check(r_sh_n.visible and r_sh_n.position.y > 0.13 and tr._shadow_mats[r_i].render_priority > tr._body_mats[r_i].render_priority, "every aircraft has a shadow on the ground, drawn after the runway and the aircraft")
+	var r_a0 = float(tr._shadow_mats[r_i].get_shader_parameter("alpha"))
+	var r_sx0 = r_sh_n.position.x - r_p.pos.x
+	r_p.climb = tuning.go_around_climb_seconds * 0.5
+	main.step(1.0 / 60.0)
+	check(float(tr._shadow_mats[r_i].get_shader_parameter("alpha")) < r_a0 and r_sh_n.position.x - r_p.pos.x > r_sx0 and tr._nodes[r_i].rotation.x > 0.05, "a climbing aircraft pitches up and its shadow slides away and fades")
+	r_p.climb = 0.0
+	tr.lose(r_p)
+	check(not tr._shadows[r_i].visible, "a removed aircraft takes its shadow with it")
+	# --- prop blur and contrails
+	var r_jet = tr.place(0, Vector2(-3.0, 0.0), PI * 0.5, JET)
+	var r_cub = tr.place(1, Vector2(3.0, 0.0), -PI * 0.5, SMALL)
+	var r_gl = tr.place(0, Vector2(0.0, -4.0), PI, GLIDER)
+	var r_ji = tr.planes.find(r_jet)
+	var r_ci = tr.planes.find(r_cub)
+	var r_gi = tr.planes.find(r_gl)
+	check(tr._prop_discs[r_ci].visible and not tr._prop_discs[r_ji].visible and not tr._prop_discs[r_gi].visible, "propeller aircraft get a blur disc at the nose; jets and gliders do not")
+	for i in 90:
+		main.step(1.0 / 60.0)
+	check(tr._trail_mm.visible_instance_count >= 6 and tr._trail.visible, "aircraft in the air leave contrails (%d puffs)" % tr._trail_mm.visible_instance_count)
+	var r_jet_puffs = 0
+	var r_gl_puffs = 0
+	for k in tr.TRAIL_N:
+		if tr._trail_peak[r_ji * tr.TRAIL_N + k] > 0.0 and tr._trail_age[r_ji * tr.TRAIL_N + k] < 1.0:
+			r_jet_puffs += 1
+		if tr._trail_peak[r_gi * tr.TRAIL_N + k] > 0.0 and tr._trail_age[r_gi * tr.TRAIL_N + k] < 1.0:
+			r_gl_puffs += 1
+	check(r_jet_puffs >= 4 and r_gl_puffs == 0 and Array(tr._trail_peak.slice(r_ji * tr.TRAIL_N, (r_ji + 1) * tr.TRAIL_N)).max() > Array(tr._trail_peak.slice(r_ci * tr.TRAIL_N, (r_ci + 1) * tr.TRAIL_N)).max(), "...a jet's are the strongest, a glider leaves none")
+	tr.release_all()
+	check(tr._trail_mm.visible_instance_count == 0, "...and none are left over after a shift")
+	# --- touchdown: dust puff and a pop
+	var r_td_n = [0]
+	var r_td_cb = func(_pl): r_td_n[0] += 1
+	tr.touchdown.connect(r_td_cb)
+	var r_thr_t = Airports.end_threshold(0, 0)
+	var r_rd_t = Airports.end_dir(0, 0)
+	var r_lp = tr.place(0, r_thr_t - r_rd_t * 1.2, atan2(r_rd_t.x, -r_rd_t.y), MEDIUM)
+	r_lp.push(r_thr_t)
+	r_lp.push(Airports.end_far(0, 0))
+	r_lp.cleared = true
+	r_lp.land_end = 0
+	var r_pop_seen = 0.0
+	var r_puffed_before = false
+	for pe in main.fx._puffs:
+		r_puffed_before = r_puffed_before or pe.emitting
+	for i in 60 * 4:
+		main.step(1.0 / 60.0)
+		r_pop_seen = maxf(r_pop_seen, r_lp.pop_t)
+		if not r_lp.active():
+			break
+	var r_puffing = false
+	for pe in main.fx._puffs:
+		r_puffing = r_puffing or pe.emitting
+	check(r_td_n[0] == 1 and r_pop_seen > 0.0 and r_puffing and not r_puffed_before, "touching down fires the touchdown once: dust puff and a little pop")
+	tr.touchdown.disconnect(r_td_cb)
+	# --- the airport: lights, taxiways, vehicles
+	var r_details_ok = true
+	var r_strips_n = 0
+	var r_veh_n = 0
+	for av in main.airfield.variants:
+		r_details_ok = r_details_ok and av.lights != null and av.lights.multimesh.instance_count > 20
+		r_strips_n += av.strips.size()
+		r_veh_n += av.veh.size()
+	check(r_details_ok, "every airport has runway edge lights and approach strobes")
+	check(r_strips_n >= 4 and r_veh_n >= 4, "taxiways and ground vehicles where there is room (%d taxiways, %d vehicles)" % [r_strips_n, r_veh_n])
+	var r_cur_sc = main.airfield.cur
+	var r_v0 = null
+	if r_cur_sc.veh.size() > 0:
+		r_v0 = r_cur_sc.veh[0].position
+		main.airfield._animate_ground(2.0, 1000)
+	check(r_v0 == null or r_cur_sc.veh[0].position != r_v0, "the vehicles drive along their taxiway")
+	check(r_cur_sc.lights.material_override.render_priority > tr._body_mats[0].render_priority and r_cur_sc.lights.material_override.shader.code.contains("TIME"), "the lights animate on the GPU and sit under the aircraft")
+	# --- screen shake on a conflict
+	main.restart()
+	tr.auto_spawn = false
+	var r_sk_a = tr.place(0, Vector2(-1.0, 0.0), PI * 0.5, MEDIUM)
+	var r_sk_b = tr.place(1, Vector2(1.0, 0.0), -PI * 0.5, MEDIUM)
+	main._tick_shake(1.0)
+	main._tick_shake(0.01)
+	check(main.shake_offset == Vector2.ZERO, "no shake normally")
+	main._conflict(r_sk_a, r_sk_b, "CONFLICT")
+	main._tick_shake(0.02)
+	check(main.shake_offset != Vector2.ZERO and main.camera.h_offset == main.shake_offset.x or main.shake_offset.length() > 0.0, "a conflict shakes the camera (%.3f)" % main.shake_offset.length())
+	main._update_camera()
+	check(main.camera.h_offset == main.shake_offset.x and main.camera.v_offset == main.shake_offset.y, "...through the camera")
+	main._tick_shake(0.5)
+	main._update_camera()
+	check(main.shake_offset == Vector2.ZERO and main.camera.h_offset == 0.0, "...short and sharp: it is gone in a third of a second")
+	# --- go-around animation
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var r_ga_p = tr.place(0, Vector2(0.0, 2.0), 0.0, MEDIUM)
+	tr._start_go_around(r_ga_p, 0)
+	r_ga_p.climb = tuning.go_around_climb_seconds * 0.5
+	main.step(1.0 / 60.0)
+	main.overlay._draw_all()
+	check(r_ga_p.climb > 0.0 and tr._nodes[tr.planes.find(r_ga_p)].rotation.x > 0.02, "a go-around climbs with the nose up (the overlay streams chevrons ahead of it)")
+	# --- the star bar sparkles
+	main.restart()
+	tr.auto_spawn = false
+	var r_thr0 = main.shift.thresholds[0]
+	var r_stars_seen = []
+	var r_star_cb = func(i): r_stars_seen.append(i)
+	main.hud.star_reached.connect(r_star_cb)
+	while main.shift.balance() < r_thr0:
+		main.shift.on_landed(3, 14, 0)
+	main.hud.set_shift(main.shift)
+	check(r_stars_seen == [0] and main.hud._art.star_t[0] == 0.0, "crossing a threshold lights its star with a burst")
+	main.hud.set_shift(main.shift)
+	check(r_stars_seen == [0], "...once")
+	main.hud._process(0.3)
+	check(main.hud._art.star_t[0] > 0.2, "...the star pops and sparks for a moment")
+	main.hud._process(1.0)
+	check(main.hud._art.star_t[0] < 0.0, "...then settles")
+	main.hud.star_reached.disconnect(r_star_cb)
+	# --- results: stars slam in, confetti for three, the unlock reveal
+	main.restart()
+	tr.auto_spawn = false
+	for i in 40:
+		main.shift.on_landed(3, 14, 0)
+	main.hud.set_shift(main.shift)
+	var r_slams = []
+	var r_slam_cb = func(i): r_slams.append(i)
+	main.hud.star_slam.connect(r_slam_cb)
+	var r_s3 = main.shift.stars()
+	main.hud.show_results("DONE", "x|1", main.shift, 100, 500, 50, false)
+	main.hud.set_results_ads(0, 0)
+	var r_hres = main.hud
+	check(r_s3 == 3 and r_slams.is_empty() and r_hres.confetti_count() == 0, "results: three stars to come, nothing yet")
+	r_hres._process(0.45)
+	check(r_slams.size() == 0, "...the first star is still on its way down")
+	r_hres._process(0.2)
+	check(r_slams == [0], "...slam: the first lands with its impact")
+	r_hres._process(0.5)
+	r_hres._process(0.5)
+	check(r_slams == [0, 1, 2] and r_hres.confetti_count() == r_hres._art.CONFETTI, "...then the others, one at a time; three stars bring confetti (%d pieces)" % r_hres.confetti_count())
+	for i in 320:
+		r_hres._process(0.05)
+	check(r_hres.confetti_count() == 0, "...which rains down and is gone")
+	r_slams.clear()
+	main.shift.reset(main.shift.thresholds, 0.5)
+	main.shift.on_landed(3, 14, 0)
+	main.shift.on_landed(3, 14, 0)
+	main.hud.show_results("DONE", "x|1", main.shift, 10, 500, 50, false)
+	for i in 80:
+		r_hres._process(0.05)
+	check(r_slams.size() == main.shift.stars() and r_hres.confetti_count() == 0, "fewer than three stars: no confetti")
+	main.hud.star_slam.disconnect(r_slam_cb)
+	# an airport unlocking with a shift gets its own reveal
+	save.reset_all()
+	main.select_airport(0)
+	main.restart()
+	tr.auto_spawn = false
+	for i in 80:
+		main.shift.on_landed(3, 14, 0)
+	main.hud.set_shift(main.shift)
+	tr.run_time = tuning.par_eff() + 0.01
+	main.step(1.0 / 60.0)
+	check(main.screen == main.SCREEN_OVER and main.last_result["unlocked"].size() >= 1, "a shift that opens a new airport says so (%s)" % str(main.last_result["unlocked"]))
+	check(main.hud.unlock_active() == false and main.hud._unlock_pending == Airports.airport_name(main.last_result["unlocked"][0]), "...the reveal waits for the stars and the total")
+	main.hud._art.res_t = 3.7
+	main.hud._process(0.01)
+	check(main.hud.unlock_active() and main.hud._art.btn_id[0] == "unlock_ok" and main.hud._art.btn_count == 1, "...then a card pops in over the results, with one NICE! button")
+	main.hud._process(0.3)
+	main.hud._process(0.6)
+	main.hud._art._draw_unlock()
+	touch(main, 0, true, main.hud._art.btn_rect[0].get_center())
+	touch(main, 0, false, main.hud._art.btn_rect[0].get_center())
+	check(not main.hud.unlock_active() and main.hud._art.btn_id.find("again") >= 0 and main.hud._art.btn_id.find("again") < main.hud._art.btn_count, "NICE! closes it and the results buttons are back")
+	main.hud._process(5.0)
+	check(not main.hud.unlock_active(), "...and it does not come back")
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true

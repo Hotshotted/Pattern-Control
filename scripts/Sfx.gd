@@ -8,7 +8,7 @@ extends Node
 const RATE := 11025            # effects
 const LOOP_RATE := 8000        # hums and music (lo-fi on purpose: it is a placeholder)
 const POOL := 8
-const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press"]
+const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "star", "slam"]
 const BEAT := 0.6              # music: seconds per beat, 8 beats per loop
 
 var enabled := true
@@ -66,13 +66,14 @@ func _player(bus: String) -> AudioStreamPlayer:
 
 # ---------- Playing ----------
 
-func play(sound: String) -> void:
+func play(sound: String, pitch: float = 1.0) -> void:
 	plays[sound] = int(plays.get(sound, 0)) + 1
 	if not enabled or not _streams.has(sound):
 		return
 	var p := _pool[_next]
 	_next = (_next + 1) % POOL
 	p.stream = _streams[sound]
+	p.pitch_scale = pitch
 	p.play()
 
 ## Aircraft per type currently on the field (index = Aircraft.Type): the hums follow these.
@@ -159,6 +160,10 @@ func _build_effects() -> void:
 	_streams["tick"] = _wav(_seq([[1500.0, 0.025, 0.5]], RATE, 0.6, true), RATE)
 	# UI tap: a soft blip
 	_streams["tap"] = _wav(_seq([[740.0, 0.05, 0.35]], RATE), RATE)
+	# a star lit on the bar: a bright rising arpeggio
+	_streams["star"] = _wav(_seq([[988.0, 0.07, 0.4], [1319.0, 0.07, 0.4], [1760.0, 0.2, 0.4]], RATE, 0.5, false, true), RATE)
+	# a results star slamming in: a low thud with a ring on top
+	_streams["slam"] = _wav(_mix(_sweep(180.0, 55.0, 0.22, 0.9, RATE), _seq([[1175.0, 0.3, 0.3]], RATE, 0.3, false, true)), RATE)
 	# a finger going down on a button: a short, soft low click
 	_streams["press"] = _wav(_seq([[420.0, 0.03, 0.25]], RATE, 0.9), RATE)
 
@@ -190,6 +195,14 @@ func _sweep(f0: float, f1: float, secs: float, vol: float, rate: int) -> PackedF
 		var k := float(i) / count
 		ph += TAU * lerpf(f0, f1, k) / rate
 		out[i] = sin(ph) * vol * (1.0 - k) * minf(float(i) / 30.0, 1.0)
+	return out
+
+## Two sounds played together.
+func _mix(a: PackedFloat32Array, b: PackedFloat32Array) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	out.resize(maxi(a.size(), b.size()))
+	for i in out.size():
+		out[i] = (a[i] if i < a.size() else 0.0) + (b[i] if i < b.size() else 0.0)
 	return out
 
 func _roar(secs: float, rate: int) -> PackedFloat32Array:
