@@ -24,6 +24,7 @@ var tips_seen := {}                  # aircraft-type tips already shown
 var daily := {}                      # {"done_day": int, "streak": int, "best": int, "best_day": int}
 var bad_day := {}                    # Bad Pilot Day: the same fields, its own best and streak (version 3)
 var shifts_played := 0
+var airport_plays := PackedInt32Array()   # shifts finished at each airport (the first one there is gentler)
 var ads := {}                        # ad stub bookkeeping: shifts since the last interstitial
 var selected_airport := 0
 var sound_volume := 0.8              # pause-menu volume sliders, 0..1 (absent in older saves: the default)
@@ -40,6 +41,8 @@ func _defaults() -> void:
 	best.fill(0)
 	best_coins.resize(AIRPORT_SLOTS)
 	best_coins.fill(0)
+	airport_plays.resize(AIRPORT_SLOTS)
+	airport_plays.fill(0)
 	upgrades = {}
 	unlocks = {}
 	equipped = {}
@@ -76,6 +79,9 @@ func load_file() -> void:
 	var bc: Array = data.get("best_coins", [])      # (absent in a version 2 save: the records start fresh)
 	for i in mini(bc.size(), best_coins.size()):
 		best_coins[i] = int(bc[i])
+	var ap: Array = data.get("airport_plays", [])
+	for i in mini(ap.size(), airport_plays.size()):
+		airport_plays[i] = int(ap[i])
 	upgrades = _dict(data.get("upgrades"))
 	unlocks = _dict(data.get("unlocks"))
 	equipped = _dict(data.get("equipped"))
@@ -97,7 +103,7 @@ func write_file() -> void:
 		f.store_string(JSON.stringify({
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
 			"upgrades": upgrades, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
-			"daily": daily, "bad_day": bad_day, "shifts_played": shifts_played, "selected_airport": selected_airport, "ads": ads,
+			"daily": daily, "bad_day": bad_day, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "selected_airport": selected_airport, "ads": ads,
 			"sound_volume": sound_volume, "music_volume": music_volume,
 		}))
 

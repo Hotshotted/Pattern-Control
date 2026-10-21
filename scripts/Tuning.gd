@@ -48,13 +48,8 @@ var edge_turn_margin := 1.1
 var edge_turn_radius := 1.0
 
 # ---------- Traffic ----------
-## Seconds between new planes: starts at spawn_interval_start, shrinks to spawn_interval_min over the ramp.
-var spawn_interval_start := 5.0
-var spawn_interval_min := 1.7
-var spawn_ramp_fraction := 0.8333    # the ramp finishes at this fraction of the spawning time (the old 3-minute shift: 150 of 180 s)
+## How hard each airport is: see `airport_profiles` below (arrival pace, peak traffic, speeds, timers, weather...).
 var first_spawn_delay := 0.8
-## No more than this many planes at once (the pool holds MAX_POOL).
-var max_planes := 12.0
 ## A new plane is not placed within this of another plane.
 var spawn_clear_distance := 2.6
 
@@ -139,14 +134,13 @@ var wind_warning_seconds := 8.0
 ## Seconds between shifts: starts at wind_interval_start, shrinks to wind_interval_min by the end of the shift
 ## (each airport scales this: later airports shift more often).
 var wind_interval_start := 55.0
-var wind_interval_min := 28.0
+var wind_interval_min := 28.0   # (both are scaled by the airport's profile)
 ## A shift turns the wind by at least this many degrees.
 var wind_min_change_deg := 60.0
 
 # ---------- Weather events ----------
 ## The first event is announced this far into a shift; then every weather_interval_* seconds (shrinking over the
 ## shift, and scaled by the airport), each announced weather_warning_seconds ahead.
-var weather_start_time := 35.0
 var weather_interval_start := 60.0
 var weather_interval_min := 32.0
 var weather_warning_seconds := 6.0
@@ -259,7 +253,81 @@ var prewarm_max_seconds := 6.0
 var grass_color := Color(0.36, 0.62, 0.36)
 var outline_thickness := 0.05
 
+# ---------- Airport difficulty ----------
+## One profile per airport, in order: easy first, building up. Keys:
+##   max_planes     peak traffic: no new arrival while this many aircraft are on the field
+##   spawn_start / spawn_min   seconds between arrivals at the start / at the busiest point
+##   ramp           how soon the busiest point is reached, as a fraction of the spawning window (lower = steeper)
+##   speed, timer   multiply every aircraft's speed / its timer
+##   specials       emergency + VIP chance multiplier (0 = none)
+##   weather        how often weather events come (1 = normal, bigger = rarer, 0 = none at all)
+##   wind           how often the wind shifts (1 = normal, bigger = rarer, 0 = it never shifts)
+##   weather_first / wind_first   no weather / wind shift before this many seconds into a shift
+##   fines          multiplies every fine (conflict / diversion / terrain / storm)
+##   stars          net coins for 1, 2 and 3 stars
+##   beats          [[seconds, aircraft type], ...]: a new mechanic arrives alone at about this time
+##                  (types: 0 glider, 1 helicopter, 2 small, 3 medium, 4 jet, 5 seaplane)
+## Today's (pre-profile) intensity was: 12 planes, 5.0 -> 1.7 s, ramp 0.83, speed 1, timer 1, specials 1.
+var airport_profiles := [
+	{"name": "Grass Strip", "max_planes": 3, "spawn_start": 7.0, "spawn_min": 4.4, "ramp": 0.9, "speed": 0.75, "timer": 1.5,
+		"specials": 0.0, "weather": 0.0, "wind": 0.0, "weather_first": 999.0, "wind_first": 999.0, "fines": 0.4, "stars": [30, 65, 100], "beats": [[5.0, 0]]},
+	{"name": "County", "max_planes": 4, "spawn_start": 6.5, "spawn_min": 4.0, "ramp": 0.9, "speed": 0.85, "timer": 1.35,
+		"specials": 0.3, "weather": 0.0, "wind": 2.2, "weather_first": 999.0, "wind_first": 35.0, "fines": 0.6, "stars": [40, 85, 130], "beats": [[5.0, 2]]},
+	{"name": "Regional", "max_planes": 6, "spawn_start": 6.0, "spawn_min": 3.2, "ramp": 0.85, "speed": 0.92, "timer": 1.2,
+		"specials": 0.6, "weather": 1.6, "wind": 1.5, "weather_first": 50.0, "wind_first": 38.0, "fines": 0.8, "stars": [55, 115, 170], "beats": [[5.0, 1], [24.0, 4]]},
+	{"name": "Mountain Field", "max_planes": 10, "spawn_start": 5.2, "spawn_min": 2.2, "ramp": 0.83, "speed": 1.0, "timer": 1.0,
+		"specials": 1.0, "weather": 1.0, "wind": 1.0, "weather_first": 45.0, "wind_first": 35.0, "fines": 1.0, "stars": [75, 150, 225], "beats": [[5.0, 2]]},
+	{"name": "Island", "max_planes": 12, "spawn_start": 4.8, "spawn_min": 1.9, "ramp": 0.8, "speed": 1.05, "timer": 0.95,
+		"specials": 1.1, "weather": 0.85, "wind": 0.8, "weather_first": 40.0, "wind_first": 32.0, "fines": 1.0, "stars": [95, 190, 285], "beats": [[5.0, 5]]},
+	{"name": "International", "max_planes": 14, "spawn_start": 4.2, "spawn_min": 1.5, "ramp": 0.75, "speed": 1.12, "timer": 0.9,
+		"specials": 1.5, "weather": 0.7, "wind": 0.6, "weather_first": 35.0, "wind_first": 30.0, "fines": 1.0, "stars": [110, 215, 320], "beats": [[5.0, 1], [22.0, 5], [40.0, 4]]},
+]
+## An airport's first shift is gentler: arrivals this much further apart, timers this much longer.
+var intro_spawn_scale := 1.3
+var intro_timer_scale := 1.2
+var intro_active := false              # set by the game at the start of a shift
+## A beat's aircraft arrives alone: nothing else is sent this long before it, and for this long after it.
+var beat_quiet_lead := 4.0
+var beat_gap := 10.0
+
 # ---------- Derived ----------
+func profile(i: int = -1) -> Dictionary:
+	return airport_profiles[clampi(Airports.current if i < 0 else i, 0, airport_profiles.size() - 1)]
+
+func star_thresholds(i: int = -1) -> Array:
+	return profile(i)["stars"]
+
+## A fine's size at this airport: the base amount (fine_conflict...) scaled by the airport's profile.
+func fine_amount(base: float) -> int:
+	return roundi(base * float(profile()["fines"]))
+
+func max_planes_eff() -> int:
+	return int(profile()["max_planes"])
+
+func specials_mult() -> float:
+	return float(profile()["specials"])
+
+## Seconds between arrivals at run time t, from the profile (and the gentle first shift).
+func spawn_interval(t: float) -> float:
+	var p := profile()
+	return lerpf(float(p["spawn_start"]), float(p["spawn_min"]), spawn_progress(t)) * (intro_spawn_scale if intro_active else 1.0)
+
+## Seconds until the first wind shift, and between shifts (INF = this airport's wind never shifts).
+func wind_first_eff() -> float:
+	var p := profile()
+	return INF if float(p["wind"]) <= 0.0 else float(p["wind_first"])
+
+func wind_scale_eff() -> float:
+	var w := float(profile()["wind"])
+	return INF if w <= 0.0 else w
+
+func weather_scale_eff() -> float:
+	var w := float(profile()["weather"])
+	return INF if w <= 0.0 else w
+
+func weather_first_eff() -> float:
+	return float(profile()["weather_first"])
+
 func upg(id: String) -> int:
 	return Save.upgrade_level(id)
 
@@ -267,7 +335,7 @@ func fog_radius_eff() -> float:
 	return fog_visible_radius + upg_radar_fog * upg("radar")
 
 func timer_mult() -> float:
-	return 1.0 + upg_comms_timer * upg("comms")
+	return (1.0 + upg_comms_timer * upg("comms")) * float(profile()["timer"]) * (intro_timer_scale if intro_active else 1.0)
 
 func hold_drain() -> float:
 	return hold_drain_mult * (1.0 - upg_holding_drain * upg("holding"))
@@ -296,13 +364,10 @@ func view_size() -> float:
 
 ## How far up the traffic ramp we are, 0..1: it always reaches the full, busy finish by the time spawning stops.
 func spawn_progress(t: float) -> float:
-	return clampf(t / maxf(spawn_ramp_fraction * spawn_stop_seconds, 1.0), 0.0, 1.0)
-
-func spawn_interval(t: float) -> float:
-	return lerpf(spawn_interval_start, spawn_interval_min, spawn_progress(t))
+	return clampf(t / maxf(float(profile()["ramp"]) * spawn_stop_seconds, 1.0), 0.0, 1.0)
 
 func speed_mult(t: float) -> float:
-	return lerpf(1.0, speed_ramp_max, spawn_progress(t))
+	return lerpf(1.0, speed_ramp_max, spawn_progress(t)) * float(profile()["speed"])
 
 ## The ring colour for a fraction of the timer left.
 func timer_color(frac: float) -> Color:

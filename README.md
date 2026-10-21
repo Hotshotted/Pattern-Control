@@ -80,11 +80,21 @@ You run an airport, one **shift** at a time.
   two-layer music loop that intensifies towards the finale. It plays through the SFX / Music buses that the pause
   menu sliders control. `?nofx=sound` turns it off.
 
+## Airport difficulty
+
+Every airport has a difficulty profile in `Tuning.airport_profiles` (peak aircraft on the field, arrival pace and
+how fast it ramps, aircraft speed, timers, special aircraft, weather and wind-shift frequency, fine size, star
+thresholds, and the "beats" that introduce a new mechanic alone and early). Grass Strip is very relaxed (3 aircraft
+at most, slow aircraft, long timers, no weather, no wind shifts); County adds a second runway and gentle wind shifts;
+difficulty then steps up to today's full intensity at Mountain Field and beyond it at International. The first shift
+at an airport is gentler still (arrivals further apart, longer timers).
+
 ## Economy simulation
 
 `tools/economy_sim.gd` plays the real game with poor / average / good autopilots for their first 20 shifts and prints
 coins per shift, stars and when each upgrade becomes affordable (`godot --headless --path . --script
-tools/economy_sim.gd`, optional `-- shifts=5 modes=saving`). The last full run is in `tools/economy_sim_results.txt`.
+tools/economy_sim.gd`, optional `-- shifts=5 modes=saving`). With `-- survey per=8` every bot plays every airport and it
+prints stars per airport. The last full run is in `tools/economy_sim_results.txt`.
 
 ## Debug / tuning URLs
 

@@ -27,13 +27,13 @@ func start(rng: RandomNumberGenerator) -> void:
 	next_deg = from_deg
 	warning = false
 	closed_left.fill(0.0)
-	countdown = interval(0.0)
+	countdown = Tuning.wind_first_eff()
 	refresh()
 
 ## Seconds between shifts at this point of the shift (progress 0..1): shorter later, shorter on later airports.
 func interval(progress: float) -> float:
 	var base := lerpf(Tuning.wind_interval_start, Tuning.wind_interval_min, clampf(progress, 0.0, 1.0))
-	return maxf(base * Airports.wind_scale(), Tuning.wind_warning_seconds + 2.0)
+	return maxf(base * Tuning.wind_scale_eff(), Tuning.wind_warning_seconds + 2.0)
 
 func is_active(runway: int, end: int) -> bool:
 	return active[runway * 2 + end] != 0 and closed_left[runway] <= 0.0

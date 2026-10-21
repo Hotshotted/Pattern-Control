@@ -21,11 +21,11 @@ func start() -> void:
 	phase = Phase.IDLE
 	kind = ""
 	runway = -1
-	countdown = Tuning.weather_start_time
+	countdown = Tuning.weather_first_eff()
 
 ## Seconds between events at this point of the shift (progress 0..1) on this airport.
 func interval(progress: float) -> float:
-	return lerpf(Tuning.weather_interval_start, Tuning.weather_interval_min, clampf(progress, 0.0, 1.0)) * Airports.weather_scale()
+	return lerpf(Tuning.weather_interval_start, Tuning.weather_interval_min, clampf(progress, 0.0, 1.0)) * Tuning.weather_scale_eff()
 
 func duration(k: String) -> float:
 	match k:
@@ -38,7 +38,7 @@ func duration(k: String) -> float:
 
 func step(dt: float, progress: float, rng: RandomNumberGenerator, wind: Wind) -> void:
 	var kinds := Airports.weather_kinds()
-	if kinds.is_empty():
+	if kinds.is_empty() or Tuning.weather_scale_eff() == INF:
 		return
 	match phase:
 		Phase.IDLE:

@@ -114,7 +114,7 @@ func _ready() -> void:
 	Airports.current = airport
 	airfield.select(airport)
 	traffic.load_terrain()
-	shift.reset(Airports.star_thresholds(), Tuning.landing_keep_fraction)
+	shift.reset(Tuning.star_thresholds(), Tuning.landing_keep_fraction)
 	wind.start(rng_env)
 	airfield.show_active(wind)
 	hud.set_wind(wind.from_deg, wind.toward_deg())
@@ -235,6 +235,8 @@ func restart() -> void:
 	_note_event("shift started")
 	get_tree().paused = false
 	Airports.current = airport
+	Tuning.intro_active = not daily_mode and Save.airport_plays[airport] == 0
+	traffic.beats = [] if daily_mode else Tuning.profile()["beats"]
 	airfield.select(airport)
 	traffic.load_terrain()
 	shift.reset(_thresholds(), Tuning.landing_keep_fraction)
@@ -246,6 +248,7 @@ func restart() -> void:
 	traffic.release_all()
 	traffic.spawn_until = Tuning.spawn_stop_seconds
 	wind.start(rng_env)
+	_last_wind_deg = wind.from_deg      # (a new shift's starting wind is not a "shift": no chime)
 	weather.start()
 	_event_key = ""
 	airfield.show_active(wind)
@@ -498,7 +501,7 @@ func _on_crashed(p: Aircraft, kind: int) -> void:
 		return
 	fx.burst(p.pos, Color(0.85, 0.6, 0.4), true)
 	overlay.ripple(p.pos, Color(1, 0.35, 0.2), 1.1)
-	_apply_fine(Tuning.fine_hazard, "crash", "Struck by storm!" if kind == 1 else ("No room to land!" if kind == 2 else "Crashed!"), p.pos)
+	_apply_fine(Tuning.fine_amount(Tuning.fine_hazard), "crash", "Struck by storm!" if kind == 1 else ("No room to land!" if kind == 2 else "Crashed!"), p.pos)
 
 ## A go-around: the aircraft climbs out along the runway heading and needs a new path (it keeps its timer).
 func _on_go_around(p: Aircraft, reason: int) -> void:
@@ -656,14 +659,14 @@ func _conflict(a: Aircraft, b: Aircraft, label: String) -> void:
 	traffic.lose(a)
 	traffic.lose(b)
 	_cancel_drag()
-	_apply_fine(Tuning.fine_conflict, "conflict", label, mid)
+	_apply_fine(Tuning.fine_amount(Tuning.fine_conflict), "conflict", label, mid)
 
 ## An aircraft's timer ran out: it is diverted, and that is a small fine.
 func _on_timed_out(p: Aircraft) -> void:
 	if not alive:
 		return
 	overlay.ripple(p.pos, Color(1, 0.5, 0.2), 1.0)
-	_apply_fine(Tuning.fine_timeout, "diversion", "Diverted", p.pos)
+	_apply_fine(Tuning.fine_amount(Tuning.fine_timeout), "diversion", "Diverted", p.pos)
 
 ## The clock ran out: pay out (never below zero), award stars, save, show the results.
 func _end_shift() -> void:
@@ -686,6 +689,8 @@ func _end_shift() -> void:
 	if not daily_mode:
 		Save.submit_best(airport, shift.landed)
 	Save.shifts_played += 1
+	if not daily_mode:
+		Save.airport_plays[airport] += 1
 	Save.ads["since"] = int(Save.ads.get("since", 0)) + 1
 	Save.write_file()
 	over_header = HEADER_DONE
@@ -981,7 +986,7 @@ func start_bad_day() -> void:
 
 ## The star thresholds of this shift (Bad Pilot Day pays more, so it asks for more).
 func _thresholds() -> Array:
-	var th := Airports.star_thresholds().duplicate()
+	var th := Tuning.star_thresholds().duplicate()
 	if bad_mode:
 		for i in th.size():
 			th[i] = roundi(th[i] * Tuning.bad_day_threshold_mult)

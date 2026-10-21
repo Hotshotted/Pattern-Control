@@ -30,34 +30,34 @@ static func _build() -> void:
 	var P := Aircraft.Type.SEAPLANE
 	_defs = [
 		{   # 1: one runway, usable in both directions
-			"name": "Grass Strip", "stars": [50, 100, 160], "tag": "One runway, both directions",
+			"name": "Grass Strip", "tag": "One runway, both directions",
 			"runways": [_rw(Vector2(0.0, 0.8), 0.0, 7.0, ORANGE, "ORANGE", 1.1)],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6),
 			"ground": Color(0.42, 0.68, 0.38),
-			"mix": {S: 0.55, M: 0.2, G: 0.25}, "specials": 0.0,
-			"wind_scale": 1.6, "spawn_mult": 1.35, "unlock_stars": 0, "weather": [], "weather_scale": 1.0,
+			"mix": {S: 0.7, G: 0.3},
+			"unlock_stars": 0, "weather": [],
 		},
 		{   # 2: two crossing runways: simultaneous landings conflict
-			"name": "County", "stars": [70, 140, 220], "tag": "Crossing runways",
+			"name": "County", "tag": "Crossing runways",
 			"runways": [_rw(Vector2(0.0, 0.2), 0.0, 6.5, ORANGE, "ORANGE"), _rw(Vector2(0.0, 0.2), 80.0, 6.5, BLUE, "BLUE")],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-3.3, 3.7),
 			"ground": Color(0.5, 0.68, 0.36),
-			"mix": {S: 0.3, M: 0.55, G: 0.15}, "specials": 1.5,
-			"wind_scale": 1.3, "spawn_mult": 1.15, "unlock_stars": 2, "weather": ["crosswind"], "weather_scale": 1.3,
+			"mix": {S: 0.35, M: 0.45, G: 0.2},
+			"unlock_stars": 2, "weather": ["crosswind"],
 		},
 		{   # 3: parallel runways and a helipad
-			"name": "Regional", "stars": [90, 175, 260], "tag": "Parallel runways + helipad",
+			"name": "Regional", "tag": "Parallel runways + helipad",
 			"runways": [_rw(Vector2(-2.6, 0.3), 0.0, 7.8, ORANGE, "ORANGE"), _rw(Vector2(0.4, 0.3), 0.0, 7.8, BLUE, "BLUE")],
 			"pads": [{"center": Vector2(3.5, 3.4), "radius": 0.85, "color": PAD_COLOR}], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.2, 0.8),
 			"ground": Color(0.36, 0.62, 0.36),
-			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2}, "specials": 1.0,
-			"wind_scale": 1.0, "spawn_mult": 1.0, "unlock_stars": 5, "weather": ["crosswind", "fog"], "weather_scale": 1.1,
+			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2},
+			"unlock_stars": 5, "weather": ["crosswind", "fog"],
 		},
 		{   # 4: terrain no-fly zones
-			"name": "Mountain Field", "stars": [100, 190, 280], "tag": "Keep clear of the mountains",
+			"name": "Mountain Field", "tag": "Keep clear of the mountains",
 			"runways": [_rw(Vector2(-1.9, 0.6), 8.0, 6.2, ORANGE, "ORANGE"), _rw(Vector2(1.7, 0.6), 8.0, 6.2, BLUE, "BLUE")],
 			"pads": [], "lanes": [],
 			"hazards": [
@@ -68,11 +68,11 @@ static func _build() -> void:
 			"decor": [],
 			"tower": Vector2(0.0, 3.2), "windsock": Vector2(0.0, -1.2),
 			"ground": Color(0.46, 0.58, 0.42),
-			"mix": {S: 0.3, M: 0.35, G: 0.35}, "specials": 1.0,
-			"wind_scale": 0.85, "spawn_mult": 1.0, "unlock_stars": 8, "weather": ["storm", "fog"], "weather_scale": 1.0,
+			"mix": {S: 0.3, M: 0.35, G: 0.35},
+			"unlock_stars": 8, "weather": ["storm", "fog"],
 		},
 		{   # 5: an island in the water, with a seaplane lane
-			"name": "Island", "stars": [110, 210, 310], "tag": "Water landing lane",
+			"name": "Island", "tag": "Water landing lane",
 			"runways": [_rw(Vector2(-1.6, 0.3), 0.0, 7.4, ORANGE, "ORANGE"), _rw(Vector2(1.6, 0.3), 0.0, 7.4, BLUE, "BLUE")],
 			"pads": [],
 			"lanes": [{"center": Vector2(0.2, 5.3), "heading": 90.0, "length": 6.0, "width": 1.0, "color": LANE_COLOR}],
@@ -81,11 +81,11 @@ static func _build() -> void:
 					{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.9, "color": Color(0.9, 0.85, 0.6), "sides": 10, "y": 0.01}],
 			"tower": Vector2(0.0, 0.3), "windsock": Vector2(0.0, -3.0),
 			"ground": Color(0.2, 0.5, 0.78), "water": true,
-			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25}, "specials": 1.0,
-			"wind_scale": 0.75, "spawn_mult": 0.95, "unlock_stars": 11, "weather": ["storm", "crosswind", "fog"], "weather_scale": 0.85,
+			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25},
+			"unlock_stars": 11, "weather": ["storm", "crosswind", "fog"],
 		},
 		{   # 6: long runways and multiples of everything
-			"name": "International", "stars": [130, 240, 350], "tag": "Everything, all at once",
+			"name": "International", "tag": "Everything, all at once",
 			"runways": [_rw(Vector2(-3.4, 0.0), 0.0, 8.4, ORANGE, "ORANGE"), _rw(Vector2(-1.1, 0.0), 0.0, 8.4, BLUE, "BLUE"), _rw(Vector2(1.2, 0.0), 0.0, 8.4, PINK, "PINK")],
 			"pads": [{"center": Vector2(3.9, -4.7), "radius": 0.7, "color": PAD_COLOR}, {"center": Vector2(3.9, -3.1), "radius": 0.7, "color": PAD_COLOR}],
 			"lanes": [{"center": Vector2(3.9, 1.8), "heading": 0.0, "length": 4.0, "width": 0.9, "color": LANE_COLOR},
@@ -95,8 +95,8 @@ static func _build() -> void:
 					{"shape": "box", "pos": Vector2(-0.4, 5.6), "size": Vector2(7.6, 1.8), "color": Color(0.2, 0.5, 0.78), "y": 0.02}],
 			"tower": Vector2(2.6, -2.6), "windsock": Vector2(2.6, 3.0),
 			"ground": Color(0.4, 0.6, 0.4),
-			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2}, "specials": 1.6,
-			"wind_scale": 0.6, "spawn_mult": 0.85, "unlock_stars": 14, "weather": ["storm", "crosswind", "fog"], "weather_scale": 0.7,
+			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2},
+			"unlock_stars": 14, "weather": ["storm", "crosswind", "fog"],
 		},
 	]
 	for d in _defs:
@@ -130,9 +130,6 @@ static func tag(i: int = -1) -> String:
 static func weather_kinds() -> Array:
 	return def().get("weather", [])
 
-static func weather_scale() -> float:
-	return def().get("weather_scale", 1.0)
-
 ## The middle of the airfield (fog hides aircraft beyond a radius from here).
 static func field_center() -> Vector2:
 	var c := Vector2.ZERO
@@ -162,9 +159,6 @@ static func decor() -> Array:
 
 static func ground_color() -> Color:
 	return def()["ground"]
-
-static func spawn_mult() -> float:
-	return def().get("spawn_mult", 1.0)
 
 ## Do runways i and j of the current airport cross? (A simultaneous landing on both is a conflict.)
 static func runways_cross(i: int, j: int) -> bool:
@@ -206,9 +200,6 @@ static func tower_pos() -> Vector2:
 
 static func windsock_pos() -> Vector2:
 	return def()["windsock"]
-
-static func wind_scale() -> float:
-	return def().get("wind_scale", 1.0)
 
 ## Smallest angle between two compass directions, degrees (0..180).
 static func angle_diff(a: float, b: float) -> float:
@@ -316,14 +307,6 @@ static func kind_for(type: int) -> int:
 ## Can this type use runway `i`? (Jets need a long one.)
 static func suitable_runway(type: int, i: int) -> bool:
 	return type != Aircraft.Type.JET or is_long(i)
-
-## Scales the chance of emergencies and VIP flights (none on the first airport).
-static func specials() -> float:
-	return def().get("specials", 1.0)
-
-## Coins a shift must bring in for one, two and three stars.
-static func star_thresholds(i: int = -1) -> Array:
-	return def(i)["stars"]
 
 static func mix(i: int = -1) -> Dictionary:
 	return def(i)["mix"]

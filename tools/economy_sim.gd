@@ -9,18 +9,23 @@ extends SceneTree
 
 var SHIFTS := 20
 var MODES := ["saving", "buying"]
+var SURVEY := false               # per-airport star survey instead of the 20-shift progression
+var SURVEY_SHIFTS := 8
+var ONLY_BOTS := ["poor", "average", "good"]
+var ONLY_AIRPORTS := [0, 1, 2, 3, 4, 5]
 ## ignore: share of aircraft never helped; react: chance per autopilot tick (10 Hz) of dealing with a waiting
 ## aircraft; aligned: how often the path is a proper straight final; wrong_end: picks a closed runway end;
 ## notice: how soon an aircraft whose path did not work gets a new one (s); avoid: chance per tick to put an
 ## aircraft in a hold when it is about to conflict; sequence: chance of waiting for the runway's previous arrival
 ## to be nearly down before sending the next one.
 const PLAYERS := {
-	"poor":    {"ignore": 0.20, "react": 0.04, "aligned": 0.15, "wrong_end": 0.25, "notice": 8.0, "avoid": 0.03, "sequence": 0.10},
-	"average": {"ignore": 0.06, "react": 0.12, "aligned": 0.55, "wrong_end": 0.06, "notice": 4.0, "avoid": 0.12, "sequence": 0.50},
-	"good":    {"ignore": 0.01, "react": 0.30, "aligned": 0.92, "wrong_end": 0.00, "notice": 2.0, "avoid": 0.35, "sequence": 0.95},
+	"poor":    {"ignore": 0.20, "react": 0.04, "aligned": 0.15, "wrong_end": 0.25, "notice": 8.0, "avoid": 0.12, "sequence": 0.10, "gap": 3.0},
+	"average": {"ignore": 0.06, "react": 0.12, "aligned": 0.55, "wrong_end": 0.06, "notice": 4.0, "avoid": 0.5, "sequence": 0.50, "gap": 2.5},
+	"good":    {"ignore": 0.01, "react": 0.5, "aligned": 0.92, "wrong_end": 0.00, "notice": 2.0, "avoid": 0.9, "sequence": 0.95, "gap": 1.0},
 }
 
 var main: Node
+var tun: Node
 var rng := RandomNumberGenerator.new()
 var _tags := {}
 var _spawned := 0
@@ -29,7 +34,8 @@ var _gos := 0
 func _initialize() -> void:
 	var save = root.get_node("Save")
 	save.path = "user://sim_save.json"
-	root.get_node("Tuning").ad_stub_seconds = 0.0
+	tun = root.get_node("Tuning")
+	tun.ad_stub_seconds = 0.0
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	current_scene = main
@@ -44,12 +50,81 @@ func _initialize() -> void:
 			SHIFTS = int(a.substr(7))
 		elif a.begins_with("modes="):
 			MODES = a.substr(6).split(",")
+		elif a == "survey":
+			SURVEY = true
+		elif a.begins_with("bots="):
+			ONLY_BOTS = Array(a.substr(5).split(","))
+		elif a.begins_with("aps="):
+			ONLY_AIRPORTS = []
+			for x in a.substr(4).split(","):
+				ONLY_AIRPORTS.append(int(x))
+		elif a.begins_with("per="):
+			SURVEY_SHIFTS = int(a.substr(4))
+	if SURVEY:
+		_survey()
+		quit()
+		return
 	var report := {}
 	for who in ["poor", "average", "good"]:
 		for mode in MODES:
 			report[who + "/" + mode] = _run_player(who, mode)
 	_print(report)
 	quit()
+
+## Every bot plays SURVEY_SHIFTS shifts at every airport (the first one is that airport's gentle intro shift).
+func _survey() -> void:
+	var save = root.get_node("Save")
+	print("Stars per airport (net coins after fines; %d shifts each, the first is the gentle intro shift)" % SURVEY_SHIFTS)
+	print("bot      airport          thresholds       landed/arr  confl  net(avg)  stars(avg) [0 1 2 3 stars]  intro-shift stars   no-fine stars(avg)")
+	for who in ONLY_BOTS:
+		var skill: Dictionary = PLAYERS[who]
+		for ap in ONLY_AIRPORTS:
+			save.reset_all()
+			save.unlocks["all_airports"] = true
+			rng.seed = hash(who) + 100 * ap + 3
+			var dist := [0, 0, 0, 0]
+			var tot_land := 0
+			var tot_arr := 0
+			var tot_conf := 0
+			var tot_net := 0
+			var tot_stars := 0
+			var tot_clean := 0
+			var intro_stars := 0
+			for n in SURVEY_SHIFTS:
+				var r := _play_shift(skill, ap, n, who)
+				dist[r["stars"]] += 1
+				tot_land += r["landed"]
+				tot_arr += r["spawned"]
+				tot_conf += r["conflicts"]
+				tot_net += r["net"]
+				tot_stars += r["stars"]
+				tot_clean += r["clean_stars"]
+				if n == 0:
+					intro_stars = r["stars"]
+			var th: Array = tun.star_thresholds(ap)
+			print("%-8s %-16s %-16s %5.1f/%-5.1f %5.1f %9.0f %10.2f  %s %17d %20.2f" % [who, Airports.airport_name(ap), str(th), float(tot_land) / SURVEY_SHIFTS, float(tot_arr) / SURVEY_SHIFTS, float(tot_conf) / SURVEY_SHIFTS, float(tot_net) / SURVEY_SHIFTS, float(tot_stars) / SURVEY_SHIFTS, str(dist), intro_stars, float(tot_clean) / SURVEY_SHIFTS])
+	save.reset_all()
+
+## One shift at airport `ap` by a bot; returns its numbers. (Shifts at the same airport count as replays after the first.)
+func _play_shift(skill: Dictionary, ap: int, n: int, who: String) -> Dictionary:
+	main.daily_mode = false
+	main.bad_mode = false
+	main.select_airport(ap)
+	main.restart()
+	main.traffic.rng.seed = 1000 * (n + 1) + hash(who) % 1000 + ap * 7
+	main.traffic.go_rng.seed = 77 * (n + 1) + ap
+	main.rng_env.seed = 31 * (n + 1) + ap
+	_tags.clear()
+	_spawned = 0
+	_gos = 0
+	var steps := 0
+	while main.alive and steps < 60 * 400:
+		if steps % 6 == 0:
+			_autopilot(skill)
+		main.step(1.0 / 60.0)
+		steps += 1
+	var s = main.shift
+	return {"landed": s.landed, "spawned": _spawned, "conflicts": s.conflicts, "net": s.balance(), "stars": s.stars(), "clean_stars": _stars_for(s.earned + s.bonus + s.time_bonus, s.thresholds)}
 
 func _run_player(who: String, mode: String) -> Dictionary:
 	var save = root.get_node("Save")
@@ -141,17 +216,18 @@ func _autopilot(skill: Dictionary) -> void:
 		# conflict (let go again once the danger has passed).
 		if p.state == Aircraft.State.HOLD:
 			if tag["state"] == "wait":
-				if rng.randf() < react and not (rng.randf() < float(skill["sequence"]) and _runway_busy(p)):
+				if rng.randf() < react and not (rng.randf() < float(skill["sequence"]) and _runway_busy(p, float(skill["gap"]))):
 					_route(p, skill)
 					tag["state"] = "done"
 					tag["routed"] = p.age
 					tag["gos"] = p.go_arounds
-			elif p.warn <= 0.0 and p.age - float(tag.get("held", 0.0)) > 2.0 and rng.randf() < 0.3:
+			elif p.age - float(tag.get("held", 0.0)) > 1.5 and _threat(p) == null and rng.randf() < 0.4:
 				tr.toggle_hold(p)
+				tag["state"] = "wait"
 			continue
 		if p.state != Aircraft.State.FLY:
 			continue
-		if p.warn > 0.3 and p.type != Aircraft.Type.GLIDER and p.pos.length() > 3.0 and not p.cleared and rng.randf() < avoid:
+		if p.type != Aircraft.Type.GLIDER and rng.randf() < avoid and _threat(p) != null:
 			tr.toggle_hold(p)
 			tag["held"] = p.age
 			continue
@@ -163,22 +239,48 @@ func _autopilot(skill: Dictionary) -> void:
 		if tag["state"] == "":
 			tag["state"] = "ignore" if rng.randf() < float(skill["ignore"]) else "wait"
 		if tag["state"] == "wait" and rng.randf() < react:
-			if rng.randf() < float(skill["sequence"]) and _runway_busy(p):
+			if rng.randf() < float(skill["sequence"]) and _runway_busy(p, float(skill["gap"])):
 				# circle until the runway is free, but only away from the field (a hold over the approach is a conflict)
-				if p.type != Aircraft.Type.GLIDER and p.type != Aircraft.Type.HELI and p.pos.length() > 3.5:
+				if p.type != Aircraft.Type.GLIDER and p.type != Aircraft.Type.HELI and p.pos.length() > 2.0:
 					tr.toggle_hold(p)
-				if p.pos.length() > 3.5:
+				if p.pos.length() > 2.0:
 					continue
 			_route(p, skill)
 			tag["state"] = "done"
 			tag["routed"] = p.age
 			tag["gos"] = p.go_arounds
 
+## An aircraft that p is on course to conflict with in the next few seconds, and that p should give way to
+## (null if none, or if the other should give way). Straight-line prediction from heading and speed.
+func _threat(p: Aircraft) -> Aircraft:
+	var tr: Traffic = main.traffic
+	var mult: float = tun.speed_mult(tr.run_time) * tun.traffic_speed_mult()
+	var vp: Vector2 = Vector2(sin(p.heading), -cos(p.heading)) * p.speed * mult if p.state == Aircraft.State.FLY else Vector2.ZERO
+	for o: Aircraft in tr.planes:
+		if o == p or not o.active() or not o.entered or o.ground or o.state == Aircraft.State.DIVERT or o.state == Aircraft.State.LANDING:
+			continue
+		var vo: Vector2 = Vector2(sin(o.heading), -cos(o.heading)) * o.speed * mult if o.state == Aircraft.State.FLY else Vector2.ZERO
+		var rel: Vector2 = o.pos - p.pos
+		var dv: Vector2 = vo - vp
+		var t_c := 0.0
+		if dv.length_squared() > 0.0001:
+			t_c = clampf(-rel.dot(dv) / dv.length_squared(), 0.0, 5.0)
+		var dmin: float = (rel + dv * t_c).length()
+		var margin: float = tun.conflict_distance * 1.7 + (tun.hold_radius if o.state == Aircraft.State.HOLD else 0.0)
+		if dmin < margin:
+			# give way: the one with no path yields to one with a path; otherwise the lower id yields
+			if p.cleared and not o.cleared:
+				continue
+			if p.cleared == o.cleared and p.get_instance_id() > o.get_instance_id():
+				continue
+			return o
+	return null
+
 func tr_begin(p: Aircraft) -> void:
 	main.traffic.begin_path(p)
 
 ## Is another aircraft still coming in to this runway, with more than a few units of path to go?
-func _runway_busy(p: Aircraft) -> bool:
+func _runway_busy(p: Aircraft, gap: float = 3.0) -> bool:
 	if p.tkind != Aircraft.Kind.RUNWAY:
 		return false
 	for o in main.traffic.planes:
@@ -191,7 +293,7 @@ func _runway_busy(p: Aircraft) -> bool:
 				var q: Vector2 = o.pts[o.head + k]
 				d += prev.distance_to(q)
 				prev = q
-			if d > 3.0:
+			if d > gap:
 				return true
 	return false
 

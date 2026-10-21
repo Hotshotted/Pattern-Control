@@ -64,6 +64,8 @@ var all_students := false               # Bad Pilot Day: every aircraft is a stu
 var grace_until := 0.0                  # run time until which conflicts are ignored (after an ad-continue)
 var _body_mats: Array[StandardMaterial3D] = []
 var _wing_mats: Array[StandardMaterial3D] = []
+var beats: Array = []                  # the airport's intro beats for this shift: [[seconds, type], ...]
+var _beat := 0
 var _spawn_timer := 0.0
 var _god := false
 
@@ -244,17 +246,17 @@ func _set_model(i: int, type: int, cls: int) -> void:
 
 ## A new plane from a random screen edge. It starts far enough out that it reaches the edge in
 ## Tuning.entry_warning_seconds, and the overlay shows a glow at that entry point until it appears.
-func spawn() -> Aircraft:
+func spawn(force_type: int = -1) -> Aircraft:
 	# Every call draws the same number of random values, so a seeded run (the daily shift) always produces the
 	# same sequence of arrivals, whatever the player did in between.
 	for k in 40:
 		_draws[k] = rng.randf()
-	var type := _pick_type(_draws[0])
+	var type := _pick_type(_draws[0]) if force_type < 0 else force_type
 	var target := _pick_target(type, _draws[1])
 	if target < 0:       # (e.g. no helipad here): an ordinary plane instead
 		type = Aircraft.Type.SMALL
 		target = _pick_target(type, _draws[1])
-	var spec := Airports.specials()
+	var spec := Tuning.specials_mult()
 	var emergency := type != Aircraft.Type.GLIDER and run_time >= Tuning.emergency_start_time and _draws[2] < Tuning.emergency_chance * spec
 	var vip := not emergency and type != Aircraft.Type.GLIDER and _draws[3] < Tuning.vip_chance * spec
 	var lined := Airports.kind_for(type) == Aircraft.Kind.RUNWAY and _draws[4] < Tuning.approach_bias()
@@ -593,17 +595,29 @@ func release_all() -> void:
 		planes[i].reset()
 		_nodes[i].visible = false
 	run_time = 0.0
+	_beat = 0
 	_spawn_timer = Tuning.first_spawn_delay
 
 func step(delta: float) -> void:
 	run_time += delta
 	if auto_spawn and run_time < spawn_until:
-		_spawn_timer -= delta
-		if _spawn_timer <= 0.0:
-			if active_count() < mini(int(Tuning.max_planes), MAX_POOL) and spawn() != null:
-				_spawn_timer = Tuning.spawn_interval(run_time) * Airports.spawn_mult() * Tuning.traffic_spawn_mult() * rng.randf_range(0.75, 1.25)
-			else:
-				_spawn_timer = 0.25
+		var quiet := false
+		if _beat < beats.size():
+			# A new mechanic arrives once, alone: nothing else is sent just before it or for a while after.
+			var bt: float = beats[_beat][0]
+			if run_time >= bt - Tuning.beat_quiet_lead:
+				quiet = true
+				if run_time >= bt and (active_count() == 0 or run_time >= bt + Tuning.beat_quiet_lead):
+					if spawn(int(beats[_beat][1])) != null:
+						_beat += 1
+						_spawn_timer = maxf(_spawn_timer, Tuning.beat_gap)
+		if not quiet:
+			_spawn_timer -= delta
+			if _spawn_timer <= 0.0:
+				if active_count() < mini(Tuning.max_planes_eff(), MAX_POOL) and spawn() != null:
+					_spawn_timer = Tuning.spawn_interval(run_time) * Tuning.traffic_spawn_mult() * rng.randf_range(0.75, 1.25)
+				else:
+					_spawn_timer = 0.25
 	_update_weather(delta)
 	var mult := Tuning.speed_mult(run_time) * Tuning.traffic_speed_mult()
 	for i in MAX_POOL:

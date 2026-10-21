@@ -12,15 +12,10 @@ signal changed(property: String)
 
 ## [Tuning property, label, min, max, step]: the values tuned most.
 const ENTRIES := [
-	["spawn_interval_start", "Spawn gap at start (s)", 1.0, 12.0, 0.1],
-	["spawn_interval_min", "Spawn gap, fastest (s)", 0.5, 6.0, 0.1],
-	["spawn_ramp_fraction", "Ramp finishes at (fraction of spawning)", 0.2, 1.5, 0.05],
 	["spawn_stop_seconds", "Spawning stops at (s)", 20.0, 300.0, 1.0],
 	["early_bonus_per_second", "Early bonus (coins / s)", 0.0, 50.0, 1.0],
 	["overtime_penalty_per_second", "Overtime penalty (coins / s)", 0.0, 50.0, 1.0],
-	["max_planes", "Max planes at once", 2.0, 16.0, 1.0],
 	["shift_seconds", "Par time (s)", 30.0, 400.0, 5.0],
-	["weather_start_time", "Weather: first event at (s)", 0.0, 120.0, 1.0],
 	["weather_interval_start", "Weather: gap at start (s)", 10.0, 150.0, 1.0],
 	["weather_interval_min", "Weather: gap at end (s)", 10.0, 150.0, 1.0],
 	["weather_warning_seconds", "Weather: warning lead (s)", 2.0, 20.0, 0.5],
@@ -54,6 +49,10 @@ const ENTRIES := [
 	["student_go_around_floor", "Student pilots: go-around floor", 0.0, 1.0, 0.05],
 	["bad_day_go_around_floor", "Bad Pilot Day: go-around floor", 0.0, 1.0, 0.05],
 	["bad_day_pay_mult", "Bad Pilot Day: pay multiplier", 1.0, 5.0, 0.5],
+	["intro_spawn_scale", "First shift: arrivals further apart (x)", 1.0, 3.0, 0.05],
+	["intro_timer_scale", "First shift: timers longer (x)", 1.0, 2.5, 0.05],
+	["beat_quiet_lead", "Intro beat: quiet before (s)", 0.0, 12.0, 0.5],
+	["beat_gap", "Intro beat: quiet after (s)", 0.0, 30.0, 0.5],
 	["landing_keep_fraction", "Guaranteed share of landing pay", 0.0, 1.0, 0.05],
 	["pay_glider", "Pay: glider", 0.0, 100.0, 1.0],
 	["pay_heli", "Pay: helicopter", 0.0, 100.0, 1.0],

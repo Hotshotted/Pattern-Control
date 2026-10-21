@@ -342,7 +342,7 @@ func _initialize() -> void:
 	var dx2: float = d[2].pos.x + 4.0
 	check(dx0 < dx1 and dx1 < dx2, "small < medium < jet (%.2f, %.2f, %.2f per second)" % [dx0, dx1, dx2])
 	check(tuning.spawn_interval(0.0) > tuning.spawn_interval(60.0) and tuning.spawn_interval(60.0) > tuning.spawn_interval(1000.0), "spawn gap shrinks over time")
-	check(is_equal_approx(tuning.spawn_interval(1000.0), tuning.spawn_interval_min), "...down to spawn_interval_min")
+	check(is_equal_approx(tuning.spawn_interval(1000.0), float(tuning.profile()["spawn_min"]) * (tuning.intro_spawn_scale if tuning.intro_active else 1.0)), "...down to the airport's fastest pace")
 	check(tuning.speed_mult(0.0) < tuning.speed_mult(100.0), "planes get faster over time")
 	tr.release_all()
 	tr.auto_spawn = true
@@ -435,7 +435,7 @@ func _initialize() -> void:
 			break
 	check(warned, "a warning ring grows as two planes close in (max %.2f)" % warn_max)
 	check(main.alive and main.screen == main.SCREEN_PLAY and main.shift.conflicts == 1, "a conflict doesn't end the shift")
-	check(main.shift.fines == int(tuning.fine_conflict) and main.shift.balance() == -int(tuning.fine_conflict), "...it costs the large fine, and the balance goes negative (%d)" % main.shift.balance())
+	check(main.shift.fines == tuning.fine_amount(tuning.fine_conflict) and main.shift.balance() == -tuning.fine_amount(tuning.fine_conflict), "...it costs the large fine, and the balance goes negative (%d)" % main.shift.balance())
 	check(not a.active() and not bb.active(), "...and both aircraft are lost")
 	check(not has_btn(main, "ad_refund") and main.screen == main.SCREEN_PLAY, "...and nothing interrupts play: no refund ad during the shift")
 	# Grounded and off-screen planes don't conflict.
@@ -466,7 +466,7 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	var tm = tr.place(0, Vector2(-3.0, 0.0), 0.0, MEDIUM)
-	check(is_equal_approx(tm.timer_max, tuning.timer_medium) and is_equal_approx(tm.timer_left, tm.timer_max), "a medium plane starts with the medium timer (%.0f s)" % tm.timer_max)
+	check(is_equal_approx(tm.timer_max, tuning.timer_medium * tuning.timer_mult()) and is_equal_approx(tm.timer_left, tm.timer_max), "a medium plane starts with the medium timer (%.0f s)" % tm.timer_max)
 	run_sec(main, 2.0)
 	check(absf(tm.timer_left - (tm.timer_max - 2.0 * tuning.speed_mult(tr.run_time - 1.0))) < 0.2 or tm.timer_left < tm.timer_max - 1.9, "the timer counts down while it flies (%.1f s left)" % tm.timer_left)
 	var off = tr.place(1, Vector2(0.0, -20.0), PI * 0.0, MEDIUM, false)
@@ -490,13 +490,13 @@ func _initialize() -> void:
 	near.entered = false
 	dv.timer_left = 0.02
 	main.step(1.0 / 30.0)
-	check(dv.state == Aircraft.State.DIVERT and main.shift.diversions == 1 and main.shift.fines == int(tuning.fine_timeout), "a timed-out aircraft is diverted and costs the small fine (%d)" % main.shift.fines)
+	check(dv.state == Aircraft.State.DIVERT and main.shift.diversions == 1 and main.shift.fines == tuning.fine_amount(tuning.fine_timeout), "a timed-out aircraft is diverted and costs the small fine (%d)" % main.shift.fines)
 	var pop_seen = false
 	for l in main.hud._pop_labels:
-		if l.visible and l.text.begins_with("Diverted") and l.text.contains("-%d" % int(tuning.fine_timeout)):
+		if l.visible and l.text.begins_with("Diverted") and l.text.contains("-%d" % tuning.fine_amount(tuning.fine_timeout)):
 			pop_seen = true
 	check(pop_seen, "a red 'Diverted -N' popup shows")
-	check(main.hud._art.balance == -int(tuning.fine_timeout), "the HUD balance shows the fine (and can go negative)")
+	check(main.hud._art.balance == -tuning.fine_amount(tuning.fine_timeout), "the HUD balance shows the fine (and can go negative)")
 	check(tr.pick(dv.pos) != dv, "a diverting aircraft can't be grabbed")
 	check(main.alive, "a fine doesn't end the shift")
 	for i in 600:
@@ -551,7 +551,7 @@ func _initialize() -> void:
 	print("9. shifts, stars, coins, save")
 	main.restart()
 	tr.auto_spawn = false
-	var sth9 = Airports.star_thresholds()
+	var sth9 = tuning.star_thresholds()
 	check(sth9.size() == 3 and sth9[0] < sth9[1] and sth9[1] < sth9[2] and main.hud._art.thresholds.size() == 3, "three coin thresholds per airport, shown on the HUD (%s)" % str(sth9))
 	var fake = Aircraft.new()
 	fake.runway = 0
@@ -616,7 +616,7 @@ func _initialize() -> void:
 	save.reset_all()
 	main.restart()
 	tr.auto_spawn = false
-	earn_coins(main, sth9[1])
+	earn_coins(main, sth9[2])
 	var bal_hi = main.shift.balance()
 	main._apply_fine(int(tuning.fine_timeout), "diversion", "Diverted", Vector2.ZERO)
 	main._apply_fine(int(tuning.fine_conflict), "conflict", "CONFLICT", Vector2.ZERO)
@@ -781,10 +781,10 @@ func _initialize() -> void:
 	check(rolling.state == Aircraft.State.LANDING and not rolling.path_invalid, "a plane already on its landing roll isn't re-routed")
 	# Shifts get more frequent later and on later airports.
 	check(main.wind.interval(0.0) > main.wind.interval(1.0), "wind shifts come more often later in a shift (%.0f s -> %.0f s)" % [main.wind.interval(0.0), main.wind.interval(1.0)])
-	var scale0 = Airports.def()["wind_scale"]
-	Airports.def()["wind_scale"] = 0.5
+	var scale0 = tuning.profile()["wind"]
+	tuning.profile()["wind"] = 0.5
 	var quick = main.wind.interval(0.0)
-	Airports.def()["wind_scale"] = scale0
+	tuning.profile()["wind"] = scale0
 	check(quick < main.wind.interval(0.0), "...and on airports with a lower wind scale")
 	tr.release_all()
 
@@ -815,7 +815,7 @@ func _initialize() -> void:
 			inside_ok = inside_ok and absf(pad["center"].x) <= 4.7 and absf(pad["center"].y) <= 6.2
 		for lane in Airports.lanes():
 			inside_ok = inside_ok and absf(lane["center"].x) <= 4.7 and absf(lane["center"].y) <= 6.2
-		var sth = Airports.star_thresholds(i)
+		var sth = tuning.star_thresholds(i)
 		check(sth.size() == 3 and sth[0] < sth[1] and sth[1] < sth[2], "airport %d (%s) has three increasing coin thresholds" % [i + 1, Airports.airport_name(i)])
 	check(layout_ok, "runway / helipad / lane / mountain counts match the brief (1,2,2,2,2,3 runways)")
 	check(inside_ok, "every runway end, pad and lane sits inside the screen on any phone or tablet")
@@ -946,7 +946,7 @@ func _initialize() -> void:
 		main.step(1.0 / 60.0)
 		if not mt.active():
 			break
-	check(not mt.active() and main.shift.fines == fines_mt + int(tuning.fine_hazard), "flying into a mountain loses the aircraft and costs the medium fine")
+	check(not mt.active() and main.shift.fines == fines_mt + tuning.fine_amount(tuning.fine_hazard), "flying into a mountain loses the aircraft and costs the medium fine")
 	var pop_cr = false
 	for l in main.hud._pop_labels:
 		if l.visible and l.text.begins_with("Crashed!"):
@@ -1008,7 +1008,7 @@ func _initialize() -> void:
 	set_wind(main, 0.0)
 	var pad_c = Airports.pads()[0]["center"]
 	var hc = tr.place(0, pad_c + Vector2(-2.5, -2.0), 0.5, HELI)
-	check(hc.tkind == 1 and is_equal_approx(hc.timer_max, tuning.timer_heli) and tr._heli_groups[tr.planes.find(hc)].visible and not tr._plane_groups[tr.planes.find(hc)].visible, "a helicopter has its own model and the helicopter timer")
+	check(hc.tkind == 1 and is_equal_approx(hc.timer_max, tuning.timer_heli * tuning.timer_mult()) and tr._heli_groups[tr.planes.find(hc)].visible and not tr._plane_groups[tr.planes.find(hc)].visible, "a helicopter has its own model and the helicopter timer")
 	var refused_txt = [""]
 	tr.refused.connect(func(_p, t, _a): refused_txt[0] = t)
 	draw_path(main, hc, [hc.pos + Vector2(0.5, 0.0), Airports.end_threshold(0, 0)])
@@ -1039,7 +1039,7 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 	set_wind(main, 0.0)
 	var gl = tr.place(0, Vector2(1.5, -4.0), PI, GLIDER)
-	check(is_equal_approx(gl.timer_max, tuning.timer_glider) and gl.speed < tuning.speed_slow, "a glider is slow with the shortest timer")
+	check(is_equal_approx(gl.timer_max, tuning.timer_glider * tuning.timer_mult()) and gl.speed < tuning.speed_slow, "a glider is slow with the shortest timer")
 	tr.toggle_hold(gl)
 	check(gl.state == Aircraft.State.FLY and refused_txt[0] == "Gliders can't hold", "gliders can't hold (%s)" % refused_txt[0])
 	draw_path(main, gl, [gl.pos + Vector2(0.0, 0.8), gl.pos + Vector2(-1.0, 2.0)])
@@ -1101,7 +1101,7 @@ func _initialize() -> void:
 	set_wind(main, 0.0)
 	var em = tr.place(0, Airports.end_threshold(1, 0) + Vector2(0.3, 3.0), 0.0, MEDIUM)
 	tr.make_special(em, true, false)
-	check(is_equal_approx(em.timer_max, tuning.timer_medium * tuning.emergency_timer_mult), "an emergency has a shortened timer")
+	check(is_equal_approx(em.timer_max, tuning.timer_medium * tuning.timer_mult() * tuning.emergency_timer_mult), "an emergency has a shortened timer")
 	var emi = tr.planes.find(em)
 	var colors_seen = {}
 	for k in 40:
@@ -1202,7 +1202,7 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	set_wind(main, 0.0)
-	var base_t = tuning.type_timer(MEDIUM)
+	var base_t = tuning.type_timer(MEDIUM) * tuning.timer_mult()
 	var p0 = tr.place(0, Vector2(-3, 0), 0.0, MEDIUM)
 	save.upgrades["comms"] = 2
 	var p2 = tr.place(1, Vector2(3, 0), 0.0, MEDIUM)
@@ -1371,12 +1371,12 @@ func _initialize() -> void:
 	Airports.current = 2
 	check(kinds_by_airport[0] == 0 and kinds_by_airport[1] >= 1 and kinds_by_airport[5] == 3, "no weather on the Grass Strip, more kinds on later airports (%s)" % str(kinds_by_airport))
 	var scales = []
-	for a_i in range(1, 6):
+	for a_i in range(2, 6):
 		Airports.current = a_i
-		scales.append(Airports.weather_scale())
+		scales.append(float(tuning.profile()["weather"]))
 	Airports.current = 2
 	var scale_ok = true
-	for k in range(1, 5):
+	for k in range(1, 4):
 		scale_ok = scale_ok and scales[k] < scales[k - 1]
 	check(scale_ok, "events come more often on later airports (gap scale %s)" % str(scales))
 	main.select_airport(2)
@@ -1410,7 +1410,7 @@ func _initialize() -> void:
 		clock[0] += 1.0 / 60.0
 		if t_start[0] > 0.0:
 			break
-	check(t_warn[0] >= tuning.weather_start_time - 0.1, "the first event is announced no earlier than %.0f s (%.1f)" % [tuning.weather_start_time, t_warn[0]])
+	check(t_warn[0] >= tuning.weather_first_eff() - 0.1, "the first event is announced no earlier than %.0f s (%.1f)" % [tuning.weather_first_eff(), t_warn[0]])
 	check(absf((t_start[0] - t_warn[0]) - tuning.weather_warning_seconds) < 0.1, "...and starts %.0f s after the warning" % tuning.weather_warning_seconds)
 	main.restart()
 	tr.auto_spawn = false
@@ -1432,7 +1432,7 @@ func _initialize() -> void:
 	var st_a = tr.place(0, Vector2(0.5, 0.2), 0.0, MEDIUM)
 	var fines_st = main.shift.fines
 	main.step(1.0 / 60.0)
-	check(not st_a.active() and main.shift.fines == fines_st + int(tuning.fine_hazard), "flying into a storm cell loses the aircraft and costs the medium fine")
+	check(not st_a.active() and main.shift.fines == fines_st + tuning.fine_amount(tuning.fine_hazard), "flying into a storm cell loses the aircraft and costs the medium fine")
 	var pop_st = false
 	for l in main.hud._pop_labels:
 		if l.visible and l.text.begins_with("Struck by storm!"):
@@ -1662,7 +1662,7 @@ func _initialize() -> void:
 		main.start_daily()
 		tr.auto_spawn = false
 		var c0 = save.coins
-		earn_coins(main, Airports.star_thresholds()[0])
+		earn_coins(main, tuning.star_thresholds()[0])
 		tr.spawn_until = 0.0
 		tr.run_time = tuning.shift_seconds + 0.01
 		main.step(1.0 / 60.0)
@@ -1707,7 +1707,7 @@ func _initialize() -> void:
 	main._process(0.2)
 	check(main.screen == main.SCREEN_AD, "...for its full length")
 	main._process(0.4)
-	check(main.screen == main.SCREEN_OVER and not main.hud._ad.visible and main.shift.fines == fines_pre - int(tuning.fine_conflict), "then the results come back with the fine refunded (%d -> %d)" % [fines_pre, main.shift.fines])
+	check(main.screen == main.SCREEN_OVER and not main.hud._ad.visible and main.shift.fines == fines_pre - tuning.fine_amount(tuning.fine_conflict), "then the results come back with the fine refunded (%d -> %d)" % [fines_pre, main.shift.fines])
 	# Double coins.
 	main.restart()
 	tr.auto_spawn = false
@@ -2049,7 +2049,7 @@ func _initialize() -> void:
 	fk2.student = true
 	main._on_landed(fk2)
 	check(main.shift.earned == roundi(tuning.pay_medium * tuning.student_pay_mult * tuning.bad_day_pay_mult), "every Bad Pilot Day landing pays big (%d vs %d for an ordinary one)" % [main.shift.earned, tuning.pay_medium])
-	check(main.shift.thresholds[0] == roundi(Airports.star_thresholds()[0] * tuning.bad_day_threshold_mult), "...and its star thresholds are higher")
+	check(main.shift.thresholds[0] == roundi(tuning.star_thresholds()[0] * tuning.bad_day_threshold_mult), "...and its star thresholds are higher")
 	var streaks_b = []
 	var bonus_b = []
 	var stars_b = save.stars_total()
@@ -2098,8 +2098,11 @@ func _initialize() -> void:
 	check(tuning.shift_seconds == 100.0 and tuning.spawn_stop_seconds == 85.0, "par is 100 s, 15 s after spawning stops")
 	var th_txt = []
 	for ai in Airports.COUNT:
-		th_txt.append(str(Airports.star_thresholds(ai)))
-	check(Airports.star_thresholds(2) == [90, 175, 260] and Airports.star_thresholds(0) == [50, 100, 160], "star thresholds were halved with the shift %s" % ", ".join(th_txt))
+		th_txt.append(str(tuning.star_thresholds(ai)))
+	var th_up = true
+	for ai in range(1, Airports.COUNT):
+		th_up = th_up and tuning.star_thresholds(ai)[2] > tuning.star_thresholds(ai - 1)[2]
+	check(th_up, "star thresholds rise from airport to airport %s" % ", ".join(th_txt))
 	check(tuning.daily_bonus_coins == 75 and tuning.daily_streak_coins == 13, "the daily completion bonus was halved too")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
@@ -2207,9 +2210,9 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 	set_wind(main, 0.0)
 	# The ramp is scaled to the 90 s shift: it reaches the old full, busy state when spawning stops.
-	var k9_full_t = tuning.spawn_ramp_fraction * tuning.spawn_stop_seconds
+	var k9_full_t = float(tuning.profile()["ramp"]) * tuning.spawn_stop_seconds
 	check(tuning.spawn_stop_seconds == 85.0 and absf(tuning.spawn_progress(k9_full_t) - 1.0) < 0.001 and tuning.spawn_progress(k9_full_t * 0.5) > 0.45 and tuning.spawn_progress(k9_full_t * 0.5) < 0.55, "the traffic ramp finishes at %.0f s of an 85 s spawning window" % k9_full_t)
-	check(absf(tuning.spawn_interval(tuning.spawn_stop_seconds) - tuning.spawn_interval_min) < 0.01 and absf(tuning.speed_mult(tuning.spawn_stop_seconds) - tuning.speed_ramp_max) < 0.01, "...at the busiest spacing and top speed (%.1f s apart, x%.1f)" % [tuning.spawn_interval(85.0), tuning.speed_mult(85.0)])
+	check(absf(tuning.spawn_interval(tuning.spawn_stop_seconds) - float(tuning.profile()["spawn_min"]) * (tuning.intro_spawn_scale if tuning.intro_active else 1.0)) < 0.01 and absf(tuning.speed_mult(tuning.spawn_stop_seconds) - tuning.speed_ramp_max * float(tuning.profile()["speed"])) < 0.01, "...at the busiest spacing and top speed (%.1f s apart, x%.1f)" % [tuning.spawn_interval(85.0), tuning.speed_mult(85.0)])
 	check(tuning.spawn_progress(30.0) > 0.4, "a 30 s old shift is already well into the ramp (%.2f)" % tuning.spawn_progress(30.0))
 	# Spawning stops at 85 s.
 	tr.auto_spawn = true
@@ -2427,6 +2430,145 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
+	print("9m. airport difficulty profiles, gentle first shifts, intro beats")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	check(tuning.airport_profiles.size() == Airports.COUNT, "one difficulty profile per airport")
+	var mono = true
+	for ai in range(1, Airports.COUNT):
+		var pa = tuning.profile(ai - 1)
+		var pb = tuning.profile(ai)
+		mono = mono and pb["max_planes"] >= pa["max_planes"] and pb["spawn_start"] <= pa["spawn_start"] and pb["spawn_min"] <= pa["spawn_min"] and pb["speed"] >= pa["speed"] and pb["timer"] <= pa["timer"] and pb["stars"][2] > pa["stars"][2] and pb["fines"] >= pa["fines"]
+	check(mono, "difficulty only steps up: more traffic, faster pace, faster aircraft, shorter timers, higher stars and fines")
+	var pg = tuning.profile(0)
+	var pc = tuning.profile(1)
+	check(pg["max_planes"] <= 3 and pc["max_planes"] <= 4 and pg["specials"] == 0.0 and pg["weather"] == 0.0 and pg["wind"] == 0.0 and pc["weather"] == 0.0 and pc["wind"] > 0.0, "Grass Strip: at most 3 aircraft, no specials, no weather, no wind shifts; County: at most 4, gentle wind shifts, no weather")
+	var slow_only = true
+	for k in Airports.mix(0):
+		slow_only = slow_only and tuning.type_speed_class(k) == 0
+	check(slow_only and pg["speed"] < 1.0 and pg["timer"] > 1.0, "Grass Strip has slow aircraft only, at a gentle speed (x%.2f), with long timers (x%.2f)" % [pg["speed"], pg["timer"]])
+	var pm = tuning.profile(3)
+	check(pm["max_planes"] >= 10 and pm["speed"] == 1.0 and pm["timer"] == 1.0 and pm["weather"] == 1.0 and pm["wind"] == 1.0, "Mountain Field is where today's full intensity is reached")
+	check(tuning.profile(5)["max_planes"] > pm["max_planes"] and tuning.profile(5)["speed"] > 1.0 and tuning.profile(5)["timer"] < 1.0, "International goes beyond it")
+	# Densities: nobody plays, and the field still never holds more than the cap.
+	var peak = []
+	for ai in [0, 1, 3, 5]:
+		main.select_airport(ai)
+		save.airport_plays[ai] = 1      # (not the gentle first shift)
+		main.restart()
+		tr.auto_spawn = true
+		var peak_n = 0
+		var arrivals = [0]
+		var arr_cb = func(_pl): arrivals[0] += 1
+		tr.spawned.connect(arr_cb)
+		for i in 60 * 80:
+			main.step(1.0 / 60.0)
+			peak_n = maxi(peak_n, tr.active_count())
+			for pl in tr.planes:
+				if pl.active() and pl.age > 10.0:
+					tr.lose(pl)         # (stand-in for a player who lands them)
+			if not main.alive:
+				break
+		tr.spawned.disconnect(arr_cb)
+		peak.append([ai, peak_n, arrivals[0]])
+		check(peak_n <= tuning.max_planes_eff(), "%s: never more than %d aircraft at once (peak %d, %d arrivals in 80 s)" % [Airports.airport_name(ai), tuning.max_planes_eff(), peak_n, arrivals[0]])
+	check(peak[0][2] < peak[1][2] and peak[1][2] < peak[3][2] and peak[3][2] < peak[2 + 1][2] + 1000, "later airports bring more arrivals (%s)" % str(peak))
+	check(peak[0][2] >= 9 and peak[0][2] <= 16 and peak[3][2] >= 18, "Grass Strip ~%d arrivals in 80 s, Mountain Field ~%d" % [peak[0][2], peak[3][2]])
+	# Grass Strip: no wind shift and no weather, ever.
+	main.select_airport(0)
+	main.restart()
+	tr.auto_spawn = false
+	var shifts_seen = [0]
+	var wx_seen = [0]
+	var wcb = func(_d): shifts_seen[0] += 1
+	var xcb = func(_k, _t): wx_seen[0] += 1
+	main.wind.warned.connect(wcb)
+	main.weather.warned.connect(xcb)
+	for i in 60 * 84:
+		main.step(1.0 / 60.0)
+	main.wind.warned.disconnect(wcb)
+	main.weather.warned.disconnect(xcb)
+	check(shifts_seen[0] == 0 and wx_seen[0] == 0, "Grass Strip: no wind shift or weather in a whole shift")
+	# County: the first wind shift is announced no earlier than wind_first, and weather never comes.
+	main.select_airport(1)
+	main.restart()
+	tr.auto_spawn = false
+	var first_wind = [-1.0]
+	var wx2 = [0]
+	var wcb2 = func(_d):
+		if first_wind[0] < 0.0:
+			first_wind[0] = tr.run_time
+	var xcb2 = func(_k, _t): wx2[0] += 1
+	main.wind.warned.connect(wcb2)
+	main.weather.warned.connect(xcb2)
+	for i in 60 * 84:
+		main.step(1.0 / 60.0)
+	main.wind.warned.disconnect(wcb2)
+	main.weather.warned.disconnect(xcb2)
+	check(first_wind[0] >= float(tuning.profile(1)["wind_first"]) - tuning.wind_warning_seconds - 0.5 and first_wind[0] > 0.0 and wx2[0] == 0, "County: the first wind shift is announced at %.0f s, with no weather" % first_wind[0])
+	# Fines scale with the airport.
+	main.select_airport(0)
+	Airports.current = 0
+	check(tuning.fine_amount(tuning.fine_conflict) == roundi(tuning.fine_conflict * 0.4) and tuning.fine_amount(tuning.fine_conflict) < 50, "Grass Strip fines are small (conflict %d)" % tuning.fine_amount(tuning.fine_conflict))
+	main.select_airport(3)
+	Airports.current = 3
+	check(tuning.fine_amount(tuning.fine_conflict) == int(tuning.fine_conflict), "...and full size from Mountain Field on")
+	# The first shift at an airport is gentler.
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	var iv_first = tuning.spawn_interval(40.0)
+	var tm_first = tuning.timer_mult()
+	check(tuning.intro_active and save.airport_plays[2] == 0, "a first visit is flagged as an intro shift")
+	tr.auto_spawn = false
+	var tp_first = tr.place(0, Vector2(-3, 0), 0.0, MEDIUM)
+	tr.release_all()
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.shift_seconds + 0.01
+	main.step(1.0 / 60.0)
+	check(not main.alive and save.airport_plays[2] == 1, "finishing it is recorded")
+	main.restart()
+	check(not tuning.intro_active and tuning.spawn_interval(40.0) < iv_first and absf(iv_first / tuning.spawn_interval(40.0) - tuning.intro_spawn_scale) < 0.01, "replays have the normal pace: arrivals %.2fx further apart in the first shift" % (iv_first / tuning.spawn_interval(40.0)))
+	check(tm_first > tuning.timer_mult() and absf(tm_first / tuning.timer_mult() - tuning.intro_timer_scale) < 0.01, "...and the first shift has longer timers (x%.2f)" % (tm_first / tuning.timer_mult()))
+	main.start_daily()
+	check(not tuning.intro_active and tr.beats.is_empty(), "the daily shifts have no intro easing and no scripted beats")
+	main._show_menu()
+	# Intro beats: the new mechanic arrives alone, early.
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = true
+	var log = []
+	var lcb = func(pl): log.append([tr.run_time, pl.type])
+	tr.spawned.connect(lcb)
+	for i in 60 * 40:
+		main.step(1.0 / 60.0)
+		for pl in tr.planes:
+			if pl.active() and pl.timer_left < 5.0:
+				pl.timer_left = 50.0
+	tr.spawned.disconnect(lcb)
+	var heli_i = -1
+	var jet_i = -1
+	for k in log.size():
+		if log[k][1] == HELI and heli_i < 0 and log[k][0] >= 4.0:
+			heli_i = k
+		if log[k][1] == JET and jet_i < 0 and log[k][0] >= 20.0:
+			jet_i = k
+	check(heli_i >= 0 and log[heli_i][0] >= 5.0 and log[heli_i][0] < 10.0, "Regional: the helicopter (new mechanic) arrives early, at %.1f s" % (log[heli_i][0] if heli_i >= 0 else -1.0))
+	var alone = heli_i >= 0
+	for k in log.size():
+		if k != heli_i and heli_i >= 0 and log[k][0] > log[heli_i][0] - tuning.beat_quiet_lead + 0.5 and log[k][0] < log[heli_i][0] + tuning.beat_gap - 0.5:
+			alone = false
+	check(alone, "...and alone: nothing else arrives in the %.0f s around it" % (tuning.beat_quiet_lead + tuning.beat_gap))
+	check(jet_i >= 0 and log[jet_i][0] >= 24.0 and log[jet_i][0] < 32.0, "...and the jet comes by itself later, at %.1f s" % (log[jet_i][0] if jet_i >= 0 else -1.0))
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
@@ -2493,7 +2635,7 @@ func _initialize() -> void:
 	check(tp.last_copied_text.contains("entry_color_fast = Color(") and tp.last_copied_text.contains("entry_warning_seconds = 3.5"), "Copy values includes the lead time and colours")
 	tp.reset_defaults()
 	check(is_equal_approx(tuning.entry_warning_seconds, old_lead) and tuning.entry_color_fast.is_equal_approx(old_col), "Reset restores them")
-	for name in ["spawn_interval_start", "speed_fast", "timer_jet", "shift_seconds", "conflict_distance", "warn_distance"]:
+	for name in ["intro_spawn_scale", "speed_fast", "timer_jet", "shift_seconds", "conflict_distance", "warn_distance"]:
 		check(tp._sliders.has(name), "panel has a slider for %s" % name)
 	tp.close()
 	check(not tp.is_open and not main.get_tree().paused, "closing the panel resumes the game")
