@@ -155,6 +155,7 @@ func _initialize() -> void:
 	save.reset_all()
 	tuning.ad_stub_seconds = 0.0    # fake ads finish at once unless a test is about them
 	tuning.go_around_max = 0.0      # ...and no random go-arounds, except in the go-around section
+	tuning.intro_logo = false       # ...and no boot logo, except in the motion section
 	DebugFlags.parse(["tune"])   # the whole run has the tuning panel, so it is part of the "nothing new" baseline
 
 	print("1. boot and the visible pre-warm")
@@ -2900,6 +2901,152 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
+	print("9q. motion: transitions, button feedback, flying coins, living menu")
+	save.reset_all()
+	var hud = main.hud
+	main._show_menu()
+	check(hud.transition_kind() == "menu", "the menu arms its transition")
+	var q_from_menu_depth = hud._tr_depth
+	main._show_select()
+	check(hud.transition_kind() == "select" and hud.transition_dir() == 1 and hud.transitioning(), "opening a list slides forward (%d)" % hud.transition_dir())
+	check(hud.offset.x > 0.0 and hud._art.modulate.a < 0.5, "...it starts off to the right, faded out")
+	hud._process(Style.T_BASE * 0.5)
+	var q_mid_x = hud.offset.x
+	hud._process(Style.T_BASE)
+	check(q_mid_x > 0.0 and q_mid_x < hud.SLIDE and hud.offset == Vector2.ZERO and hud._art.modulate.a == 1.0 and not hud.transitioning(), "...eases in over %.2f s and settles exactly" % Style.T_BASE)
+	main._show_menu()
+	check(hud.transition_dir() == -1 and hud.offset.x < 0.0, "coming back slides from the left")
+	hud.skip_animations()
+	check(hud.offset == Vector2.ZERO and hud.transform == Transform2D.IDENTITY, "skipping finishes it")
+	main._show_upgrades()
+	hud.skip_animations()
+	var q_up_kind = hud.transition_kind()
+	main._show_upgrades()
+	check(hud.transition_kind() == q_up_kind and not hud.transitioning(), "refreshing the same screen (a purchase) does not replay it")
+	main.restart()
+	tr.auto_spawn = false
+	hud.skip_animations()
+	main.pause_game()
+	check(hud.transition_dir() == 0 and hud.transitioning() and hud.transform != Transform2D.IDENTITY, "sheets (pause) pop in with a scale instead of sliding")
+	main.resume_game()
+	hud.skip_animations()
+	main._show_menu()
+	hud.skip_animations()
+	# Cards pop in one after another; buttons squash and bounce.
+	main._show_select()
+	hud._process(0.01)
+	check(hud._art.btn_age < 0.1, "a screen's cards start their pop-in (age %.2f)" % hud._art.btn_age)
+	hud._process(Style.T_BASE + Style.STAGGER * 6.0 + 0.1)
+	check(not hud._art.animating() or hud._art.btn_age >= 0.9 or hud._art.btn_age > Style.T_BASE + Style.STAGGER * 6.0, "...and are all in place after the stagger")
+	var q_bk = hud._art.btn_id.find("airport:0")
+	var q_bpos = hud._art.btn_rect[q_bk].get_center()
+	hud.press(q_bpos)
+	hud._process(Style.T_FAST)
+	check(hud._art.press_k == q_bk and hud._art.animating(), "a pressed card squashes")
+	hud.release()
+	check(hud._art.rel_k == q_bk and hud._art.rel_t == 0.0 and hud._art.animating(), "...and bounces back on release")
+	hud._process(Style.T_BASE + 0.05)
+	check(not hud._art.animating(), "...then everything is still again")
+	# Release activates, down only presses (with a click).
+	main._show_menu()
+	hud.skip_animations()
+	var q_pk = hud._art.btn_id.find("airports")
+	var q_ppos = hud._art.btn_rect[q_pk].get_center()
+	var q_pr0 = main.sfx.plays["press"]
+	touch(main, 0, true, q_ppos)
+	check(main.screen == main.SCREEN_MENU and hud.pressed_id() == "airports" and main.sfx.plays["press"] == q_pr0 + 1 and hud.transition_kind() == "menu", "a finger down presses the button with a click, but nothing opens yet")
+	touch(main, 0, true, Vector2(5, 900))
+	touch(main, 0, false, Vector2(q_ppos.x + 400.0, q_ppos.y))
+	check(hud.transition_kind() == "menu", "sliding off the button before lifting cancels it")
+	touch(main, 0, true, q_ppos)
+	touch(main, 0, false, q_ppos)
+	check(hud.transition_kind() == "select", "lifting on it opens the airports")
+	main._show_menu()
+	hud.skip_animations()
+	# Header totals roll.
+	main._show_upgrades()
+	hud.skip_animations()
+	var q_coins_before = hud._hdr_shown[0]
+	save.coins += 60
+	main._show_upgrades()
+	check(hud._hdr_target[0] == float(save.coins) and hud._hdr_shown[0] == q_coins_before, "a changed coin total rolls (still %d, going to %d)" % [q_coins_before, save.coins])
+	hud._process(0.2)
+	check(hud._hdr_shown[0] > q_coins_before and hud._hdr_shown[0] <= float(save.coins), "...towards the new value")
+	hud.skip_animations()
+	check(hud._art.header_text == str(save.coins), "...and lands on it")
+	# Coins fly from a landing to the counter.
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	hud.skip_animations()
+	var q_arrived0 = hud.coins_arrived
+	main._on_landed(tr.place(0, Vector2(0, 0), 0.0, SMALL))
+	check(hud.flying_coins() >= 1 and hud.flying_coins() <= 5, "a landing sends coins flying (%d)" % hud.flying_coins())
+	hud._process(0.1)
+	check(hud._art.fc_s[0] > 0.0 or hud._art.fc_s[1] > 0.0, "...they are drawn on the way")
+	for i in 40:
+		hud._process(0.05)
+	check(hud.flying_coins() == 0 and hud.coins_arrived > q_arrived0, "...and arrive at the counter, which punches (%d arrived)" % (hud.coins_arrived - q_arrived0))
+	# The living menu: a small scenic traffic of its own.
+	main.restart()
+	tr.auto_spawn = false
+	var q_dio = main.diorama
+	check(q_dio.traffic.scenic and q_dio.traffic.pool_n == 3 and q_dio.traffic != tr and q_dio.get_parent() == main, "the menu has its own scenic aircraft, apart from the game's")
+	main._show_menu()
+	main._process(0.016)
+	check(q_dio.active, "the diorama runs behind the menu")
+	q_dio.reset()
+	q_dio._next = 0.0
+	q_dio.tick(0.1)
+	check(q_dio.traffic.active_count() == 1, "an aircraft comes in to land")
+	var q_landed_seen = false
+	var q_peak_air = 0
+	for i in 60 * 14:
+		q_dio.tick(1.0 / 60.0)
+		q_peak_air = maxi(q_peak_air, q_dio.traffic.active_count())
+		for pl in q_dio.traffic.planes:
+			if pl.active() and pl.state == Aircraft.State.LANDING:
+				q_landed_seen = true
+	check(q_landed_seen, "...touches down and rolls out")
+	check(q_peak_air >= 2 and q_peak_air <= 3, "...and another taxis off the runway (peak %d)" % q_peak_air)
+	check(tr.active_count() == 0 and main.score == 0 and main.shift.earned == 0, "the scenery scores nothing and adds no aircraft to the game")
+	var q_cloud_vis = 0
+	for q_cl in q_dio._clouds:
+		if q_cl.visible:
+			q_cloud_vis += 1
+	var q_x0 = q_dio._clouds[0].position
+	q_dio.tick(1.0)
+	check(q_cloud_vis == q_dio.CLOUDS and q_dio._clouds[0].position != q_x0 and float(q_dio._cloud_mats[0].get_shader_parameter("alpha")) > 0.0, "clouds drift across (%d of them)" % q_cloud_vis)
+	main.begin_shift()
+	main._process(0.016)
+	q_dio.tick(0.7)
+	check(not q_dio.active and q_dio.traffic.active_count() == 0 and not q_dio._clouds[0].visible, "during a shift the diorama is gone: no aircraft, no clouds")
+	main.restart()
+	tr.auto_spawn = false
+
+	# The animated logo intro.
+	tuning.intro_logo = true
+	main._boot_to_menu()
+	check(main.hud.logo_active() and main.hud._logo_bg.visible and main.hud._art.logo_t == 0.0, "the intro starts: a studio mark, then the game's name")
+	var q_logo_done = [0]
+	var q_logo_cb = func(): q_logo_done[0] += 1
+	main.hud.logo_finished.connect(q_logo_cb)
+	main.hud._process(0.5)
+	main.hud._process(0.6)
+	check(main.hud.logo_active() and q_logo_done[0] == 0 and main.hud._art.logo_t > 1.0, "...it runs on to the logo (%.1f s)" % main.hud._art.logo_t)
+	touch(main, 0, true, Vector2(540, 900))
+	check(main.hud._art.logo_t >= main.hud.LOGO_END and main.screen == main.SCREEN_MENU, "a tap skips ahead")
+	main.hud._process(0.01)
+	check(q_logo_done[0] == 1 and main.hud._logo_bg.color.a > 0.9, "...the menu is called for once, while the cover starts to fade")
+	main.hud._process(0.5)
+	main.hud._process(0.5)
+	check(not main.hud.logo_active() and not main.hud._logo_bg.visible and q_logo_done[0] == 1, "...and the intro is over (total %.1f s)" % (main.hud.LOGO_END + main.hud.LOGO_FADE))
+	check(main.hud.LOGO_END + main.hud.LOGO_FADE <= 3.0, "the whole intro is short")
+	main.hud.logo_finished.disconnect(q_logo_cb)
+	tuning.intro_logo = false
+	main.restart()
+	tr.auto_spawn = false
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
@@ -2946,6 +3093,7 @@ func _initialize() -> void:
 	var again_i = main.hud._art.btn_id.find("again")
 	var again_c = main.hud._art.btn_rect[again_i].get_center()
 	touch(main, 0, true, again_c)
+	touch(main, 0, false, again_c)
 	check(main.screen == main.SCREEN_PLAY and main.alive and main.score == 0, "PLAY AGAIN restarts in place")
 	touch(main, 0, false, again_c)
 

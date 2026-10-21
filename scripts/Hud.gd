@@ -78,6 +78,13 @@ class Art extends Control:
 	var _p5 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 	var _line := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 	var press_k := -1                  # the button being pressed (drawn pushed in), -1 none
+	var press_t := 0.0
+	var rel_k := -1                    # the button just released (it bounces back)
+	var rel_t := 99.0
+	var fc_pos := PackedVector2Array()       # flying coins: where, and how big (0 = not flying)
+	var fc_s := PackedFloat32Array()
+	var logo_t := -1.0                 # the title intro (studio mark, then the game's logo); < 0 = off
+	var btn_age := 99.0                # seconds since the screen's buttons appeared (they pop in, staggered)
 	var top := 0.0                     # safe-area insets (notch, corners, home indicator)
 	var left := 0.0
 	var right := 0.0
@@ -125,6 +132,8 @@ class Art extends Control:
 		for a in [btn_state, btn_stars, btn_icon, btn_kind, btn_pips, btn_cost, btn_badge, btn_lock]:
 			a.resize(MAX_BTN)
 		_pts.resize(10)
+		fc_pos.resize(10)
+		fc_s.resize(10)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		_sb_normal = Style.box(C_PANEL, Color(Style.LINE, 0.55), Style.R_M)
@@ -370,6 +379,10 @@ class Art extends Control:
 
 	# ---------- buttons and cards ----------
 
+	## Is anything on the buttons still moving (so the art needs redrawing every frame)?
+	func animating() -> bool:
+		return (btn_count > 0 and btn_age < 0.9) or (press_k >= 0 and press_t < Style.T_FAST) or (rel_k >= 0 and rel_t < Style.T_BASE)
+
 	func clear_buttons() -> void:
 		btn_count = 0
 		queue_redraw()
@@ -401,109 +414,127 @@ class Art extends Control:
 				return k
 		return -1
 
+	## Every button pops in (staggered, overshooting) when its screen appears, squashes while pressed and bounces back.
 	func _draw_buttons() -> void:
 		for k in btn_count:
-			var r := btn_rect[k]
-			var st := btn_state[k]
-			var kind := btn_kind[k]
-			var ink := C_TEXT if st != 1 else Color(0.5, 0.53, 0.6)
-			var pressed := press_k == k and st != 1
-			if pressed and kind != 2:
-				r.position.y += 5.0
-			match kind:
-				2:      # the primary button: big, green, chunky (a dark lip under it that the press squashes), XL text with its icon
-					var face := Rect2(r.position.x, r.position.y, r.size.x, r.size.y - Style.LIP)
-					if st == 1:
-						draw_style_box(_sb_disabled, face)
+			var s := 1.0
+			var t := (btn_age - minf(float(k), 6.0) * Style.STAGGER) / Style.T_BASE
+			if t < 1.0:
+				s = Style.ease_out_back(maxf(t, 0.0))
+				if s <= 0.01:
+					continue
+			if press_k == k:
+				s *= lerpf(1.0, 0.94, Style.ease_out_cubic(press_t / Style.T_FAST))
+			elif rel_k == k and rel_t < Style.T_BASE:
+				s *= lerpf(0.94, 1.0, Style.ease_out_back(rel_t / Style.T_BASE))
+			if absf(s - 1.0) > 0.001:
+				var c := btn_rect[k].get_center()
+				draw_set_transform(c * (1.0 - s), 0.0, Vector2(s, s))
+			_draw_button(k)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	func _draw_button(k: int) -> void:
+		var r := btn_rect[k]
+		var st := btn_state[k]
+		var kind := btn_kind[k]
+		var ink := C_TEXT if st != 1 else Color(0.5, 0.53, 0.6)
+		var pressed := press_k == k and st != 1
+		if pressed and kind != 2:
+			r.position.y += 5.0
+		match kind:
+			2:      # the primary button: big, green, chunky (a dark lip under it that the press squashes), XL text with its icon
+				var face := Rect2(r.position.x, r.position.y, r.size.x, r.size.y - Style.LIP)
+				if st == 1:
+					draw_style_box(_sb_disabled, face)
+				else:
+					draw_style_box(_sb_lip, Rect2(face.position.x, face.position.y + Style.LIP, face.size.x, face.size.y))
+					if pressed:
+						face.position.y += Style.LIP - 3.0
+					panel(_sb_primary, face, _sheen_l)
+				r = face
+				var tw := text_width(btn_text[k], SZ_XL)
+				var gw := r.size.y * 0.34 if btn_glyph[k] != "" else 0.0
+				var x0 := r.get_center().x - (tw + gw) * 0.5
+				if gw > 0.0:
+					glyph(btn_glyph[k], Vector2(x0 + gw * 0.3, r.get_center().y), r.size.y * 0.2, ink)
+				text(btn_text[k], Vector2(x0 + gw, r.get_center().y + SZ_XL * 0.33), SZ_XL, ink)
+			3:      # a round icon button with a small label under it
+				var c := r.get_center() - Vector2(0, 16.0)
+				var rad := minf(r.size.x, r.size.y) * 0.5 - 18.0
+				draw_circle(c + Style.SHADOW_OFFSET, rad + 4.0, Style.SHADOW_COLOR)
+				draw_circle(c, rad + 4.0, C_LINE if st != 1 else Color(0.3, 0.33, 0.4))
+				draw_circle(c, rad, C_PANEL if st != 2 else Color(0.14, 0.5, 0.35))
+				draw_circle(c + Vector2(0, -rad * 0.28), rad * 0.62, Color(1, 1, 1, 0.07))
+				glyph(btn_glyph[k], c, rad * 0.5, ink)
+				text(btn_text[k], Vector2(r.position.x, r.end.y - 4.0), SZ_S, C_SOFT if st != 1 else C_QUIET, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
+				var b := btn_badge[k]
+				if b != 0:
+					var bc := c + Vector2(rad * 0.75, -rad * 0.75)
+					draw_circle(bc, 22.0, Color.BLACK)
+					draw_circle(bc, 19.0, Color(0.2, 0.75, 0.45) if b < 0 else Color(1.0, 0.55, 0.15))
+					if b < 0:
+						glyph("check", bc, 11.0, Color.WHITE)
 					else:
-						draw_style_box(_sb_lip, Rect2(face.position.x, face.position.y + Style.LIP, face.size.x, face.size.y))
-						if pressed:
-							face.position.y += Style.LIP - 3.0
-						panel(_sb_primary, face, _sheen_l)
-					r = face
-					var tw := text_width(btn_text[k], SZ_XL)
-					var gw := r.size.y * 0.34 if btn_glyph[k] != "" else 0.0
-					var x0 := r.get_center().x - (tw + gw) * 0.5
-					if gw > 0.0:
-						glyph(btn_glyph[k], Vector2(x0 + gw * 0.3, r.get_center().y), r.size.y * 0.2, ink)
-					text(btn_text[k], Vector2(x0 + gw, r.get_center().y + SZ_XL * 0.33), SZ_XL, ink)
-				3:      # a round icon button with a small label under it
-					var c := r.get_center() - Vector2(0, 16.0)
-					var rad := minf(r.size.x, r.size.y) * 0.5 - 18.0
-					draw_circle(c + Style.SHADOW_OFFSET, rad + 4.0, Style.SHADOW_COLOR)
-					draw_circle(c, rad + 4.0, C_LINE if st != 1 else Color(0.3, 0.33, 0.4))
-					draw_circle(c, rad, C_PANEL if st != 2 else Color(0.14, 0.5, 0.35))
-					draw_circle(c + Vector2(0, -rad * 0.28), rad * 0.62, Color(1, 1, 1, 0.07))
-					glyph(btn_glyph[k], c, rad * 0.5, ink)
-					text(btn_text[k], Vector2(r.position.x, r.end.y - 4.0), SZ_S, C_SOFT if st != 1 else C_QUIET, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
-					var b := btn_badge[k]
-					if b != 0:
-						var bc := c + Vector2(rad * 0.75, -rad * 0.75)
-						draw_circle(bc, 22.0, Color.BLACK)
-						draw_circle(bc, 19.0, Color(0.2, 0.75, 0.45) if b < 0 else Color(1.0, 0.55, 0.15))
-						if b < 0:
-							glyph("check", bc, 11.0, Color.WHITE)
-						else:
-							text(str(b), bc + Vector2(-20.0, 10.0), 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, 40.0)
-				4:      # a small chip: glyph + a few words
-					if btn_text[k] == "" and btn_glyph[k] != "":      # an icon-only button is a ghost: a quiet round chip
-						draw_style_box(_sb_ghost, r)
-						glyph(btn_glyph[k], r.get_center(), r.size.y * 0.3, ink)
-						continue
-					panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r, _sheen_s)
-					var tw2 := text_width(btn_text[k], SZ_S)
-					var total := tw2 + (text_width(btn_sub[k], SZ_S) + 16.0 if btn_sub[k] != "" else 0.0) + (r.size.y * 0.5 + 12.0 if btn_glyph[k] != "" else 0.0)
-					var x0 := r.get_center().x - total * 0.5
-					if btn_glyph[k] != "":
-						glyph(btn_glyph[k], Vector2(x0 + r.size.y * 0.25, r.get_center().y), r.size.y * 0.24, ink)
-						x0 += r.size.y * 0.5 + 12.0
-					text(btn_text[k], Vector2(x0, r.get_center().y + SZ_S * 0.35), SZ_S, ink)
-					if btn_sub[k] != "":
-						text(btn_sub[k], Vector2(x0 + tw2 + 16.0, r.get_center().y + SZ_S * 0.35), SZ_S, C_GOLD)
-				1:      # a card
-					var sb := _sb_gold if (st == 2 and btn_cost[k] == 0) else (_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal))
-					panel(sb, r)
-					var left := r.position.x + 36.0
-					var cy := r.get_center().y
-					var iconed := btn_icon[k] >= 0 or btn_glyph[k] != ""
-					if btn_icon[k] >= 0:
-						_draw_icon(btn_icon[k], Vector2(left + 44.0, cy), minf(r.size.y * 0.3, 46.0))
-					elif btn_glyph[k] != "":
-						draw_circle(Vector2(left + 44.0, cy), 44.0, Color(0.03, 0.05, 0.09, 0.8))
-						glyph(btn_glyph[k], Vector2(left + 44.0, cy), 24.0, ink if st != 1 else C_QUIET)
-					var tx := left + (110.0 if iconed else 0.0)
-					var right_w := 220.0 if (btn_cost[k] >= 0 or btn_pips[k] >= 0) else (190.0 if btn_stars[k] >= 0 or btn_lock[k] > 0 else 60.0)
-					var tw3 := r.end.x - tx - right_w - 30.0
-					text(btn_text[k], Vector2(tx, cy + (-2.0 if btn_sub[k] != "" else SZ_M * 0.34)), SZ_M, ink, HORIZONTAL_ALIGNMENT_LEFT, tw3)
-					if btn_sub[k] != "":
-						text(btn_sub[k], Vector2(tx, cy + 40.0), SZ_S, C_SOFT if st != 1 else C_QUIET, HORIZONTAL_ALIGNMENT_LEFT, tw3)
-					var rx := r.end.x - 36.0
-					if btn_stars[k] >= 0 and btn_lock[k] <= 0:
-						for i in 3:
-							glyph("star" if i < btn_stars[k] else "star_off", Vector2(rx - 120.0 + i * 60.0, cy), 24.0)
-					if btn_lock[k] > 0:
-						glyph("lock", Vector2(rx - 110.0, cy), 24.0, C_QUIET)
-						glyph("star", Vector2(rx - 38.0, cy), 18.0, Color(1, 1, 1, 0.55))
-						text(str(btn_lock[k]), Vector2(rx - 66.0, cy + 10.0), SZ_S, C_QUIET, HORIZONTAL_ALIGNMENT_RIGHT, 28.0)
-					if btn_pips[k] >= 0:
-						for i in 3:
-							var pc := Vector2(rx - 130.0 + i * 36.0, cy - 36.0)
-							draw_circle(pc, 14.0, Color.BLACK)
-							draw_circle(pc, 11.0, C_GOLD if i < btn_pips[k] else Color(0.25, 0.28, 0.36))
-					if btn_cost[k] > 0:
-						var cc := Vector2(rx - 190.0, cy + 26.0)
-						glyph("coin", cc, 16.0, Color(1, 1, 1, 1.0 if st != 1 else 0.5))
-						text(str(btn_cost[k]), cc + Vector2(26.0, 11.0), SZ_S, C_TEXT if st != 1 else C_QUIET)
-					elif btn_cost[k] == 0:
-						text("MAX", Vector2(rx - 190.0, cy + 38.0), SZ_S, C_GOLD)
-				_:
-					panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
-					var gw := r.size.y * 0.5 if btn_glyph[k] != "" else 0.0
-					var tw4 := text_width(btn_text[k], SZ_M)
-					var sx := r.get_center().x - (tw4 + gw) * 0.5
-					if btn_glyph[k] != "":
-						glyph(btn_glyph[k], Vector2(sx + gw * 0.4, r.get_center().y), r.size.y * 0.24, ink)
-					text(btn_text[k], Vector2(sx + gw, r.get_center().y + SZ_M * 0.34), SZ_M, ink)
+						text(str(b), bc + Vector2(-20.0, 10.0), 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, 40.0)
+			4:      # a small chip: glyph + a few words
+				if btn_text[k] == "" and btn_glyph[k] != "":      # an icon-only button is a ghost: a quiet round chip
+					draw_style_box(_sb_ghost, r)
+					glyph(btn_glyph[k], r.get_center(), r.size.y * 0.3, ink)
+					return
+				panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r, _sheen_s)
+				var tw2 := text_width(btn_text[k], SZ_S)
+				var total := tw2 + (text_width(btn_sub[k], SZ_S) + 16.0 if btn_sub[k] != "" else 0.0) + (r.size.y * 0.5 + 12.0 if btn_glyph[k] != "" else 0.0)
+				var x0 := r.get_center().x - total * 0.5
+				if btn_glyph[k] != "":
+					glyph(btn_glyph[k], Vector2(x0 + r.size.y * 0.25, r.get_center().y), r.size.y * 0.24, ink)
+					x0 += r.size.y * 0.5 + 12.0
+				text(btn_text[k], Vector2(x0, r.get_center().y + SZ_S * 0.35), SZ_S, ink)
+				if btn_sub[k] != "":
+					text(btn_sub[k], Vector2(x0 + tw2 + 16.0, r.get_center().y + SZ_S * 0.35), SZ_S, C_GOLD)
+			1:      # a card
+				var sb := _sb_gold if (st == 2 and btn_cost[k] == 0) else (_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal))
+				panel(sb, r)
+				var left := r.position.x + 36.0
+				var cy := r.get_center().y
+				var iconed := btn_icon[k] >= 0 or btn_glyph[k] != ""
+				if btn_icon[k] >= 0:
+					_draw_icon(btn_icon[k], Vector2(left + 44.0, cy), minf(r.size.y * 0.3, 46.0))
+				elif btn_glyph[k] != "":
+					draw_circle(Vector2(left + 44.0, cy), 44.0, Color(0.03, 0.05, 0.09, 0.8))
+					glyph(btn_glyph[k], Vector2(left + 44.0, cy), 24.0, ink if st != 1 else C_QUIET)
+				var tx := left + (110.0 if iconed else 0.0)
+				var right_w := 220.0 if (btn_cost[k] >= 0 or btn_pips[k] >= 0) else (190.0 if btn_stars[k] >= 0 or btn_lock[k] > 0 else 60.0)
+				var tw3 := r.end.x - tx - right_w - 30.0
+				text(btn_text[k], Vector2(tx, cy + (-2.0 if btn_sub[k] != "" else SZ_M * 0.34)), SZ_M, ink, HORIZONTAL_ALIGNMENT_LEFT, tw3)
+				if btn_sub[k] != "":
+					text(btn_sub[k], Vector2(tx, cy + 40.0), SZ_S, C_SOFT if st != 1 else C_QUIET, HORIZONTAL_ALIGNMENT_LEFT, tw3)
+				var rx := r.end.x - 36.0
+				if btn_stars[k] >= 0 and btn_lock[k] <= 0:
+					for i in 3:
+						glyph("star" if i < btn_stars[k] else "star_off", Vector2(rx - 120.0 + i * 60.0, cy), 24.0)
+				if btn_lock[k] > 0:
+					glyph("lock", Vector2(rx - 110.0, cy), 24.0, C_QUIET)
+					glyph("star", Vector2(rx - 38.0, cy), 18.0, Color(1, 1, 1, 0.55))
+					text(str(btn_lock[k]), Vector2(rx - 66.0, cy + 10.0), SZ_S, C_QUIET, HORIZONTAL_ALIGNMENT_RIGHT, 28.0)
+				if btn_pips[k] >= 0:
+					for i in 3:
+						var pc := Vector2(rx - 130.0 + i * 36.0, cy - 36.0)
+						draw_circle(pc, 14.0, Color.BLACK)
+						draw_circle(pc, 11.0, C_GOLD if i < btn_pips[k] else Color(0.25, 0.28, 0.36))
+				if btn_cost[k] > 0:
+					var cc := Vector2(rx - 190.0, cy + 26.0)
+					glyph("coin", cc, 16.0, Color(1, 1, 1, 1.0 if st != 1 else 0.5))
+					text(str(btn_cost[k]), cc + Vector2(26.0, 11.0), SZ_S, C_TEXT if st != 1 else C_QUIET)
+				elif btn_cost[k] == 0:
+					text("MAX", Vector2(rx - 190.0, cy + 38.0), SZ_S, C_GOLD)
+			_:
+				panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
+				var gw := r.size.y * 0.5 if btn_glyph[k] != "" else 0.0
+				var tw4 := text_width(btn_text[k], SZ_M)
+				var sx := r.get_center().x - (tw4 + gw) * 0.5
+				if btn_glyph[k] != "":
+					glyph(btn_glyph[k], Vector2(sx + gw * 0.4, r.get_center().y), r.size.y * 0.24, ink)
+				text(btn_text[k], Vector2(sx + gw, r.get_center().y + SZ_M * 0.34), SZ_M, ink)
 
 	# ---------- the HUD of a shift ----------
 
@@ -647,7 +678,47 @@ class Art extends Control:
 			text("NEW BEST", Vector2(cx - 300.0, ty + 78.0), SZ_M, Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0)
 		elif res_best > 0:
 			text("best %d" % res_best, Vector2(cx - 300.0, ty + 70.0), SZ_S, Color(C_QUIET.r, C_QUIET.g, C_QUIET.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0)
+	## The intro: a placeholder studio mark pops in and out, then the game's name lands with a little plane across it.
+	func _draw_logo() -> void:
+		var cx := size.x * 0.5
+		var cy := size.y * 0.5 - 60.0
+		var t := logo_t
+		if t < 1.0:
+			var k := Style.ease_out_back(t / 0.45)
+			var a := clampf(minf(t / 0.2, (1.0 - t) / 0.2), 0.0, 1.0)
+			draw_set_transform(Vector2(cx, cy) * (1.0 - k), 0.0, Vector2(k, k))
+			var r := Rect2(cx - 90.0, cy - 150.0, 180.0, 180.0)
+			var sb := _sb_sheet
+			sb.border_color = Color(Style.ACCENT, a)
+			sb.bg_color = Color(Style.SURFACE_DARK_2, a)
+			panel(sb, r, _sheen_l)
+			glyph("plane", r.get_center() + Vector2(0, 4.0), 56.0, Color(Style.ACCENT, a))
+			text("TAILWIND STUDIO", Vector2(cx - 400.0, cy + 110.0), SZ_M, Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 800.0)
+			text("placeholder studio", Vector2(cx - 400.0, cy + 160.0), SZ_S, Color(Style.TEXT_QUIET, a), HORIZONTAL_ALIGNMENT_CENTER, 800.0)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			return
+		var u := t - 1.0
+		var a2 := clampf(1.0 - (t - 2.4) / 0.3, 0.0, 1.0)
+		for w in 2:
+			var word: String = ["PATTERN", "WORK"][w]
+			var k2 := Style.ease_out_back((u - 0.12 * w) / 0.45)
+			if k2 <= 0.01:
+				continue
+			var c := Vector2(cx, cy - 40.0 + w * 150.0)
+			draw_set_transform(c * (1.0 - k2), 0.0, Vector2(k2, k2))
+			text(word, Vector2(cx - 500.0, c.y), SZ_XL if w == 0 else SZ_XL, Color(Style.TEXT if w == 0 else Style.ACCENT, a2), HORIZONTAL_ALIGNMENT_CENTER, 1000.0)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var f := clampf((u - 0.5) / 1.0, 0.0, 1.0)
+		if f > 0.0:
+			var pc := Vector2(lerpf(-80.0, size.x + 80.0, Style.ease_out_cubic(f)), cy - 190.0 - 70.0 * sin(PI * f))
+			draw_line(Vector2(maxf(pc.x - 260.0, 0.0), pc.y + 6.0), Vector2(pc.x - 40.0, pc.y + 6.0), Color(1, 1, 1, 0.45 * a2), 8.0)
+			glyph("plane", pc, 46.0, Color(Style.ACCENT, a2))
+			pc.y += 0.0
+
 	func _draw() -> void:
+		if logo_t >= 0.0:
+			_draw_logo()
+			return
 		if header_text != "":
 			var hw := text_width(header_text, SZ_M)
 			glyph(header_glyph, Vector2(size.x - 40.0 - right - hw - 40.0, 62.0 + top), 26.0)
@@ -665,6 +736,9 @@ class Art extends Control:
 		if show_result:
 			_draw_results()
 		_draw_pills()
+		for i in fc_s.size():
+			if fc_s[i] > 0.01:
+				glyph("coin", fc_pos[i], 26.0 * fc_s[i])
 
 var _art: Art
 var _score: Label                    # the coin total (rolls up)
@@ -727,6 +801,12 @@ func _ready() -> void:
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_flash.color = Color(1, 0.1, 0.1, 0.0)
 	add_child(_flash)
+	_logo_bg = ColorRect.new()
+	_logo_bg.color = Style.SURFACE_DARK
+	_logo_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_logo_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_logo_bg.visible = false
+	add_child(_logo_bg)
 	_art = Art.new()
 	add_child(_art)
 	_score = _label(SZ_XL, HORIZONTAL_ALIGNMENT_CENTER)
@@ -769,6 +849,10 @@ func _ready() -> void:
 		l.visible = false
 		_pop_labels.append(l)
 	_pop_born.resize(POPUP_POOL)
+	_fc_on.resize(FLY_POOL)
+	_fc_on.fill(false)
+	_fc_from.resize(FLY_POOL)
+	_fc_t.resize(FLY_POOL)
 	_pop_from.resize(POPUP_POOL)
 	_build_pause()
 	_build_menu()
@@ -776,11 +860,214 @@ func _ready() -> void:
 	_build_select()
 	_build_ad()
 	move_child(_art, _select.get_index() + 1)   # the art (buttons, stars, pills) is drawn above the screen shades
+	_tr_nodes = [_art, _menu, _select, _over, _pause, _ad, _score, _best]
 	_build_stamp()
 	_set_play_labels(false)
 	set_landed(0)
 	Style.detect_safe(get_viewport().get_visible_rect().size)
 	apply_safe()
+
+# ---------- Header numbers (they roll) ----------
+
+var _hdr_shown := PackedFloat32Array([0.0, 0.0])
+var _hdr_target := PackedFloat32Array([0.0, 0.0])
+var _hdr_delay := PackedFloat32Array([0.0, 0.0])
+var _hdr_on: Array[bool] = [false, false]
+
+## The corner totals (slot 0 right: coins or stars; slot 1 left: coins on the menu). A total that changes on the same
+## screen rolls to its new value; `from` starts it somewhere else (the results: the bank before this shift), after `delay`.
+func _set_header(slot: int, glyph: String, value: int, from: int = -1, delay: float = 0.0) -> void:
+	if slot == 0:
+		_art.header_glyph = glyph
+	else:
+		_art.header2_glyph = glyph
+	if from >= 0:
+		_hdr_shown[slot] = float(from)
+	elif not _hdr_on[slot]:
+		_hdr_shown[slot] = float(value)
+	_hdr_target[slot] = float(value)
+	_hdr_delay[slot] = delay
+	_hdr_on[slot] = true
+	_apply_headers()
+
+func _apply_headers() -> void:
+	var t0 := str(roundi(_hdr_shown[0]))
+	var t1 := str(roundi(_hdr_shown[1]))
+	if _hdr_on[0] and t0 != _art.header_text:
+		_art.header_text = t0
+		_art.queue_redraw()
+	if _hdr_on[1] and t1 != _art.header2_text:
+		_art.header2_text = t1
+		_art.queue_redraw()
+
+func _roll_headers(delta: float) -> void:
+	for i in 2:
+		if not _hdr_on[i] or _hdr_shown[i] == _hdr_target[i]:
+			continue
+		if _hdr_delay[i] > 0.0:
+			_hdr_delay[i] -= delta
+			continue
+		var d := absf(_hdr_target[i] - _hdr_shown[i])
+		_hdr_shown[i] = move_toward(_hdr_shown[i], _hdr_target[i], maxf(d * 4.0, 40.0) * delta)
+	_apply_headers()
+
+# ---------- Coins flying to the counter ----------
+
+signal coin_arrived
+
+const FLY_POOL := 10
+const FLY_TIME := 0.75
+var _fc_on: Array[bool] = []
+var _fc_from := PackedVector2Array()
+var _fc_t := PackedFloat32Array()
+var coins_arrived := 0
+
+## `n` coins (at most a handful) leave `from` (a screen position) and fly to the coin total.
+func fly_coins(from: Vector2, n: int) -> void:
+	if DebugFlags.off("popup"):
+		return
+	var shown := 0
+	for i in FLY_POOL:
+		if shown >= mini(n, 5):
+			break
+		if _fc_on[i]:
+			continue
+		_fc_on[i] = true
+		_fc_from[i] = from + Vector2((shown - 2) * 18.0, 0.0)
+		_fc_t[i] = -0.07 * shown
+		shown += 1
+
+func flying_coins() -> int:
+	var c := 0
+	for i in FLY_POOL:
+		if _fc_on[i]:
+			c += 1
+	return c
+
+func _update_coins(delta: float) -> void:
+	var to := _art.coin_icon if _art.coin_icon.x > 0.0 else Vector2(get_viewport().get_visible_rect().size.x * 0.5, 120.0)
+	var any := false
+	for i in FLY_POOL:
+		if not _fc_on[i]:
+			_art.fc_s[i] = 0.0
+			continue
+		_fc_t[i] += delta
+		var t := _fc_t[i]
+		if t < 0.0:
+			_art.fc_s[i] = 0.0
+			any = true
+			continue
+		var k := clampf(t / FLY_TIME, 0.0, 1.0)
+		if k >= 1.0:
+			_fc_on[i] = false
+			_art.fc_s[i] = 0.0
+			coins_arrived += 1
+			_punch_ms = Time.get_ticks_msec()
+			coin_arrived.emit()
+			any = true
+			continue
+		var e := Style.ease_in_cubic(k) * 0.65 + k * 0.35
+		var a: Vector2 = _fc_from[i]
+		var ctrl := Vector2((a.x + to.x) * 0.5 + 60.0, minf(a.y, to.y) - 90.0)
+		_art.fc_pos[i] = a.lerp(ctrl, e).lerp(ctrl.lerp(to, e), e)
+		_art.fc_s[i] = 0.55 + 0.6 * sin(PI * minf(k * 1.6, 1.0)) * (1.0 - k * 0.5)
+		any = true
+	if any:
+		_art.queue_redraw()
+
+# ---------- Screen transitions ----------
+
+const SLIDE := 140.0
+## How far into the flow each screen is: going deeper slides in from the right, coming back from the left.
+const DEPTH := {"menu": 0.0, "select": 1.0, "upgrades": 1.0, "list": 1.0, "play": 2.0, "results": 3.0, "pause": 2.5, "ad": 2.5}
+const POP_KINDS := ["results", "pause", "ad"]
+var _tr_t := 99.0
+var _tr_dir := 0
+var _tr_kind := ""
+var _tr_depth := 0.0
+var _prewarming := false
+var _tr_nodes: Array[Control] = []
+var _logo_bg: ColorRect
+var _logo_sent := false
+signal logo_finished
+
+const LOGO_END := 2.4          # the menu starts here; the intro's cover fades out over the next 0.3 s
+const LOGO_FADE := 0.3
+
+## A new screen is about to show: arm its transition (slide forward / back, or a scale pop for sheets). Redrawing the
+## same screen (a shop tab, a purchase) does not replay it.
+func _go(kind: String) -> void:
+	if _prewarming or kind == _tr_kind:
+		_tr_kind = kind
+		return
+	_hdr_on[0] = false
+	_hdr_on[1] = false
+	var d: float = DEPTH.get(kind.get_slice(":", 0), 0.0)
+	_tr_dir = 0 if kind in POP_KINDS else int(signf(d - _tr_depth))
+	_tr_depth = d
+	_tr_kind = kind
+	_tr_t = 0.0
+	_art.btn_age = 0.0
+	_art.press_k = -1
+	_art.rel_k = -1
+	_apply_transition()
+
+func transition_kind() -> String:
+	return _tr_kind
+
+func transition_dir() -> int:
+	return _tr_dir
+
+func transitioning() -> bool:
+	return _tr_t < Style.T_BASE
+
+func _apply_transition() -> void:
+	var k := clampf(_tr_t / Style.T_BASE, 0.0, 1.0)
+	var e := Style.ease_out_cubic(k)
+	var a := clampf(_tr_t / (Style.T_BASE * 0.7), 0.0, 1.0)
+	if k >= 1.0:
+		transform = Transform2D.IDENTITY
+		a = 1.0
+	elif _tr_dir != 0:
+		transform = Transform2D(0.0, Vector2.ONE, 0.0, Vector2(_tr_dir * SLIDE * (1.0 - e), 0.0))
+	else:
+		var sc := lerpf(0.9, 1.0, Style.ease_out_back(k))
+		var vp := get_viewport().get_visible_rect().size
+		transform = Transform2D(0.0, Vector2(sc, sc), 0.0, vp * 0.5 * (1.0 - sc))
+	for n in _tr_nodes:
+		n.modulate.a = a
+
+# ---------- Intro ----------
+
+## The title intro: studio mark, then the game's logo (about 2.4 s, any tap skips). `logo_finished` fires when the menu should appear.
+func show_logo() -> void:
+	_hide_all_screens()
+	_art.clear_buttons()
+	_logo_bg.visible = true
+	_logo_bg.color.a = 1.0
+	_logo_sent = false
+	_art.logo_t = 0.0
+	_art.queue_redraw()
+
+func logo_active() -> bool:
+	return _art.logo_t >= 0.0
+
+func skip_logo() -> void:
+	if _art.logo_t >= 0.0 and _art.logo_t < LOGO_END:
+		_art.logo_t = LOGO_END
+
+func _tick_logo(delta: float) -> void:
+	if _art.logo_t < 0.0:
+		return
+	_art.logo_t += delta
+	if _art.logo_t >= LOGO_END and not _logo_sent:
+		_logo_sent = true
+		logo_finished.emit()
+	_logo_bg.color.a = clampf(1.0 - (_art.logo_t - LOGO_END) / LOGO_FADE, 0.0, 1.0)
+	if _art.logo_t >= LOGO_END + LOGO_FADE:
+		_art.logo_t = -1.0
+		_logo_bg.visible = false
+	_art.queue_redraw()
 
 ## Fit the HUD to the device's safe area (notch / rounded corners / home indicator): the shift's top row, the pause
 ## button and the top-anchored labels move in; screens read Style.safe_* when they are laid out.
@@ -801,10 +1088,14 @@ func apply_safe() -> void:
 ## A finger is down on a button: it draws pushed in (and the activation follows at once).
 func press(pos: Vector2) -> void:
 	_art.press_k = _art.button_at(pos)
+	_art.press_t = 0.0
+	_art.rel_k = -1
 	_art.queue_redraw()
 
 func release() -> void:
 	if _art.press_k != -1:
+		_art.rel_k = _art.press_k
+		_art.rel_t = 0.0
 		_art.press_k = -1
 		_art.queue_redraw()
 
@@ -834,6 +1125,8 @@ func _shade(parent: Control, a: float) -> void:
 	var shade := ColorRect.new()
 	shade.color = Color(C_DIM.r, C_DIM.g, C_DIM.b, a)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.offset_left = -SLIDE
+	shade.offset_right = SLIDE
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(shade)
 
@@ -864,6 +1157,7 @@ func _build_pause() -> void:
 	_pause.visible = false
 
 func show_pause(sound: float, music: float) -> void:
+	_go("pause")
 	var vp := get_viewport().get_visible_rect().size
 	_pause.visible = true
 	_art.show_pause = true
@@ -879,6 +1173,9 @@ func show_pause(sound: float, music: float) -> void:
 	_art.queue_redraw()
 
 func hide_pause() -> void:
+	if _tr_kind == "pause":
+		_tr_kind = "play"
+		_tr_depth = 2.0
 	_pause.visible = false
 	_art.show_pause = false
 	_art.clear_buttons()
@@ -917,7 +1214,7 @@ func _build_menu() -> void:
 	_menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_menu.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_menu)
-	_shade(_menu, 0.72)
+	_shade(_menu, 0.5)
 	_menu_title = _label(SZ_XL, HORIZONTAL_ALIGNMENT_CENTER, _menu)
 	_menu_title.text = "PATTERN WORK"
 	_centered(_menu_title, -560, -420)
@@ -963,6 +1260,7 @@ func _build_ad() -> void:
 
 ## The fake ad: `title` says what it is for; the bar fills while it "plays".
 func show_ad(title: String) -> void:
+	_go("ad")
 	_hide_all_screens()
 	_art.clear_buttons()
 	_ad_sub.text = title + "  (placeholder ad)"
@@ -977,6 +1275,9 @@ func hide_ad() -> void:
 
 ## Back to the shift after the ad: the HUD of a running shift, nothing else.
 func resume_play() -> void:
+	if _tr_kind == "ad":
+		_tr_kind = "play"
+		_tr_depth = 2.0
 	_ad.visible = false
 	_over.visible = false
 	_art.clear_buttons()
@@ -1017,6 +1318,7 @@ func _build_over() -> void:
 
 ## The end-of-shift screen: stars and the total paid (revealed in order); the breakdown sits behind "Details".
 func show_results(header: String, reason: String, shift: Shift, coins_earned: int, coins_total: int, best: int, new_best: bool, _animal: int = -1, _quote: String = "", doubled: bool = false) -> void:
+	_go("results")
 	_hide_all_screens()
 	_over_head.text = header
 	var total_line := "Total paid|+%d%s" % [coins_earned, " (doubled)" if doubled else ""]
@@ -1034,8 +1336,7 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	lines.append(total_line)
 	_art.details_lines = lines
 	_art.show_result = true
-	_art.header_glyph = "coin"
-	_art.header_text = str(coins_total)
+	_set_header(0, "coin", coins_total, coins_total - coins_earned, 1.8)
 	_art.queue_redraw()
 	_over.visible = true
 
@@ -1078,6 +1379,16 @@ func set_results_text(text: String) -> void:
 ## Jump every animation to its end (the results reveal, the rolling coin total): used when the player taps to skip,
 ## and by the tests.
 func skip_animations() -> void:
+	_tr_t = 99.0
+	_apply_transition()
+	_art.btn_age = 99.0
+	_art.press_k = -1
+	_art.rel_k = -1
+	for i in 2:
+		_hdr_shown[i] = _hdr_target[i]
+	_apply_headers()
+	for i in FLY_POOL:
+		_fc_on[i] = false
 	_art.res_t = 99.0
 	_coin_shown = float(_coin_target)
 	_art.bar_shown = float(_art.balance)
@@ -1091,11 +1402,11 @@ func results_revealed() -> bool:
 
 ## The airport select screen: one big card per airport, with just its name, stars and lock state.
 func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Array, _best_scores: PackedInt32Array, selected: int) -> void:
+	_go("select")
 	_hide_all_screens()
 	_select.visible = true
 	_select_title.text = "AIRPORTS"
-	_art.header_glyph = "star"
-	_art.header_text = str(total_stars)
+	_set_header(0, "star", total_stars)
 	var vp := get_viewport().get_visible_rect().size
 	_art.clear_buttons()
 	_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
@@ -1109,11 +1420,11 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 
 ## A generic list screen: optional tab chips, then cards {id, title, sub, state, stars, icon, cost}, then Back.
 func show_list(title: String, coins: int, tabs: Array, cards: Array) -> void:
+	_go("list:" + title)
 	_hide_all_screens()
 	_select.visible = true
 	_select_title.text = title
-	_art.header_glyph = "coin"
-	_art.header_text = str(coins)
+	_set_header(0, "coin", coins)
 	var vp := get_viewport().get_visible_rect().size
 	_art.clear_buttons()
 	_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
@@ -1130,11 +1441,11 @@ func show_list(title: String, coins: int, tabs: Array, cards: Array) -> void:
 
 ## The upgrade shop: a card per upgrade with an icon, its name, one line of effect, level pips and the next price.
 func show_upgrades(coins: int, levels: PackedInt32Array) -> void:
+	_go("upgrades")
 	_hide_all_screens()
 	_select.visible = true
 	_select_title.text = "UPGRADES"
-	_art.header_glyph = "coin"
-	_art.header_text = str(coins)
+	_set_header(0, "coin", coins)
 	var vp := get_viewport().get_visible_rect().size
 	_art.clear_buttons()
 	_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
@@ -1171,12 +1482,11 @@ func hide_screens() -> void:
 
 ## The menu: one primary PLAY button, the current airport under the title, and a row of round icon buttons.
 func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _tag: String = "", airport_stars: int = 0) -> void:
+	_go("menu")
 	_hide_all_screens()
 	_menu.visible = true
-	_art.header2_glyph = "coin"
-	_art.header2_text = str(coins)
-	_art.header_glyph = "star"
-	_art.header_text = str(stars)
+	_set_header(1, "coin", coins)
+	_set_header(0, "star", stars)
 	var vp := get_viewport().get_visible_rect().size
 	var cx := vp.x * 0.5
 	var cy := vp.y * 0.5
@@ -1193,6 +1503,7 @@ func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _
 # ---------- The HUD of a shift ----------
 
 func reset_for_run(_best_coins: int) -> void:
+	_go("play")
 	hide_screens()
 	for i in POPUP_POOL:
 		_pop_labels[i].visible = false
@@ -1509,7 +1820,7 @@ func _process(delta: float) -> void:
 		var l := _pop_labels[i]
 		l.position = _pop_from[i] + Vector2(0, -150.0 * pa)
 		l.modulate.a = 1.0 - maxf(pa - 0.5, 0.0) * 2.0
-		l.scale = Vector2.ONE * (1.0 + 0.3 * (1.0 - pa) * (1.0 - pa))
+		l.scale = Vector2.ONE * lerpf(0.45, 1.0, Style.ease_out_back(pa / 0.18))
 	if _tip.visible:
 		var left := _tip_until - now
 		if left <= 0:
@@ -1523,6 +1834,21 @@ func _process(delta: float) -> void:
 			var ta := clampf(left / 600.0, 0.0, 1.0)
 			_art.tip_alpha = ta
 			_art.queue_redraw()
+	# Screen transition, button motion, rolling header totals, coins in flight.
+	if _tr_t < Style.T_BASE:
+		_tr_t += delta
+		_apply_transition()
+	if _art.btn_age < 2.0:
+		_art.btn_age += delta
+	if _art.press_k >= 0:
+		_art.press_t += delta
+	if _art.rel_k >= 0 and _art.rel_t < 1.0:
+		_art.rel_t += delta
+	if _art.animating():
+		_art.queue_redraw()
+	_roll_headers(delta)
+	_update_coins(delta)
+	_tick_logo(delta)
 	_update_perf(delta)
 
 # ---------- ?perf ----------
@@ -1573,6 +1899,7 @@ func _update_perf(delta: float) -> void:
 ## A splash (nearly opaque, so what is behind it is really drawn) while every label, popup and screen
 ## is shown once, building the font glyph caches.
 func begin_prewarm() -> void:
+	_prewarming = true
 	prewarm_popups()
 	_score.text = "0123456789"
 	_set_play_labels(true)
@@ -1640,6 +1967,10 @@ func prewarm_popups() -> void:
 	set_landed(0, true)
 
 func end_prewarm() -> void:
+	_prewarming = false
+	_tr_kind = ""
+	_tr_t = 99.0
+	_apply_transition()
 	for i in POPUP_POOL:
 		_pop_labels[i].visible = false
 		_pop_born[i] = 0
@@ -1655,6 +1986,8 @@ func end_prewarm() -> void:
 	_art.chip_weather = ""
 	_art.header_text = ""
 	_art.header2_text = ""
+	_hdr_on[0] = false
+	_hdr_on[1] = false
 	_art.res_t = 0.0
 	_art.balance = 0
 	_art.bar_shown = 0.0

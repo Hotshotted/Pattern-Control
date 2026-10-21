@@ -8,7 +8,7 @@ extends Node
 const RATE := 11025            # effects
 const LOOP_RATE := 8000        # hums and music (lo-fi on purpose: it is a placeholder)
 const POOL := 8
-const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap"]
+const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press"]
 const BEAT := 0.6              # music: seconds per beat, 8 beats per loop
 
 var enabled := true
@@ -159,6 +159,8 @@ func _build_effects() -> void:
 	_streams["tick"] = _wav(_seq([[1500.0, 0.025, 0.5]], RATE, 0.6, true), RATE)
 	# UI tap: a soft blip
 	_streams["tap"] = _wav(_seq([[740.0, 0.05, 0.35]], RATE), RATE)
+	# a finger going down on a button: a short, soft low click
+	_streams["press"] = _wav(_seq([[420.0, 0.03, 0.25]], RATE, 0.9), RATE)
 
 ## Notes [[hz, seconds, volume], ...] one after another with a short decay each. `square` = hollow tone,
 ## `bell` = a slow decay with an overtone.

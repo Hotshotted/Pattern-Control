@@ -19,6 +19,8 @@ signal refused(plane: Aircraft, text: String, at: Vector2)   # a path / tap the 
 signal appeared(plane: Aircraft)       # it just came on screen (first-time tips hook in here)
 
 const MAX_POOL := 16
+var pool_n := MAX_POOL                  # (the menu's scenic traffic keeps a small pool)
+var scenic := false                     # the menu diorama: no timers, conflicts or random go-arounds
 const MAX_HAZARDS := 16
 const PLANE_Y := 0.35
 
@@ -82,8 +84,8 @@ func _ready() -> void:
 	_draws.resize(40)
 	for i in 8:
 		_occupant.append(null)
-	_god = DebugFlags.god_enabled()
-	for i in MAX_POOL:
+	_god = DebugFlags.god_enabled() or scenic
+	for i in pool_n:
 		planes.append(Aircraft.new())
 		_build_node()
 	for n in _nodes:
@@ -217,7 +219,7 @@ func place(target: int, pos: Vector2, heading: float, type: int, entered: bool =
 func set_livery(index: int) -> void:
 	livery = index
 	var custom: bool = Cosmetics.LIVERIES[index]["stripe"] != null
-	for i in MAX_POOL:
+	for i in pool_n:
 		for box in _stripes[i]:
 			box.visible = custom
 		var p := planes[i]
@@ -592,7 +594,7 @@ func release_all() -> void:
 	_last_td.fill(-1000.0)
 	for i in 8:
 		_occupant[i] = null
-	for i in MAX_POOL:
+	for i in pool_n:
 		planes[i].reset()
 		_nodes[i].visible = false
 	run_time = 0.0
@@ -615,13 +617,13 @@ func step(delta: float) -> void:
 		if not quiet:
 			_spawn_timer -= delta
 			if _spawn_timer <= 0.0:
-				if active_count() < mini(Tuning.max_planes_eff(), MAX_POOL) and spawn() != null:
+				if active_count() < mini(Tuning.max_planes_eff(), pool_n) and spawn() != null:
 					_spawn_timer = Tuning.spawn_interval(run_time) * Tuning.traffic_spawn_mult() * rng.randf_range(0.75, 1.25)
 				else:
 					_spawn_timer = 0.25
 	_update_weather(delta)
 	var mult := Tuning.speed_mult(run_time) * Tuning.traffic_speed_mult()
-	for i in MAX_POOL:
+	for i in pool_n:
 		var p := planes[i]
 		if not p.active():
 			continue
@@ -769,6 +771,8 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 			chance = 0.0
 		if approach.reason == Approach.Reason.NONE:
 			approach.reason = Approach.Reason.STUDENT
+	if scenic:
+		chance = 0.0
 	p.ga_chance = chance
 	p.ga_band = approach.band(chance)
 	if dist <= Tuning.short_final_distance and not p.ga_checked:
@@ -820,11 +824,11 @@ func _check_conflicts() -> void:
 		p.warn_other = null
 	var cd := Tuning.conflict_distance
 	var wd := Tuning.warn_distance
-	for i in MAX_POOL:
+	for i in pool_n:
 		var a := planes[i]
 		if not a.can_conflict():
 			continue
-		for j in range(i + 1, MAX_POOL):
+		for j in range(i + 1, pool_n):
 			var b := planes[j]
 			if not b.can_conflict():
 				continue
@@ -867,7 +871,7 @@ func _sync(p: Aircraft, i: int) -> void:
 ## The pre-warm: every pooled plane drawn at once, alternating normal and flashing.
 func prewarm_show() -> void:
 	var types := [Aircraft.Type.SMALL, Aircraft.Type.MEDIUM, Aircraft.Type.JET, Aircraft.Type.GLIDER, Aircraft.Type.HELI, Aircraft.Type.SEAPLANE]
-	for i in MAX_POOL:
+	for i in pool_n:
 		var p := planes[i]
 		p.reset()
 		p.state = Aircraft.State.FLY

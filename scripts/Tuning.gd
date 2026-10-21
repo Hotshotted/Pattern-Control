@@ -252,6 +252,7 @@ var prewarm_stable_ms := 45.0
 var prewarm_max_seconds := 6.0
 
 # ---------- Look ----------
+var intro_logo := true                # the animated studio / game logo at boot (skippable)
 var grass_color := Color(0.36, 0.62, 0.36)
 var outline_thickness := 0.05
 

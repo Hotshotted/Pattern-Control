@@ -15,6 +15,7 @@ func _initialize() -> void:
 	save.path = "user://shots_save.json"
 	save.reset_all()
 	root.get_node("Tuning").ad_stub_seconds = 0.0
+	root.get_node("Tuning").intro_logo = false
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	current_scene = main
@@ -125,3 +126,53 @@ func _walk(save) -> void:
 	main._show_menu()
 	main.start_bad_day()
 	await _shot("16_bad_day_hud")
+	await _motion_shots()
+
+## Motion: frames of the logo intro, a screen mid-transition, the living menu, coins in flight.
+func _motion_shots() -> void:
+	var hud = main.hud
+	var tuning = root.get_node("Tuning")
+	tuning.intro_logo = true
+	main._boot_to_menu()
+	for i in 20:
+		await process_frame
+	hud._art.logo_t = 0.4
+	hud._art.queue_redraw()
+	await _frames(2)
+	_save_raw("17_logo_studio")
+	hud._art.logo_t = 1.9
+	hud._art.queue_redraw()
+	await _frames(2)
+	_save_raw("18_logo_title")
+	hud.skip_logo()
+	tuning.intro_logo = false
+	await _frames(40)
+	hud.skip_animations()
+	main._show_menu()
+	main.hud.skip_animations()
+	for i in 60 * 7:
+		main.diorama.tick(1.0 / 60.0)
+		if i % 20 == 0:
+			await process_frame
+	await _frames(3)
+	_save_raw("19_menu_living")
+	main._show_select()
+	hud._tr_t = 0.12
+	hud._apply_transition()
+	hud._art.btn_age = 0.12
+	hud._art.queue_redraw()
+	await _frames(2)
+	_save_raw("20_transition_mid")
+	main.restart()
+	main.traffic.auto_spawn = false
+	hud.skip_animations()
+	main.hud.fly_coins(Vector2(540, 900), 5)
+	for i in 14:
+		hud._process(0.05)
+	await _frames(2)
+	_save_raw("21_coins_flying")
+
+func _save_raw(name: String) -> void:
+	var img := root.get_viewport().get_texture().get_image()
+	img.save_png("%s/%s.png" % [out, name])
+	print("saved ", name)

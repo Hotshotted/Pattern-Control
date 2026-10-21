@@ -18,6 +18,7 @@ const HEADER_DONE := "SHIFT\nCOMPLETE"
 @onready var sun: DirectionalLight3D = $Sun
 @onready var airfield: Airfield = $Airfield
 @onready var traffic: Traffic = $Traffic
+var diorama: Diorama
 @onready var ribbons: PathRibbons = $Ribbons
 var fog_layer: FogLayer
 @onready var fx: Fx = $Fx
@@ -108,6 +109,9 @@ func _ready() -> void:
 	fog_layer.traffic = traffic
 	fog_layer.wind = wind
 	add_child(fog_layer)
+	diorama = Diorama.new()
+	diorama.wind = wind
+	add_child(diorama)
 	overlay.camera = camera
 	traffic.landed.connect(_on_landed)
 	traffic.conflict.connect(_on_conflict)
@@ -139,7 +143,7 @@ func _ready() -> void:
 		if DebugFlags.prewarm_enabled():
 			_prewarm()
 	if not _warming:
-		_show_menu()
+		_boot_to_menu()
 	if not _warming and tune_panel:
 		tune_panel.set_available(true)
 
@@ -156,6 +160,7 @@ func _prewarm() -> void:
 	traffic.add_storm(Vector2(-2.5, -4.0), 1.5, Vector2.ZERO)
 	hud.set_event_banner("Fog rolling in 0123456789", true)
 	traffic.prewarm_show()
+	diorama.prewarm(true)
 	overlay.prewarm()
 	if tune_panel:
 		tune_panel.prewarm_show(true)
@@ -189,6 +194,7 @@ func _prewarm() -> void:
 	traffic.load_terrain()
 	hud.set_event_banner("")
 	traffic.prewarm_hide()
+	diorama.prewarm(false)
 	overlay.clear()
 	airfield.reset()
 	hud.end_prewarm()
@@ -196,7 +202,18 @@ func _prewarm() -> void:
 		tune_panel.prewarm_show(false)
 		tune_panel.set_available(true)
 	_warming = false
-	_show_menu()
+	_boot_to_menu()
+
+## After boot: the animated logo intro (skippable), then the menu. The intro is a setting so the tests can skip it.
+func _boot_to_menu() -> void:
+	if Tuning.intro_logo and not DebugFlags.off("logo"):
+		screen = SCREEN_MENU
+		alive = false
+		if not hud.logo_finished.is_connected(_show_menu):
+			hud.logo_finished.connect(_show_menu)
+		hud.show_logo()
+	else:
+		_show_menu()
 
 ## Start a fresh shift IN PLACE.
 func restart() -> void:
@@ -341,6 +358,9 @@ func _process(raw_delta: float) -> void:
 	_update_camera()
 	traffic.half_w = view_size * 0.5
 	traffic.half_h = _half_height()
+	diorama.traffic.half_w = traffic.half_w
+	diorama.traffic.half_h = traffic.half_h
+	diorama.active = screen == SCREEN_MENU and not _warming
 	if screen == SCREEN_AD:
 		_tick_ad(raw_delta)
 	if _warming or not alive or screen == SCREEN_PAUSE:
@@ -463,6 +483,7 @@ func _on_landed(p: Aircraft) -> void:
 	overlay.ripple(land_at, Color.WHITE, 0.6)
 	if p.tkind == Aircraft.Kind.RUNWAY:
 		airfield.glow(p.runway, p.land_end)
+	hud.fly_coins(overlay.world_to_screen(land_at), clampi((base + extra) / 8, 1, 5))
 	var text := "+%d" % (base + extra)
 	var tcol := Color(1, 1, 1)
 	if streak >= 2:
@@ -829,6 +850,9 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.index, event.position)
 
 func _touch_down(index: int, pos: Vector2) -> void:
+	if hud.logo_active():
+		hud.skip_logo()
+		return
 	if screen == SCREEN_PLAY and alive and hud.pause_hit(pos):
 		pause_game()
 		return
@@ -842,7 +866,10 @@ func _touch_down(index: int, pos: Vector2) -> void:
 		hud.press(pos)
 		var id := hud.button_at(pos)
 		if id != "":
-			_on_button(id)
+			# Down: the button squashes with a soft click and a light buzz; the action itself fires on release.
+			sfx.play("press")
+			if not DebugFlags.off("haptic"):
+				Input.vibrate_handheld(12)
 			return
 		if hud.ui_hit(pos):
 			return   # a disabled button
@@ -946,6 +973,7 @@ func apply_cosmetics() -> void:
 	_env.ambient_light_energy = t["ambient_energy"]
 	sun.light_energy = t["sun"]
 	traffic.set_livery(li)
+	diorama.traffic.set_livery(li)
 
 func _show_shop() -> void:
 	screen = SCREEN_SHOP
@@ -1148,7 +1176,11 @@ func feed_drag(w: Vector2) -> void:
 		_cancel_drag()
 
 func _touch_up(index: int, pos: Vector2) -> void:
+	var pressed_id := hud.pressed_id()
 	hud.release()
+	if pressed_id != "" and screen != SCREEN_PLAY and hud.button_at(pos) == pressed_id:
+		_on_button(pressed_id)
+		return
 	if _slider_drag >= 0:
 		_slider_drag = -1
 		Save.write_file()
