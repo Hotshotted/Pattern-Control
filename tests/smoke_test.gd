@@ -2729,7 +2729,7 @@ func _initialize() -> void:
 	var fogl = main.fog_layer
 	var fsm = fogl.shader_material()
 	check(fsm.shader.code.contains("depth_test_disabled") and fsm.shader.code.contains("blend_mix") and fsm.shader.code.contains("TIME"), "the fog is a cheap one-quad shader with drifting noise (%d characters)" % fsm.shader.code.length())
-	check(fogl.mesh is PlaneMesh and main.get_children().filter(func(n): return n is FogLayer).size() == 1, "one fog quad, created once")
+	check(fogl.mesh is PlaneMesh and main.get_children().filter(func(n): return n.get_script() == fogl.get_script()).size() == 1, "one fog quad, created once")
 	# Draw order: ground and scenery (opaque) -> fog -> path ribbons -> aircraft, runways and pads.
 	var plane_mat = tr._body_mats[0]
 	var rw_mat = main.airfield.cur.thr_mats[0]
@@ -2741,13 +2741,13 @@ func _initialize() -> void:
 	for av in main.airfield.variants:
 		for mi in av.root.find_children("*", "MeshInstance3D", true, false):
 			var bm = mi.material_override as BaseMaterial3D
-			if bm != null and bm.render_priority == Prim.ABOVE_FOG:
+			if bm != null and bm.render_priority == 2:
 				pad_lifted = true
 	check(pad_lifted, "runways, pads and lanes are lifted above the fog")
 	var outl_ok = true
 	for mi in tr._nodes[0].find_children("*", "MeshInstance3D", true, false):
 		if mi.material_overlay != null:
-			outl_ok = outl_ok and mi.material_overlay.render_priority == Prim.ABOVE_FOG
+			outl_ok = outl_ok and mi.material_overlay.render_priority == 2
 	check(outl_ok, "aircraft outlines are drawn above the fog with them")
 	# The fog layer follows the fog and costs nothing without it.
 	tr.fog_amount = 0.0
