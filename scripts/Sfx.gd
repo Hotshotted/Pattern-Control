@@ -116,6 +116,12 @@ func play_step(sound: String, step: int) -> void:
 
 func _fire(stream: AudioStream, pitch: float) -> void:
 	var p := _pool[_next]
+	for k in POOL:     # a free player first: taking over one that is still sounding would cut it off with a click
+		var q := _pool[(_next + k) % POOL]
+		if not q.playing:
+			p = q
+			_next = (_next + k) % POOL
+			break
 	_next = (_next + 1) % POOL
 	p.stream = stream
 	p.pitch_scale = pitch * _rng.randf_range(0.97, 1.03)
