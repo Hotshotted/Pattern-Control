@@ -3974,6 +3974,8 @@ func _initialize() -> void:
 	main.pause_game()
 	check(sc_art.pause_card.size.x > 600.0 and sc_art.btn_kind[sc_art.btn_id.find("restart")] == 3, "the pause menu sits on a sheet with colour tiles")
 	main.resume_game()
+	var sc_doc = FileAccess.get_file_as_string("res://docs/style.md")
+	check(sc_doc.contains("## Sunny Airfield") and sc_doc.contains("round dots") and sc_doc.contains("colour tiles") and sc_doc.contains("swept-wing jet"), "docs/style.md documents the Sunny Airfield art direction")
 	check(sc_art._sb_hdr != null and sc_art._sb_card != null and sc_art._sb_dock != null, "the pills, card and dock styles exist")
 	main._show_menu()
 

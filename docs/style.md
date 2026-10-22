@@ -32,6 +32,47 @@ Contrast: `TEXT`, `TEXT_SOFT` and `ACCENT` on `SURFACE_DARK`, and `TEXT_ON_LIGHT
 4.5:1 (checked by the smoke test). Text on a coloured button is always drawn with an ink outline (1/8 of its size).
 Colour is never the only signal: fines and overtime also use a minus sign / a plus sign, stars use a shape.
 
+## Sunny Airfield (the art direction)
+
+A top-down **toy diorama**: a bright field, soft shadows instead of hard outlines, white aircraft in the colour of the runway
+they are heading for, and a navy interface floating over it all. The design canvas (Menu, Shift in progress, Results, Airport
+select, Asset and style sheet) is the reference; other games from the studio can follow the same rules.
+
+* **No black outlines on the world.** Ground props (trees, tower, hangar, windsock, pads, vehicles, mountains) get a soft round
+  drop shadow (ink at about 20 %, offset down-right) and a lighter top face or highlight. Aircraft keep only a thin, soft slate
+  edge so they always pop above the ground. Anything drawn over the game world in text gets a thick ink outline.
+* **Palette (world):** field `#84C26B` with mown patches in slightly different greens; asphalt `#3E4658` with a darker rim;
+  taxiways `#4A5265` with dashed yellow `#FFD23F` centrelines; apron/concrete `#CFD5DF`; water `#3FA2D6` with lighter wave bands.
+  Runway colours: orange `#FF8A3D`, blue `#3D8BFF`, helipad purple `#A06BFF`, seaplane lane green `#35C98A`; go `#35C98A`,
+  caution `#FFC933`, trouble `#FF5C4D`. Gold is only ever money and stars.
+* **Aircraft:** white bodies and wings; the **livery colour is the target runway's** (stripe along the body and wing, nose cap,
+  fin; the helicopter body). Soft offset shadow (larger offset = higher). A pale prop disc on prop planes, a rotor disc on the
+  helicopter. Silhouettes must differ at a glance: the light plane (straight wing), the **swept-wing jet** with engine pods, the
+  helicopter, the long-winged glider with coloured tips, the seaplane with floats; a **student pilot** wears an orange "L" badge.
+* **Ground kit:** runway = dark rim, asphalt, runway-colour edge bands, white piano-key thresholds, dashed white centreline,
+  and approach chevrons in the runway's colour on the grass before each end. Apron with a **hangar with a ridged roof**, the
+  **tower with a blue octagonal cab and a white dot**, a striped windsock, a yellow fuel truck with a blue cab. Trees are
+  **clusters of round crowns** (dark base, lighter middle, a highlight) with their shadows. Each airport has its own dressing
+  (crop patches at County, concrete aprons at Regional and International, scree around the Mountain Field peaks, a sand ring
+  and water at the Island).
+* **Readability marks:** a flight path is a line of **round dots** in the runway's colour (soft shadow dots under it); its final
+  segment tints green / yellow / red by approach quality. A timer ring is a thick ring on a dark translucent track with round
+  caps: green, then yellow, then red, and red adds a pulsing outer halo. A conflict is a **red dashed ring around the pair**.
+  Particles are round dots and gold four-point stars, never squares.
+* **Screens:** the menu is a logo lockup (a tilted gold "AIR TRAFFIC CONTROL" tag, PATTERN in white over WORK in gold, thick ink
+  outline and a drop shadow), an airport card with a mini-map and previous / next arrows, the one big PLAY button, and a bottom
+  **dock of four colour tiles** (Upgrades blue, Hangar purple, Daily orange with a red dot until it is played, Bad Day red "L").
+  The HUD is a pause button top-left, a clock pill, the big coin count, a rounded star bar with a star at each threshold, and a
+  wind dial top-right. Results: SHIFT COMPLETE, three big tilted stars, a card with a red NEW BEST tag, a big gold "+coins", a
+  three-chip breakdown (landings, early clear, fines), a dashed-gold unlock card, PLAY AGAIN, and a quiet ad pill. Airport
+  select: a large card per airport with an illustrated mini-map and a one-line tag; a locked airport is dimmed with a padlock and
+  "Needs N" stars. Coin and star totals sit in navy pills in the corners.
+* **Colour tiles:** rounded square, an ink border and a 10 px lip underneath, a white glyph, the label below.
+* **Build rules:** every shape is created once and pooled (aircraft models, shadows, path meshes, particles); the dot paths and
+  prop shadows are shaders on pooled meshes, so nothing is allocated during play. The landability check and collision are
+  untouched by the art. `tools/perf_check.gd` renders International with a busy sky and prints the frame times (under software
+  rendering these are far higher than on a phone; the CPU cost of our own code stays around 3.5 ms).
+
 ## Typography
 
 Both fonts are open-licence (SIL OFL 1.1; licence files in `assets/fonts/`), variable fonts from the google/fonts repository.

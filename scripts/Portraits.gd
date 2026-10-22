@@ -15,7 +15,7 @@ static func _poly(ci: CanvasItem, a: Vector2, b: Vector2, c: Vector2, col: Color
 static func draw(ci: CanvasItem, c: Vector2, r: float, animal: int) -> void:
 	var fur: Color = [Color(1.0, 0.85, 0.2), Color(0.95, 0.5, 0.15), Color(0.62, 0.45, 0.3), Color(0.12, 0.13, 0.18), Color(0.5, 0.33, 0.2), Color(0.55, 0.55, 0.62)][animal]
 	var face: Color = [Color(1.0, 0.85, 0.2), Color(1.0, 0.95, 0.9), Color(0.92, 0.85, 0.7), Color(0.97, 0.97, 0.97), Color(0.72, 0.55, 0.38), Color(0.95, 0.9, 0.9)][animal]
-	ci.draw_circle(c, r + 3.0, Color.BLACK)
+	ci.draw_circle(c, r + 3.0, Style.INK)
 	# Ears / tufts behind the head.
 	match animal:
 		1, 5:   # fox, cat: pointed ears
@@ -34,7 +34,7 @@ static func draw(ci: CanvasItem, c: Vector2, r: float, animal: int) -> void:
 	for s in [-1.0, 1.0]:
 		var e: Vector2 = ey + Vector2(s * r * 0.32, 0)
 		ci.draw_circle(e, r * (0.2 if animal == 2 else 0.13), Color.WHITE)
-		ci.draw_circle(e + Vector2(0, r * 0.02), r * (0.1 if animal == 2 else 0.07), Color.BLACK)
+		ci.draw_circle(e + Vector2(0, r * 0.02), r * (0.1 if animal == 2 else 0.07), Style.INK)
 	# Beak / muzzle.
 	match animal:
 		0, 3:   # duck, penguin: an orange beak
