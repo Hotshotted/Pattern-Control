@@ -114,6 +114,14 @@ func count_visible(nodes: Array) -> int:
 			c += 1
 	return c
 
+func sx_clip_of(stream) -> PackedFloat32Array:
+	var d: PackedByteArray = stream.data
+	var out = PackedFloat32Array()
+	out.resize(d.size() / 2)
+	for i in out.size():
+		out[i] = d.decode_s16(i * 2) / 32768.0
+	return out
+
 func touch(main: Node, index: int, pressed: bool, screen: Vector2) -> void:
 	var ev = InputEventScreenTouch.new()
 	ev.index = index
@@ -2313,7 +2321,7 @@ func _initialize() -> void:
 	k9_fk3.runway = 0
 	k9_fk3.type = MEDIUM
 	main._on_landed(k9_fk3)
-	check(k9_sfx.plays["landing"] == k9_c0["landing"] + 1 and k9_sfx.plays["coin"] == k9_c0["coin"] + 1, "a landing plays the chirp and the coin sound")
+	check(k9_sfx.plays["landing"] == k9_c0["landing"] + 1, "a landing rings the chime (the coins plink as they reach the counter)")
 	main._on_go_around(k9_fk3, 2)
 	check(k9_sfx.plays["go_around"] == k9_c0["go_around"] + 1, "a go-around plays the roar")
 	var k9_ca3 = tr.place(0, Vector2(0, 0), 0.0, MEDIUM)
@@ -2353,7 +2361,7 @@ func _initialize() -> void:
 	var k9_late_lv = k9_sfx.music_level
 	tr.run_time = 86.0
 	main.step(1.0 / 60.0)
-	check(k9_early_lv < 0.05 and k9_late_lv > k9_early_lv + 0.3 and k9_sfx.music_level >= k9_late_lv and k9_sfx.music_pitch > 1.05, "the music intensifies towards the end (%.2f -> %.2f -> %.2f, pitch x%.2f)" % [k9_early_lv, k9_late_lv, k9_sfx.music_level, k9_sfx.music_pitch])
+	check(k9_early_lv < 0.05 and k9_late_lv > k9_early_lv + 0.3 and k9_sfx.music_level >= k9_late_lv and k9_sfx.music_pitch == 1.0, "the music intensifies towards the end, always in key (%.2f -> %.2f -> %.2f)" % [k9_early_lv, k9_late_lv, k9_sfx.music_level])
 	check(k9_sfx._music_calm.playing or true, "the music loop is running")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
@@ -3299,7 +3307,7 @@ func _initialize() -> void:
 	var au_pitch0 = au._music_calm.pitch_scale
 	for i in 30:
 		au._glide_music(1.0 / 60.0)
-	check(au._calm_db > au.MENU_CALM_DB + 2.0 and au._calm_db < au.SHIFT_CALM_DB + 0.1 and au._music_calm.pitch_scale > au_pitch0, "...and rises into the shift's music, pitch easing up, without a jump")
+	check(au._calm_db > au.MENU_CALM_DB + 2.0 and au._calm_db < au.SHIFT_CALM_DB + 0.1, "...and rises into the shift's music without a jump")
 	for i in 120:
 		au._glide_music(1.0 / 60.0)
 	check(absf(au._calm_db - au.SHIFT_CALM_DB) < 0.5 and au._hot_db > -40.0, "...the intense layer fades in with it")
@@ -3585,6 +3593,212 @@ func _initialize() -> void:
 	check(FileAccess.file_exists("res://tools/web_audio_check.js") and FileAccess.get_file_as_string("res://.github/workflows/deploy.yml").contains("web_audio_check.js"), "CI loads the exported game in headless Chrome and listens for sound")
 	save.reset_all()
 	main._apply_volumes()
+
+	print("9w. audio direction: soft, in key, enveloped, quiet UI, big moments, limiter")
+	save.reset_all()
+	main.restart()
+	tr.auto_spawn = false
+	var sx = main.sfx
+	var sx_clip = func(w_k):
+		var w_d: PackedByteArray = sx._streams[w_k].data
+		var w_out = PackedFloat32Array()
+		w_out.resize(w_d.size() / 2)
+		for w_i in w_out.size():
+			w_out[w_i] = w_d.decode_s16(w_i * 2) / 32768.0
+		return w_out
+	var sx_peak = func(w_x):
+		var w_m = 0.0
+		for w_v in w_x:
+			w_m = maxf(w_m, absf(w_v))
+		return w_m
+	# Envelopes: every one-shot starts from silence and ends in silence (no clicks, no cuts).
+	var w_env_bad = []
+	var w_rate = sx.RATE
+	for w_k in sx._streams.keys():
+		var w_x = sx_clip.call(w_k)
+		var w_pk = sx_peak.call(w_x)
+		var w_head = 0.0
+		for w_i in int(0.002 * w_rate):
+			w_head = maxf(w_head, absf(w_x[w_i]))
+		var w_tail = 0.0
+		for w_i in range(w_x.size() - int(0.004 * w_rate), w_x.size()):
+			w_tail = maxf(w_tail, absf(w_x[w_i]))
+		if w_head > 0.35 * w_pk or w_tail > 0.03 * w_pk or absf(w_x[0]) > 0.02 * w_pk:
+			w_env_bad.append("%s (head %.2f tail %.3f)" % [w_k, w_head / w_pk, w_tail / w_pk])
+	check(w_env_bad.is_empty(), "every sound fades in softly and out smoothly: %s" % str(w_env_bad))
+	# Soft: almost no energy above 4 kHz (everything is gently low-passed), and the key.
+	var w_goertzel = func(w_x, w_f, n):
+		var w_w = TAU * w_f / w_rate
+		var w_c = 2.0 * cos(w_w)
+		var w_s1 = 0.0
+		var w_s2 = 0.0
+		for w_i in n:
+			var w_s0 = w_x[w_i] + w_c * w_s1 - w_s2
+			w_s2 = w_s1
+			w_s1 = w_s0
+		return (w_s1 * w_s1 + w_s2 * w_s2 - w_c * w_s1 * w_s2) * 2.0 / n
+	var w_hf_bad = []
+	for w_k in sx._streams.keys():
+		var w_x2 = sx_clip.call(w_k)
+		var w_n2 = mini(w_x2.size(), 4000)
+		var w_total = 0.0
+		for w_i in w_n2:
+			w_total += w_x2[w_i] * w_x2[w_i]
+		var w_hf = 0.0
+		for w_f in [4200.0, 5000.0, 5800.0, 6600.0, 7400.0]:
+			w_hf += w_goertzel.call(w_x2, w_f, w_n2)
+		if w_total > 0.0 and w_hf / (w_total + 0.0000001) > 0.03:
+			w_hf_bad.append("%s %.3f" % [w_k, w_hf / w_total])
+	check(w_hf_bad.is_empty(), "everything is soft: next to no energy above 4 kHz %s" % str(w_hf_bad))
+	# Pitch classes of the pitched clips are all in C major pentatonic (C D E G A).
+	var w_pc_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+	var w_in_key = [0, 2, 4, 7, 9]
+	var w_key_bad = []
+	var w_dom = func(w_x):
+		var w_best = -1
+		var w_best_e = 0.0
+		var w_second = -1
+		var w_second_e = 0.0
+		var w_n3 = mini(w_x.size(), 5000)
+		var w_es = []
+		for w_m in range(0, 49):
+			w_es.append(w_goertzel.call(w_x, 130.81 * pow(2.0, w_m / 12.0), w_n3))
+		for w_m in 49:
+			if w_es[w_m] > w_best_e:
+				w_best_e = w_es[w_m]
+				w_best = w_m
+		return w_best
+	var w_tonal = ["coin_0", "coin_3", "coin_6", "landing_0", "landing_3", "landing_6", "star", "unlock", "buy", "wind", "last_arrivals", "clear_sky"]
+	for w_k in w_tonal:
+		var w_x3 = sx_clip.call(w_k)
+		var w_m = w_dom.call(w_x3)
+		if not w_in_key.has(w_m % 12):
+			w_key_bad.append("%s -> %s" % [w_k, w_pc_names[w_m % 12]])
+	check(w_key_bad.is_empty(), "the chimes, plinks and fanfares all sit in the key of the music: %s" % str(w_key_bad))
+	var w_hz_ok = true
+	for w_dg in range(0, 14):
+		var w_hz = sx.note_hz(w_dg)
+		var w_semis = int(round(12.0 * log(w_hz / 261.6256) / log(2.0)))
+		w_hz_ok = w_hz_ok and w_in_key.has(posmod(w_semis, 12)) and absf(w_hz - 261.6256 * pow(2.0, w_semis / 12.0)) < 0.01
+	check(w_hz_ok and absf(sx.note_hz(5) - 523.25) < 0.1 and absf(sx.note_hz(4) - 440.0) < 0.1, "the scale helper is C major pentatonic (C4 261.6, A4 440, C5 523.3)")
+	var w_land_d = []
+	var w_coin_d = []
+	for w_k in range(0, 7):
+		w_land_d.append(w_dom.call(sx_clip.call("landing_%d" % w_k)))
+		w_coin_d.append(w_dom.call(sx_clip.call("coin_%d" % w_k)))
+	var w_land_up = true
+	var w_coin_up = true
+	for w_k in range(1, 7):
+		w_land_up = w_land_up and w_land_d[w_k] >= w_land_d[w_k - 1]
+		w_coin_up = w_coin_up and w_coin_d[w_k] >= w_coin_d[w_k - 1]
+	check(w_land_up and w_coin_up and w_land_d[6] > w_land_d[0] and w_coin_d[6] > w_coin_d[0], "landing chimes and coin plinks climb the scale (%s / %s)" % [str(w_land_d), str(w_coin_d)])
+	# Levels: UI quietest, gameplay moderate, big moments stand w_out; hums barely register.
+	var w_lv = func(keys):
+		var w_m = 0.0
+		for w_k in keys:
+			w_m = maxf(w_m, sx_peak.call(sx_clip.call(w_k)))
+		return w_m
+	var w_ui_pk = w_lv.call(["tap", "press", "back", "toggle", "error", "whoosh", "tick"])
+	var w_game_lo = 1.0
+	for w_k in ["coin_0", "fine", "alarm", "go_around", "wind", "buy", "chirp"]:
+		w_game_lo = minf(w_game_lo, sx_peak.call(sx_clip.call(w_k)))
+	var w_game_hi = w_lv.call(["coin_0", "fine", "alarm", "go_around", "wind", "buy", "chirp"])
+	var w_big_lo = 1.0
+	for w_k in ["landing_0", "star", "unlock", "slam"]:
+		w_big_lo = minf(w_big_lo, sx_peak.call(sx_clip.call(w_k)))
+	var w_hum_pk = 0.0
+	for w_hp in sx._hums:
+		w_hum_pk = maxf(w_hum_pk, sx_peak.call(sx_clip_of(w_hp.stream)))
+	check(w_ui_pk < w_game_lo and w_game_hi < w_big_lo and w_ui_pk <= 0.16, "the mix is layered: UI %.2f < gameplay %.2f..%.2f < big moments %.2f" % [w_ui_pk, w_game_lo, w_game_hi, w_big_lo])
+	check(w_hum_pk <= 0.1 and w_hum_pk < w_ui_pk, "the engine hums are the quietest thing (peak %.2f)" % w_hum_pk)
+	var w_loud = 0.0
+	for w_k in sx._streams.keys():
+		w_loud = maxf(w_loud, sx_peak.call(sx_clip.call(w_k)))
+	check(w_loud <= 0.55, "no clip is loud (loudest peak %.2f)" % w_loud)
+	# Reverb tails and w_loops.
+	check(sx._streams["landing_0"].data.size() / 2.0 / w_rate > 1.1 and sx._streams["tap"].data.size() / 2.0 / w_rate < 0.1, "chimes have a tail; UI clicks are short")
+	var w_seam_bad = []
+	var w_loops = {"calm": sx._music_calm.stream, "hot": sx._music_hot.stream, "tense": sx._music_tense.stream, "fog": sx._fog_amb.stream}
+	for w_hi in sx._hums.size():
+		w_loops["hum%d" % w_hi] = sx._hums[w_hi].stream
+	for w_k in w_loops.keys():
+		var w_xs = sx_clip_of(w_loops[w_k])
+		var w_big_step = 0.0
+		for w_i in range(1, w_xs.size()):
+			w_big_step = maxf(w_big_step, absf(w_xs[w_i] - w_xs[w_i - 1]))
+		var w_seam = absf(w_xs[0] - w_xs[w_xs.size() - 1])
+		if w_seam > w_big_step * 1.5 + 0.0005 or w_loops[w_k].loop_mode != AudioStreamWAV.LOOP_FORWARD:
+			w_seam_bad.append("%s %.4f/%.4f" % [w_k, w_seam, w_big_step])
+	check(w_seam_bad.is_empty(), "every loop is seamless %s" % str(w_seam_bad))
+	check(sx._music_calm.stream.data.size() == sx._music_hot.stream.data.size() and sx._music_hot.stream.data.size() == sx._music_tense.stream.data.size(), "the three music layers are the same length (they build and fade without drifting)")
+	# Variation: +-3% pitch, a hair of level.
+	var w_pmin = 9.0
+	var w_pmax = 0.0
+	var w_vmin = 9.0
+	var w_vmax = -9.0
+	for w_i in 60:
+		sx.play("coin")
+		var w_ap = sx._pool[(sx._next + sx.POOL - 1) % sx.POOL]
+		w_pmin = minf(w_pmin, w_ap.pitch_scale)
+		w_pmax = maxf(w_pmax, w_ap.pitch_scale)
+		w_vmin = minf(w_vmin, w_ap.volume_db)
+		w_vmax = maxf(w_vmax, w_ap.volume_db)
+	check(w_pmin >= 0.969 and w_pmax <= 1.031 and w_pmax - w_pmin > 0.03 and w_vmax - w_vmin > 0.3 and w_vmax < 1.0, "repeated sounds vary by about 3%% in pitch (%.3f..%.3f) and a little in level" % [w_pmin, w_pmax])
+	# Landings in quick succession climb; coins rise as they arrive.
+	var w_st0 = sx.plays["landing"]
+	main.restart()
+	tr.auto_spawn = false
+	var w_land_steps = []
+	for w_i in 4:
+		var w_lf = Aircraft.new()
+		w_lf.runway = 0
+		w_lf.type = MEDIUM
+		tr.run_time = 10.0 + w_i * 1.0
+		main._on_landed(w_lf)
+		w_land_steps.append(main.streak)
+	check(w_land_steps == [1, 2, 3, 4] and sx.plays["landing"] == w_st0 + 4, "quick landings step up the scale (streak %s)" % str(w_land_steps))
+	main._coin_last_ms = -10000
+	var w_coin_steps = []
+	for w_i in 5:
+		main._on_coin_arrived()
+		w_coin_steps.append(main._coin_step)
+	main._coin_last_ms = Time.get_ticks_msec() - 2000
+	main._on_coin_arrived()
+	check(w_coin_steps == [0, 1, 2, 3, 4] and main._coin_step == 0, "coins plink higher as they keep arriving, and start over after a pause (%s)" % str(w_coin_steps))
+	# Timer warnings: a gentle tick that speeds up and rises.
+	main.restart()
+	tr.auto_spawn = false
+	tr.release_all()
+	var w_par = tuning.par_eff()
+	var w_tick_t = []
+	var w_tick_p = []
+	var w_base_ticks = sx.plays["tick"]
+	main._tick_next = 0.0
+	var w_tt = w_par - 10.0
+	while w_tt < w_par + 2.0:
+		var w_before = sx.plays["tick"]
+		main._timer_ticks(w_tt, w_par)
+		if sx.plays["tick"] > w_before:
+			w_tick_t.append(w_tt)
+			w_tick_p.append(sx._pool[(sx._next + sx.POOL - 1) % sx.POOL].pitch_scale)
+		w_tt += 1.0 / 60.0
+	var w_gaps = []
+	for w_i in range(1, w_tick_t.size()):
+		w_gaps.append(w_tick_t[w_i] - w_tick_t[w_i - 1])
+	check(w_tick_t.size() >= 8 and w_tick_t[0] >= w_par - 8.05 and w_gaps[0] > w_gaps[w_gaps.size() - 1] * 2.0 and w_tick_p[w_tick_p.size() - 1] > w_tick_p[0] * 1.05, "the timer ticks softly from 8 s out, faster and a little higher as it runs down (%d ticks, gaps %.2f -> %.2f s)" % [w_tick_t.size(), w_gaps[0], w_gaps[w_gaps.size() - 1]])
+	var w_quiet_ticks = sx.plays["tick"]
+	main._tick_next = 0.0
+	main._timer_ticks(w_par - 20.0, w_par)
+	check(sx.plays["tick"] == w_quiet_ticks, "...and not at all while there is plenty of time")
+	# Master limiter, no harsh waveforms.
+	var w_lim_ok = AudioServer.get_bus_effect_count(0) >= 1 and AudioServer.get_bus_effect(0, 0) is AudioEffectHardLimiter and AudioServer.is_bus_effect_enabled(0, 0)
+	check(w_lim_ok and FileAccess.get_file_as_string("res://default_bus_layout.tres").contains("AudioEffectHardLimiter"), "a gentle limiter sits on the Master bus (from the bus layout, not made at run time)")
+	var w_sfx_src = FileAccess.get_file_as_string("res://scripts/Sfx.gd").to_lower()
+	check(not w_sfx_src.contains("square") and not w_sfx_src.contains("sawtooth") and not w_sfx_src.contains("fposmod(f * t, 1.0) * 2.0"), "no square or saw waves in the sound code")
+	var w_dsty = FileAccess.get_file_as_string("res://docs/style.md")
+	check(w_dsty.contains("pentatonic") and w_dsty.contains("envelope") and w_dsty.contains("limiter") and w_dsty.contains("Mini Metro"), "the audio direction is documented in docs/style.md")
+	main.restart()
+	tr.auto_spawn = false
 
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()

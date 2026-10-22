@@ -4,6 +4,7 @@ extends Node3D
 ## Restarting is IN PLACE: nothing is reloaded, created or freed; only the game state resets.
 
 const SCREEN_MENU := 0
+const TICK_WARN := 8.0                   # seconds left (clock or aircraft timer) when the ticking starts
 const SCREEN_PLAY := 1
 const SCREEN_OVER := 2
 const SCREEN_SELECT := 3
@@ -20,6 +21,9 @@ const HEADER_DONE := "SHIFT\nCOMPLETE"
 @onready var traffic: Traffic = $Traffic
 var diorama: Diorama
 var _shake_left := 0.0
+var _coin_step := 0
+var _coin_last_ms := -10000
+var _tick_next := 0.0                    # run time of the next timer tick
 var _shake_dur := 0.3
 var _shake_mag := 0.0
 var shake_offset := Vector2.ZERO          # the camera's current shake (world units)
@@ -102,6 +106,7 @@ func _ready() -> void:
 	traffic.crashed.connect(_on_crashed)
 	traffic.go_around.connect(_on_go_around)
 	hud.star_reached.connect(_on_star_reached)
+	hud.coin_arrived.connect(_on_coin_arrived)
 	hud.transition_started.connect(func(_d: int): if not _warming: sfx.play("whoosh"))
 	hud.unlock_shown.connect(func(): sfx.play("unlock"))
 	hud.confetti_started.connect(func(): sfx.play("unlock"))
@@ -228,6 +233,7 @@ func _boot_to_menu() -> void:
 ## Start a fresh shift IN PLACE.
 func restart() -> void:
 	screen = SCREEN_PLAY
+	_tick_next = 0.0
 	alive = true
 	score = 0
 	streak = 0
@@ -434,9 +440,8 @@ func _step_clock(t: float) -> void:
 		shift.set_overtime(t - par, int(Tuning.overtime_penalty_per_second))
 		if over != _last_over:
 			_last_over = over
-			if over > 0:
-				sfx.play("tick")
 			hud.set_shift(shift)
+	_timer_ticks(t, par)
 	if t < Tuning.spawn_stop_eff() or not alive:
 		return
 	var left := traffic.remaining()
@@ -455,6 +460,22 @@ func _step_clock(t: float) -> void:
 	if left == 0:
 		_end_shift()
 
+## Timer warnings: a gentle tick that comes faster, and a little higher, the closer the shift clock or the most
+## hurried aircraft is to running out (in overtime it ticks steadily and quickly).
+func _timer_ticks(t: float, par: float) -> void:
+	if not alive:
+		return
+	var urgency := par - t
+	for p in traffic.planes:
+		if p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD:
+			if p.entered and not p.fogged:
+				urgency = minf(urgency, p.timer_left)
+	if urgency > TICK_WARN or t < _tick_next:
+		return
+	var k := clampf(urgency / TICK_WARN, 0.0, 1.0)
+	sfx.play("tick", lerpf(1.25, 1.0, k))
+	_tick_next = t + lerpf(0.22, 0.9, k)
+
 ## Hums follow the aircraft on the field; the music intensifies through the shift and towards the finale.
 func _update_audio(frac: float) -> void:
 	_hum_counts.fill(0)
@@ -472,6 +493,7 @@ func _update_audio(frac: float) -> void:
 func _on_touchdown(p: Aircraft) -> void:
 	if p.tkind != Aircraft.Kind.PAD:
 		fx.puff(p.pos)
+		sfx.play("chirp")
 
 func _on_landed(p: Aircraft) -> void:
 	if not alive:
@@ -494,8 +516,7 @@ func _on_landed(p: Aircraft) -> void:
 	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
 	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
-	sfx.play("landing")
-	sfx.play("coin")
+	sfx.play_step("landing", mini(streak - 1, Sfx.STEPS - 1))      # (landings in quick succession climb the scale)
 	hud.set_landed(score, true)
 	hud.set_shift(shift)
 	fx.burst(land_at, col)
@@ -567,6 +588,13 @@ func _on_go_around(p: Aircraft, reason: int) -> void:
 ## Two aircraft landed on crossing runways at once: a conflict.
 func _on_runway_conflict(a: Aircraft, b: Aircraft) -> void:
 	_conflict(a, b, "RUNWAY CONFLICT")
+
+## A coin reaches the counter: a soft plink, each one a note higher in the key while they keep arriving.
+func _on_coin_arrived() -> void:
+	var now := Time.get_ticks_msec()
+	_coin_step = 0 if now - _coin_last_ms > 700 else mini(_coin_step + 1, Sfx.STEPS - 1)
+	_coin_last_ms = now
+	sfx.play_step("coin", _coin_step)
 
 ## A star lit on the bar during a shift.
 func _on_star_reached(_i: int) -> void:

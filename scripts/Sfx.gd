@@ -1,21 +1,32 @@
 class_name Sfx
 extends Node
-## Placeholder sound, all generated in code at start-up (no audio files): one-shot effects, an engine hum per
-## aircraft type, and a light two-layer music loop that intensifies towards the end of a shift. One-shots go
-## through a small pool of players on the "SFX" bus, hums and music on their own looping players ("SFX" /
-## "Music"). Nothing is created or generated during play, and `plays` counts what was triggered (for the tests).
+## The game's sound, in the spirit of Mini Metro / Alto's Adventure: soft, rounded, cozy. Everything is rendered ONCE
+## at start-up into 16-bit AudioStreamWAV clips (no files, no generators, no run-time buses): sines and gently
+## filtered noise, every clip with a soft attack and a smooth release, a little baked-in reverb tail, and every
+## pitched sound in one key (C major pentatonic, the key of the music), so whatever overlaps harmonises. Repeated sounds
+## are varied by a few percent in pitch and level. Loudness is normalised per clip by role: UI is the quietest,
+## gameplay sounds moderate, the big moments (a landing, a star, a new airport) stand out. The shared limiter lives on
+## the Master bus (default_bus_layout.tres). `plays` counts what was triggered (for the tests). See docs/style.md.
 
-const RATE := 11025            # effects
-const LOOP_RATE := 8000        # hums and music (lo-fi on purpose: it is a placeholder)
+const RATE := 16000            # every clip and loop
 const POOL := 8
-const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "star", "slam", "back", "toggle", "buy", "error", "whoosh", "unlock"]
-const BEAT := 0.6              # music: seconds per beat, 8 beats per loop
+const STEPS := 7               # landing chimes / coin plinks: this many steps up the scale
+const BEAT := 0.75             # music: seconds per beat, 8 beats per loop (6 s)
+const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "star", "slam", "back", "toggle", "buy", "error", "whoosh", "unlock", "chirp"]
+const C4 := 261.6256
+const PENTA := [0, 2, 4, 7, 9]  # C D E G A
+
+# Loudness by role (peak, linear). The SFX bus sits at -1.9 dB.
+const LVL_UI := 0.10
+const LVL_GAME := 0.30
+const LVL_BIG := 0.50
+const LVL_HUM := 0.07
 
 var enabled := true
 var plays := {}                # sound name -> how many times it was triggered
 var hum_level := PackedFloat32Array()    # per aircraft type: current hum volume 0..1 (for the tests)
 var music_level := 0.0         # the intense layer's volume 0..1
-var music_pitch := 1.0
+var music_pitch := 1.0         # (always 1: shifting the music would take it out of key)
 var fog_level := 0.0           # 0..1: the fog ambience and the tense music layer follow it
 
 var _streams := {}
@@ -28,18 +39,20 @@ var _music_hot: AudioStreamPlayer
 var _music_tense: AudioStreamPlayer
 var _fog_amb: AudioStreamPlayer
 var _music_on := false
-var unlocked := false                  # the first user gesture has happened (browsers keep audio suspended until then)
 var _menu_on := false
+var unlocked := false                  # the first user gesture has happened (browsers keep audio suspended until then)
 var _calm_db := -80.0                  # what the players are at now; the targets come from the mode (a smooth crossfade)
 var _hot_db := -80.0
 var _calm_target := -80.0
 var _hot_target := -80.0
 var _pitch_target := 1.0
 const FADE_DB_PER_S := 60.0
-const MENU_CALM_DB := -19.0
-const SHIFT_CALM_DB := -12.0
+const MENU_CALM_DB := -13.0
+const SHIFT_CALM_DB := -9.0
+var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
+	_rng.randomize()
 	hum_level.resize(6)
 	_hum_target.resize(6)
 	for n in NAMES:
@@ -76,14 +89,29 @@ func _player(bus: String) -> AudioStreamPlayer:
 
 # ---------- Playing ----------
 
+## A one-shot. `pitch` is a ratio (1 = as rendered); every play also gets about +-3% random pitch and a hair of
+## random level, so repeated sounds never feel mechanical.
 func play(sound: String, pitch: float = 1.0) -> void:
 	plays[sound] = int(plays.get(sound, 0)) + 1
 	if not enabled or not _streams.has(sound):
 		return
+	_fire(_streams[sound], pitch)
+
+## A sound that climbs the scale: "landing" and "coin" have STEPS clips, each a note higher in the key. Counts as `sound`.
+func play_step(sound: String, step: int) -> void:
+	plays[sound] = int(plays.get(sound, 0)) + 1
+	if not enabled:
+		return
+	var key := "%s_%d" % [sound, clampi(step, 0, STEPS - 1)]
+	if _streams.has(key):
+		_fire(_streams[key], 1.0)
+
+func _fire(stream: AudioStream, pitch: float) -> void:
 	var p := _pool[_next]
 	_next = (_next + 1) % POOL
-	p.stream = _streams[sound]
-	p.pitch_scale = pitch
+	p.stream = stream
+	p.pitch_scale = pitch * _rng.randf_range(0.97, 1.03)
+	p.volume_db = _rng.randf_range(-0.5, 0.3)
 	p.play()
 
 ## The first touch: browsers only let audio run after a gesture. Looping layers that were started while the page was
@@ -107,16 +135,15 @@ func set_hum_counts(counts: PackedInt32Array) -> void:
 func silence_hums() -> void:
 	_hum_target.fill(0.0)
 
-## Start / stop the music. `progress` 0..1 through the shift: the intense layer fades in from 55% and the loop
-## speeds up a little; `urgency` (the finale / overtime) pushes it to the top.
+## Start / stop the music. `progress` 0..1 through the shift: the intense layer fades in from 55%; `urgency` (the
+## finale / overtime) pushes it to the top. The key never changes.
 func set_music(on: bool, progress: float = 0.0, urgency: float = 0.0) -> void:
 	_music_on = on
 	var hot := clampf(maxf(smoothstep(0.55, 1.0, progress), urgency), 0.0, 1.0)
 	music_level = hot if on else 0.0
-	music_pitch = 1.0 + 0.1 * hot
 	_retarget(hot)
 
-## The menu's music: the calm layer alone, quieter and a little slower. It crossfades with the shift's music.
+## The menu's music: the calm layer alone, quieter. It crossfades with the shift's music.
 func set_menu_music(on: bool) -> void:
 	if on != _menu_on:
 		_menu_on = on
@@ -125,8 +152,8 @@ func set_menu_music(on: bool) -> void:
 ## Work out where each layer should be; the players glide there in _process (no jumps, no clicks).
 func _retarget(hot: float) -> void:
 	_calm_target = SHIFT_CALM_DB if _music_on else (MENU_CALM_DB if _menu_on else -80.0)
-	_hot_target = linear_to_db(maxf(hot * 0.8, 0.0001)) - 8.0 if _music_on else -80.0
-	_pitch_target = music_pitch if _music_on else (0.92 if _menu_on else 1.0)
+	_hot_target = linear_to_db(maxf(hot * 0.8, 0.0001)) - 6.0 if _music_on else -80.0
+	_pitch_target = 1.0
 	if not enabled:
 		return
 	if (_calm_target > -70.0 or _hot_target > -70.0) and not _music_calm.playing:
@@ -146,7 +173,7 @@ func _glide_music(delta: float) -> void:
 		_music_calm.stop()
 		_music_hot.stop()
 
-## Fog: a soft ambient bed, and a tense music layer on top of the music while it is around.
+## Fog: a soft ambient bed, and a tense (but still soft) music layer on top of the music while it is around.
 func set_fog(level: float) -> void:
 	fog_level = clampf(level, 0.0, 1.0)
 	if not enabled:
@@ -161,8 +188,8 @@ func set_fog(level: float) -> void:
 	if tense > 0.01:
 		if not _music_tense.playing:
 			_music_tense.play()
-		_music_tense.volume_db = linear_to_db(tense) - 8.0
-		_music_tense.pitch_scale = music_pitch
+		_music_tense.volume_db = linear_to_db(tense) - 9.0
+		_music_tense.pitch_scale = 1.0
 	elif _music_tense.playing:
 		_music_tense.stop()
 
@@ -177,222 +204,412 @@ func _process(delta: float) -> void:
 		if hum_level[t] > 0.005:
 			if not p.playing:
 				p.play()
-			p.volume_db = linear_to_db(hum_level[t]) - 22.0
+			p.volume_db = linear_to_db(hum_level[t]) - 9.0
 		elif p.playing:
 			p.stop()
 
-# ---------- Synthesis ----------
+# ---------- The key ----------
+
+## Frequency of scale degree `deg` of C major pentatonic: 0 = C4, 1 = D4, 2 = E4, 3 = G4, 4 = A4, 5 = C5, ...
+static func note_hz(deg: int) -> float:
+	var oct := floori(float(deg) / 5.0)
+	return C4 * pow(2.0, float(PENTA[posmod(deg, 5)] + 12 * oct) / 12.0)
+
+# ---------- The clips ----------
 
 func _build_effects() -> void:
-	# landing: a quick rising two-note chirp
-	_streams["landing"] = _wav(_seq([[660.0, 0.07, 0.5], [880.0, 0.07, 0.5], [1100.0, 0.12, 0.45]], RATE), RATE)
-	# coin: two bright pings
-	_streams["coin"] = _wav(_seq([[1319.0, 0.06, 0.4], [1760.0, 0.16, 0.4]], RATE, 0.5), RATE)
-	# go-around: a swelling noisy roar
-	_streams["go_around"] = _wav(_roar(0.9, RATE), RATE)
-	# conflict alarm: alternating two-tone square wave
-	_streams["alarm"] = _wav(_seq([[880.0, 0.14, 0.35], [660.0, 0.14, 0.35], [880.0, 0.14, 0.35], [660.0, 0.14, 0.35], [880.0, 0.14, 0.35]], RATE, 0.9, true), RATE)
-	# fine: a low falling thunk
-	_streams["fine"] = _wav(_sweep(220.0, 70.0, 0.28, 0.6, RATE), RATE)
-	# wind-shift chime: three soft bell notes
-	_streams["wind"] = _wav(_seq([[784.0, 0.18, 0.35], [988.0, 0.18, 0.35], [1175.0, 0.4, 0.35]], RATE, 0.4, false, true), RATE)
-	# last arrivals: a rising brassy stinger
-	_streams["last_arrivals"] = _wav(_seq([[392.0, 0.14, 0.4], [494.0, 0.14, 0.4], [587.0, 0.14, 0.4], [784.0, 0.4, 0.45]], RATE, 0.9, true), RATE)
-	# clear the sky: a resolving chord
-	_streams["clear_sky"] = _wav(_chord([262.0, 330.0, 392.0, 523.0], 0.8, RATE), RATE)
-	# overtime tick: a short click
-	_streams["tick"] = _wav(_seq([[1500.0, 0.025, 0.5]], RATE, 0.6, true), RATE)
-	# UI tap: a soft blip
-	_streams["tap"] = _wav(_seq([[740.0, 0.05, 0.35]], RATE), RATE)
-	# a star lit on the bar: a bright rising arpeggio
-	_streams["star"] = _wav(_seq([[988.0, 0.07, 0.4], [1319.0, 0.07, 0.4], [1760.0, 0.2, 0.4]], RATE, 0.5, false, true), RATE)
-	# a results star slamming in: a low thud with a ring on top
-	_streams["slam"] = _wav(_mix(_sweep(180.0, 55.0, 0.22, 0.9, RATE), _seq([[1175.0, 0.3, 0.3]], RATE, 0.3, false, true)), RATE)
-	# going back: a soft falling pair
-	_streams["back"] = _wav(_seq([[560.0, 0.04, 0.3], [415.0, 0.07, 0.3]], RATE), RATE)
-	# a toggle (details, tabs): a tiny tick
-	_streams["toggle"] = _wav(_seq([[920.0, 0.03, 0.35]], RATE, 0.8), RATE)
-	# a purchase: a rising three-note ping
-	_streams["buy"] = _wav(_seq([[784.0, 0.06, 0.4], [1047.0, 0.06, 0.4], [1568.0, 0.2, 0.4]], RATE, 0.5, false, true), RATE)
-	# can't do that: a muted low buzz
-	_streams["error"] = _wav(_seq([[196.0, 0.08, 0.3], [147.0, 0.14, 0.3]], RATE, 0.7, true), RATE)
-	# a screen sliding: a short airy swish
-	_streams["whoosh"] = _wav(_whoosh(0.22, RATE), RATE)
-	# a new airport: a little fanfare
-	_streams["unlock"] = _wav(_seq([[523.0, 0.1, 0.4], [659.0, 0.1, 0.4], [784.0, 0.1, 0.4], [1047.0, 0.45, 0.45]], RATE, 0.6, false, true), RATE)
-	# a finger going down on a button: a short, soft low click
-	_streams["press"] = _wav(_seq([[420.0, 0.03, 0.25]], RATE, 0.9), RATE)
+	# Tire chirp (at touchdown): a soft little squeak and puff, no edge.
+	_streams["chirp"] = _wav(_norm(_chirp(), LVL_GAME * 0.8))
+	# Landing: a warm two-note chime, each landing in quick succession one step higher up the scale.
+	var base := [[5, 7], [6, 8], [7, 9], [8, 10], [9, 11], [10, 12], [11, 13]]
+	for k in STEPS:
+		var a := _bell(note_hz(base[k][0]), 0.9, 1.0, 0.8)
+		var b := _bell(note_hz(base[k][1]), 1.0, 0.85, 0.8)
+		_streams["landing_%d" % k] = _wav(_norm(_reverb(_mix_at(_mix_at(PackedFloat32Array(), a, 0), b, int(0.11 * RATE)), 0.35, 0.5), LVL_BIG))
+		# Coins: bright-but-soft bell plinks, rising with each coin that reaches the counter.
+		var c := _bell(note_hz(7 + k), 0.45, 1.0, 1.0)
+		_streams["coin_%d" % k] = _wav(_norm(_reverb(c, 0.25, 0.35), LVL_GAME * 0.7))
+	_streams["landing"] = _streams["landing_0"]
+	_streams["coin"] = _streams["coin_0"]
+	# Fine: a low, muted thud. Conflict: the thud with a soft descending two-tone over it.
+	_streams["fine"] = _wav(_norm(_reverb(_thud(0.5), 0.15, 0.3), LVL_GAME))
+	var tone1 := _soft(note_hz(4) * 0.5, 0.22, 0.8)       # A3
+	var tone2 := _soft(note_hz(2) * 0.5, 0.34, 0.8)       # E3
+	var alarm := _mix_at(_mix_at(_thud(0.5), tone1, int(0.02 * RATE)), tone2, int(0.2 * RATE))
+	_streams["alarm"] = _wav(_norm(_reverb(alarm, 0.2, 0.4), LVL_GAME))
+	# Go-around: a soft whoosh with a rising engine swell under it.
+	_streams["go_around"] = _wav(_norm(_reverb(_swell(1.0), 0.2, 0.3), LVL_GAME))
+	# Wind shift: three slow, low bell notes (E, D, A).
+	var w := _mix_at(_mix_at(_bell(note_hz(7), 0.9, 1.0, 0.6), _bell(note_hz(6), 0.9, 0.9, 0.6), int(0.22 * RATE)), _bell(note_hz(4), 1.2, 0.9, 0.6), int(0.44 * RATE))
+	_streams["wind"] = _wav(_norm(_reverb(w, 0.35, 0.6), LVL_GAME))
+	# Last arrivals: a gentle rising figure (G A C E). Clear sky: a warm major chord, slowly blooming.
+	var la := PackedFloat32Array()
+	for k in 4:
+		la = _mix_at(la, _bell(note_hz(3 + k + (1 if k > 1 else 0)), 0.8, 1.0 - 0.1 * k, 0.7), int(k * 0.16 * RATE))
+	_streams["last_arrivals"] = _wav(_norm(_reverb(la, 0.35, 0.6), LVL_BIG * 0.8))
+	_streams["clear_sky"] = _wav(_norm(_reverb(_chord([note_hz(0), note_hz(2), note_hz(3), note_hz(5)], 1.6), 0.4, 0.7), LVL_BIG * 0.8))
+	# Timer tick: a tiny soft knock. (The game plays it faster and slightly higher as time runs short.)
+	_streams["tick"] = _wav(_norm(_knock(640.0, 0.05), LVL_UI * 1.2))
+	# UI: very quiet, very short, soft clicks.
+	_streams["tap"] = _wav(_norm(_knock(520.0, 0.06), LVL_UI))
+	_streams["press"] = _wav(_norm(_knock(330.0, 0.05), LVL_UI * 0.7))
+	_streams["back"] = _wav(_norm(_mix_at(_knock(440.0, 0.05), _knock(330.0, 0.07), int(0.05 * RATE)), LVL_UI))
+	_streams["toggle"] = _wav(_norm(_knock(720.0, 0.04), LVL_UI * 0.8))
+	_streams["error"] = _wav(_norm(_soft(note_hz(2) * 0.5, 0.16, 0.9), LVL_UI * 1.5))
+	_streams["whoosh"] = _wav(_norm(_whoosh(0.25, 500.0, 1100.0), LVL_UI * 1.1))
+	# A purchase: three soft plinks up the scale. A star: a rising four-note bell figure. A new airport: a little melody.
+	var buy := _mix_at(_mix_at(_bell(note_hz(7), 0.4, 1.0, 1.0), _bell(note_hz(9), 0.4, 0.9, 1.0), int(0.07 * RATE)), _bell(note_hz(10), 0.6, 0.9, 1.0), int(0.14 * RATE))
+	_streams["buy"] = _wav(_norm(_reverb(buy, 0.3, 0.5), LVL_GAME))
+	var star := PackedFloat32Array()
+	for k in 4:
+		star = _mix_at(star, _bell(note_hz(8 + k), 0.7, 1.0, 1.0), int(k * 0.09 * RATE))
+	_streams["star"] = _wav(_norm(_reverb(star, 0.4, 0.6), LVL_BIG))
+	var un := PackedFloat32Array()
+	for k in 5:
+		un = _mix_at(un, _bell(note_hz([5, 7, 8, 10, 12][k]), 0.9, 1.0, 0.9), int(k * 0.12 * RATE))
+	_streams["unlock"] = _wav(_norm(_reverb(un, 0.45, 0.8), LVL_BIG))
+	# A results star slamming in: a warm thud with a bell on top.
+	_streams["slam"] = _wav(_norm(_reverb(_mix_at(_thud(0.45), _bell(note_hz(10), 0.8, 0.7, 0.8), int(0.03 * RATE)), 0.3, 0.5), LVL_BIG))
 
-## Notes [[hz, seconds, volume], ...] one after another with a short decay each. `square` = hollow tone,
-## `bell` = a slow decay with an overtone.
-func _seq(notes: Array, rate: int, decay: float = 0.6, square: bool = false, bell: bool = false) -> PackedFloat32Array:
-	var out := PackedFloat32Array()
-	for n in notes:
-		var count := int(float(n[1]) * rate)
-		var base := out.size()
-		out.resize(base + count)
-		for i in count:
-			var t := float(i) / rate
-			var env := (1.0 - float(i) / count) if not bell else exp(-t * 6.0)
-			env = lerpf(1.0, env, decay) * minf(float(i) / 40.0, 1.0)
-			var ph := TAU * float(n[0]) * t
-			var v := signf(sin(ph)) * 0.6 if square else sin(ph)
-			if bell:
-				v += 0.4 * sin(ph * 2.76)
-			out[base + i] = v * float(n[2]) * env
-	return out
-
-func _sweep(f0: float, f1: float, secs: float, vol: float, rate: int) -> PackedFloat32Array:
-	var count := int(secs * rate)
-	var out := PackedFloat32Array()
-	out.resize(count)
-	var ph := 0.0
-	for i in count:
-		var k := float(i) / count
-		ph += TAU * lerpf(f0, f1, k) / rate
-		out[i] = sin(ph) * vol * (1.0 - k) * minf(float(i) / 30.0, 1.0)
-	return out
-
-## Filtered noise whose brightness rises and falls: a swish.
-func _whoosh(secs: float, rate: int) -> PackedFloat32Array:
-	var count := int(secs * rate)
-	var out := PackedFloat32Array()
-	out.resize(count)
-	var seed_v := 777
-	var lp := 0.0
-	for i in count:
-		seed_v = (seed_v * 1103515245 + 12345) & 0x7fffffff
-		var noise := float(seed_v) / 1073741823.5 - 1.0
-		var k := float(i) / count
-		lp += (noise - lp) * lerpf(0.05, 0.5, sin(PI * k))
-		out[i] = lp * sin(PI * k) * 0.5
-	return out
-
-## Two sounds played together.
-func _mix(a: PackedFloat32Array, b: PackedFloat32Array) -> PackedFloat32Array:
-	var out := PackedFloat32Array()
-	out.resize(maxi(a.size(), b.size()))
-	for i in out.size():
-		out[i] = (a[i] if i < a.size() else 0.0) + (b[i] if i < b.size() else 0.0)
-	return out
-
-func _roar(secs: float, rate: int) -> PackedFloat32Array:
-	var count := int(secs * rate)
-	var out := PackedFloat32Array()
-	out.resize(count)
-	var seed_v := 12345
-	var lp := 0.0
-	for i in count:
-		seed_v = (seed_v * 1103515245 + 12345) & 0x7fffffff
-		var noise := float(seed_v) / 1073741823.5 - 1.0
-		lp += (noise - lp) * 0.25
-		var k := float(i) / count
-		var env := sin(PI * k) * (0.5 + 0.5 * k)
-		out[i] = (lp * 1.4 + 0.3 * sin(TAU * lerpf(90.0, 200.0, k) * float(i) / rate)) * env * 0.7
-	return out
-
-func _chord(freqs: Array, secs: float, rate: int) -> PackedFloat32Array:
-	var count := int(secs * rate)
-	var out := PackedFloat32Array()
-	out.resize(count)
-	for i in count:
-		var t := float(i) / rate
-		var v := 0.0
-		for f in freqs:
-			v += sin(TAU * float(f) * t) + 0.3 * sin(TAU * float(f) * 2.0 * t)
-		out[i] = v / freqs.size() * 0.5 * exp(-t * 2.5) * minf(float(i) / 60.0, 1.0)
-	return out
-
-## One second of engine hum for aircraft type `t` (Aircraft.Type order: glider, heli, small, medium, jet, seaplane).
-## Every frequency is a whole number of Hz, so the one-second loop is seamless.
+## Engine beds: low, smooth and quiet. All frequencies are whole Hz, so the one-second loop is seamless.
 func _hum(t: int) -> AudioStreamWAV:
-	var count := LOOP_RATE
 	var out := PackedFloat32Array()
-	out.resize(count)
-	for i in count:
-		var s := float(i) / LOOP_RATE
+	out.resize(RATE)
+	for i in RATE:
+		var s := float(i) / RATE
 		var v := 0.0
 		match t:
-			0:      # glider: airy rushing wind (many soft partials)
-				for k in 12:
-					v += 0.12 * sin(TAU * (300.0 + 53.0 * k) * s + k * 1.7)
-			1:      # helicopter: a chopping rotor
-				v = (sin(TAU * 90.0 * s) + 0.5 * sin(TAU * 180.0 * s)) * (0.55 + 0.45 * sin(TAU * 11.0 * s))
-			2:      # small plane: a buzzy propeller
-				v = (sin(TAU * 120.0 * s) + 0.5 * sin(TAU * 240.0 * s) + 0.3 * sin(TAU * 360.0 * s)) * (0.7 + 0.3 * sin(TAU * 30.0 * s))
-			3:      # medium plane: a deeper twin-prop drone
-				v = (sin(TAU * 80.0 * s) + 0.6 * sin(TAU * 160.0 * s) + 0.3 * sin(TAU * 241.0 * s)) * (0.75 + 0.25 * sin(TAU * 19.0 * s))
-			4:      # jet: a whine over a rumble
-				v = 0.5 * sin(TAU * 70.0 * s) + 0.4 * sin(TAU * 480.0 * s) + 0.25 * sin(TAU * 960.0 * s)
-				for k in 6:
-					v += 0.1 * sin(TAU * (610.0 + 71.0 * k) * s + k)
-			_:      # seaplane: a prop with a gurgle
-				v = (sin(TAU * 100.0 * s) + 0.5 * sin(TAU * 200.0 * s)) * (0.7 + 0.3 * sin(TAU * 7.0 * s)) + 0.1 * sin(TAU * 520.0 * s)
-		out[i] = v * 0.35
-	return _wav(out, LOOP_RATE, true)
+			0:      # glider: air moving over wings
+				v = 0.6 * sin(TAU * 220.0 * s) * (0.7 + 0.3 * sin(TAU * 3.0 * s)) + 0.35 * sin(TAU * 330.0 * s + 1.0) * (0.7 + 0.3 * sin(TAU * 2.0 * s)) + 0.2 * sin(TAU * 440.0 * s)
+			1:      # helicopter: a slow, soft chop
+				v = (sin(TAU * 70.0 * s) + 0.5 * sin(TAU * 140.0 * s)) * (0.6 + 0.4 * sin(TAU * 6.0 * s))
+			2:      # small plane: a mellow propeller
+				v = (sin(TAU * 90.0 * s) + 0.4 * sin(TAU * 180.0 * s) + 0.15 * sin(TAU * 270.0 * s)) * (0.8 + 0.2 * sin(TAU * 24.0 * s))
+			3:      # medium plane: deeper twin props
+				v = (sin(TAU * 65.0 * s) + 0.45 * sin(TAU * 130.0 * s) + 0.15 * sin(TAU * 195.0 * s)) * (0.8 + 0.2 * sin(TAU * 15.0 * s))
+			4:      # jet: a low rumble with a faint whisper above it
+				v = sin(TAU * 55.0 * s) + 0.5 * sin(TAU * 110.0 * s) + 0.12 * sin(TAU * 330.0 * s) + 0.1 * sin(TAU * 440.0 * s + 2.0)
+			_:      # seaplane: a prop with a slow wobble
+				v = (sin(TAU * 80.0 * s) + 0.4 * sin(TAU * 160.0 * s)) * (0.75 + 0.25 * sin(TAU * 8.0 * s))
+		out[i] = v
+	return _wav(_norm(out, LVL_HUM), true)
 
-## An 8-beat loop (A minor: Am F C G, two beats each). The calm layer is a pad and a bass; the intense layer is a
-## plucked arpeggio and a kick on every beat.
+## An 8-beat loop (6 s) in C major: C, Am, F, G, two beats each. The calm layer is a warm pad with a soft bass; the intense
+## layer is a plucked pentatonic arpeggio with a very soft pulse underneath. Both loops are seamless, and equally long.
 func _music(hot: bool) -> AudioStreamWAV:
-	var chords := [[220.0, 261.6, 329.6], [174.6, 220.0, 261.6], [261.6, 329.6, 392.0], [196.0, 246.9, 293.7]]
-	var count := int(BEAT * 8.0 * LOOP_RATE)
+	var n := int(BEAT * 8.0 * RATE)
 	var out := PackedFloat32Array()
-	out.resize(count)
-	for i in count:
-		var t := float(i) / LOOP_RATE
-		var beat := t / BEAT
-		var ch: Array = chords[int(beat / 2.0) % 4]
-		var v := 0.0
-		if not hot:
-			for f in ch:
-				v += 0.18 * sin(TAU * f * t * 0.5)
-			var bt := fmod(beat, 2.0)
-			v += 0.3 * sin(TAU * ch[0] * 0.25 * t) * (1.0 - 0.4 * bt)
-		else:
-			var step := fmod(beat * 2.0, 1.0)          # eighth notes
-			var note: float = ch[int(beat * 2.0) % 3] * 2.0
-			v += 0.35 * sin(TAU * note * t) * exp(-step * 5.0)
-			var kb := fmod(beat, 1.0)
-			v += 0.5 * sin(TAU * lerpf(110.0, 45.0, minf(kb * 8.0, 1.0)) * kb * BEAT) * exp(-kb * 9.0)
-		out[i] = v * 0.5
-	return _wav(out, LOOP_RATE, true)
+	out.resize(n)
+	if not hot:
+		var chords := [[130.81, 261.63, 329.63, 392.0], [110.0, 220.0, 261.63, 329.63], [87.31, 174.61, 220.0, 261.63], [98.0, 196.0, 246.94, 293.66]]
+		var seg := 2.0 * BEAT
+		for c in 4:
+			var start := c * seg - 0.25
+			var length := seg + 0.5
+			for f_v in chords[c]:
+				var f: float = f_v
+				for i in int(length * RATE):
+					var t := float(i) / RATE
+					var w := minf(smoothstep(0.0, 0.45, t), smoothstep(0.0, 0.45, length - t))
+					var idx := posmod(int((start + t) * RATE), n)
+					var ph: float = TAU * f * (start + t)
+					out[idx] += (sin(ph) + 0.25 * sin(2.0 * ph)) * w * (0.28 if f > 150.0 else 0.4)
+		return _wav(_norm(out, 0.35), true)
+	var arps := [[5, 7, 8, 7], [4, 5, 7, 5], [4, 5, 6, 5], [3, 6, 8, 6]]
+	var eighth := BEAT * 0.5
+	for c in 4:
+		for k in 4:
+			var at := int((c * 4 + k) * eighth * RATE)
+			var note := _bell(note_hz(arps[c][k]), 0.9, 0.55 if k > 0 else 0.7, 0.5)
+			for i in note.size():
+				out[posmod(at + i, n)] += note[i]
+	for b in 8:
+		var at2 := int(b * BEAT * RATE)
+		for i in int(0.22 * RATE):
+			var t2 := float(i) / RATE
+			out[posmod(at2 + i, n)] += 0.22 * sin(TAU * lerpf(80.0, 50.0, minf(t2 * 6.0, 1.0)) * t2) * exp(-t2 * 14.0) * smoothstep(0.0, 0.012, t2)
+	out = _reverb_loop(out, 0.3)
+	return _wav(_norm(out, 0.35), true)
 
-## Fog ambience: a soft airy bed (a one-second loop of many quiet partials) that swells and fades slowly.
+## Fog ambience: a soft, slow breath of low filtered air (a two-second loop; its ends are crossfaded so it is seamless).
 func _fog_ambience() -> AudioStreamWAV:
-	var count := LOOP_RATE * 2
+	var n := RATE * 2
+	var fade := RATE / 4
+	var raw := PackedFloat32Array()
+	raw.resize(n + fade)
+	var seed_v := 4242
+	var lp := 0.0
+	var lp2 := 0.0
+	for i in n + fade:
+		seed_v = (seed_v * 1103515245 + 12345) & 0x7fffffff
+		var noise := float(seed_v) / 1073741823.5 - 1.0
+		lp += (noise - lp) * 0.04
+		lp2 += (lp - lp2) * 0.08
+		raw[i] = lp2 * (0.65 + 0.35 * sin(TAU * 0.5 * float(i) / RATE))
 	var out := PackedFloat32Array()
-	out.resize(count)
-	for i in count:
-		var s := float(i) / LOOP_RATE
-		var v := 0.0
-		for k in 10:
-			v += 0.07 * sin(TAU * (90.0 + 41.0 * k) * s + k * 2.1) * (0.6 + 0.4 * sin(TAU * 0.5 * s + k))
-		out[i] = v * 0.5
-	return _wav(out, LOOP_RATE, true)
+	out.resize(n)
+	for i in n:
+		if i < fade:
+			var a := float(i) / fade
+			out[i] = raw[i] * a + raw[n + i] * (1.0 - a)
+		else:
+			out[i] = raw[i]
+	return _wav(_norm(out, 0.25), true)
 
-## A low tense drone for the fog: a tritone pair that slowly shivers, in the same 8-beat length as the other layers.
+## A low, tense but soft drone for fog: a tritone pair that slowly shivers, in the same 6 s length as the music.
 func _music_tense_loop() -> AudioStreamWAV:
 	var secs := BEAT * 8.0
-	var count := int(secs * LOOP_RATE)
+	var n := int(secs * RATE)
 	var out := PackedFloat32Array()
-	out.resize(count)
-	for i in count:
-		var t := float(i) / LOOP_RATE
-		var f1 := roundf(55.0 * secs) / secs          # whole cycles per loop: no click at the seam
-		var f2 := roundf(77.8 * secs) / secs
-		var trem := 0.65 + 0.35 * sin(TAU * roundf(2.5 * secs) / secs * t)
-		var v := (sin(TAU * f1 * t) + 0.8 * sin(TAU * f2 * t) + 0.3 * sin(TAU * f2 * 2.0 * t)) * trem
-		out[i] = v * 0.3
-	return _wav(out, LOOP_RATE, true)
+	out.resize(n)
+	var f1 := roundf(55.0 * secs) / secs          # whole cycles per loop: no click at the seam
+	var f2 := roundf(77.8 * secs) / secs
+	var ft := roundf(2.0 * secs) / secs
+	for i in n:
+		var t := float(i) / RATE
+		var trem := 0.7 + 0.3 * sin(TAU * ft * t)
+		out[i] = (sin(TAU * f1 * t) + 0.7 * sin(TAU * f2 * t) + 0.2 * sin(TAU * f2 * 2.0 * t)) * trem
+	return _wav(_norm(out, 0.3), true)
 
-func _wav(samples: PackedFloat32Array, rate: int, loop: bool = false) -> AudioStreamWAV:
+# ---------- Voices and DSP ----------
+
+## Smooth fade in over `a` samples and out over `r` samples (raised-cosine): no clicks, ever.
+static func _win(i: int, n: int, a: int, r: int) -> float:
+	var v := 1.0
+	if i < a:
+		var s := sin(PI * 0.5 * float(i) / maxf(a, 1))
+		v = s * s
+	var j := n - 1 - i
+	if j < r:
+		var s2 := sin(PI * 0.5 * float(j) / maxf(r, 1))
+		v *= s2 * s2
+	return v
+
+## A bell: a sine with two softer, quicker-fading overtones. `bright` scales the overtones.
+func _bell(f: float, dur: float, amp: float, bright: float = 1.0) -> PackedFloat32Array:
+	var n := int(dur * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var a_n := int(0.008 * RATE)
+	var r_n := int(0.04 * RATE)
+	for i in n:
+		var t := float(i) / RATE
+		var v := sin(TAU * f * t) * exp(-t * 4.5)
+		if f * 2.0 < RATE * 0.5:
+			v += 0.3 * bright * sin(TAU * f * 2.0 * t) * exp(-t * 8.0)
+		if f * 3.0 < RATE * 0.5:
+			v += 0.08 * bright * sin(TAU * f * 3.0 * t) * exp(-t * 13.0)
+		out[i] = v * amp * _win(i, n, a_n, r_n)
+	return out
+
+## A soft, slightly hollow tone (a sine with a touch of triangle), lowpassed: for the muted "bonk" and the descending pair.
+func _soft(f: float, dur: float, amp: float) -> PackedFloat32Array:
+	var n := int(dur * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var a_n := int(0.012 * RATE)
+	var r_n := int(0.06 * RATE)
+	for i in n:
+		var t := float(i) / RATE
+		var ph := fposmod(f * t, 1.0)
+		var tri := 4.0 * absf(ph - 0.5) - 1.0
+		out[i] = (0.8 * sin(TAU * f * t) + 0.2 * tri) * exp(-t * 6.0) * amp * _win(i, n, a_n, r_n)
+	return _lp(out, 900.0)
+
+## A warm chord: sines with a slow bloom and a long release.
+func _chord(freqs: Array, dur: float) -> PackedFloat32Array:
+	var n := int(dur * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var a_n := int(0.25 * RATE)
+	var r_n := int(0.5 * RATE)
+	for i in n:
+		var t := float(i) / RATE
+		var v := 0.0
+		for f in freqs:
+			v += sin(TAU * float(f) * t) + 0.2 * sin(TAU * float(f) * 2.0 * t)
+		out[i] = v / freqs.size() * exp(-t * 1.6) * _win(i, n, a_n, r_n)
+	return out
+
+## A low thud: a sine falling from 120 to 55 Hz with a soft attack and a rounded decay.
+func _thud(dur: float) -> PackedFloat32Array:
+	var n := int(dur * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var a_n := int(0.01 * RATE)
+	var r_n := int(0.08 * RATE)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		ph += TAU * lerpf(120.0, 55.0, minf(t * 5.0, 1.0)) / RATE
+		out[i] = sin(ph) * exp(-t * 9.0) * _win(i, n, a_n, r_n)
+	return _lp(out, 500.0)
+
+## A tiny soft knock: a short sine with a rounded start.
+func _knock(f: float, dur: float) -> PackedFloat32Array:
+	var n := int(dur * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var a_n := int(0.006 * RATE)
+	var r_n := int(0.014 * RATE)
+	for i in n:
+		var t := float(i) / RATE
+		out[i] = sin(TAU * f * t) * exp(-t * 60.0) * _win(i, n, a_n, r_n)
+	return _lp(out, 1400.0)
+
+## The tire chirp: a brief breath of filtered noise and a faint, falling squeak.
+func _chirp() -> PackedFloat32Array:
+	var n := int(0.11 * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var a_n := int(0.012 * RATE)
+	var r_n := int(0.04 * RATE)
+	var seed_v := 99
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		seed_v = (seed_v * 1103515245 + 12345) & 0x7fffffff
+		var noise := float(seed_v) / 1073741823.5 - 1.0
+		ph += TAU * lerpf(1050.0, 820.0, t / 0.11) / RATE
+		out[i] = (0.5 * noise + 0.5 * sin(ph)) * exp(-t * 22.0) * _win(i, n, a_n, r_n)
+	return _lp(_lp(out, 2200.0), 2200.0)
+
+## Filtered noise that rises and falls in brightness: a swish.
+func _whoosh(dur: float, f0: float, f1: float) -> PackedFloat32Array:
+	var n := int(dur * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var seed_v := 777
+	var lp := 0.0
+	var lp2 := 0.0
+	for i in n:
+		seed_v = (seed_v * 1103515245 + 12345) & 0x7fffffff
+		var noise := float(seed_v) / 1073741823.5 - 1.0
+		var k := float(i) / n
+		var fc := lerpf(f0, f1, sin(PI * k))
+		var a := 1.0 - exp(-TAU * fc / RATE)
+		lp += (noise - lp) * a
+		lp2 += (lp - lp2) * a
+		out[i] = lp2 * sin(PI * k)
+	return out
+
+## The go-around: a whoosh with a rising engine note (a sine climbing 90 -> 170 Hz and swelling).
+func _swell(dur: float) -> PackedFloat32Array:
+	var n := int(dur * RATE)
+	var wh := _whoosh(dur, 300.0, 900.0)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	for i in n:
+		var k := float(i) / n
+		ph += TAU * lerpf(90.0, 170.0, k * k) / RATE
+		var env := sin(PI * minf(k * 1.1, 1.0)) * k
+		out[i] = 0.9 * wh[i] * 0.6 + (sin(ph) + 0.4 * sin(2.0 * ph)) * env * 0.5
+	return _lp(out, 1200.0)
+
+## One-pole lowpass (applied to taste: twice is 12 dB per octave).
+func _lp(x: PackedFloat32Array, fc: float) -> PackedFloat32Array:
+	var a := 1.0 - exp(-TAU * fc / RATE)
+	var y := 0.0
+	var out := PackedFloat32Array()
+	out.resize(x.size())
+	for i in x.size():
+		y += a * (x[i] - y)
+		out[i] = y
+	return out
+
+## Scale a clip so its peak is `peak`.
+func _norm(x: PackedFloat32Array, peak: float) -> PackedFloat32Array:
+	var m := 0.0001
+	for v in x:
+		m = maxf(m, absf(v))
+	var g := peak / m
+	var out := PackedFloat32Array()
+	out.resize(x.size())
+	for i in x.size():
+		out[i] = x[i] * g
+	return out
+
+## Add `src` into `dst` starting at sample `at` (growing `dst` as needed).
+func _mix_at(dst: PackedFloat32Array, src: PackedFloat32Array, at: int) -> PackedFloat32Array:
+	var out := dst.duplicate()
+	if out.size() < at + src.size():
+		out.resize(at + src.size())
+	for i in src.size():
+		out[at + i] += src[i]
+	return out
+
+## A short shared "room": four damped combs and a tail, mixed in at `wet`. The clip grows by `tail` seconds.
+func _reverb(x: PackedFloat32Array, wet: float, tail: float) -> PackedFloat32Array:
+	var n := x.size() + int(tail * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var d := [int(0.0297 * RATE), int(0.0371 * RATE), int(0.0411 * RATE), int(0.0437 * RATE)]
+	var fb := [0.74, 0.72, 0.7, 0.68]
+	var b0 := PackedFloat32Array()
+	var b1 := PackedFloat32Array()
+	var b2 := PackedFloat32Array()
+	var b3 := PackedFloat32Array()
+	b0.resize(d[0])
+	b1.resize(d[1])
+	b2.resize(d[2])
+	b3.resize(d[3])
+	var i0 := 0
+	var i1 := 0
+	var i2 := 0
+	var i3 := 0
+	var s0 := 0.0
+	var s1 := 0.0
+	var s2 := 0.0
+	var s3 := 0.0
+	for i in n:
+		var inp := x[i] if i < x.size() else 0.0
+		var o0 := b0[i0]
+		var o1 := b1[i1]
+		var o2 := b2[i2]
+		var o3 := b3[i3]
+		s0 += 0.45 * (o0 - s0)
+		s1 += 0.45 * (o1 - s1)
+		s2 += 0.45 * (o2 - s2)
+		s3 += 0.45 * (o3 - s3)
+		b0[i0] = inp + s0 * fb[0]
+		b1[i1] = inp + s1 * fb[1]
+		b2[i2] = inp + s2 * fb[2]
+		b3[i3] = inp + s3 * fb[3]
+		i0 = (i0 + 1) % d[0]
+		i1 = (i1 + 1) % d[1]
+		i2 = (i2 + 1) % d[2]
+		i3 = (i3 + 1) % d[3]
+		var tailv := t_fade(i, x.size(), n)
+		out[i] = inp + wet * 0.25 * (o0 + o1 + o2 + o3) * tailv
+	return out
+
+## The tail fades out smoothly over the last third of its length (so a clip never ends on a sound).
+static func t_fade(i: int, body: int, n: int) -> float:
+	var tail := n - body
+	if tail <= 0 or i < n - tail / 3:
+		return 1.0
+	var k := float(n - i) / maxf(tail / 3.0, 1.0)
+	return k * k
+
+## The room for a loop: run the loop twice through the reverb and keep the second pass (a seamless tail).
+func _reverb_loop(x: PackedFloat32Array, wet: float) -> PackedFloat32Array:
+	var two := PackedFloat32Array()
+	two.resize(x.size() * 2)
+	for i in x.size():
+		two[i] = x[i]
+		two[x.size() + i] = x[i]
+	var r := _reverb(two, wet, 0.0)
+	return r.slice(x.size(), x.size() * 2)
+
+func _wav(samples: PackedFloat32Array, loop: bool = false) -> AudioStreamWAV:
 	var bytes := PackedByteArray()
 	bytes.resize(samples.size() * 2)
 	for i in samples.size():
 		bytes.encode_s16(i * 2, int(clampf(samples[i], -1.0, 1.0) * 32000.0))
 	var w := AudioStreamWAV.new()
 	w.format = AudioStreamWAV.FORMAT_16_BITS
-	w.mix_rate = rate
+	w.mix_rate = RATE
 	w.stereo = false
 	w.data = bytes
 	if loop:

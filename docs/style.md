@@ -98,15 +98,42 @@ back slides from the left. Nothing moves slower than 0.5 s unless it is a celebr
 
 ## Audio
 
-Short, soft and rounded, all procedural (no audio files). Every kind of tap has its own sound: a soft click when a finger
-goes down, then a bright blip going forward (`tap`), a falling pair going back (`back`), a tiny tick for a toggle
-(`toggle`), a rising ping for a purchase (`buy`), a low muted buzz when something cannot be done (`error`), a swish when a
-screen slides (`whoosh`) and a small fanfare for a new airport or a reward (`unlock`). Stars have a rising arpeggio on
-the bar (`star`) and a thud with a ring when they slam in on the results (`slam`, a little higher each time).
+**Direction: soft, satisfying and musical, in the spirit of Mini Metro and Alto's Adventure: calm, rounded, cozy.** Every
+game from this studio should sound like it belongs to the same room.
 
-Music: the menu has the calm layer alone, quieter and slightly slower; a shift has the calm layer plus an intense layer
-that fades in towards the end; fog adds a tense layer and an ambience. Every change is a glide (at most 60 dB a second),
-never a cut, so going menu -> shift -> results -> menu is one continuous mix.
+* **Waveforms:** sines (with a touch of triangle for the muted "bonk") and gently filtered noise. No square, no saw, no
+  harsh noise. Everything is low-passed so there is almost no energy above 4 kHz.
+* **Envelopes:** every sound has a proper envelope: a soft raised-cosine attack (4-12 ms for UI, up to 0.25 s for pads), a
+  natural exponential decay, and a smooth release. Nothing starts or stops hard; there are no clicks.
+* **Space:** a short shared "room" (four damped combs) is baked into every chime, plink and fanfare, and into the music's
+  arpeggio, so sounds sit in the same space instead of floating on top.
+* **One key:** C major pentatonic (C D E G A), the key of the music (chords C, Am, F, G). All pitched sounds are drawn from it
+  (`Sfx.note_hz(degree)`), so anything that overlaps harmonises. The music is never pitch-shifted, because that would leave
+  the key.
+* **Variation:** every repeated sound gets about +-3% random pitch and a hair of random level, so it never feels robotic.
+* **Rendering:** all sound is synthesised once at start-up into 16-bit `AudioStreamWAV` clips (16 kHz) and played from a
+  small pool: no files, no generators, and no buses created at run time (that silences the single-threaded web export). The
+  `SFX` and `Music` buses and the Master **limiter** (a hard limiter, ceiling -1 dB) come from `default_bus_layout.tres`.
+
+**The sounds**
+
+| Moment | Sound |
+|---|---|
+| Touchdown | a soft tire chirp (filtered noise and a faint falling squeak) |
+| Landing | a warm two-note bell chime; landings in quick succession climb the scale (seven steps), so a streak is a little melody |
+| Coin | a soft bell plink, one note higher for each coin that reaches the counter, starting over after a pause |
+| Conflict | a low muted thud with a soft descending two-tone (A3 to E3); fines are the thud alone |
+| Go-around | a soft whoosh with a rising engine swell |
+| Timer warning | a gentle knock that comes faster and slightly higher the closer a clock or an aircraft timer is to zero (from 8 s) |
+| UI | very quiet, very short soft clicks, each kind a little different (forward, back, toggle, error, swipe) |
+| Star, purchase, new airport | rising bell figures, from three to five notes |
+| Engines | low, smooth, quiet sine beds per aircraft type; they should barely register |
+
+**Mix.** Loudness is normalised per clip by role (peak): engine hums 0.07, UI 0.10 (the quietest), gameplay 0.30, big moments
+(landing, star, new airport, results slam) 0.50. Music sits underneath the gameplay sounds: a warm pad with a soft bass, then
+a plucked pentatonic arpeggio with a very soft pulse that fades in smoothly through the second half of a shift and to the
+top in the finale; fog adds a low drone and an airy bed. All layers are the same length (6 s) and every loop is seamless.
+Level changes always glide (at most 60 dB a second), never cut.
 
 ## App icon and splash
 
