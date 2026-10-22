@@ -78,10 +78,10 @@ You run an airport, one **shift** at a time.
   no audio content yet).
 
 - **Art** follows the "Sunny Airfield" direction (docs/style.md): top-down toy diorama, white aircraft in runway-coloured liveries, soft shadows, round-dot paths.
-- **Sound** is pre-rendered (`tools/render_audio.gd` bakes `scripts/SfxSynth.gd` into 44.1 kHz WAVs in `assets/audio/`; on the web the page plays the loops natively and suspends all audio when the page is hidden): a shared engine hum, landing chirp, coin, go-around roar,
+- **Sound** is pre-rendered (`tools/render_audio.gd` bakes `scripts/SfxSynth.gd` into 44.1 kHz WAVs in `assets/audio/`; on the web the page plays the loops natively and suspends all audio when the page is hidden): a soft landing chime on the beat of the music (no engine hum), coin, go-around tones,
   conflict alarm, fine, wind-shift chime, last-arrivals / clear-the-sky stingers, overtime tick, UI taps, and a
-  two-layer music loop that intensifies towards the finale. It plays through the SFX / Music buses that the pause
-  menu sliders control. `?nofx=sound` turns it off.
+  two-layer music loop that intensifies towards the finale. It plays through the SFX / Music / Ambience buses that the pause
+  menu's three sliders control. `?nofx=sound` turns it off.
 
 ## Airport difficulty
 

@@ -16,7 +16,7 @@
 //    context is suspended at once, even before the game is ready. They stay suspended after the page is visible again: the
 //    game (which pauses itself and mutes its Master bus) releases them when the player taps Resume (window.__pwRelease).
 //    If the game is not up yet, the first tap after coming back resumes them.
-// 3. PWAudio plays the looping layers (music, fog, engine bed) natively: AudioBufferSource loops run on the browser's audio
+// 3. PWAudio plays the looping layers (music and the fog ambience) natively: AudioBufferSource loops run on the browser's audio
 //    thread, so a busy phone cannot leave a gap at the loop point (the engine's own web loops restart from the main thread).
 (function () {
   var Ctor = window.AudioContext || window.webkitAudioContext;
@@ -62,13 +62,14 @@
   var limiter = ctx.createDynamicsCompressor();          // a gentle limiter on everything the page plays
   limiter.threshold.value = -4; limiter.knee.value = 3; limiter.ratio.value = 20; limiter.attack.value = 0.003; limiter.release.value = 0.12;
   master.connect(limiter); limiter.connect(ctx.destination);
-  var names = ['calm', 'hot', 'tense', 'fog', 'hum'];
-  var gains = {}, want = {}, bufs = {}, left = names.length, started = false;
+  var names = ['calm', 'hot', 'tense', 'fog'];
+  var gains = {}, want = {}, bufs = {}, left = names.length, started = false, loopStart = 0;
   names.forEach(function (n) { gains[n] = ctx.createGain(); gains[n].gain.value = 0; gains[n].connect(master); want[n] = -80; });
   function lin(db) { return db <= -70 ? 0 : Math.pow(10, db / 20); }
   function apply(n) { gains[n].gain.setTargetAtTime(lin(want[n]), ctx.currentTime, 0.04); }
   function startAll() {
     var t0 = ctx.currentTime + 0.1;
+    loopStart = t0;
     names.forEach(function (n) { var s = ctx.createBufferSource(); s.buffer = bufs[n]; s.loop = true; s.connect(gains[n]); s.start(t0); });
     started = true;
     names.forEach(apply);
@@ -81,6 +82,8 @@
   api.enabled = true;
   api.set = function (n, db) { if (!(n in want)) { return; } want[n] = db; if (started) { apply(n); } };
   api.setMany = function (o) { for (var k in o) { api.set(k, o[k]); } };
+  // Seconds into the music's 6 s loop (-1 until it runs): the game plays its gameplay sounds on the music's next eighth-note.
+  api.phase = function () { if (!started) { return -1; } var p = (ctx.currentTime - loopStart) % 6; return p < 0 ? p + 6 : p; };
   api.setHeld = function (b) { master.gain.setTargetAtTime(b ? 0 : 1, ctx.currentTime, 0.015); };
 })();
 </script>

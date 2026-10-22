@@ -10,11 +10,12 @@ const BEAT := 0.75             # music: seconds per beat, 8 beats per loop (6 s)
 const C4 := 261.6256
 const PENTA := [0, 2, 4, 7, 9]  # C D E G A
 
-# Loudness by role (peak, linear). The SFX bus sits at -1.9 dB.
-const LVL_UI := 0.10
-const LVL_GAME := 0.30
-const LVL_BIG := 0.50
-const LVL_HUM := 0.07
+# Loudness by role (peak, linear), with the MUSIC as the reference: the music as it is heard (the calm layer's peak 0.35 played at
+# MUSIC_DB in Sfx.gd) peaks at MUSIC_REF; gameplay sounds sit at or below 0.8 of it, UI sounds at or below 0.5 of it.
+const MUSIC_REF := 0.22
+const LVL_UI := 0.09           # taps, ticks, clicks (<= 0.5 x MUSIC_REF)
+const LVL_GAME := 0.14         # landings, fines, go-arounds, wind (<= 0.8 x MUSIC_REF)
+const LVL_BIG := 0.16          # stars, a new airport, the results slam (<= 0.8 x MUSIC_REF)
 
 var rate := 44100
 
@@ -24,9 +25,9 @@ func clips() -> Dictionary:
 	_build_effects_into(out)
 	return out
 
-## Every loop: name -> samples (calm, hot, tense, fog, hum).
+## Every loop: name -> samples (calm, hot, tense, fog). There is no engine hum: the music is the only continuous sound.
 func loops() -> Dictionary:
-	return {"calm": _music(false), "hot": _music(true), "tense": _music_tense_loop(), "fog": _fog_ambience(), "hum": _engine_bed()}
+	return {"calm": _music(false), "hot": _music(true), "tense": _music_tense_loop(), "fog": _fog_ambience()}
 
 # ---------- The key ----------
 
@@ -38,46 +39,47 @@ static func note_hz(deg: int) -> float:
 # ---------- The clips ----------
 
 func _build_effects_into(clips: Dictionary) -> void:
-	# Tire chirp (at touchdown): a soft little squeak and puff, no edge.
-	clips["chirp"] = _norm(_chirp(), LVL_GAME * 0.8)
-	# Landing: a warm two-note chime, each landing in quick succession one step higher up the scale.
-	var base := [[5, 7], [6, 8], [7, 9], [8, 10], [9, 11], [10, 12], [11, 13]]
+	# Touchdown: a very soft, low-passed tap, far below the chime (no squeal).
+	clips["touch"] = _norm(_lp(_lp(_thud(0.16), 220.0), 220.0), 0.03)
+	# Arrival: a very soft, short tone (G4); the game plays it on the beat.
+	clips["arrive"] = _norm(_soft(note_hz(3), 0.2, 1.0), LVL_UI * 0.3)
+	# Landing: ONE soft chime in the key, each landing in quick succession one step higher up the scale (the game plays it
+	# on the next eighth-note of the music, softer when many land close together).
 	for k in STEPS:
-		var a := _bell(note_hz(base[k][0]), 0.9, 1.0, 0.8)
-		var b := _bell(note_hz(base[k][1]), 1.0, 0.85, 0.8)
-		clips["landing_%d" % k] = _norm(_reverb(_mix_at(_mix_at(PackedFloat32Array(), a, 0), b, int(0.11 * rate)), 0.35, 0.5), LVL_BIG)
-		# Coins: bright-but-soft bell plinks, rising with each coin that reaches the counter.
-		var c := _bell(note_hz(7 + k), 0.45, 1.0, 1.0)
-		clips["coin_%d" % k] = _norm(_reverb(c, 0.25, 0.35), LVL_GAME * 0.7)
+		var a := _bell(note_hz(5 + k), 1.0, 1.0, 0.6)
+		clips["landing_%d" % k] = _norm(_reverb(a, 0.3, 0.5), LVL_GAME * 0.9)
+		# Coins: tiny bell plinks, rising with each coin that reaches the counter; quieter than the chime.
+		var c := _bell(note_hz(7 + k), 0.4, 1.0, 0.8)
+		clips["coin_%d" % k] = _norm(_reverb(c, 0.25, 0.35), LVL_GAME * 0.4)
 	# Fine: a low, muted thud. Conflict: the thud with a soft descending two-tone over it.
-	clips["fine"] = _norm(_reverb(_thud(0.5), 0.15, 0.3), LVL_GAME)
+	clips["fine"] = _norm(_reverb(_thud(0.5), 0.15, 0.3), LVL_GAME * 0.8)
 	var tone1 := _soft(note_hz(4) * 0.5, 0.22, 0.8)       # A3
 	var tone2 := _soft(note_hz(2) * 0.5, 0.34, 0.8)       # E3
 	var alarm := _mix_at(_mix_at(_thud(0.5), tone1, int(0.02 * rate)), tone2, int(0.2 * rate))
-	clips["alarm"] = _norm(_reverb(alarm, 0.2, 0.4), LVL_GAME)
-	# Go-around: a soft whoosh with a rising engine swell under it.
-	clips["go_around"] = _norm(_reverb(_swell(1.0), 0.2, 0.3), LVL_GAME)
+	clips["alarm"] = _norm(_reverb(alarm, 0.2, 0.4), LVL_GAME * 0.9)
+	# Go-around: two soft rising tones (E, A) in the key, no noise.
+	clips["go_around"] = _norm(_reverb(_mix_at(_soft(note_hz(2) * 0.5, 0.5, 1.0), _soft(note_hz(4) * 0.5, 0.7, 0.9), int(0.2 * rate)), 0.25, 0.4), LVL_GAME * 0.9)
 	# Wind shift: three slow, low bell notes (E, D, A).
 	var w := _mix_at(_mix_at(_bell(note_hz(7), 0.9, 1.0, 0.6), _bell(note_hz(6), 0.9, 0.9, 0.6), int(0.22 * rate)), _bell(note_hz(4), 1.2, 0.9, 0.6), int(0.44 * rate))
-	clips["wind"] = _norm(_reverb(w, 0.35, 0.6), LVL_GAME)
+	clips["wind"] = _norm(_reverb(w, 0.35, 0.6), LVL_GAME * 0.8)
 	# Last arrivals: a gentle rising figure (G A C E). Clear sky: a warm major chord, slowly blooming.
 	var la := PackedFloat32Array()
 	for k in 4:
 		la = _mix_at(la, _bell(note_hz(3 + k + (1 if k > 1 else 0)), 0.8, 1.0 - 0.1 * k, 0.7), int(k * 0.16 * rate))
-	clips["last_arrivals"] = _norm(_reverb(la, 0.35, 0.6), LVL_BIG * 0.8)
-	clips["clear_sky"] = _norm(_reverb(_chord([note_hz(0), note_hz(2), note_hz(3), note_hz(5)], 1.6), 0.4, 0.7), LVL_BIG * 0.8)
+	clips["last_arrivals"] = _norm(_reverb(la, 0.35, 0.6), LVL_BIG * 0.7)
+	clips["clear_sky"] = _norm(_reverb(_chord([note_hz(0), note_hz(2), note_hz(3), note_hz(5)], 1.6), 0.4, 0.7), LVL_BIG * 0.7)
 	# Timer tick: a tiny soft knock. (The game plays it faster and slightly higher as time runs short.)
-	clips["tick"] = _norm(_knock(640.0, 0.05), LVL_UI * 1.2)
+	clips["tick"] = _norm(_knock(note_hz(3), 0.05), LVL_UI * 0.9)
 	# UI: very quiet, very short, soft clicks.
 	clips["tap"] = _norm(_knock(520.0, 0.06), LVL_UI)
 	clips["press"] = _norm(_knock(330.0, 0.05), LVL_UI * 0.7)
 	clips["back"] = _norm(_mix_at(_knock(440.0, 0.05), _knock(330.0, 0.07), int(0.05 * rate)), LVL_UI)
 	clips["toggle"] = _norm(_knock(720.0, 0.04), LVL_UI * 0.8)
-	clips["error"] = _norm(_soft(note_hz(2) * 0.5, 0.16, 0.9), LVL_UI * 1.5)
+	clips["error"] = _norm(_soft(note_hz(2) * 0.5, 0.16, 0.9), LVL_UI * 1.2)
 	clips["whoosh"] = _norm(_whoosh(0.25, 500.0, 1100.0), LVL_UI * 1.1)
 	# A purchase: three soft plinks up the scale. A star: a rising four-note bell figure. A new airport: a little melody.
 	var buy := _mix_at(_mix_at(_bell(note_hz(7), 0.4, 1.0, 1.0), _bell(note_hz(9), 0.4, 0.9, 1.0), int(0.07 * rate)), _bell(note_hz(10), 0.6, 0.9, 1.0), int(0.14 * rate))
-	clips["buy"] = _norm(_reverb(buy, 0.3, 0.5), LVL_GAME)
+	clips["buy"] = _norm(_reverb(buy, 0.3, 0.5), LVL_GAME * 0.9)
 	var star := PackedFloat32Array()
 	for k in 4:
 		star = _mix_at(star, _bell(note_hz(8 + k), 0.7, 1.0, 1.0), int(k * 0.09 * rate))
@@ -88,17 +90,6 @@ func _build_effects_into(clips: Dictionary) -> void:
 	clips["unlock"] = _norm(_reverb(un, 0.45, 0.8), LVL_BIG)
 	# A results star slamming in: a warm thud with a bell on top.
 	clips["slam"] = _norm(_reverb(_mix_at(_thud(0.45), _bell(note_hz(10), 0.8, 0.7, 0.8), int(0.03 * rate)), 0.3, 0.5), LVL_BIG)
-
-## The shared engine bed: low, smooth and quiet (one loop for every aircraft; the game raises it with the traffic). Soft
-## sines at whole-Hz frequencies, so the one-second loop is seamless.
-func _engine_bed() -> PackedFloat32Array:
-	var out := PackedFloat32Array()
-	out.resize(rate)
-	for i in rate:
-		var s := float(i) / rate
-		var v := sin(TAU * 55.0 * s) + 0.5 * sin(TAU * 110.0 * s) * (0.8 + 0.2 * sin(TAU * 3.0 * s)) + 0.3 * sin(TAU * 83.0 * s + 1.0) * (0.75 + 0.25 * sin(TAU * 5.0 * s)) + 0.12 * sin(TAU * 165.0 * s) + 0.08 * sin(TAU * 220.0 * s + 2.0) * (0.7 + 0.3 * sin(TAU * 2.0 * s))
-		out[i] = v
-	return _norm(out, LVL_HUM)
 
 ## An 8-beat loop (6 s) in C major: C, Am, F, G, two beats each. The calm layer is a warm pad with a soft bass; the intense
 ## layer is a plucked pentatonic arpeggio with a very soft pulse underneath. Both loops are seamless, and equally long.
@@ -266,23 +257,6 @@ func _knock(f: float, dur: float) -> PackedFloat32Array:
 		out[i] = sin(TAU * f * t) * exp(-t * 60.0) * _win(i, n, a_n, r_n)
 	return _lp(out, 1400.0)
 
-## The tire chirp: a brief breath of filtered noise and a faint, falling squeak.
-func _chirp() -> PackedFloat32Array:
-	var n := int(0.11 * rate)
-	var out := PackedFloat32Array()
-	out.resize(n)
-	var a_n := int(0.012 * rate)
-	var r_n := int(0.04 * rate)
-	var seed_v := 99
-	var ph := 0.0
-	for i in n:
-		var t := float(i) / rate
-		seed_v = (seed_v * 1103515245 + 12345) & 0x7fffffff
-		var noise := float(seed_v) / 1073741823.5 - 1.0
-		ph += TAU * lerpf(1050.0, 820.0, t / 0.11) / rate
-		out[i] = (0.5 * noise + 0.5 * sin(ph)) * exp(-t * 22.0) * _win(i, n, a_n, r_n)
-	return _lp(_lp(out, 2200.0), 2200.0)
-
 ## Filtered noise that rises and falls in brightness: a swish.
 func _whoosh(dur: float, f0: float, f1: float) -> PackedFloat32Array:
 	var n := int(dur * rate)
@@ -301,20 +275,6 @@ func _whoosh(dur: float, f0: float, f1: float) -> PackedFloat32Array:
 		lp2 += (lp - lp2) * a
 		out[i] = lp2 * sin(PI * k)
 	return out
-
-## The go-around: a whoosh with a rising engine note (a sine climbing 90 -> 170 Hz and swelling).
-func _swell(dur: float) -> PackedFloat32Array:
-	var n := int(dur * rate)
-	var wh := _whoosh(dur, 300.0, 900.0)
-	var out := PackedFloat32Array()
-	out.resize(n)
-	var ph := 0.0
-	for i in n:
-		var k := float(i) / n
-		ph += TAU * lerpf(90.0, 170.0, k * k) / rate
-		var env := sin(PI * minf(k * 1.1, 1.0)) * k
-		out[i] = 0.9 * wh[i] * 0.6 + (sin(ph) + 0.4 * sin(2.0 * ph)) * env * 0.5
-	return _lp(out, 1200.0)
 
 ## One-pole lowpass (applied to taste: twice is 12 dB per octave).
 func _lp(x: PackedFloat32Array, fc: float) -> PackedFloat32Array:

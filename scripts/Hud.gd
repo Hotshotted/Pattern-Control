@@ -58,9 +58,10 @@ class Art extends Control:
 	# ---- the pause menu ----
 	var show_pause := false
 	var pause_rect := Rect2(Style.GUTTER * 0.5, 10.0, 80.0, 80.0)   # the pause button, top-left (the wind dial is on the right)
-	var slider_rect: Array[Rect2] = [Rect2(), Rect2()]
-	var slider_val := PackedFloat32Array([0.8, 0.8])
-	var slider_glyph := PackedStringArray(["speaker", "note"])
+	var slider_rect: Array[Rect2] = [Rect2(), Rect2(), Rect2()]      # 0 effects, 1 music, 2 ambience
+	var slider_val := PackedFloat32Array([0.8, 0.8, 0.8])
+	var slider_glyph := PackedStringArray(["speaker", "note", "wind"])
+	var slider_name := PackedStringArray(["Effects", "Music", "Ambience"])
 	# ---- the results ----
 	var show_result := false
 	var res_t := 0.0                 # seconds since the results appeared (drives the reveal)
@@ -691,10 +692,11 @@ class Art extends Control:
 		glyph("pause", r.get_center(), r.size.x * 0.3, Color.WHITE)
 
 	func _draw_sliders() -> void:
-		for i in 2:
+		for i in 3:
 			var r := slider_rect[i]
 			var ty := r.get_center().y
 			glyph(slider_glyph[i], Vector2(r.position.x - 70.0, ty), 34.0, C_TEXT)
+			text(slider_name[i], Vector2(r.position.x, ty - 32.0), 26, C_SOFT)
 			var track := Rect2(r.position.x, ty - 11.0, r.size.x, 22.0)
 			draw_style_box(_sb_track, track)
 			var fx := maxf(r.size.x * slider_val[i], 22.0)
@@ -1565,21 +1567,23 @@ func _build_pause() -> void:
 	_centered(title, -600, -450)
 	_pause.visible = false
 
-func show_pause(sound: float, music: float) -> void:
+func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 	_go("pause")
 	var vp := get_viewport().get_visible_rect().size
 	_pause.visible = true
 	_art.show_pause = true
 	_set_play_labels(false)
-	_art.slider_rect[0] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 - 60.0, 620.0, 80.0)
-	_art.slider_rect[1] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 80.0, 620.0, 80.0)
-	_art.pause_card = Rect2(vp.x * 0.5 - 440.0, vp.y * 0.5 - 130.0, 880.0, 350.0)
+	_art.slider_rect[1] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 - 70.0, 620.0, 80.0)       # music on top, then effects, then ambience
+	_art.slider_rect[0] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 60.0, 620.0, 80.0)
+	_art.slider_rect[2] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 190.0, 620.0, 80.0)
+	_art.pause_card = Rect2(vp.x * 0.5 - 440.0, vp.y * 0.5 - 150.0, 880.0, 470.0)
 	_art.slider_val[0] = sound
 	_art.slider_val[1] = music
+	_art.slider_val[2] = ambience
 	_art.clear_buttons()
 	_art.add_button("resume", "RESUME", Rect2(vp.x * 0.5 - 420.0, vp.y * 0.5 - 420.0, 840.0, 230.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
-	_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, vp.y * 0.5 + 280.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
-	_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, vp.y * 0.5 + 280.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
+	_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, vp.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
+	_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, vp.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
 	_art.queue_redraw()
 
 func hide_pause() -> void:
@@ -1604,7 +1608,7 @@ func pause_hit(pos: Vector2) -> bool:
 func slider_at(pos: Vector2) -> int:
 	if not _art.show_pause:
 		return -1
-	for i in 2:
+	for i in 3:
 		if _art.slider_rect[i].grow_individual(40.0, 20.0, 40.0, 20.0).has_point(pos):
 			return i
 	return -1

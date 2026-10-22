@@ -213,6 +213,7 @@ func _initialize() -> void:
 			vis_roots += 1
 	check(vis_roots == 1, "after the pre-warm only the current airport is visible")
 
+	main.sfx.quantize = false     # (gameplay sounds fire at once; the quantizing section turns it on)
 	print("2. a tap on the menu starts a run in place; real touches pick and drag a plane")
 	main.traffic.auto_spawn = false
 	var play_at := Vector2(540, 900)
@@ -2313,13 +2314,13 @@ func _initialize() -> void:
 	for nm in k9_sfx.NAMES:
 		k9_all_made = k9_all_made and k9_sfx._streams.has(nm) and k9_sfx._streams[nm].data.size() > 100
 	check(k9_all_made, "every placeholder sound was generated (%s)" % ", ".join(k9_sfx.NAMES))
-	check(k9_sfx._hum.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD and k9_sfx._music_calm.stream.data.size() == k9_sfx._music_hot.stream.data.size() and k9_sfx._music_hot.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "one shared engine bed and two equal-length music loops, all looping")
+	check(k9_sfx._music_calm.stream.data.size() == k9_sfx._music_hot.stream.data.size() and k9_sfx._music_hot.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "two equal-length music loops, looping")
 	var k9_loop_players = 0
 	for k9_lp in k9_sfx.get_children():
 		if k9_lp is AudioStreamPlayer and k9_lp.stream is AudioStreamWAV and k9_lp.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD:
 			k9_loop_players += 1
-	check(k9_loop_players == 5, "five looping players in all (calm, hot, tense, fog, one engine bed), not one per aircraft type (%d)" % k9_loop_players)
-	check(k9_sfx._streams["landing"] != k9_sfx._streams["go_around"] and k9_sfx._hum.stream.data != k9_sfx._fog_amb.stream.data, "the sounds differ from each other")
+	check(k9_loop_players == 4, "four looping players in all (calm, hot, tense, fog): no engine hum (%d)" % k9_loop_players)
+	check(k9_sfx._streams["landing"] != k9_sfx._streams["go_around"] and k9_sfx._music_calm.stream.data != k9_sfx._fog_amb.stream.data, "the sounds differ from each other")
 	main.restart()
 	tr.auto_spawn = false
 	var k9_c0 = k9_sfx.plays.duplicate()
@@ -2348,15 +2349,13 @@ func _initialize() -> void:
 	main.step(1.0 / 60.0)
 	for i in 120:
 		k9_sfx._process(1.0 / 60.0)
-	var hum_all = true
-	for k9_h in 6:
-		hum_all = hum_all and k9_sfx.hum_level[k9_h] > 0.2
-	check(hum_all, "each aircraft type hums while it is on the field")
+	var k9_has_hum = false
+	for k9_n in k9_sfx.get_children():
+		if k9_n is AudioStreamPlayer and k9_n.playing and k9_n != k9_sfx._music_calm and k9_n != k9_sfx._music_hot and k9_n != k9_sfx._music_tense and k9_n != k9_sfx._fog_amb and not k9_sfx._pool.has(k9_n):
+			k9_has_hum = true
+	check(not k9_has_hum and not k9_sfx.LAYERS.has("hum") and not FileAccess.file_exists("res://assets/audio/loops/hum.wav") and not k9_sfx.has_method("set_hum_counts"), "there is no engine hum, however many aircraft are on the field")
 	tr.release_all()
 	main.step(1.0 / 60.0)
-	for i in 240:
-		k9_sfx._process(1.0 / 60.0)
-	check(k9_sfx.hum_level[JET] < 0.01, "...and the hum fades when it is gone")
 	main.restart()
 	tr.auto_spawn = false
 	tr.run_time = 5.0
@@ -3567,7 +3566,6 @@ func _initialize() -> void:
 	var wa_wavs = true
 	var wa_count = 0
 	var wa_all = wa_sfx._streams.values() + [wa_sfx._music_calm.stream, wa_sfx._music_hot.stream, wa_sfx._music_tense.stream, wa_sfx._fog_amb.stream]
-	wa_all.append(wa_sfx._hum.stream)
 	for wa_s in wa_all:
 		wa_count += 1
 		wa_wavs = wa_wavs and wa_s is AudioStreamWAV and wa_s.format == AudioStreamWAV.FORMAT_16_BITS and wa_s.data.size() > 200 and wa_s.mix_rate >= 8000
@@ -3705,25 +3703,24 @@ func _initialize() -> void:
 		return w_m
 	var w_ui_pk = w_lv.call(["tap", "press", "back", "toggle", "error", "whoosh", "tick"])
 	var w_game_lo = 1.0
-	for w_k in ["coin_0", "fine", "alarm", "go_around", "wind", "buy", "chirp"]:
+	for w_k in ["coin_0", "fine", "alarm", "go_around", "wind", "buy"]:
 		w_game_lo = minf(w_game_lo, sx_peak.call(sx_clip.call(w_k)))
-	var w_game_hi = w_lv.call(["coin_0", "fine", "alarm", "go_around", "wind", "buy", "chirp"])
+	var w_game_hi = w_lv.call(["coin_0", "fine", "alarm", "go_around", "wind", "buy"])
 	var w_big_lo = 1.0
 	for w_k in ["landing_0", "star", "unlock", "slam"]:
 		w_big_lo = minf(w_big_lo, sx_peak.call(sx_clip.call(w_k)))
-	var w_hum_pk = 0.0
-	w_hum_pk = sx_peak.call(sx_clip_of(sx._hum.stream))
-	check(w_ui_pk < w_game_lo and w_game_hi < w_big_lo and w_ui_pk <= 0.16, "the mix is layered: UI %.2f < gameplay %.2f..%.2f < big moments %.2f" % [w_ui_pk, w_game_lo, w_game_hi, w_big_lo])
-	check(w_hum_pk <= 0.1 and w_hum_pk < w_ui_pk, "the engine hums are the quietest thing (peak %.2f)" % w_hum_pk)
+	var w_ref = sx_peak.call(sx_clip_of(sx._music_calm.stream)) * db_to_linear(sx.SHIFT_CALM_DB)
+	var w_gp_pk = w_lv.call(["landing_0", "landing_6", "coin_0", "fine", "alarm", "go_around", "wind", "buy", "last_arrivals", "clear_sky", "star", "unlock", "slam", "arrive", "touch"])
+	check(absf(w_ref - SfxSynth.MUSIC_REF) < 0.01 and w_gp_pk <= 0.8 * w_ref + 0.001 and w_ui_pk <= 0.5 * w_ref + 0.001, "the music is the reference (peak %.3f): gameplay peaks %.3f <= 0.8 of it, UI %.3f <= 0.5 of it" % [w_ref, w_gp_pk, w_ui_pk])
+	check(w_lv.call(["touch"]) < 0.3 * w_lv.call(["landing_0"]) and w_lv.call(["arrive"]) < 0.4 * w_lv.call(["landing_0"]) and w_lv.call(["coin_0"]) < w_lv.call(["landing_0"]), "the touchdown tap and the arrival tone sit far below the landing chime, and the coin plinks below it too")
 	var w_loud = 0.0
 	for w_k in sx._streams.keys():
 		w_loud = maxf(w_loud, sx_peak.call(sx_clip.call(w_k)))
-	check(w_loud <= 0.55, "no clip is loud (loudest peak %.2f)" % w_loud)
+	check(w_loud <= 0.18, "no clip is loud (loudest peak %.2f)" % w_loud)
 	# Reverb tails and w_loops.
 	check(sx._streams["landing_0"].data.size() / 2.0 / w_rate > 1.1 and sx._streams["tap"].data.size() / 2.0 / w_rate < 0.1, "chimes have a tail; UI clicks are short")
 	var w_seam_bad = []
 	var w_loops = {"calm": sx._music_calm.stream, "hot": sx._music_hot.stream, "tense": sx._music_tense.stream, "fog": sx._fog_amb.stream}
-	w_loops["hum"] = sx._hum.stream
 	for w_k in w_loops.keys():
 		var w_xs = sx_clip_of(w_loops[w_k])
 		var w_big_step = 0.0
@@ -3746,7 +3743,7 @@ func _initialize() -> void:
 		w_pmax = maxf(w_pmax, w_ap.pitch_scale)
 		w_vmin = minf(w_vmin, w_ap.volume_db)
 		w_vmax = maxf(w_vmax, w_ap.volume_db)
-	check(w_pmin >= 0.969 and w_pmax <= 1.031 and w_pmax - w_pmin > 0.03 and w_vmax - w_vmin > 0.3 and w_vmax < 1.0, "repeated sounds vary by about 3%% in pitch (%.3f..%.3f) and a little in level" % [w_pmin, w_pmax])
+	check(w_pmin >= 0.989 and w_pmax <= 1.011 and w_pmax - w_pmin > 0.01 and w_vmax - w_vmin > 0.3 and w_vmax < 1.0, "repeated sounds vary by about 1%% in pitch (they stay in key) (%.3f..%.3f) and a little in level" % [w_pmin, w_pmax])
 	# Landings in quick succession climb; coins rise as they arrive.
 	var w_st0 = sx.plays["landing"]
 	main.restart()
@@ -3848,7 +3845,7 @@ func _initialize() -> void:
 	# Worst case at once: every music layer, fog and the bed at their mixed levels (in dB, as Sfx.gd sets them) stay far
 	# below full scale, and the loudest one-shot on top of that is still under it, so the limiter only ever catches
 	# rare pile-ups.
-	var xa_gain = {"calm": -9.0, "hot": -8.0, "tense": -9.0, "fog": -10.0, "hum": -9.0}
+	var xa_gain = {"calm": -9.0, "hot": -8.0, "tense": -9.0, "fog": -10.0}
 	var xa_sum = 0.0
 	for xa_k in xa_gain.keys():
 		var xa_p = 0.0
@@ -3978,6 +3975,66 @@ func _initialize() -> void:
 	check(sc_doc.contains("## Sunny Airfield") and sc_doc.contains("round dots") and sc_doc.contains("colour tiles") and sc_doc.contains("swept-wing jet"), "docs/style.md documents the Sunny Airfield art direction")
 	check(sc_art._sb_hdr != null and sc_art._sb_card != null and sc_art._sb_dock != null, "the pills, card and dock styles exist")
 	main._show_menu()
+
+	print("9zy. gameplay audio is part of the music")
+	var qa = main.sfx
+	check(qa.QUANTIZED.has("landing") and qa.QUANTIZED.has("go_around") and qa.QUANTIZED.has("alarm") and qa.QUANTIZED.has("tick") and qa.QUANTIZED.has("arrive") and not qa.QUANTIZED.has("tap") and not qa.QUANTIZED.has("touch"), "landings, arrivals, go-arounds, conflicts and ticks wait for the beat; taps and the touchdown tap do not")
+	check(absf(qa.EIGHTH - 0.375) < 0.0001 and absf(qa.LOOP_SECS - 6.0) < 0.0001, "the grid is the music's eighth-note (0.375 s of the 6 s loop)")
+	qa.quantize = true
+	qa.set_music(true, 0.2, 0.0)
+	qa._music_on = true
+	var qa_w = qa.next_beat_wait()
+	check(qa_w > 0.0 and qa_w <= qa.EIGHTH + 0.0001 + 0.03, "the next beat is never more than an eighth away (%.3f s)" % qa_w)
+	qa._pending.clear()
+	var qa_l0 = qa.plays["landing"]
+	qa.play_step("landing", 0)
+	check(qa.plays["landing"] == qa_l0 + 1 and qa.pending_count() == 1, "a landing chime is queued for the next beat")
+	var qa_due = int(qa._pending[0][0])
+	var qa_phase_at_due = fposmod(qa.music_phase() + (qa_due - Time.get_ticks_msec()) / 1000.0, qa.LOOP_SECS)
+	var qa_off = fposmod(qa_phase_at_due, qa.EIGHTH)
+	check(qa_off < 0.02 or qa.EIGHTH - qa_off < 0.02, "...and it is due exactly on an eighth-note (%.3f s off the grid)" % minf(qa_off, qa.EIGHTH - qa_off))
+	qa.play_step("landing", 0)
+	check(qa.pending_count() == 1, "two landings in the same beat share it (one chime per beat)")
+	qa.flush_pending()
+	check(qa.pending_count() == 0, "flushing plays what is waiting")
+	# Velocity: the more landings in quick succession, the quieter each chime.
+	qa._recent_land.clear()
+	qa.quantize = false
+	var qa_dbs = []
+	for qa_i in 5:
+		qa.play_step("landing", qa_i)
+		qa_dbs.append(qa._pool[(qa._next + qa.POOL - 1) % qa.POOL].volume_db)
+	check(qa_dbs[4] < qa_dbs[0] - 5.0 and qa_dbs[2] < qa_dbs[1], "landings close together are quieter (%.1f -> %.1f dB)" % [qa_dbs[0], qa_dbs[4]])
+	qa.quantize = false
+	qa.play("touch")
+	check(qa.pending_count() == 0, "with quantizing off everything plays at once")
+	qa.quantize = true
+	qa.play("tap")
+	check(qa.pending_count() == 0, "a UI tap is never delayed")
+	qa._music_on = false
+	qa.play_step("landing", 0)
+	check(qa.pending_count() == 0, "with no music running there is no beat to wait for")
+	qa.quantize = false
+	# The page gives the music clock on the web; the three category sliders are saved.
+	var qa_shell = FileAccess.get_file_as_string("res://web/shell.html")
+	check(qa_shell.contains("api.phase") and not qa_shell.contains("'hum'"), "the loading page reports the music's phase and plays no hum")
+	save.reset_all()
+	main._set_volume(2, 0.35)
+	main._set_volume(1, 0.6)
+	main._set_volume(0, 0.45)
+	save.write_file()
+	save.load_file()
+	check(absf(save.ambience_volume - 0.35) < 0.001 and absf(save.music_volume - 0.6) < 0.001 and absf(save.sound_volume - 0.45) < 0.001, "the three volumes (music, effects, ambience) are saved")
+	check(AudioServer.get_bus_index("Ambience") >= 0 and absf(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Ambience")) - linear_to_db(0.35)) < 0.01, "the Ambience bus follows its slider")
+	main._set_volume(0, 0.8)
+	main._set_volume(1, 0.8)
+	main._set_volume(2, 0.8)
+	main.restart()
+	main.pause_game()
+	check(main.hud._art.slider_rect[2].size.x > 100.0 and main.hud._art.slider_name.size() == 3 and main.hud.slider_at(main.hud._art.slider_rect[2].get_center()) == 2, "the pause menu has Music, Effects and Ambience sliders")
+	main.resume_game()
+	var qa_fog = qa._players["fog"]
+	check(qa_fog.bus == &"Ambience", "the fog ambience is on the Ambience bus")
 
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()

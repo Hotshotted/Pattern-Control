@@ -4,6 +4,7 @@ extends Node3D
 ## Restarting is IN PLACE: nothing is reloaded, created or freed; only the game state resets.
 
 const SCREEN_MENU := 0
+const TICK_PITCH := [1.0, 1.1225, 1.3348]    # G4, A4, C5 (the tick clip is G4)
 const TICK_WARN := 8.0                   # seconds left (clock or aircraft timer) when the ticking starts
 const SCREEN_PLAY := 1
 const SCREEN_OVER := 2
@@ -62,7 +63,6 @@ var _finale := 0                      # 0 spawning, 1 'LAST ARRIVALS' banner, 2 
 var _finale_start := 0.0
 var _last_over := -1
 var _last_wind_deg := -1.0
-var _hum_counts := PackedInt32Array([0, 0, 0, 0, 0, 0])
 var _doubled := false                 # the rewarded "double coins" is once per shift
 var ads_shown := 0                    # (tests) how many fake ads have played
 var streak := 0                       # landings in a row, each within Tuning.streak_window_seconds of the last
@@ -131,6 +131,7 @@ func _ready() -> void:
 	add_child(diorama)
 	overlay.camera = camera
 	traffic.landed.connect(_on_landed)
+	traffic.spawned.connect(func(_p: Aircraft): sfx.play("arrive"))      # (a very soft tone, on the beat)
 	traffic.touchdown.connect(_on_touchdown)
 	traffic.conflict.connect(_on_conflict)
 	traffic.timed_out.connect(_on_timed_out)
@@ -539,17 +540,11 @@ func _timer_ticks(t: float, par: float) -> void:
 	if urgency > TICK_WARN or t < _tick_next:
 		return
 	var k := clampf(urgency / TICK_WARN, 0.0, 1.0)
-	sfx.play("tick", lerpf(1.25, 1.0, k))
+	sfx.play("tick", TICK_PITCH[0 if k > 0.66 else (1 if k > 0.33 else 2)])      # G, then A, then C: the ticks climb the scale as time runs out
 	_tick_next = t + lerpf(0.22, 0.9, k)
 
-## Hums follow the aircraft on the field; the music intensifies through the shift and towards the finale.
+## The music intensifies through the shift and towards the finale (there is no engine hum: the music is the only continuous sound).
 func _update_audio(frac: float) -> void:
-	_hum_counts.fill(0)
-	for p in traffic.planes:
-		if p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD:
-			if p.entered and not p.fogged:
-				_hum_counts[p.type] += 1
-	sfx.set_hum_counts(_hum_counts)
 	sfx.set_music(true, frac, 1.0 if _finale > 0 else 0.0)
 	sfx.set_fog(traffic.fog_amount)
 
@@ -559,7 +554,7 @@ func _update_audio(frac: float) -> void:
 func _on_touchdown(p: Aircraft) -> void:
 	if p.tkind != Aircraft.Kind.PAD:
 		fx.puff(p.pos)
-		sfx.play("chirp")
+		sfx.play("touch")
 
 func _on_landed(p: Aircraft) -> void:
 	if not alive:
@@ -848,7 +843,6 @@ func _end_shift() -> void:
 		shift.set_finish(t_end, Tuning.par_eff(), int(Tuning.early_bonus_per_second))
 	else:
 		shift.set_overtime(t_end - Tuning.par_eff(), int(Tuning.overtime_penalty_per_second))
-	sfx.silence_hums()
 	sfx.play("clear_sky" if shift.balance() >= 0 else "fine")
 	var gained := _settle()
 	if not daily_mode:
@@ -943,7 +937,7 @@ func pause_game() -> void:
 	screen = SCREEN_PAUSE
 	_pause_since_ms = Time.get_ticks_msec()
 	_cancel_drag()
-	hud.show_pause(Save.sound_volume, Save.music_volume)
+	hud.show_pause(Save.sound_volume, Save.music_volume, Save.ambience_volume)
 	_publish_state()
 
 func resume_game() -> void:
@@ -956,18 +950,20 @@ func resume_game() -> void:
 	hud.hide_pause()
 	_publish_state()
 
-## Bus 0 = sound, 1 = music. (There is no audio content yet; the buses are ready for it.)
+## Slider 0 = effects (the SFX bus), 1 = music, 2 = ambience.
 func _set_volume(which: int, v: float) -> void:
 	if which == 0:
 		Save.sound_volume = v
-	else:
+	elif which == 1:
 		Save.music_volume = v
+	else:
+		Save.ambience_volume = v
 	_apply_volumes()
 
-## The SFX and Music buses come from default_bus_layout.tres (loaded before the audio driver starts). They are NEVER
+## The SFX, Music and Ambience buses come from default_bus_layout.tres (loaded before the audio driver starts). They are NEVER
 ## created at run time: in the single-threaded web export, adding a bus after start-up silences all audio.
 func _apply_volumes() -> void:
-	for pair in [["SFX", Save.sound_volume], ["Music", Save.music_volume]]:
+	for pair in [["SFX", Save.sound_volume], ["Music", Save.music_volume], ["Ambience", Save.ambience_volume]]:
 		var idx := AudioServer.get_bus_index(pair[0])
 		if idx < 0:
 			continue

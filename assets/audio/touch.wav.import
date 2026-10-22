@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://bxiyiqicpvs7q"
-path="res://.godot/imported/chirp.wav-d6dea1decc762e9e32deb3967d2c0e9a.sample"
+uid="uid://bmknhymm0rf6v"
+path="res://.godot/imported/touch.wav-d10e3d470e2f6c3e429cda1542fc4b6c.sample"
 
 [deps]
 
-source_file="res://assets/audio/chirp.wav"
-dest_files=["res://.godot/imported/chirp.wav-d6dea1decc762e9e32deb3967d2c0e9a.sample"]
+source_file="res://assets/audio/touch.wav"
+dest_files=["res://.godot/imported/touch.wav-d10e3d470e2f6c3e429cda1542fc4b6c.sample"]
 
 [params]
 

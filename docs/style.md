@@ -153,10 +153,9 @@ game from this studio should sound like it belongs to the same room.
   the key.
 * **Variation:** every repeated sound gets about +-3% random pitch and a hair of random level, so it never feels robotic.
 * **Rendering:** nothing is synthesised on the phone. `scripts/SfxSynth.gd` is the recipe and `tools/render_audio.gd`
-  bakes it into 44.1 kHz 16-bit mono WAVs in `assets/audio/` (one-shots) and `assets/audio/loops/` (calm, hot, tense, fog
-  and one shared engine `hum`), which are committed (re-run `godot --headless --path . --script tools/render_audio.gd`
+  bakes it into 44.1 kHz 16-bit mono WAVs in `assets/audio/` (one-shots) and `assets/audio/loops/` (calm, hot, tense and fog), which are committed (re-run `godot --headless --path . --script tools/render_audio.gd`
   after editing the recipe; the smoke test fails if they differ). One-shots play from a pool of 8 `AudioStreamPlayer`s.
-  No buses are created at run time (that silences the single-threaded web export): the `SFX` and `Music` buses and the
+  No buses are created at run time (that silences the single-threaded web export): the `SFX`, `Music` and `Ambience` buses and the
   Master **limiter** (a hard limiter, ceiling -1 dB) come from `default_bus_layout.tres`.
 * **Loops on the web:** Godot's web samples loop by restarting a buffer from the main thread, which leaves a gap at every
   wrap when a phone is busy. So the page (`PWAudio` in `web/shell.html`) plays the loops itself as native
@@ -173,21 +172,29 @@ game from this studio should sound like it belongs to the same room.
 
 | Moment | Sound |
 |---|---|
-| Touchdown | a soft tire chirp (filtered noise and a faint falling squeak) |
-| Landing | a warm two-note bell chime; landings in quick succession climb the scale (seven steps), so a streak is a little melody |
-| Coin | a soft bell plink, one note higher for each coin that reaches the counter, starting over after a pause |
+| Touchdown | a very soft, low-passed tap, far below the chime (no tire squeal) |
+| Arrival | a very soft, short tone (G4), on the beat |
+| Landing | ONE soft bell chime in the key, on the next eighth-note of the music; landings in quick succession climb the scale (seven steps) and are each quieter (velocity: about 2 dB less per landing in the last 3 s, down to 9 dB) |
+| Coin | a tiny bell plink well under the chime, one note higher for each coin that reaches the counter |
 | Conflict | a low muted thud with a soft descending two-tone (A3 to E3); fines are the thud alone |
-| Go-around | a soft whoosh with a rising engine swell |
-| Timer warning | a gentle knock that comes faster and slightly higher the closer a clock or an aircraft timer is to zero (from 8 s) |
+| Go-around | two soft rising tones (E, A), no noise |
+| Timer warning | a gentle G4 knock that steps up the scale (G, A, C) as a clock or an aircraft timer nears zero (from 8 s) |
 | UI | very quiet, very short soft clicks, each kind a little different (forward, back, toggle, error, swipe) |
 | Star, purchase, new airport | rising bell figures, from three to five notes |
-| Engines | low, smooth, quiet sine beds per aircraft type; they should barely register |
 
-**Mix.** Loudness is normalised per clip by role (peak): engine hums 0.07, UI 0.10 (the quietest), gameplay 0.30, big moments
-(landing, star, new airport, results slam) 0.50. Music sits underneath the gameplay sounds: a warm pad with a soft bass, then
-a plucked pentatonic arpeggio with a very soft pulse that fades in smoothly through the second half of a shift and to the
-top in the finale; fog adds a low drone and an airy bed. All layers are the same length (6 s) and every loop is seamless.
-Level changes always glide (at most 60 dB a second), never cut.
+There is **no engine hum**: the music is the only continuous sound (plus the soft fog ambience). Gameplay sounds are part of the
+music: arrivals, landings, coins, go-arounds, conflicts, fines, ticks and the stingers wait for the **next eighth-note** of the
+music's tempo (0.375 s of the 6 s loop; the page reports the loop's phase on the web) so they land on the beat; at most one of
+each per beat. Taps, the touchdown tap and the results stingers play at once. Pitch variation is only about 1 % so everything
+stays in key.
+
+**Mix.** The music is the reference: heard at its peak (the calm layer, 0.35 played at -4 dB) it peaks at 0.22. Gameplay sounds
+peak at or below 0.8 of that (landing chime 0.13, big moments 0.16), UI sounds at or below 0.5 (0.09), the touchdown tap 0.03.
+The smoke test checks these peaks, and CI records the page's output and fails if any gameplay sound peaks above the music.
+Music: a warm pad with a soft bass, then a plucked pentatonic arpeggio with a very soft pulse that fades in smoothly through the
+second half of a shift and to the top in the finale; fog adds a low drone and an airy bed. All layers are the same length (6 s)
+and every loop is seamless. Level changes always glide (at most 60 dB a second), never cut. The pause menu has three saved
+sliders: **Music**, **Effects** (the SFX bus) and **Ambience** (the fog).
 
 ## App icon and splash
 

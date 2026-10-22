@@ -191,6 +191,9 @@ srv.listen(0, async () => {
       if (r.dropouts > 0) fail(name + ': ' + r.dropouts + ' dropouts (runs of exact silence)');
       if (r.clipped > 0) fail(name + ': ' + r.clipped + ' clipped samples');
     }
+    // The music is the reference: nothing the game adds on top of it (landings, ticks, taps...) may peak above the music itself.
+    if (!(shift.peak > 0.05)) fail('the music is too quiet to be the reference (peak ' + shift.peak + ')');
+    if (shots.peak > shift.peak) fail('a gameplay sound (peak ' + shots.peak + ') is louder than the music (peak ' + shift.peak + ')');
     if (hiddenPeak > 0.0005) fail('sound kept playing while the page was hidden (peak ' + hiddenPeak + ')');
     if (visiblePeak > 0.0005) fail('sound came back by itself when the page became visible (peak ' + visiblePeak + ')');
     if (!(during.game && during.game.paused)) fail('the game did not pause when the page was hidden');

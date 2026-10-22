@@ -29,6 +29,7 @@ var ads := {}                        # ad stub bookkeeping: shifts since the las
 var selected_airport := 0
 var sound_volume := 0.8              # pause-menu volume sliders, 0..1 (absent in older saves: the default)
 var music_volume := 0.8
+var ambience_volume := 0.8          # the fog ambience (the third pause-menu slider)
 
 func _ready() -> void:
 	load_file()
@@ -53,6 +54,7 @@ func _defaults() -> void:
 	selected_airport = 0
 	sound_volume = 0.8
 	music_volume = 0.8
+	ambience_volume = 0.8
 	ads = {}
 
 func load_file() -> void:
@@ -93,6 +95,7 @@ func load_file() -> void:
 	ads = _dict(data.get("ads"))
 	sound_volume = clampf(float(data.get("sound_volume", 0.8)), 0.0, 1.0)
 	music_volume = clampf(float(data.get("music_volume", 0.8)), 0.0, 1.0)
+	ambience_volume = clampf(float(data.get("ambience_volume", 0.8)), 0.0, 1.0)
 
 func _dict(v) -> Dictionary:
 	return v if v is Dictionary else {}
@@ -104,7 +107,7 @@ func write_file() -> void:
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
 			"upgrades": upgrades, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
 			"daily": daily, "bad_day": bad_day, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "selected_airport": selected_airport, "ads": ads,
-			"sound_volume": sound_volume, "music_volume": music_volume,
+			"sound_volume": sound_volume, "music_volume": music_volume, "ambience_volume": ambience_volume,
 		}))
 
 # ---------- Stars ----------
