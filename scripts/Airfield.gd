@@ -488,6 +488,7 @@ func _process(delta: float) -> void:
 	var blink := 1.6 if int(now / 600.0) % 2 == 0 else 0.0
 	for lm in cur.mast_lights:
 		lm.emission_energy_multiplier = blink
+		lm.albedo_color = Color(1.0, 0.2, 0.15) if blink > 0.0 else Color(0.55, 0.16, 0.13)
 	for k in cur.thr_mats.size():
 		var age := (now - cur.glow_born[k]) / 600.0
 		var flash := 0.0 if cur.glow_born[k] == 0 or age >= 1.0 else 2.5 * (1.0 - age)
@@ -578,7 +579,8 @@ func _upgrade_props(v: AirportScene) -> void:
 		root.add_child(holder)
 		Prim.cyl(holder, 0.03, 0.07, 1.6, 4, Vector3(0, 0.8, 0), metal)
 		Prim.box(holder, Vector3(0.5, 0.04, 0.04), Vector3(0, 1.25, 0), metal, false)
-		var lm := Prim.mat(Color(1.0, 0.15, 0.1))
+		var lm := Prim.mat(Color(1.0, 0.2, 0.15))
+		lm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		lm.emission_enabled = true
 		lm.emission = Color(1.0, 0.15, 0.1)
 		lm.emission_energy_multiplier = 0.0

@@ -1058,6 +1058,8 @@ func _on_button(id: String) -> void:
 		hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
 	elif id == "airports":
 		_show_select()
+	elif id == "airport_prev" or id == "airport_next":
+		_cycle_airport(-1 if id == "airport_prev" else 1)
 	elif id == "upgrades":
 		_show_upgrades()
 	elif id == "shop":
@@ -1312,6 +1314,19 @@ func select_airport(i: int) -> void:
 	airport = clampi(i, 0, Airports.COUNT - 1)
 	Save.selected_airport = airport
 	Save.write_file()
+
+## The menu's arrows: the next (or previous) airport that is open.
+func _cycle_airport(dir: int) -> void:
+	var i := airport
+	for k in Airports.COUNT:
+		i = posmod(i + dir, Airports.COUNT)
+		if Save.airport_open(i):
+			break
+	select_airport(i)
+	Airports.current = airport           # (the field behind the menu follows)
+	airfield.select(airport)
+	airfield.show_active(wind)
+	_show_menu()
 
 func _show_select() -> void:
 	screen = SCREEN_SELECT

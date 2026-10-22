@@ -215,8 +215,12 @@ func _initialize() -> void:
 
 	print("2. a tap on the menu starts a run in place; real touches pick and drag a plane")
 	main.traffic.auto_spawn = false
-	touch(main, 0, true, Vector2(540, 900))
-	touch(main, 0, false, Vector2(540, 900))
+	var play_at := Vector2(540, 900)
+	for pk in main.hud._art.btn_count:
+		if main.hud._art.btn_id[pk] == "play":
+			play_at = main.hud._art.btn_rect[pk].get_center()
+	touch(main, 0, true, play_at)
+	touch(main, 0, false, play_at)
 	check(main.screen == main.SCREEN_PLAY and main.alive, "tap starts the run")
 	set_wind(main, 0.0)
 	check(not main.hud._menu.visible, "menu hides")
@@ -638,7 +642,7 @@ func _initialize() -> void:
 	main.step(1.0 / 60.0)
 	check(main.screen == main.SCREEN_OVER and has_btn(main, "ad_refund") and has_btn(main, "ad_double"), "the results offer both the refund and double-coins ads")
 	var ri9 = main.hud._art.btn_id.find("ad_refund")
-	check(main.hud._art.btn_text[ri9] == "Refund fine" and main.hud._art.btn_sub[ri9] == "+%d" % int(tuning.fine_conflict) and main.hud._art.btn_kind[ri9] == 4, "...a small chip: 'Refund fine' with its amount (%s %s)" % [main.hud._art.btn_text[ri9], main.hud._art.btn_sub[ri9]])
+	check(main.hud._art.btn_text[ri9] == "Refund fine" and main.hud._art.btn_sub[ri9] == "+%d" % int(tuning.fine_conflict) and main.hud._art.btn_kind[ri9] == 6, "...a quiet pill: 'Refund fine' with its amount (%s %s)" % [main.hud._art.btn_text[ri9], main.hud._art.btn_sub[ri9]])
 	var stars_pre = save.stars_of(main.airport)
 	var coins_pre9 = save.coins
 	var pay_pre = main.shift.payout()
@@ -1632,7 +1636,7 @@ func _initialize() -> void:
 	save.day_override = 20000
 	main._show_menu()
 	var daily_idx = main.hud._art.btn_id.find("daily")
-	check(main.hud._art.btn_kind[daily_idx] == 3 and main.hud._art.btn_text[daily_idx] == "Daily" and main.hud._art.btn_badge[daily_idx] == 0, "the Daily button is a round icon with no badge before the first streak")
+	check(main.hud._art.btn_kind[daily_idx] == 3 and main.hud._art.btn_text[daily_idx] == "Daily" and main.hud._art.btn_badge[daily_idx] == -2, "the Daily tile has a red dot before the first streak")
 	var runs_seen = []
 	for run_i in 3:
 		save.day_override = 20000 if run_i < 2 else 20001
@@ -2599,7 +2603,7 @@ func _initialize() -> void:
 	var menu_words = true
 	for k in art.btn_count:
 		menu_words = menu_words and words_ok.call(art.btn_text[k]) and art.btn_sub[k] == ""
-	check(menu_words and art.btn_count <= 6, "menu: short labels, no descriptions (%d buttons)" % art.btn_count)
+	check(menu_words and art.btn_count <= 8, "menu: short labels, no descriptions (%d buttons)" % art.btn_count)
 	var round_n = 0
 	for k in art.btn_count:
 		if art.btn_kind[k] == 3:
@@ -2630,8 +2634,8 @@ func _initialize() -> void:
 	for k in art.btn_count:
 		if art.btn_kind[k] == 1:
 			cards_n += 1
-			sel_ok = sel_ok and art.btn_sub[k] == "" and words_ok.call(art.btn_text[k])
-	check(cards_n == Airports.COUNT and sel_ok, "airport select: one big card per airport with only its name, stars and lock")
+			sel_ok = sel_ok and art.btn_sub[k].length() < 40 and art.btn_map[k] >= 0 and words_ok.call(art.btn_text[k])
+	check(cards_n == Airports.COUNT and sel_ok, "airport select: one big card per airport with a mini-map, its name, one line, stars and lock")
 	main._show_menu()
 	# Upgrades: icon, name, one line, pips, cost.
 	main._on_button("upgrades")
@@ -3935,6 +3939,43 @@ func _initialize() -> void:
 	for rz_p in rz_fx._emitters + rz_fx._puffs + rz_fx._sparkles:
 		rz_ok = rz_ok and (rz_p.mesh.material as StandardMaterial3D).albedo_texture != null
 	check(rz_ok, "particles are round dots and gold stars (textured), never squares")
+
+	print("9zz. Sunny Airfield art: screens")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main._show_menu()
+	var sc_art = main.hud._art
+	check(sc_art.lockup and sc_art.dock_rect.size.x > 600.0 and not main.hud._menu_title.visible, "the menu has the logo lockup and a bottom dock")
+	var sc_tiles = {}
+	for sc_k in sc_art.btn_count:
+		if sc_art.btn_kind[sc_k] == 3:
+			sc_tiles[sc_art.btn_id[sc_k]] = sc_art.btn_tint[sc_k]
+	check(sc_tiles.size() == 4 and sc_tiles["upgrades"].is_equal_approx(Style.PRIMARY) and sc_tiles["shop"].is_equal_approx(Color("a06bff")) and sc_tiles["daily"].is_equal_approx(Style.WARNING) and sc_tiles["bad"].is_equal_approx(Style.DANGER), "the dock tiles: Upgrades blue, Hangar purple, Daily orange, Bad Day red")
+	check(sc_art.btn_id.find("airport_prev") >= 0 and sc_art.btn_id.find("airport_next") >= 0 and sc_art.btn_kind[sc_art.btn_id.find("airports")] == 5 and sc_art.btn_map[sc_art.btn_id.find("airports")] == main.airport, "the airport card has previous / next arrows and a mini-map")
+	main.select_airport(0)
+	main._on_button("airport_next")
+	check(main.airport == 1 and Airports.current == 1 and main.screen == main.SCREEN_MENU, "the next arrow moves to the next airport and the field behind the menu follows")
+	main._on_button("airport_prev")
+	main._on_button("airport_prev")
+	check(main.airport == Airports.COUNT - 1, "the previous arrow wraps around")
+	main.select_airport(2)
+	main._show_menu()
+	main.restart()
+	main.shift.on_landed(3, 14, 0)
+	main.shift.fine(40, "conflict")
+	main.hud.set_shift(main.shift)
+	main.hud.show_results("SHIFT COMPLETE", "Landings earned|+210", main.shift, 488, 728, 488, true)
+	check(sc_art.res_chips[0] == main.shift.earned + main.shift.bonus and sc_art.res_chips[2] == main.shift.fines + main.shift.overtime_penalty and sc_art.res_sub.contains(Airports.airport_name()) and sc_art.res_sub.contains("landed"), "the results card has the three chips (landings, early clear, fines) and the subtitle")
+	main.hud.queue_unlock("County")
+	check(sc_art.res_unlock == "County", "a new airport shows as a card on the results")
+	main.hud.hide_unlock()
+	main._show_menu()
+	main.restart()
+	main.pause_game()
+	check(sc_art.pause_card.size.x > 600.0 and sc_art.btn_kind[sc_art.btn_id.find("restart")] == 3, "the pause menu sits on a sheet with colour tiles")
+	main.resume_game()
+	check(sc_art._sb_hdr != null and sc_art._sb_card != null and sc_art._sb_dock != null, "the pills, card and dock styles exist")
+	main._show_menu()
 
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()

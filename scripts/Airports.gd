@@ -132,6 +132,14 @@ static func def(i: int = -1) -> Dictionary:
 	_build()
 	return _defs[current if i < 0 else i]
 
+## The index of the airport with this name (0 if there is none).
+static func index_of(airport_name_: String) -> int:
+	_build()
+	for i in COUNT:
+		if _defs[i]["name"] == airport_name_:
+			return i
+	return 0
+
 static func tag(i: int = -1) -> String:
 	return def(i)["tag"]
 

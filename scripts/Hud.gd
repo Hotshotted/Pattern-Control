@@ -76,6 +76,12 @@ class Art extends Control:
 	var header_text := ""
 	var header2_glyph := ""
 	var header2_text := ""
+	var lockup := false              # the menu's logo lockup (tag, PATTERN, WORK) is drawn
+	var dock_rect := Rect2()         # the menu's bottom dock of colour tiles (empty = none)
+	var res_chips := PackedInt32Array([0, 0, 0])   # results: landings, early clear, fines
+	var res_sub := ""                # results: "Grass Strip · 14 landed"
+	var res_unlock := ""             # results: a new airport opened (shown as a card)
+	var pause_card := Rect2()        # the sheet behind the pause menu's sliders
 	var _pts := PackedVector2Array()
 	var _p3 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 	var _p4 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
@@ -121,6 +127,14 @@ class Art extends Control:
 	var _sb_banner: StyleBoxFlat
 	var _sb_tip: StyleBoxFlat
 	var _sb_sheet: StyleBoxFlat
+	var _sb_tile: StyleBoxFlat       # Sunny Airfield colour tiles: an ink border, a lip under them
+	var _sb_tile_lip: StyleBoxFlat
+	var _sb_dock: StyleBoxFlat
+	var _sb_hdr: StyleBoxFlat        # the coin / star pills in the corners
+	var _sb_chip: StyleBoxFlat
+	var _sb_card: StyleBoxFlat
+	var _sb_tag: StyleBoxFlat
+	var _sb_unlock: StyleBoxFlat
 
 	# Buttons / cards (fixed pool; set per screen). state: 0 normal, 1 disabled, 2 accent.
 	# kind: 0 plain button, 1 card (icon, name, one line, pips / stars / cost), 2 the primary button, 3 round icon button, 4 small chip.
@@ -138,6 +152,8 @@ class Art extends Control:
 	var btn_cost := PackedInt32Array()       # -1: none, 0: "MAX", else a price (coin icon + number)
 	var btn_badge := PackedInt32Array()      # round buttons: 0 none, >0 a streak number, -1 a tick (done today)
 	var btn_lock := PackedInt32Array()       # cards: >0 a locked card showing a padlock and this many stars needed
+	var btn_tint := PackedColorArray()       # colour tiles / card icons: the tile colour (alpha 0 = default)
+	var btn_map := PackedInt32Array()        # cards: -1 none, else an airport index: its mini-map is drawn as the icon
 	var btn_count := 0
 
 	func _init() -> void:
@@ -145,8 +161,9 @@ class Art extends Control:
 			btn_rect.append(Rect2())
 		for a in [btn_id, btn_text, btn_sub, btn_glyph]:
 			a.resize(MAX_BTN)
-		for a in [btn_state, btn_stars, btn_icon, btn_kind, btn_pips, btn_cost, btn_badge, btn_lock]:
+		for a in [btn_state, btn_stars, btn_icon, btn_kind, btn_pips, btn_cost, btn_badge, btn_lock, btn_map]:
 			a.resize(MAX_BTN)
+		btn_tint.resize(MAX_BTN)
 		_pts.resize(10)
 		fc_pos.resize(10)
 		cf_pos.resize(CONFETTI)
@@ -167,11 +184,19 @@ class Art extends Control:
 		_sb_track = Style.box(Color(Style.INK, 0.85), Color(Style.LINE, 0.25), 11, 2, false)
 		_sb_fill = Style.box(Style.ACCENT, Style.ACCENT, 11, 0, false)
 		_sb_logo = Style.box(Style.SURFACE_DARK_2, Style.ACCENT, Style.R_L, 4)
-		_sb_ghost = Style.box(Color(Style.SCRIM, 0.35), Color(Style.LINE, 0.35), Style.R_PILL, 2, false)
+		_sb_ghost = Style.box(Color(Style.SURFACE_DARK, 0.7), Color(Style.LINE, 0.3), Style.R_PILL, 2, false)
 		_sb_pill = Style.box(Color(Style.INK, 0.78), Color(0.8, 0.88, 1.0, 0.5), Style.R_PILL, 3)
 		_sb_sheet = Style.box(Color(Style.SURFACE_DARK, 0.98), C_LINE, Style.R_L, 3)
 		_sb_banner = Style.box(Color(Style.INK, 0.82), Color.WHITE, Style.R_PILL, 3)
 		_sb_tip = Style.box(Color(Style.INK, 0.85), Style.SUCCESS.lightened(0.5), Style.R_PILL, 3)
+		_sb_tile = Style.box(Style.PRIMARY, Style.INK, 34, 6, false)
+		_sb_tile_lip = Style.box(Style.INK, Style.INK, 34, 0, false)
+		_sb_dock = Style.box(Color(Style.SURFACE_DARK, 0.93), Color(1, 1, 1, 0.16), 56, 3)
+		_sb_hdr = Style.box(Color(Style.SURFACE_DARK, 0.9), Color(1, 1, 1, 0.18), 999, 3)
+		_sb_chip = Style.box(Style.SURFACE_DARK_2, Style.SURFACE_DARK_2, 40, 0, false)
+		_sb_card = Style.box(Color(Style.SURFACE_DARK, 0.98), Color(1, 1, 1, 0.22), 70, 5)
+		_sb_tag = Style.box(Style.DANGER, Style.INK, 999, 6, false)
+		_sb_unlock = Style.box(Style.SURFACE_DARK_2, Color(Style.ACCENT, 0.7), 60, 4, false)
 		_sheen_s = Style.sheen(Style.R_S)
 		_sheen_m = Style.sheen(Style.R_M)
 		_sheen_l = Style.sheen(Style.R_L, 0.16)
@@ -210,15 +235,15 @@ class Art extends Control:
 
 	# ---------- shapes ----------
 
-	func star(c: Vector2, r: float, fill: Color, outline: bool = true) -> void:
+	func star(c: Vector2, r: float, fill: Color, outline: bool = true, rot: float = 0.0) -> void:
 		for k in 10:
-			var a := -PI * 0.5 + k * PI / 5.0
+			var a := -PI * 0.5 + k * PI / 5.0 + rot
 			var rr := (r if k % 2 == 0 else r * 0.45) + (4.0 if outline else 0.0)
 			_pts[k] = c + Vector2(cos(a), sin(a)) * rr
 		if outline:
-			draw_colored_polygon(_pts, Color(0, 0, 0, fill.a))
+			draw_colored_polygon(_pts, Color(Style.INK, fill.a))
 			for k in 10:
-				var a := -PI * 0.5 + k * PI / 5.0
+				var a := -PI * 0.5 + k * PI / 5.0 + rot
 				_pts[k] = c + Vector2(cos(a), sin(a)) * (r if k % 2 == 0 else r * 0.45)
 		draw_colored_polygon(_pts, fill)
 
@@ -246,13 +271,13 @@ class Art extends Control:
 		var w := maxf(r * 0.16, 3.0)
 		match id:
 			"coin":
-				draw_circle(c, r, Color(0, 0, 0, col.a))
+				draw_circle(c, r, Color(Style.INK, col.a))
 				draw_circle(c, r - 3.0, Color(Style.ACCENT, col.a))
 				draw_arc(c, r * 0.62, 0.0, TAU, 20, Color(Style.ACCENT_DARK, col.a), w * 0.8)
 			"star":
 				star(c, r, Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, col.a), true)
 			"star_off":
-				star(c, r, Color(0.28, 0.3, 0.38, col.a), true)
+				star(c, r, Color(0.176, 0.243, 0.388, col.a), true)
 			"clock":
 				draw_arc(c, r, 0.0, TAU, 28, col, w)
 				draw_line(c, c + Vector2(0, -r * 0.65), col, w)
@@ -266,6 +291,8 @@ class Art extends Control:
 				line3(c + Vector2(r * 0.4, -r * 0.7), c + Vector2(-r * 0.4, 0), c + Vector2(r * 0.4, r * 0.7), col, w * 1.6)
 			"chev_down":
 				line3(c + Vector2(-r * 0.7, -r * 0.3), c + Vector2(0, r * 0.4), c + Vector2(r * 0.7, -r * 0.3), col, w * 1.4)
+			"chev_r":
+				line3(c + Vector2(-r * 0.4, -r * 0.7), c + Vector2(r * 0.4, 0), c + Vector2(-r * 0.4, r * 0.7), col, w * 1.6)
 			"chev_up":
 				line3(c + Vector2(-r * 0.7, r * 0.3), c + Vector2(0, -r * 0.4), c + Vector2(r * 0.7, r * 0.3), col, w * 1.4)
 			"home":
@@ -297,6 +324,15 @@ class Art extends Control:
 				draw_circle(c + Vector2(-r * 0.4, r * 0.55), r * 0.38, col)
 				draw_line(c + Vector2(-r * 0.05, r * 0.5), c + Vector2(-r * 0.05, -r * 0.8), col, w * 1.3)
 				tri(c + Vector2(-r * 0.05, -r * 0.8), c + Vector2(r * 0.7, -r * 0.4), c + Vector2(-r * 0.05, -r * 0.2), col)
+			"hangar":      # a hangar: a pitched roof over a wall with a door
+				tri(c + Vector2(-r * 0.95, -r * 0.1), c + Vector2(0, -r * 0.9), c + Vector2(r * 0.95, -r * 0.1), col)
+				draw_rect(Rect2(c.x - r * 0.75, c.y - r * 0.1, r * 1.5, r * 0.95), col)
+				draw_rect(Rect2(c.x - r * 0.3, c.y + r * 0.2, r * 0.6, r * 0.65), Color(Style.INK, col.a * 0.55))
+			"sun":      # a white sun (on the Daily tile)
+				draw_arc(c, r * 0.42, 0.0, TAU, 20, col, w * 1.4)
+				for k in 8:
+					var a := k * PI / 4.0
+					draw_line(c + Vector2(cos(a), sin(a)) * r * 0.72, c + Vector2(cos(a), sin(a)) * r * 1.0, col, w * 1.3)
 			"airport":
 				draw_rect(Rect2(c.x - r * 0.3, c.y - r * 0.95, r * 0.6, r * 1.9), col)
 				for k in 3:
@@ -389,6 +425,48 @@ class Art extends Control:
 			_:
 				draw_circle(c, r * 0.5, col)
 
+	## An illustrated mini-map of airport `i` in a circle of radius `r` at `c`: the field (or water), its runways in their colours,
+	## pads, lanes and mountains. (Static data from Airports; nothing is allocated except the four-point polygons it reuses.)
+	func _minimap(c: Vector2, r: float, i: int, dim: bool = false) -> void:
+		var d: Dictionary = Airports.def(i)
+		var water: bool = d.get("water", false)
+		var k := r / 6.2                       # world units -> pixels
+		var a := 0.45 if dim else 1.0
+		draw_circle(c + Vector2(0, 5.0), r + 4.0, Color(Style.INK, a))
+		draw_circle(c, r, Color((d["ground"] as Color).darkened(0.1 if dim else 0.0), a))
+		for dc in d["decor"]:
+			var col: Color = dc["color"]
+			if dc["shape"] == "disc":
+				draw_circle(c + (dc["pos"] as Vector2) * k, minf(dc["r"] * k, r * 0.95), Color(col, a))
+			else:
+				var sz: Vector2 = dc["size"]
+				var p: Vector2 = c + (dc["pos"] as Vector2) * k - sz * k * 0.5
+				var rr := Rect2(p, sz * k).intersection(Rect2(c - Vector2(r, r) * 0.95, Vector2(r, r) * 1.9))
+				if rr.size.x > 0.0 and rr.size.y > 0.0:
+					draw_rect(rr, Color(col, a))
+		for lane in d["lanes"]:
+			var h := deg_to_rad(lane["heading"])
+			_rot_rect(c + (lane["center"] as Vector2) * k, h, lane["width"] * k, minf(lane["length"] * k, r * 1.7), Color(0.38, 0.72, 0.9, a))
+		for rw in d["runways"]:
+			var h := deg_to_rad(rw["heading"])
+			var cc: Vector2 = c + (rw["center"] as Vector2) * k
+			var w: float = maxf(rw["width"] * k * 1.1, 6.0)
+			var l: float = minf(rw["length"] * k, r * 1.8)
+			_rot_rect(cc, h, w + 4.0, l + 4.0, Color(rw["color"], a))
+			_rot_rect(cc, h, w, l, Color(0.243, 0.275, 0.345, a))
+		for pad in d["pads"]:
+			draw_circle(c + (pad["center"] as Vector2) * k, maxf(pad["radius"] * k, 6.0), Color(pad["color"], a))
+		for hz in d["hazards"]:
+			var hc: Vector2 = c + (hz["center"] as Vector2) * k
+			var hr: float = hz["radius"] * k * 0.8
+			tri(hc + Vector2(-hr, hr * 0.6), hc + Vector2(hr, hr * 0.6), hc + Vector2(0, -hr), Color(0.62, 0.6, 0.58, a))
+		draw_arc(c, r, 0.0, TAU, 32, Color(1, 1, 1, 0.5 * a), 3.0)
+
+	func _rot_rect(c: Vector2, heading: float, w: float, l: float, col: Color) -> void:
+		var dir := Vector2(sin(heading), -cos(heading))
+		var side := Vector2(-dir.y, dir.x)
+		quad(c - dir * l * 0.5 - side * w * 0.5, c - dir * l * 0.5 + side * w * 0.5, c + dir * l * 0.5 + side * w * 0.5, c + dir * l * 0.5 - side * w * 0.5, col)
+
 	## A card's icon: an animal pilot portrait, or a theme's two colours.
 	func _draw_icon(icon: int, c: Vector2, r: float) -> void:
 		if icon < 100:
@@ -396,7 +474,7 @@ class Art extends Control:
 		else:
 			var t: Dictionary = Cosmetics.THEMES[icon - 100]
 			var g: Color = t["ground"] if t["ground"] != null else Color(0.4, 0.65, 0.4)
-			draw_circle(c, r + 3.0, Color.BLACK)
+			draw_circle(c, r + 3.0, Style.INK)
 			draw_circle(c, r, g)
 			draw_circle(c + Vector2(r * 0.35, -r * 0.2), r * 0.45, t["leaf"])
 			draw_circle(c + Vector2(-r * 0.4, r * 0.35), r * 0.3, (t["bg"] as Color).lightened(0.2))
@@ -428,12 +506,14 @@ class Art extends Control:
 		btn_cost[k] = int(opts.get("cost", -1))
 		btn_badge[k] = int(opts.get("badge", 0))
 		btn_lock[k] = int(opts.get("lock", 0))
+		btn_tint[k] = opts.get("tint", Color(0, 0, 0, 0))
+		btn_map[k] = int(opts.get("map", -1))
 		btn_count += 1
 		queue_redraw()
 
 	## Index of the button under `pos`, or -1.
 	func button_at(pos: Vector2) -> int:
-		for k in btn_count:
+		for k in range(btn_count - 1, -1, -1):      # (a later button is drawn on top, so it gets the tap)
 			if btn_rect[k].has_point(pos):
 				return k
 		return -1
@@ -482,22 +562,33 @@ class Art extends Control:
 				if gw > 0.0:
 					glyph(btn_glyph[k], Vector2(x0 + gw * 0.3, r.get_center().y), r.size.y * 0.2, ink)
 				text(btn_text[k], Vector2(x0 + gw, r.get_center().y + SZ_XL * 0.33), SZ_XL, ink)
-			3:      # a round icon button with a small label under it
-				var c := r.get_center() - Vector2(0, 16.0)
-				var rad := minf(r.size.x, r.size.y) * 0.5 - 18.0
-				draw_circle(c + Style.SHADOW_OFFSET, rad + 4.0, Style.SHADOW_COLOR)
-				draw_circle(c, rad + 4.0, C_LINE if st != 1 else Color(0.3, 0.33, 0.4))
-				draw_circle(c, rad, C_PANEL if st != 2 else Color(0.14, 0.5, 0.35))
-				draw_circle(c + Vector2(0, -rad * 0.28), rad * 0.62, Color(1, 1, 1, 0.07))
-				glyph(btn_glyph[k], c, rad * 0.5, ink)
-				text(btn_text[k], Vector2(r.position.x, r.end.y - 4.0), SZ_S, C_SOFT if st != 1 else C_QUIET, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
+			3:      # a colour tile (ink border, a lip under it) with a small label under it: the menu dock, pause buttons
+				var tint := btn_tint[k]
+				if tint.a <= 0.0:
+					tint = Style.SURFACE_DARK_2
+				if st == 1:
+					tint = tint.darkened(0.5)
+				var side := minf(r.size.x - 20.0, r.size.y - 64.0)
+				var tile := Rect2(r.get_center().x - side * 0.5, r.position.y + 4.0, side, side)
+				draw_style_box(_sb_tile_lip, Rect2(tile.position + Vector2(0.0, 10.0 if not pressed else 5.0), tile.size))
+				_sb_tile.bg_color = tint
+				panel(_sb_tile, tile, _sheen_m)
+				var tc := tile.get_center()
+				if btn_glyph[k] == "bad":
+					text("L", Vector2(tc.x - 40.0, tc.y + 38.0), 110, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, 80.0)
+				else:
+					glyph("sun" if btn_glyph[k] == "daily" else ("hangar" if btn_glyph[k] == "shop" else btn_glyph[k]), tc, side * 0.27, ink)
+				text(btn_text[k], Vector2(r.position.x, r.end.y - 8.0), SZ_S, C_TEXT if st != 1 else C_QUIET, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
 				var b := btn_badge[k]
-				if b != 0:
-					var bc := c + Vector2(rad * 0.75, -rad * 0.75)
-					draw_circle(bc, 22.0, Color.BLACK)
-					draw_circle(bc, 19.0, Style.SUCCESS if b < 0 else Style.WARNING)
+				var bc := tile.position + Vector2(tile.size.x - 8.0, 8.0)
+				if b == -2:         # something new today: a red dot
+					draw_circle(bc, 22.0, C_PANEL)
+					draw_circle(bc, 15.0, Style.DANGER)
+				elif b != 0:
+					draw_circle(bc, 28.0, Style.INK)
+					draw_circle(bc, 24.0, Style.SUCCESS if b < 0 else Style.WARNING)
 					if b < 0:
-						glyph("check", bc, 11.0, Color.WHITE)
+						glyph("check", bc, 13.0, Color.WHITE)
 					else:
 						text(str(b), bc + Vector2(-20.0, 10.0), 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, 40.0)
 			4:      # a small chip: glyph + a few words
@@ -515,18 +606,49 @@ class Art extends Control:
 				text(btn_text[k], Vector2(x0, r.get_center().y + SZ_S * 0.35), SZ_S, ink)
 				if btn_sub[k] != "":
 					text(btn_sub[k], Vector2(x0 + tw2 + 16.0, r.get_center().y + SZ_S * 0.35), SZ_S, C_GOLD)
+			5:      # the menu's airport card: a mini-map, the name and the stars (the arrows are their own buttons on top)
+				panel(_sb_normal, r)
+				var mc := Vector2(r.position.x + 205.0, r.get_center().y)
+				if btn_map[k] >= 0:
+					_minimap(mc, 62.0, btn_map[k])
+				var nx := r.position.x + 290.0
+				text(btn_text[k], Vector2(nx, r.get_center().y - 2.0), 50, ink, HORIZONTAL_ALIGNMENT_LEFT, r.end.x - nx - 120.0)
+				if btn_stars[k] >= 0:
+					for i in 3:
+						glyph("star" if i < btn_stars[k] else "star_off", Vector2(nx + 24.0 + i * 56.0, r.get_center().y + 44.0), 21.0)
+			6:      # a quiet pill (the rewarded ads): it stays out of the way of the one big button
+				draw_style_box(_sb_ghost, r)
+				var lw := text_width(btn_text[k], SZ_S)
+				var sw := text_width(btn_sub[k], SZ_S) if btn_sub[k] != "" else 0.0
+				var lx := r.get_center().x - (lw + sw + (14.0 if sw > 0.0 else 0.0) + 56.0) * 0.5
+				glyph(btn_glyph[k], Vector2(lx + 18.0, r.get_center().y), 16.0, ink)
+				text(btn_text[k], Vector2(lx + 56.0, r.get_center().y + SZ_S * 0.35), SZ_S, ink)
+				if sw > 0.0:
+					text(btn_sub[k], Vector2(lx + 56.0 + lw + 14.0, r.get_center().y + SZ_S * 0.35), SZ_S, C_GOLD)
+			7:      # a round arrow button (prev / next airport)
+				draw_circle(r.get_center(), r.size.y * 0.5, Color(1, 1, 1, 0.1))
+				glyph(btn_glyph[k], r.get_center() + Vector2(2.0 if btn_glyph[k] == "chev_r" else -2.0, 0.0), r.size.y * 0.24, ink)
 			1:      # a card
 				var sb := _sb_gold if (st == 2 and btn_cost[k] == 0) else (_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal))
 				panel(sb, r)
 				var left := r.position.x + 36.0
 				var cy := r.get_center().y
-				var iconed := btn_icon[k] >= 0 or btn_glyph[k] != ""
-				if btn_icon[k] >= 0:
+				var iconed := btn_icon[k] >= 0 or btn_glyph[k] != "" or btn_map[k] >= 0
+				var big := btn_map[k] >= 0
+				if btn_map[k] >= 0:
+					_minimap(Vector2(left + 62.0, cy), 66.0, btn_map[k], st == 1)
+				elif btn_icon[k] >= 0:
 					_draw_icon(btn_icon[k], Vector2(left + 44.0, cy), minf(r.size.y * 0.3, 46.0))
 				elif btn_glyph[k] != "":
-					draw_circle(Vector2(left + 44.0, cy), 44.0, Color(0.03, 0.05, 0.09, 0.8))
-					glyph(btn_glyph[k], Vector2(left + 44.0, cy), 24.0, ink if st != 1 else C_QUIET)
-				var tx := left + (110.0 if iconed else 0.0)
+					var tcol := btn_tint[k] if btn_tint[k].a > 0.0 else Style.PRIMARY
+					if st == 1:
+						tcol = tcol.darkened(0.55)
+					var ts := Rect2(left - 2.0, cy - 48.0, 96.0, 96.0)
+					draw_style_box(_sb_tile_lip, Rect2(ts.position + Vector2(0, 6.0), ts.size))
+					_sb_tile.bg_color = tcol
+					draw_style_box(_sb_tile, ts)
+					glyph(btn_glyph[k], ts.get_center(), 26.0, ink if st != 1 else C_QUIET)
+				var tx := left + ((150.0 if big else 110.0) if iconed else 0.0)
 				var right_w := 220.0 if (btn_cost[k] >= 0 or btn_pips[k] >= 0) else (190.0 if btn_stars[k] >= 0 or btn_lock[k] > 0 else 60.0)
 				var tw3 := r.end.x - tx - right_w - 30.0
 				text(btn_text[k], Vector2(tx, cy + (-2.0 if btn_sub[k] != "" else SZ_M * 0.34)), SZ_M, ink, HORIZONTAL_ALIGNMENT_LEFT, tw3)
@@ -537,14 +659,14 @@ class Art extends Control:
 					for i in 3:
 						glyph("star" if i < btn_stars[k] else "star_off", Vector2(rx - 120.0 + i * 60.0, cy), 24.0)
 				if btn_lock[k] > 0:
-					glyph("lock", Vector2(rx - 110.0, cy), 24.0, C_QUIET)
-					glyph("star", Vector2(rx - 38.0, cy), 18.0, Color(1, 1, 1, 0.55))
-					text(str(btn_lock[k]), Vector2(rx - 66.0, cy + 10.0), SZ_S, C_QUIET, HORIZONTAL_ALIGNMENT_RIGHT, 28.0)
+					glyph("lock", Vector2(rx - 250.0, cy), 26.0, C_SOFT)
+					text("Needs %d" % btn_lock[k], Vector2(rx - 214.0, cy + 11.0), SZ_S, C_GOLD, HORIZONTAL_ALIGNMENT_LEFT, 140.0)
+					glyph("star", Vector2(rx - 38.0, cy), 20.0, Color(1, 1, 1, 0.7))
 				if btn_pips[k] >= 0:
 					for i in 3:
 						var pc := Vector2(rx - 130.0 + i * 36.0, cy - 36.0)
-						draw_circle(pc, 14.0, Color.BLACK)
-						draw_circle(pc, 11.0, C_GOLD if i < btn_pips[k] else Color(0.25, 0.28, 0.36))
+						draw_circle(pc, 14.0, Style.INK)
+						draw_circle(pc, 11.0, C_GOLD if i < btn_pips[k] else Color(0.18, 0.24, 0.39))
 				if btn_cost[k] > 0:
 					var cc := Vector2(rx - 190.0, cy + 26.0)
 					glyph("coin", cc, 16.0, Color(1, 1, 1, 1.0 if st != 1 else 0.5))
@@ -582,37 +704,38 @@ class Art extends Control:
 			draw_circle(kc, 30.0, Style.INK)
 			draw_circle(kc, 24.0, Color.WHITE)
 
-	## The slim star bar: it fills as the balance grows, with a tick (a small star) at each threshold.
+	## The star bar: a rounded dark track with a gold fill, and a star at each threshold (gold when reached, dark blue until then).
 	func _draw_star_bar() -> void:
 		var w := minf(size.x - 380.0, 560.0)
 		var x0 := size.x * 0.5 - w * 0.5
 		var y := 224.0 + top
 		var top := float(maxi(thresholds[2], 1)) * 1.04
-		draw_rect(Rect2(x0, y, w, 12.0), Color(0, 0, 0, 0.6))
+		draw_style_box(_sb_track, Rect2(x0 - 6.0, y - 5.0, w + 12.0, 24.0))
 		var f := clampf(bar_shown / top, 0.0, 1.0)
-		draw_rect(Rect2(x0, y, w * f, 12.0), Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, 0.95))
+		if f > 0.0:
+			draw_style_box(_sb_fill, Rect2(x0 - 2.0, y - 1.0, maxf(w * f + 4.0, 16.0), 16.0))
 		for i in 3:
 			var x := x0 + w * float(thresholds[i]) / top
 			var lit := balance >= thresholds[i]
-			var c := Vector2(x, y + 6.0)
+			var c := Vector2(x, y + 7.0)
 			var k := star_t[i] / 0.6 if star_t[i] >= 0.0 else 1.0
 			if k < 1.0:
 				var s := Style.ease_out_back(minf(k * 1.4, 1.0))
 				draw_set_transform(c * (1.0 - s), 0.0, Vector2(s, s))
-				glyph("star", c, 20.0)
+				glyph("star", c, 24.0)
 				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 				_sparks(c, k, 22.0, 60.0, 8, Style.ACCENT)
 			else:
-				glyph("star" if lit else "star_off", c, 20.0 if lit else 16.0)
+				glyph("star" if lit else "star_off", c, 24.0 if lit else 20.0)
 
 	func _draw_wind() -> void:
 		var c := Vector2(size.x - 78.0 - right, 96.0 + top)
-		draw_circle(c, 52.0, Color(0.03, 0.05, 0.08, 0.55))
-		var ring := C_GOLD if wind_warn and int(Time.get_ticks_msec() / 250.0) % 2 == 0 else Color(0.85, 0.9, 1.0, 0.8)
+		draw_circle(c, 52.0, Color(Style.SURFACE_DARK, 0.85))
+		var ring := C_GOLD if wind_warn and int(Time.get_ticks_msec() / 250.0) % 2 == 0 else Color(1, 1, 1, 0.22)
 		draw_arc(c, 52.0, 0.0, TAU, 40, ring, 4.0)
 		var d := Vector2(sin(deg_to_rad(wind_toward)), -cos(deg_to_rad(wind_toward)))
 		var n := Vector2(-d.y, d.x)
-		draw_line(c - d * 32.0, c + d * 8.0, Color.BLACK, 11.0)
+		draw_line(c - d * 32.0, c + d * 8.0, Color(Style.INK, 0.6), 11.0)
 		draw_line(c - d * 32.0, c + d * 8.0, Color.WHITE, 6.0)
 		tri(c + d * 38.0, c + d * 6.0 + n * 18.0, c + d * 6.0 - n * 18.0, Color.WHITE)
 		text(wind_text, Vector2(c.x - 50.0, c.y + 92.0), SZ_S, C_GOLD if wind_warn else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, 100.0)
@@ -635,6 +758,7 @@ class Art extends Control:
 			draw_line(c + d * lerpf(r0, r1, Style.ease_out_cubic(k)) * 0.9, c + d * lerpf(r0 * 1.3, r1 * 1.5, Style.ease_out_cubic(k)), Color(col.r, col.g, col.b, a), 5.0)
 
 	func _draw_hud() -> void:
+		draw_style_box(_sb_hdr, Rect2(size.x * 0.5 - 120.0, 8.0 + top, 240.0, 74.0))       # behind the clock
 		_draw_pause_button()
 		if mode_glyph != "":
 			glyph(mode_glyph, Vector2(50.0, 146.0), 26.0, C_SOFT)
@@ -698,37 +822,95 @@ class Art extends Control:
 		if details_open:
 			_draw_details()
 			return
-		# The stars, one after another: each slams down from big with an impact ring, rays and a little shake.
+		var s2 := size.y / 1920.0                 # (positions below are for a 1080 x 1920 screen)
+		# The title and where we were.
+		text("SHIFT COMPLETE", Vector2(cx - 520.0, 290.0 * s2 + top), 104, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
+		if res_sub != "":
+			text(res_sub, Vector2(cx - 520.0, 350.0 * s2 + top), SZ_S, C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
+		# The stars, one after another: each slams down from big with an impact ring, rays and a little shake. Three, big and tilted.
 		for i in 3:
 			var t0 := STAR_T0 + STAR_GAP * i
-			var c := Vector2(cx + (i - 1) * 230.0, cy - 470.0 - (50.0 if i == 1 else 0.0))
-			star(c, 110.0, Color(0.22, 0.25, 0.32), true)
+			var rot := (i - 1) * deg_to_rad(12.0)
+			var rad := 150.0 if i == 1 else 118.0
+			var c := Vector2(cx + (i - 1) * 285.0, (520.0 if i == 1 else 580.0) * s2 + top)
+			star(c, rad, Color(0.176, 0.243, 0.388), true, rot)
 			if i < res_stars and res_t >= t0:
 				var k := clampf((res_t - t0) / SLAM, 0.0, 1.0)
 				var imp := res_t - t0 - SLAM
 				var jit := Vector2.ZERO
 				if imp >= 0.0 and imp < 0.22:
 					jit = Vector2(sin(imp * 160.0), cos(imp * 190.0)) * 9.0 * (1.0 - imp / 0.22)
-				star(c + jit, 110.0 * lerpf(2.6, 1.0, Style.ease_out_cubic(k)), Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, 0.35 + 0.65 * k), true)
+				star(c + jit, rad * lerpf(2.6, 1.0, Style.ease_out_cubic(k)), Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, 0.35 + 0.65 * k), true, rot)
 				if imp >= 0.0 and imp < 0.5:
-					_sparks(c, imp / 0.5, 110.0, 330.0, 10, C_GOLD)
-		# The total paid, rolling up once the stars are in.
+					_sparks(c, imp / 0.5, rad, rad * 3.0, 10, C_GOLD)
+		# The card: NEW BEST, the total paid (rolling up once the stars are in), and three chips.
+		var card := Rect2(cx - 465.0, 750.0 * s2 + top, 930.0, 590.0 * s2)
+		panel(_sb_card, card, _sheen_l)
 		var t_count := STAR_T0 + STAR_GAP * 3.0
 		var f := clampf((res_t - t_count) / 1.0, 0.0, 1.0)
 		var shown := roundi(res_total * (1.0 - pow(1.0 - f, 3.0)))
 		var label := "+%d" % shown
-		var tw := text_width(label, SZ_XL)
-		var ty := cy - 150.0
-		glyph("coin", Vector2(cx - tw * 0.5 - 56.0, ty - SZ_XL * 0.32), 40.0)
-		text(label, Vector2(cx - tw * 0.5, ty), SZ_XL, C_GOLD if not res_doubled else Style.SUCCESS.lightened(0.35))
+		var tw := text_width(label, 170)
+		var ty := card.position.y + 230.0 * s2
+		glyph("coin", Vector2(cx - tw * 0.5 - 76.0, ty - 62.0), 54.0)
+		text(label, Vector2(cx - tw * 0.5, ty), 170, C_GOLD if not res_doubled else Style.SUCCESS.lightened(0.35))
 		if res_doubled:
 			text("x2", Vector2(cx + tw * 0.5 + 24.0, ty), SZ_M, Style.SUCCESS.lightened(0.35))
-		# One quiet line: a new best, or the best so far.
 		var k2 := clampf((res_t - (t_count + 1.0)) / 0.4, 0.0, 1.0)
-		if res_new_best:
-			text("NEW BEST", Vector2(cx - 300.0, ty + 78.0), SZ_M, Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0)
+		if res_new_best:       # a red tag stuck on the card's top edge
+			var tagr := Rect2(-130.0, -34.0, 260.0, 68.0)
+			draw_set_transform(Vector2(cx, card.position.y), deg_to_rad(-3.0), Vector2(k2, k2))
+			draw_style_box(_sb_tag, tagr)
+			text("NEW BEST", Vector2(-130.0, 18.0), 38, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, 260.0)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		elif res_best > 0:
-			text("best %d" % res_best, Vector2(cx - 300.0, ty + 70.0), SZ_S, Color(C_QUIET.r, C_QUIET.g, C_QUIET.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0)
+			text("best %d" % res_best, Vector2(cx - 300.0, card.position.y + 60.0), SZ_S, Color(C_QUIET.r, C_QUIET.g, C_QUIET.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0)
+		var cw := (card.size.x - 90.0 - 36.0) / 3.0
+		for j in 3:
+			var cr := Rect2(card.position.x + 45.0 + j * (cw + 18.0), card.position.y + 290.0 * s2, cw, 150.0)
+			draw_style_box(_sb_chip, cr)
+			var v := res_chips[j]
+			var colr := C_TEXT if j == 0 else (Style.SUCCESS if j == 1 else Color("ff8a80"))
+			var sign := "+" if v >= 0 and j < 2 else ("" if j < 2 else "\u2212")
+			text("%s%d" % [sign, absi(v)], Vector2(cr.position.x, cr.position.y + 78.0), 62, colr, HORIZONTAL_ALIGNMENT_CENTER, cr.size.x)
+			text(["Landings", "Early clear", "Fines"][j], Vector2(cr.position.x, cr.position.y + 126.0), SZ_S, C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, cr.size.x)
+		# A new airport opened with this shift.
+		if res_unlock != "":
+			var ur := Rect2(cx - 465.0, 1370.0 * s2 + top, 930.0, 130.0)
+			draw_style_box(_sb_unlock, ur)
+			_minimap(Vector2(ur.position.x + 90.0, ur.get_center().y), 50.0, Airports.index_of(res_unlock))
+			text("%s unlocked!" % res_unlock, Vector2(ur.position.x + 170.0, ur.get_center().y - 4.0), 44, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0)
+			text(Airports.tag(Airports.index_of(res_unlock)), Vector2(ur.position.x + 170.0, ur.get_center().y + 40.0), SZ_S, C_SOFT, HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0)
+
+	## The menu's logo lockup: a gold tag, then PATTERN over WORK, thick ink outline and a drop shadow, over a soft top scrim.
+	func _draw_lockup() -> void:
+		var cx := size.x * 0.5
+		var s2 := size.y / 1920.0
+		_gp[0] = Vector2(0, 0)
+		_gp[1] = Vector2(size.x, 0)
+		_gp[2] = Vector2(size.x, size.y * 0.42)
+		_gp[3] = Vector2(0, size.y * 0.42)
+		_gc[0] = Color(Style.INK, 0.5)
+		_gc[1] = _gc[0]
+		_gc[2] = Color(Style.INK, 0.0)
+		_gc[3] = _gc[2]
+		draw_polygon(_gp, _gc)
+		var ty := 410.0 * s2 + top
+		draw_set_transform(Vector2(cx, ty), deg_to_rad(-3.0), Vector2.ONE)
+		var tag := Rect2(-300.0, -34.0, 600.0, 68.0)
+		draw_style_box(_sb_tile_lip, Rect2(tag.position + Vector2(0, 8.0), tag.size))
+		_sb_tile.bg_color = Style.ACCENT
+		draw_style_box(_sb_tile, tag)
+		draw_string(Style.display(), Vector2(-300.0, 14.0), "AIR TRAFFIC CONTROL", HORIZONTAL_ALIGNMENT_CENTER, 600.0, 36, Style.TEXT_ON_LIGHT)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		for w in 2:
+			var word: String = ["PATTERN", "WORK"][w]
+			var y := ty + 250.0 + w * 185.0
+			var col := Color.WHITE if w == 0 else Style.ACCENT
+			draw_string(Style.display(), Vector2(cx - 500.0, y + 12.0), word, HORIZONTAL_ALIGNMENT_CENTER, 1000.0, 205, Color(Style.INK, 0.35))
+			draw_string_outline(Style.display(), Vector2(cx - 500.0, y), word, HORIZONTAL_ALIGNMENT_CENTER, 1000.0, 205, 26, Style.INK)
+			draw_string(Style.display(), Vector2(cx - 500.0, y), word, HORIZONTAL_ALIGNMENT_CENTER, 1000.0, 205, col)
+
 	## The intro: the studio mark (a propeller that spins up and settles) and wordmark pop in and out, then the game's
 	## name lands with a little plane across it.
 	func _draw_logo() -> void:
@@ -805,13 +987,24 @@ class Art extends Control:
 		if logo_t >= 0.0:
 			_draw_logo()
 			return
+		if lockup:
+			_draw_lockup()
 		if header_text != "":
-			var hw := text_width(header_text, SZ_M)
-			glyph(header_glyph, Vector2(size.x - 40.0 - right - hw - 40.0, 62.0 + top), 26.0)
-			text(header_text, Vector2(size.x - 40.0 - right - hw, 78.0 + top), SZ_M, C_TEXT)
+			var hw := text_width(header_text, 46)
+			var pr := Rect2(size.x - 36.0 - right - hw - 118.0, 20.0 + top, hw + 118.0, 84.0)
+			draw_style_box(_sb_hdr, pr)
+			glyph(header_glyph, Vector2(pr.position.x + 50.0, pr.get_center().y), 25.0)
+			text(header_text, Vector2(pr.position.x + 92.0, pr.get_center().y + 16.0), 46, C_TEXT)
 		if header2_text != "":
-			glyph(header2_glyph, Vector2(64.0 + left, 62.0 + top), 26.0)
-			text(header2_text, Vector2(104.0 + left, 78.0 + top), SZ_M, C_TEXT)
+			var hw2 := text_width(header2_text, 46)
+			var pr2 := Rect2(36.0 + left, 20.0 + top, hw2 + 118.0, 84.0)
+			draw_style_box(_sb_hdr, pr2)
+			glyph(header2_glyph, Vector2(pr2.position.x + 50.0, pr2.get_center().y), 25.0)
+			text(header2_text, Vector2(pr2.position.x + 92.0, pr2.get_center().y + 16.0), 46, C_TEXT)
+		if dock_rect.size.x > 0.0:
+			draw_style_box(_sb_dock, dock_rect)
+		if show_pause and pause_card.size.x > 0.0:
+			panel(_sb_sheet, pause_card, _sheen_l)
 		if show_result:
 			_draw_results()
 		if unlock_t >= 0.0:
@@ -974,6 +1167,8 @@ func _ready() -> void:
 	_build_select()
 	_build_ad()
 	move_child(_art, _select.get_index() + 1)   # the art (buttons, stars, pills) is drawn above the screen shades
+	move_child(_score, _art.get_index() + 1)    # (the coin total and the clock sit on top of their pills)
+	move_child(_best, _art.get_index() + 2)
 	_tr_nodes = [_art, _menu, _select, _over, _pause, _ad, _score, _best]
 	_build_stamp()
 	_set_play_labels(false)
@@ -1227,6 +1422,8 @@ func confetti_count() -> int:
 ## Call after show_results: a new airport opened with this shift. Its reveal plays once the stars and the total are in.
 func queue_unlock(airport_name: String) -> void:
 	_unlock_pending = airport_name
+	_art.res_unlock = airport_name
+	_art.queue_redraw()
 
 func _begin_unlock() -> void:
 	var vp := get_viewport().get_visible_rect().size
@@ -1332,7 +1529,7 @@ func _centered(l: Label, top: float, bottom: float) -> void:
 	l.offset_bottom = bottom
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-func _shade(parent: Control, a: float) -> void:
+func _shade(parent: Control, a: float) -> ColorRect:
 	var shade := ColorRect.new()
 	shade.color = Color(C_DIM.r, C_DIM.g, C_DIM.b, a)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1340,6 +1537,7 @@ func _shade(parent: Control, a: float) -> void:
 	shade.offset_right = SLIDE
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(shade)
+	return shade
 
 ## The labels of the shift HUD (coin total, clock) only show while a shift is on screen.
 func _set_play_labels(on: bool) -> void:
@@ -1375,12 +1573,13 @@ func show_pause(sound: float, music: float) -> void:
 	_set_play_labels(false)
 	_art.slider_rect[0] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 - 60.0, 620.0, 80.0)
 	_art.slider_rect[1] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 80.0, 620.0, 80.0)
+	_art.pause_card = Rect2(vp.x * 0.5 - 440.0, vp.y * 0.5 - 130.0, 880.0, 350.0)
 	_art.slider_val[0] = sound
 	_art.slider_val[1] = music
 	_art.clear_buttons()
 	_art.add_button("resume", "RESUME", Rect2(vp.x * 0.5 - 420.0, vp.y * 0.5 - 420.0, 840.0, 230.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
-	_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, vp.y * 0.5 + 280.0, 220.0, 230.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart"})
-	_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, vp.y * 0.5 + 280.0, 220.0, 230.0), 0, "", -1, -1, {"kind": 3, "glyph": "home"})
+	_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, vp.y * 0.5 + 280.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
+	_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, vp.y * 0.5 + 280.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
 	_art.queue_redraw()
 
 func hide_pause() -> void:
@@ -1425,9 +1624,10 @@ func _build_menu() -> void:
 	_menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_menu.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_menu)
-	_shade(_menu, 0.5)
+	_shade(_menu, 0.1)          # (the field shows through: the lockup has its own soft scrim at the top)
 	_menu_title = _label(SZ_XL, HORIZONTAL_ALIGNMENT_CENTER, _menu)
 	_menu_title.text = "PATTERN WORK"
+	_menu_title.visible = false         # (the lockup is drawn by the art; this label holds the name)
 	_centered(_menu_title, -560, -420)
 	_menu.visible = false
 
@@ -1509,6 +1709,10 @@ func _hide_all_screens() -> void:
 	_art.show_wind = false
 	_art.header_text = ""
 	_art.header2_text = ""
+	_art.lockup = false
+	_art.dock_rect = Rect2()
+	_art.res_unlock = ""
+	_art.pause_card = Rect2()
 	_set_play_labels(false)
 
 # ---------- Results ----------
@@ -1539,6 +1743,11 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	_art.res_new_best = new_best
 	_art.res_best = best
 	_art.res_doubled = doubled
+	_art.res_chips[0] = shift.earned + shift.bonus
+	_art.res_chips[1] = shift.time_bonus
+	_art.res_chips[2] = shift.fines + shift.overtime_penalty
+	_art.res_sub = "%s \u00b7 %d landed%s" % [Airports.airport_name(), shift.landed, (" \u00b7 cleared %d s early" % shift.early_seconds) if shift.early_seconds > 0 else ""]
+	_art.res_unlock = ""
 	if not _art.show_result or _art.res_t > 60.0:
 		_art.res_t = 0.0
 	_slam_next = 0
@@ -1563,15 +1772,17 @@ func set_results_ads(double_coins: int, refund: int) -> void:
 	var vp := get_viewport().get_visible_rect().size
 	var cx := vp.x * 0.5
 	var cy := vp.y * 0.5
-	_art.add_button("details", "Details", Rect2(cx - 150.0, cy - 30.0, 300.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "chev_up" if _art.details_open else "chev_down"})
-	_art.add_button("again", "PLAY AGAIN", Rect2(cx - 420.0, cy + 330.0, 840.0, 230.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
+	var s2 := vp.y / 1920.0
+	_art.add_button("details", "Details", Rect2(cx - 150.0, 750.0 * s2 + 590.0 * s2 - 100.0 + Style.safe_top, 300.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "chev_up" if _art.details_open else "chev_down"})
+	_art.add_button("again", "PLAY AGAIN", Rect2(cx - 450.0, vp.y - 380.0 - Style.safe_bottom, 900.0, 250.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
 	var n := (1 if double_coins > 0 else 0) + (1 if refund > 0 else 0)
-	var x := cx - (n * 400.0 + (n - 1) * 20.0) * 0.5
+	var pw := 560.0 if n == 1 else 440.0
+	var x := cx - (n * pw + (n - 1) * 20.0) * 0.5
 	if double_coins > 0:
-		_art.add_button("ad_double", "x2 coins", Rect2(x, cy + 600.0, 400.0, 84.0), 0, "+%d" % double_coins, -1, -1, {"kind": 4, "glyph": "ad"})
-		x += 420.0
+		_art.add_button("ad_double", "Watch to double", Rect2(x, vp.y - 112.0 - Style.safe_bottom, pw, 76.0), 0, "+%d" % double_coins, -1, -1, {"kind": 6, "glyph": "ad"})
+		x += pw + 20.0
 	if refund > 0:
-		_art.add_button("ad_refund", "Refund fine", Rect2(x, cy + 600.0, 400.0, 84.0), 0, "+%d" % refund, -1, -1, {"kind": 4, "glyph": "ad"})
+		_art.add_button("ad_refund", "Refund fine", Rect2(x, vp.y - 112.0 - Style.safe_bottom, pw, 76.0), 0, "+%d" % refund, -1, -1, {"kind": 6, "glyph": "ad"})
 	_art.add_button("menu", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "home"})
 	_art.queue_redraw()
 
@@ -1630,9 +1841,9 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 	for i in Airports.COUNT:
 		var r := Rect2(40.0, 150.0 + Style.safe_top + i * 190.0, vp.x - 80.0, 170.0)
 		if open[i] != 0:
-			_art.add_button("airport:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, "", stars[i], -1, {"kind": 1, "glyph": "airport"})
+			_art.add_button("airport:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, Airports.tag(i), stars[i], -1, {"kind": 1, "glyph": "airport", "map": i})
 		else:
-			_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, "", -1, -1, {"kind": 1, "glyph": "airport", "lock": Airports.unlock_stars(i)})
+			_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, Airports.tag(i), -1, -1, {"kind": 1, "glyph": "airport", "map": i, "lock": Airports.unlock_stars(i)})
 	_art.queue_redraw()
 
 ## A generic list screen: optional tab chips, then cards {id, title, sub, state, stars, icon, cost}, then Back.
@@ -1678,7 +1889,7 @@ func show_upgrades(coins: int, levels: PackedInt32Array) -> void:
 			state = 1
 		else:
 			state = 2
-		_art.add_button("upg:" + id, Upgrades.upgrade_name(id), r, state, Upgrades.description(id), -1, -1, {"kind": 1, "glyph": Upgrades.glyph(id), "pips": lvl, "cost": maxi(price, 0)})
+		_art.add_button("upg:" + id, Upgrades.upgrade_name(id), r, state, Upgrades.description(id), -1, -1, {"kind": 1, "glyph": Upgrades.glyph(id), "pips": lvl, "cost": maxi(price, 0), "tint": [Style.PRIMARY, Color("a06bff"), Style.WARNING, Style.DANGER, Style.SUCCESS, Color("ff8a3d")][i % 6]})
 	_art.queue_redraw()
 
 ## The id of the enabled button under `pos` ("" if none).
@@ -1708,13 +1919,21 @@ func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _
 	var cx := vp.x * 0.5
 	var cy := vp.y * 0.5
 	_art.clear_buttons()
-	_art.add_button("airports", airport_name, Rect2(cx - 380.0, cy - 340.0, 760.0, 150.0), 0, "", airport_stars, -1, {"kind": 1, "glyph": "airport"})
-	_art.add_button("play", "PLAY", Rect2(cx - 420.0, cy - 110.0, 840.0, 280.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
-	var items := [["upgrades", "Upgrades", "upgrades", 0], ["shop", "Shop", "shop", 0],
-			["daily", "Daily", "daily", -1 if daily_done else daily_streak], ["bad", "Bad day", "bad", -1 if bad_done else bad_streak]]
+	var sb := Style.safe_bottom
+	var dock := Rect2(24.0 + Style.safe_left, vp.y - 24.0 - sb - 262.0, vp.x - 48.0 - Style.safe_left - Style.safe_right, 262.0)
+	var play := Rect2(cx - 450.0, dock.position.y - 36.0 - 250.0, 900.0, 250.0)
+	var card := Rect2(cx - 440.0, play.position.y - 30.0 - 176.0, 880.0, 176.0)
+	_art.lockup = true
+	_art.dock_rect = dock
+	_art.add_button("airports", airport_name, card, 0, "", airport_stars, -1, {"kind": 5, "map": Airports.index_of(airport_name)})
+	_art.add_button("airport_prev", "", Rect2(card.position.x + 18.0, card.get_center().y - 44.0, 88.0, 88.0), 0, "", -1, -1, {"kind": 7, "glyph": "back"})
+	_art.add_button("airport_next", "", Rect2(card.end.x - 106.0, card.get_center().y - 44.0, 88.0, 88.0), 0, "", -1, -1, {"kind": 7, "glyph": "chev_r"})
+	_art.add_button("play", "PLAY", play, 2, "", -1, -1, {"kind": 2, "glyph": "play"})
+	var items := [["upgrades", "Upgrades", "upgrades", 0, Style.PRIMARY], ["shop", "Hangar", "shop", 0, Color("a06bff")],
+			["daily", "Daily", "daily", -1 if daily_done else (daily_streak if daily_streak > 0 else -2), Style.WARNING], ["bad", "Bad day", "bad", -1 if bad_done else (bad_streak if bad_streak > 0 else 0), Style.DANGER]]
+	var tw := (dock.size.x - 16.0) / 4.0
 	for k in items.size():
-		var x := cx + (k - 1.5) * 250.0
-		_art.add_button(items[k][0], items[k][1], Rect2(x - 110.0, cy + 330.0, 220.0, 240.0), 0, "", -1, -1, {"kind": 3, "glyph": items[k][2], "badge": items[k][3]})
+		_art.add_button(items[k][0], items[k][1], Rect2(dock.position.x + 8.0 + k * tw, dock.position.y + 14.0, tw, dock.size.y - 22.0), 0, "", -1, -1, {"kind": 3, "glyph": items[k][2], "badge": items[k][3], "tint": items[k][4]})
 	_art.queue_redraw()
 
 # ---------- The HUD of a shift ----------
