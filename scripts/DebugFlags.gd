@@ -7,6 +7,7 @@ extends RefCounted
 ##   ?perf                                       show a worst-frame-time readout
 ##   ?tune                                       show the on-screen tuning panel (TUNE button, top-right)
 ##   ?god                                        planes never collide or run dry (to look at the traffic)
+##   ?debug                                      show the build stamp (it also shows with ?tune and ?perf)
 ## Combine with "&", e.g.  ?perf&tune. The active flags are printed under the build stamp.
 
 const EFFECTS := ["burst", "ripple", "popup", "haptic", "glow", "hold", "sound"]
@@ -18,6 +19,7 @@ static var noprewarm := false
 static var perf := false
 static var tune := false
 static var god := false
+static var debug := false
 
 ## True if the named effect has been switched off.
 static func off(effect: String) -> bool:
@@ -35,6 +37,11 @@ static func perf_enabled() -> bool:
 static func tune_enabled() -> bool:
 	_load()
 	return tune
+
+## The build stamp is only for people debugging: ?debug, ?tune or ?perf.
+static func stamp_enabled() -> bool:
+	_load()
+	return debug or tune or perf
 
 static func god_enabled() -> bool:
 	_load()
@@ -58,6 +65,8 @@ static func summary() -> String:
 		parts.append("tune")
 	if god:
 		parts.append("god")
+	if debug:
+		parts.append("debug")
 	for b in _bad:
 		parts.append("?" + b)
 	return " ".join(parts)
@@ -84,6 +93,7 @@ static func parse(args: Array[String]) -> void:
 	perf = false
 	tune = false
 	god = false
+	debug = false
 	for a in args:
 		var kv := a.split("=", true, 1)
 		var key := kv[0].uri_decode().to_lower()
@@ -106,6 +116,8 @@ static func parse(args: Array[String]) -> void:
 				tune = true
 			"god":
 				god = true
+			"debug":
+				debug = true
 			"v":
 				pass  # cache-busting parameter added by the page, not a flag
 			_:

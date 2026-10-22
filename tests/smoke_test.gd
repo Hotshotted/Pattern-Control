@@ -3488,6 +3488,57 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
+	print("9u. studio branding, loading page, build stamp")
+	var br_bad = []
+	for br_dir in ["res://scripts", "res://docs", "res://web", "res://tools", "res://tests"]:
+		for br_f in DirAccess.get_files_at(br_dir):
+			if br_f.ends_with(".gd") or br_f.ends_with(".md") or br_f.ends_with(".html"):
+				var br_txt = FileAccess.get_file_as_string(br_dir + "/" + br_f).to_lower()
+				if br_f != "smoke_test.gd" and (br_txt.contains("tailwind") or br_txt.contains("placeholder studio") or br_txt.contains("studio mark (a placeholder")):
+					br_bad.append(br_f)
+	for br_f in ["res://README.md", "res://project.godot", "res://export_presets.cfg", "res://icon.svg", "res://assets/splash.svg"]:
+		var br_txt2 = FileAccess.get_file_as_string(br_f).to_lower()
+		if br_txt2.contains("tailwind") or br_txt2.contains("placeholder studio"):
+			br_bad.append(br_f)
+	check(br_bad.is_empty(), "no placeholder studio name is left anywhere (%s)" % str(br_bad))
+	var br_shell = FileAccess.get_file_as_string("res://web/shell.html")
+	var br_all = FileAccess.get_file_as_string("res://README.md").contains("Clear Prop Games") and FileAccess.get_file_as_string("res://docs/style.md").contains("Clear Prop Games") and FileAccess.get_file_as_string("res://project.godot").contains("Clear Prop Games") and br_shell.contains("CLEAR <b>PROP</b> GAMES")
+	check(Style.STUDIO == "Clear Prop Games" and br_all, "the studio is Clear Prop Games in the README, style guide, project metadata and loading page")
+	check(Style.STUDIO_WORDS == ["CLEAR", "PROP", "GAMES"], "the wordmark reads CLEAR PROP GAMES")
+	check(ex_cfg.contains("html/custom_html_shell=\"res://web/shell.html\"") and br_shell.contains("$GODOT_URL") and br_shell.contains("$GODOT_CONFIG") and br_shell.contains("startGame") and br_shell.contains("onProgress") and br_shell.contains("<head>"), "the web export uses the custom loading page and it still starts the engine")
+	check(br_shell.contains("#0d1a33") and br_shell.contains("class=\"bar") and br_shell.contains("class=\"mark\"") and not br_shell.contains("Loading") and not br_shell.contains("loading..."), "the loading page is the brand background, the mark and a progress bar, with no loading text")
+	# The in-game loading cover: opaque, no text, nothing jumbled behind it.
+	var sp_cover = null
+	main.hud.begin_prewarm()
+	for sp_c in main.hud._splash.get_children():
+		if sp_c is ColorRect:
+			sp_cover = sp_c
+	var sp_texts = 0
+	for sp_c in main.hud._splash.get_children():
+		if sp_c is Label and sp_c.get_index() > sp_cover.get_index():
+			sp_texts += 1
+	check(sp_cover != null and sp_cover.color.a == 1.0 and sp_texts == 0 and main.hud._splash.get_child(main.hud._splash.get_child_count() - 1).get_script() != null, "the in-game loading cover is fully opaque, with the glyph warm-up behind it and only the mark and a bar on top")
+	main.hud.end_prewarm()
+	await process_frame
+	# The build stamp is for debugging.
+	DebugFlags.parse([])
+	main.hud.refresh_stamp()
+	check(not main.hud._stamp.visible and not DebugFlags.stamp_enabled(), "players do not see the build stamp")
+	DebugFlags.parse(["debug"])
+	main.hud.refresh_stamp()
+	check(main.hud._stamp.visible and main.hud._stamp.text.contains(BuildInfo.COMMIT) and main.hud._stamp.size.y < 90.0 and main.hud._stamp.get_theme_font_size("font_size") <= 22, "?debug shows it, small, in the corner")
+	DebugFlags.parse(["perf"])
+	main.hud.refresh_stamp()
+	var br_perf = main.hud._stamp.visible
+	DebugFlags.parse(["tune"])
+	main.hud.refresh_stamp()
+	check(br_perf and main.hud._stamp.visible, "...and so do ?perf and ?tune")
+	DebugFlags.parse(["nofx=burst"])
+	main.hud.refresh_stamp()
+	check(not main.hud._stamp.visible, "other flags alone do not show it")
+	DebugFlags.parse(["tune"])
+	main.hud.refresh_stamp()
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true

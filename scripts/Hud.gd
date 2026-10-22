@@ -729,7 +729,8 @@ class Art extends Control:
 			text("NEW BEST", Vector2(cx - 300.0, ty + 78.0), SZ_M, Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0)
 		elif res_best > 0:
 			text("best %d" % res_best, Vector2(cx - 300.0, ty + 70.0), SZ_S, Color(C_QUIET.r, C_QUIET.g, C_QUIET.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0)
-	## The intro: a placeholder studio mark pops in and out, then the game's name lands with a little plane across it.
+	## The intro: the studio mark (a propeller that spins up and settles) and wordmark pop in and out, then the game's
+	## name lands with a little plane across it.
 	func _draw_logo() -> void:
 		var cx := size.x * 0.5
 		var cy := size.y * 0.5 - 60.0
@@ -738,13 +739,8 @@ class Art extends Control:
 			var k := Style.ease_out_back(t / 0.45)
 			var a := clampf(minf(t / 0.2, (1.0 - t) / 0.2), 0.0, 1.0)
 			draw_set_transform(Vector2(cx, cy) * (1.0 - k), 0.0, Vector2(k, k))
-			var r := Rect2(cx - 90.0, cy - 150.0, 180.0, 180.0)
-			_sb_logo.border_color = Color(Style.ACCENT, a)
-			_sb_logo.bg_color = Color(Style.SURFACE_DARK_2, a)
-			panel(_sb_logo, r, _sheen_l)
-			glyph("plane", r.get_center() + Vector2(0, 4.0), 56.0, Color(Style.ACCENT, a))
-			text("TAILWIND STUDIO", Vector2(cx - 400.0, cy + 110.0), SZ_M, Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_CENTER, 800.0)
-			text("placeholder studio", Vector2(cx - 400.0, cy + 160.0), SZ_S, Color(Style.TEXT_QUIET, a), HORIZONTAL_ALIGNMENT_CENTER, 800.0)
+			Style.draw_mark(self, Vector2(cx, cy - 40.0), 110.0, (1.0 - Style.ease_out_cubic(t / 0.9)) * TAU * 2.0, a)
+			Style.draw_wordmark(self, cx, cy + 150.0, SZ_M, a)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 			return
 		var u := t - 1.0
@@ -855,6 +851,29 @@ var _over_head: Label
 var _over_body: Label                # the breakdown behind "Details"
 var _flash: ColorRect
 var _splash: Control
+
+## The in-game loading cover: the studio mark, a progress-style bar and nothing else (no text).
+class SplashDraw extends Control:
+	var t := 0.0
+
+	func _process(delta: float) -> void:
+		t += delta
+		queue_redraw()
+
+	func _draw() -> void:
+		var cx := size.x * 0.5
+		var cy := size.y * 0.5
+		Style.draw_mark(self, Vector2(cx, cy - 80.0), 110.0, t * 3.0)
+		Style.draw_wordmark(self, cx, cy + 110.0, Style.SZ_M)
+		var w := 420.0
+		var r := Rect2(cx - w * 0.5, cy + 200.0, w, 20.0)
+		draw_rect(r, Color(Style.INK, 0.8))
+		var f := fposmod(t * 0.9, 1.4) / 1.4
+		var x0 := r.position.x + (w + 140.0) * f - 140.0
+		var x1 := minf(x0 + 140.0, r.end.x)
+		x0 = maxf(x0, r.position.x)
+		if x1 > x0:
+			draw_rect(Rect2(x0, r.position.y, x1 - x0, r.size.y), Style.ACCENT)
 var _perf_label: Label
 var _pop_labels: Array[Label] = []
 var _pop_born := PackedInt64Array()
@@ -1273,6 +1292,8 @@ func apply_safe() -> void:
 	_select_title.offset_top = 40 + t
 	_tip.offset_top = -270 - Style.safe_bottom
 	_tip.offset_bottom = -190 - Style.safe_bottom
+	if _stamp != null:
+		refresh_stamp()
 	_art.queue_redraw()
 
 ## A finger is down on a button: it draws pushed in (and the activation follows at once).
@@ -2060,17 +2081,17 @@ func _process(delta: float) -> void:
 
 ## Small "commit . build time" tag bottom-left (BuildInfo.gd is rewritten by the workflow), with any
 ## active debug flags under it; plus the ?perf readout top-left.
+var _stamp: Label
+
+## The build stamp (commit and time, plus the active debug flags) is for debugging only: it shows with ?debug, ?tune
+## or ?perf, small, in the bottom-left corner. Players never see it.
 func _build_stamp() -> void:
-	var l := _label(26, HORIZONTAL_ALIGNMENT_LEFT)
-	l.text = "%s  %s" % [BuildInfo.COMMIT, BuildInfo.TIME]
-	var flags := DebugFlags.summary()
-	if flags != "":
-		l.text += "\n" + flags
-	l.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	l.offset_left = 14
-	l.offset_top = -48 if flags == "" else -84
-	l.modulate = Color(1, 1, 1, 0.4)
-	l.add_theme_font_override("font", Style.text())
+	_stamp = _label(20, HORIZONTAL_ALIGNMENT_LEFT)
+	_stamp.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	_stamp.offset_left = 12
+	_stamp.modulate = Color(1, 1, 1, 0.45)
+	_stamp.add_theme_font_override("font", Style.text())
+	refresh_stamp()
 	if DebugFlags.perf_enabled():
 		_perf_label = _label(26, HORIZONTAL_ALIGNMENT_LEFT)
 		_perf_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
@@ -2078,6 +2099,17 @@ func _build_stamp() -> void:
 		_perf_label.offset_top = 112       # (below the pause button)
 		_perf_label.modulate = Color(0.6, 1, 0.6, 0.9)
 		_perf_label.add_theme_font_override("font", Style.text())
+
+func refresh_stamp() -> void:
+	var on := DebugFlags.stamp_enabled()
+	_stamp.visible = on
+	if not on:
+		return
+	var flags := DebugFlags.summary()
+	_stamp.text = "%s  %s" % [BuildInfo.COMMIT, BuildInfo.TIME]
+	if flags != "":
+		_stamp.text += "\n" + flags
+	_stamp.offset_top = (-40 if flags == "" else -66) - Style.safe_bottom
 
 func note_hitch(raw: float, used: float, why: String, context: String) -> void:
 	_hitch_count += 1
@@ -2148,23 +2180,8 @@ func begin_prewarm() -> void:
 	_splash = Control.new()
 	_splash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_splash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bg := ColorRect.new()
-	bg.color = Color(Style.SURFACE_DARK, 0.95)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_splash.add_child(bg)
-	var title := Label.new()
-	title.text = "PATTERN WORK\nloading..."
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 90)
-	title.add_theme_font_override("font", Style.display())
-	title.add_theme_color_override("font_outline_color", Style.INK)
-	title.add_theme_constant_override("outline_size", 10)
-	title.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_splash.add_child(title)
-	# Every glyph of both faces at every size, drawn faintly behind the splash, so no letter is first seen mid-game.
+	# Every glyph of both faces at every size is drawn once so no letter is first seen mid-game. The rows sit BEHIND the
+	# opaque cover (they are drawn, you never see them).
 	var ascii := ""
 	for cp in range(32, 127):
 		ascii += char(cp)
@@ -2177,11 +2194,19 @@ func begin_prewarm() -> void:
 			wl.add_theme_font_override("font", Style.display() if face == 0 else Style.text())
 			wl.add_theme_color_override("font_outline_color", Style.INK)
 			wl.add_theme_constant_override("outline_size", maxi(sz / 8, 4))
-			wl.modulate = Color(1, 1, 1, 0.06)
 			wl.position = Vector2(0.0, 60.0 + row * 150.0)
 			wl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			_splash.add_child(wl)
 			row += 1
+	var bg := ColorRect.new()
+	bg.color = Style.SURFACE_DARK.darkened(0.35)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_splash.add_child(bg)
+	var sd := SplashDraw.new()
+	sd.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sd.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_splash.add_child(sd)
 	add_child(_splash)
 
 func prewarm_tip() -> void:

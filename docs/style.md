@@ -112,4 +112,16 @@ never a cut, so going menu -> shift -> results -> menu is one continuous mix.
 
 A gold aircraft with a dark outline and soft shadow, banking across a runway, on a sky-blue rounded square with a top
 highlight (`icon.svg`, rendered to `icons/` by `tools/make_icons.gd`). The boot splash is the same mark on the dark
-surface (`assets/splash.svg`), followed in the game by the studio mark (a placeholder name) and the game's logo.
+surface (`assets/splash.svg`), followed in the game by the studio mark and the game's logo.
+
+## Studio: Clear Prop Games
+
+The studio mark is a three-blade gold propeller with a dark outline and a white hub in a round dark badge with a blue ring
+(`Style.draw_mark`, the same drawing as the SVG in `web/shell.html`). The wordmark is `CLEAR PROP GAMES` in the display face
+(Fredoka SemiBold) with the middle word in gold (`Style.draw_wordmark`). The mark spins up and settles in the logo intro; on
+the loading pages it spins while the progress bar fills. No raw text ever shows while loading: the web loading page
+(`web/shell.html`) is the brand background, the mark, the wordmark and a bar, with a plain message only if the game cannot start.
+
+## The build stamp
+
+The commit and build time are for debugging only: they show, small, in the bottom-left corner with `?debug`, `?tune` or `?perf`, and never otherwise.

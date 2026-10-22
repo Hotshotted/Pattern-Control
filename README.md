@@ -135,3 +135,12 @@ Run the smoke test locally: `godot --headless --path . --script res://tests/smok
 `scripts/Style.gd` holds the same tokens in code. Before / after pictures of every screen: `docs/screens/makeover_before`
 and `docs/screens/makeover_after`, with the pictures taken after each makeover phase in `docs/screens/makeover_phase1..3`.
 Shift lengths differ by airport (45 / 60 / 75 / 75 / 90 / 90 s of arrivals, par 15 s later).
+
+## Credits
+
+*Pattern Work* is made by **Clear Prop Games**. Fonts: Fredoka and Nunito (SIL Open Font License, see `assets/fonts/`).
+
+## Loading page and build stamp
+
+The web build uses a custom loading page (`web/shell.html`): the brand background, the Clear Prop Games mark and a progress bar.
+The build stamp (commit and time) is hidden from players; add `?debug` (or `?tune` / `?perf`) to the URL to show it.

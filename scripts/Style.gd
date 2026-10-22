@@ -145,6 +145,52 @@ static func sheen(radius: int, alpha: float = 0.10) -> StyleBoxFlat:
 	sb.anti_aliasing = true
 	return sb
 
+# ---- the studio mark: Clear Prop Games ----
+const STUDIO := "Clear Prop Games"
+const STUDIO_WORDS := ["CLEAR", "PROP", "GAMES"]
+static var _blade := PackedVector2Array([Vector2(-0.10, -0.16), Vector2(-0.25, -0.5), Vector2(-0.13, -0.82), Vector2(0.0, -0.88), Vector2(0.13, -0.82), Vector2(0.25, -0.5), Vector2(0.10, -0.16)])
+static var _bp := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
+
+## A propeller in a round badge: three gold blades with a dark outline round a white hub. `r` is the badge radius.
+static func draw_mark(ci: CanvasItem, c: Vector2, r: float, angle: float, a: float = 1.0) -> void:
+	ci.draw_circle(c + SHADOW_OFFSET * (r / 80.0), r, Color(SHADOW_COLOR, SHADOW_COLOR.a * a))
+	ci.draw_circle(c, r, Color(INK, a))
+	ci.draw_circle(c, r - r * 0.06, Color(SURFACE_DARK_2, a))
+	ci.draw_arc(c, r * 0.94, 0.0, TAU, 56, Color(PRIMARY, a), maxf(r * 0.06, 2.0))
+	for pass_k in 2:
+		var grow := 1.14 if pass_k == 0 else 1.0
+		var col := Color(INK, a) if pass_k == 0 else Color(ACCENT, a)
+		for k in 3:
+			var rot := angle + k * TAU / 3.0
+			for i in _blade.size():
+				var q := _blade[i] * grow * r * 0.9
+				if pass_k == 0:
+					q.y += r * 0.02 * (1.0 if _blade[i].y < -0.5 else 0.0) * -1.0
+				_bp[i] = c + q.rotated(rot)
+			ci.draw_colored_polygon(_bp, col)
+	for k in 3:
+		var rot2 := angle + k * TAU / 3.0
+		ci.draw_line(c + Vector2(-0.03, -0.3).rotated(rot2) * r * 0.9, c + Vector2(-0.07, -0.66).rotated(rot2) * r * 0.9, Color(1, 1, 1, 0.55 * a), maxf(r * 0.05, 2.0))
+	ci.draw_circle(c, r * 0.2, Color(INK, a))
+	ci.draw_circle(c, r * 0.14, Color(TEXT, a))
+
+## "CLEAR PROP GAMES" in the display face, the middle word in gold, centred on `cx`, baseline `y`.
+static func draw_wordmark(ci: CanvasItem, cx: float, y: float, size_px: int, a: float = 1.0) -> void:
+	var f := display()
+	var gap := size_px * 0.32
+	var total := -gap
+	var widths: Array[float] = []
+	for w in STUDIO_WORDS:
+		var ww := f.get_string_size(w, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+		widths.append(ww)
+		total += ww + gap
+	var x := cx - total * 0.5
+	for k in 3:
+		var col := Color(ACCENT if k == 1 else TEXT, a)
+		ci.draw_string_outline(f, Vector2(x, y), STUDIO_WORDS[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, maxi(size_px / 8, 4), Color(INK, a))
+		ci.draw_string(f, Vector2(x, y), STUDIO_WORDS[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, col)
+		x += widths[k] + gap
+
 static func ease_out_cubic(t: float) -> float:
 	return 1.0 - pow(1.0 - clampf(t, 0.0, 1.0), 3.0)
 
