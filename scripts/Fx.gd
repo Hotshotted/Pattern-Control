@@ -14,6 +14,31 @@ var _sparkles: Array[CPUParticles3D] = []
 var _next_puff := 0
 var _next_sparkle := 0
 
+## A round dot texture (a soft rim when `soft`, else a crisp edge): the particles are dots, never squares.
+func _dot_texture(soft: bool) -> Texture2D:
+	var g := Gradient.new()
+	g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
+	g.offsets = PackedFloat32Array([0.0, 0.3 if soft else 0.85, 1.0])
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.fill = GradientTexture2D.FILL_RADIAL
+	t.fill_from = Vector2(0.5, 0.5)
+	t.fill_to = Vector2(1.0, 0.5)
+	t.width = 48
+	t.height = 48
+	return t
+
+## A four-pointed sparkle: the gold celebration stars.
+func _star_texture() -> Texture2D:
+	var img := Image.create(48, 48, false, Image.FORMAT_RGBA8)
+	for y in 48:
+		for x in 48:
+			var u := absf((x + 0.5) / 24.0 - 1.0)
+			var v := absf((y + 0.5) / 24.0 - 1.0)
+			var d := pow(u, 0.55) + pow(v, 0.55)
+			img.set_pixel(x, y, Color(1, 1, 1, clampf((1.0 - d) * 6.0, 0.0, 1.0)))
+	return ImageTexture.create_from_image(img)
+
 func _ready() -> void:
 	var quad := QuadMesh.new()
 	quad.size = Vector2(0.26, 0.26)
@@ -22,6 +47,7 @@ func _ready() -> void:
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.vertex_color_use_as_albedo = true
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_texture = _dot_texture(false)
 	quad.material = mat
 	var ramp := Gradient.new()   # full colour -> same colour fading out
 	ramp.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
@@ -51,6 +77,7 @@ func _ready() -> void:
 	pmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	pmat.vertex_color_use_as_albedo = true
 	pmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	pmat.albedo_texture = _dot_texture(true)
 	var pquad := QuadMesh.new()
 	pquad.size = Vector2(0.4, 0.4)
 	pquad.material = pmat
@@ -84,8 +111,9 @@ func _ready() -> void:
 	smat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	smat.vertex_color_use_as_albedo = true
 	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.albedo_texture = _star_texture()
 	var squad := QuadMesh.new()
-	squad.size = Vector2(0.2, 0.2)
+	squad.size = Vector2(0.3, 0.3)
 	squad.material = smat
 	var sramp := Gradient.new()
 	sramp.colors = PackedColorArray([Color(1.0, 0.95, 0.6, 1.0), Color(1.0, 0.8, 0.2, 1.0), Color(1.0, 0.8, 0.2, 0.0)])

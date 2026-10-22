@@ -6,7 +6,6 @@ extends CanvasLayer
 ## and every plane's point buffer are fixed-size.
 
 const RIPPLES := 8
-const BLACK := Color(0, 0, 0, 0.85)
 
 var traffic: Traffic
 var wind: Wind
@@ -92,11 +91,9 @@ func _draw_all_inner() -> void:
 		if p.state == Aircraft.State.HOLD and not p.fogged and not DebugFlags.off("hold"):
 			var col := Airports.land_color(p.tkind, p.runway)
 			if p.hovering:   # a helicopter hovers on the spot
-				_c.draw_arc(p.pos, 0.62, 0.0, TAU, 24, BLACK, 0.16)
-				_c.draw_arc(p.pos, 0.62, 0.0, TAU, 24, Color(col.r, col.g, col.b, 0.8), 0.07)
+				_dotted_ring(p.pos, 0.62, Color(col.r, col.g, col.b, 0.85), t)
 			else:
-				_c.draw_arc(p.hold_center, Tuning.hold_radius_eff(), 0.0, TAU, 40, BLACK, 0.16)
-				_c.draw_arc(p.hold_center, Tuning.hold_radius_eff(), 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.8), 0.07)
+				_dotted_ring(p.hold_center, Tuning.hold_radius_eff(), Color(col.r, col.g, col.b, 0.85), t)
 	glows_drawn = 0
 	_draw_hazards(t)
 	for p in traffic.planes:
@@ -198,7 +195,7 @@ func _draw_closures(t: float) -> void:
 		for sgn in [-1.0, 1.0]:
 			var p0: Vector2 = c - dir * len + side * (sgn * 0.5)
 			var p1: Vector2 = c + dir * len - side * (sgn * 0.5)
-			_c.draw_line(p0, p1, Color(0, 0, 0, 0.8), 0.34)
+			_c.draw_line(p0, p1, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.3), 0.3)
 			_c.draw_line(p0, p1, Color(1.0, 0.18, 0.12, a), 0.2)
 
 func _tag(at: Vector2, text: String, col: Color) -> void:
@@ -216,8 +213,8 @@ func _draw_place_markers(t: float) -> void:
 			for e in Airports.land_ends(kind):
 				var thr := Airports.land_threshold(kind, i, e)
 				var r := radius * (1.0 + 0.08 * pulse if hot else 1.0)
-				_c.draw_arc(thr, r, 0.0, TAU, 32, Color(0, 0, 0, 0.6), 0.16)
-				_c.draw_arc(thr, r, 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.95 if hot else 0.65), 0.08)
+				_c.draw_arc(thr, r, 0.0, TAU, 32, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.18), 0.14)
+				_c.draw_arc(thr, r, 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.95 if hot else 0.7), 0.08)
 
 func _draw_runway_markers(t: float) -> void:
 	for i in Airports.rw_count():
@@ -241,7 +238,7 @@ func _draw_runway_markers(t: float) -> void:
 				_c.draw_line(thr + Vector2(x, -x), thr + Vector2(-x, x), Color(0.9, 0.25, 0.2, 0.55), 0.1)
 			else:
 				var r := Tuning.approach_radius * (1.0 + 0.08 * pulse if hot else 1.0)
-				_c.draw_arc(thr, r, 0.0, TAU, 40, Color(0, 0, 0, 0.6), 0.16)
+				_c.draw_arc(thr, r, 0.0, TAU, 40, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.18), 0.14)
 				_c.draw_arc(thr, r, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.95 if hot else 0.7), 0.08)
 				# Approach funnel: two dashed lines opening out behind the threshold, with chevrons.
 				var far := thr - dir * 3.4
@@ -270,12 +267,12 @@ func _draw_entry_glow(p: Aircraft, t: float) -> void:
 		var r := (0.5 + 0.35 * k) * (1.0 + 0.18 * pulse)
 		_c.draw_circle(e, r, Color(col.r, col.g, col.b, (0.16 + 0.1 * pulse) * fade))
 	var ring := 0.55 + 0.25 * pulse
-	_c.draw_arc(e, ring, 0.0, TAU, 32, Color(0, 0, 0, 0.75 * fade), 0.2)
+	_c.draw_arc(e, ring, 0.0, TAU, 32, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.3 * fade), 0.18)
 	_c.draw_arc(e, ring, 0.0, TAU, 32, Color(col.r, col.g, col.b, (0.6 + 0.4 * pulse) * fade), 0.1)
 	var tip := e + dir * (0.7 + 0.15 * pulse)
 	for s in [-1.0, 1.0]:
 		var wing: Vector2 = tip - dir * 0.4 + side * s * 0.3
-		_c.draw_line(tip, wing, Color(0, 0, 0, 0.8 * fade), 0.2)
+		_c.draw_line(tip, wing, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.3 * fade), 0.17)
 		_c.draw_line(tip, wing, Color(col.r, col.g, col.b, fade), 0.1)
 
 ## A go-around, made obvious: gold chevrons streaming ahead of the climbing aircraft and a ring that closes as it levels off.
@@ -287,34 +284,53 @@ func _draw_go_around(p: Aircraft, t: float) -> void:
 		var u := fposmod(t * 1.8 - k * 0.33, 1.0)
 		var c := p.pos + dir * (0.9 + u * 1.5)
 		var a := (1.0 - u) * clampf(f * 1.6, 0.0, 1.0)
-		_c.draw_line(c - side * 0.32 - dir * 0.2, c + dir * 0.12, Color(0, 0, 0, a * 0.7), 0.17)
-		_c.draw_line(c + side * 0.32 - dir * 0.2, c + dir * 0.12, Color(0, 0, 0, a * 0.7), 0.17)
-		_c.draw_line(c - side * 0.32 - dir * 0.2, c + dir * 0.12, Color(1.0, 0.85, 0.3, a), 0.09)
-		_c.draw_line(c + side * 0.32 - dir * 0.2, c + dir * 0.12, Color(1.0, 0.85, 0.3, a), 0.09)
+		_c.draw_line(c - side * 0.32 - dir * 0.2, c + dir * 0.12, Color(Style.INK.r, Style.INK.g, Style.INK.b, a * 0.25), 0.15)
+		_c.draw_line(c + side * 0.32 - dir * 0.2, c + dir * 0.12, Color(Style.INK.r, Style.INK.g, Style.INK.b, a * 0.25), 0.15)
+		_c.draw_line(c - side * 0.32 - dir * 0.2, c + dir * 0.12, Color(1.0, 0.79, 0.2, a), 0.09)
+		_c.draw_line(c + side * 0.32 - dir * 0.2, c + dir * 0.12, Color(1.0, 0.79, 0.2, a), 0.09)
 	_c.draw_arc(p.pos, 0.55 + 0.7 * (1.0 - f), 0.0, TAU, 28, Color(1.0, 0.85, 0.3, 0.7 * f), 0.07)
 
+## Conflict warning: a red dashed ring around the pair (or around the one aircraft if its partner is not known).
 func _draw_warning(p: Aircraft, t: float) -> void:
 	var w := p.warn
 	var pulse := 0.5 + 0.5 * sin(t * (8.0 + 10.0 * w))
-	var r := 0.75 + 0.35 * w + 0.08 * pulse
-	_c.draw_arc(p.pos, r, 0.0, TAU, 32, Color(0, 0, 0, 0.8), 0.2)
-	_c.draw_arc(p.pos, r, 0.0, TAU, 32, Color(1.0, 0.15 + 0.2 * pulse, 0.1, 0.5 + 0.5 * w), 0.11)
 	var o := p.warn_other
-	if o != null and o.get_instance_id() > p.get_instance_id():
-		_c.draw_dashed_line(p.pos, o.pos, Color(1, 0.2, 0.15, 0.4 + 0.5 * w), 0.07, 0.2)
+	var centre := p.pos
+	var r := 0.75 + 0.35 * w + 0.08 * pulse
+	if o != null:
+		if o.get_instance_id() < p.get_instance_id() and o.warn > 0.0:
+			return           # (the other aircraft of the pair draws the ring)
+		centre = (p.pos + o.pos) * 0.5
+		r = p.pos.distance_to(o.pos) * 0.5 + 0.8 + 0.08 * pulse
+	var col := Color(Style.DANGER.r, Style.DANGER.g, Style.DANGER.b, 0.55 + 0.45 * w)
+	var phase := t * 0.5
+	for seg in 18:
+		var a0 := phase + seg * TAU / 18.0
+		_c.draw_arc(centre, r, a0, a0 + TAU / 36.0, 4, col, 0.11)
 
 ## The timer ring around an aircraft: it empties as time runs out, yellow then red, and pulses when nearly out.
 func _draw_timer_ring(p: Aircraft, t: float) -> void:
 	var frac := p.timer_frac()
 	var col := Tuning.timer_color(frac)
-	var w := 0.1
-	if frac <= Tuning.timer_red_fraction:
-		w += 0.05 * (0.5 + 0.5 * sin(t * 14.0))
+	var red := frac <= Tuning.timer_red_fraction
+	var pulse := 0.5 + 0.5 * sin(t * 14.0)
+	var w := 0.17 + (0.03 * pulse if red else 0.0)
 	var r := 0.95
-	var end := -PI * 0.5 + TAU * maxf(frac, 0.01)
-	_c.draw_arc(p.pos, r, 0.0, TAU, 32, Color(0, 0, 0, 0.35), 0.2)          # the empty track
-	_c.draw_arc(p.pos, r, -PI * 0.5, end, 32, Color(0, 0, 0, 0.85), w + 0.1)
-	_c.draw_arc(p.pos, r, -PI * 0.5, end, 32, col, w)
+	var start := -PI * 0.5
+	var end := start + TAU * maxf(frac, 0.01)
+	_c.draw_arc(p.pos, r, 0.0, TAU, 40, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.25), 0.17)     # the dark translucent track
+	_c.draw_arc(p.pos, r, start, end, 40, col, w)
+	_c.draw_circle(p.pos + Vector2(cos(start), sin(start)) * r, w * 0.5, col)      # round caps
+	_c.draw_circle(p.pos + Vector2(cos(end), sin(end)) * r, w * 0.5, col)
+	if red:                                                                      # urgency does not rely on colour alone: a pulsing halo
+		_c.draw_arc(p.pos, r + 0.2 + 0.05 * pulse, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.2 + 0.25 * pulse), 0.07)
+
+## A ring of round dots (the holding circle), turning slowly.
+func _dotted_ring(c: Vector2, r: float, col: Color, t: float) -> void:
+	var n := maxi(int(TAU * r / 0.3), 8)
+	for k in n:
+		var a := t * 0.4 + k * TAU / n
+		_c.draw_circle(c + Vector2(cos(a), sin(a)) * r, 0.07, col)
 
 ## Pre-warm: draw every kind of mark at once (paths on every plane, rings, ripples, timers).
 func prewarm() -> void:

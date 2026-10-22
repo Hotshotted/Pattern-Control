@@ -86,9 +86,9 @@ var hold_drain_mult := 0.45
 ## A timed-out aircraft is diverted (and fined): it flies off at this multiple of its speed.
 var divert_speed_mult := 1.6
 ## Ring colours: plenty of time / low / nearly out.
-var timer_color_ok := Color(0.35, 0.92, 0.5)
-var timer_color_low := Color(1.0, 0.86, 0.2)
-var timer_color_red := Color(1.0, 0.2, 0.15)
+var timer_color_ok := Color("35c98a")
+var timer_color_low := Color("ffc933")
+var timer_color_red := Color("ff5c4d")
 
 # ---------- Special aircraft ----------
 ## An emergency has this fraction of its type's timer, and may land on ANY suitable runway / pad / lane.

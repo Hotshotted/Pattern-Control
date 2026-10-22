@@ -7,6 +7,10 @@ extends Node3D
 const OUTLINE_Y := 0.2
 const COLOR_Y := 0.21
 const NOSE := [0.8, 0.95, 1.2]       # nose distance from the plane's centre, by model (speed class)
+const HALF := 0.1                    # Sunny Airfield: a path is a line of round dots in the runway's colour
+const PERIOD := 0.3                  # ...this far apart
+const DOT_R := 0.075                 # ...of this radius
+const SHADOW := Color(0.04, 0.06, 0.13)
 
 var traffic: Traffic
 var last_start: Array[Vector2] = []  # per pooled plane: where its ribbon starts (the nose)
@@ -20,22 +24,26 @@ var _outline_nodes: Array[MeshInstance3D] = []
 var _pts := PackedVector2Array()     # scratch: nose + the remaining path
 var _nrm := PackedVector2Array()
 var _alpha := PackedFloat32Array()
+var _dist := PackedFloat32Array()     # distance along the path of each vertex
 var _tint_from := -1                 # first ribbon vertex of the tinted final segment (-1 = none)
 var _tint_col := Color.WHITE
 ## Final-segment tint by predicted approach quality (green / yellow / red).
-const TINTS := [Color(0.25, 0.9, 0.35), Color(1.0, 0.85, 0.2), Color(1.0, 0.25, 0.2)]
+const TINTS := [Color("35c98a"), Color("ffc933"), Color("ff5c4d")]
 
 func _ready() -> void:
-	# Two materials with different render priorities: the outline is always drawn before the colour.
-	var mat_outline := StandardMaterial3D.new()
-	var mat := StandardMaterial3D.new()
+	# Two materials with different render priorities: the soft shadow dots are always drawn before the colour dots.
+	var shader := preload("res://shaders/path_dots.gdshader")
+	var mat_outline := ShaderMaterial.new()
+	var mat := ShaderMaterial.new()
 	for m in [mat_outline, mat]:
-		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		m.vertex_color_use_as_albedo = true
-		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		m.shader = shader
+		m.set_shader_parameter("half_width", HALF)
+		m.set_shader_parameter("period", PERIOD)
+	mat.set_shader_parameter("radius", DOT_R)
+	mat_outline.set_shader_parameter("radius", DOT_R * 1.35)
 	mat_outline.render_priority = -1
 	mat.render_priority = 0
+	_dist.resize(Aircraft.PATH_MAX + 2)
 	_pts.resize(Aircraft.PATH_MAX + 2)
 	_nrm.resize(Aircraft.PATH_MAX + 2)
 	_alpha.resize(Aircraft.PATH_MAX + 2)
@@ -90,6 +98,7 @@ func _build(p: Aircraft, i: int) -> void:
 		if k > 0:
 			d += _pts[k].distance_to(_pts[k - 1])
 		_alpha[k] = lerpf(Tuning.path_fade_min, 1.0, smoothstep(0.0, fade, d))
+		_dist[k] = d
 		var a := _pts[maxi(k - 1, 0)]
 		var b := _pts[mini(k + 1, m - 1)]
 		var tan := b - a
@@ -106,16 +115,17 @@ func _build(p: Aircraft, i: int) -> void:
 	var im := _meshes[i]
 	im.clear_surfaces()
 	if p.path_invalid:
-		# The wind shifted and this path no longer ends on an open runway end: dashed and red.
-		_dashes(om, m, Tuning.path_outline_width * 0.5, OUTLINE_Y, Color(0, 0, 0), 0.9)
-		_dashes(im, m, Tuning.path_width * 0.6, COLOR_Y, Color(1.0, 0.2, 0.15), 1.0)
+		# The wind shifted and this path no longer ends on an open runway end: red dots.
+		_tint_from = -1
+		_strip(om, m, HALF, OUTLINE_Y, SHADOW, 0.28)
+		_strip(im, m, HALF, COLOR_Y, Color(1.0, 0.36, 0.3), 1.0)
 	else:
-		_strip(om, m, Tuning.path_outline_width * 0.5, OUTLINE_Y, Color(0, 0, 0), 0.9)
-		_dot(om, _pts[m - 1], Tuning.path_outline_width * 0.8, OUTLINE_Y, Color.BLACK, _alpha[m - 1])
 		_tint_from = _tint_start(p, m)
 		_tint_col = TINTS[p.ga_band]
-		_strip(im, m, Tuning.path_width * 0.5, COLOR_Y, col, 1.0)
-		_dot(im, _pts[m - 1], Tuning.path_width * 1.3, COLOR_Y, col, _alpha[m - 1])
+		_strip(om, m, HALF, OUTLINE_Y, SHADOW, 0.28)
+		_dot(om, _pts[m - 1], DOT_R * 2.2, OUTLINE_Y, SHADOW, _alpha[m - 1] * 0.28)
+		_strip(im, m, HALF, COLOR_Y, col, 1.0)
+		_dot(im, _pts[m - 1], DOT_R * 1.7, COLOR_Y, _tint_col if _tint_from >= 0 else col, _alpha[m - 1])
 	_nodes[i].visible = true
 	_outline_nodes[i].visible = true
 
@@ -134,11 +144,14 @@ func _tint_start(p: Aircraft, m: int) -> int:
 func _strip(im: ImmediateMesh, m: int, half: float, y: float, col: Color, a_mul: float) -> void:
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	for k in m:
-		var c := _tint_col if (_tint_from >= 0 and k >= _tint_from and col != Color.BLACK) else col
+		var c := _tint_col if (_tint_from >= 0 and k >= _tint_from and col != SHADOW) else col
 		im.surface_set_color(Color(c.r, c.g, c.b, _alpha[k] * a_mul))
 		var p := _pts[k]
 		var nrm := _nrm[k] * half
+		var v := _dist[k] / PERIOD
+		im.surface_set_uv(Vector2(0.0, v))
 		im.surface_add_vertex(Vector3(p.x - nrm.x, y, p.y - nrm.y))
+		im.surface_set_uv(Vector2(1.0, v))
 		im.surface_add_vertex(Vector3(p.x + nrm.x, y, p.y + nrm.y))
 	im.surface_end()
 
@@ -151,28 +164,4 @@ func _dot(im: ImmediateMesh, at: Vector2, r: float, y: float, col: Color, a: flo
 		im.surface_add_vertex(Vector3(at.x, y, at.y))
 		im.surface_add_vertex(Vector3(at.x + cos(a0) * r, y, at.y + sin(a0) * r))
 		im.surface_add_vertex(Vector3(at.x + cos(a1) * r, y, at.y + sin(a1) * r))
-	im.surface_end()
-
-## A dashed ribbon: every other segment of the path is drawn as a quad.
-func _dashes(im: ImmediateMesh, m: int, half: float, y: float, col: Color, a_mul: float) -> void:
-	if m < 2:
-		return
-	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
-	var k := 0
-	while k < m - 1:
-		var a := _pts[k]
-		var b := _pts[k + 1]
-		var na := _nrm[k] * half
-		var nb := _nrm[k + 1] * half
-		var ca := Color(col.r, col.g, col.b, _alpha[k] * a_mul)
-		var cb := Color(col.r, col.g, col.b, _alpha[k + 1] * a_mul)
-		im.surface_set_color(ca)
-		im.surface_add_vertex(Vector3(a.x - na.x, y, a.y - na.y))
-		im.surface_add_vertex(Vector3(a.x + na.x, y, a.y + na.y))
-		im.surface_set_color(cb)
-		im.surface_add_vertex(Vector3(b.x - nb.x, y, b.y - nb.y))
-		im.surface_add_vertex(Vector3(a.x + na.x, y, a.y + na.y))
-		im.surface_add_vertex(Vector3(b.x + nb.x, y, b.y + nb.y))
-		im.surface_add_vertex(Vector3(b.x - nb.x, y, b.y - nb.y))
-		k += 2
 	im.surface_end()

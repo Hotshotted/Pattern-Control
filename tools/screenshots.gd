@@ -265,4 +265,15 @@ func _types_shots(save) -> void:
 				k += 1
 			for i in 20:
 				main.step(1.0 / 60.0)
+		if a == 2:      # three drawn paths, one in each approach-quality band
+			for band in 3:
+				var q = tr.place(band % 2, Vector2(-3.4 + band * 3.4, -6.0), 0.3 - 0.3 * band, 2)
+				var th: Vector2 = Airports.end_threshold(band % 2, 1) if band % 2 == 0 else Airports.end_threshold(1, 1)
+				for k in 24:
+					var f := float(k + 1) / 24.0
+					q.push(q.pos.lerp(th, f) + Vector2(sin(f * 5.0) * (1.2 - band * 0.5) * (1.0 - f), 0.0))
+				q.cleared = true
+				q.ga_band = band
+			for i in 6:
+				main.step(1.0 / 60.0)
 		await _shot("30_airport_%d" % a)

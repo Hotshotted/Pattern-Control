@@ -3923,6 +3923,19 @@ func _initialize() -> void:
 	check(sa_shadows >= 12 and sa_tree_shadows >= 2, "ground props (tower, hangar, windsock, trees) sit on soft shadows (%d + %d)" % [sa_shadows, sa_tree_shadows])
 	tr.release_all()
 
+	print("9z. Sunny Airfield art: readability")
+	check(rb._nodes[0].material_override is ShaderMaterial and (rb._nodes[0].material_override as ShaderMaterial).shader.resource_path.ends_with("path_dots.gdshader"), "paths are lines of round dots (the dot shader), not ribbons")
+	check(rb.TINTS[0].is_equal_approx(Color("35c98a")) and rb.TINTS[1].is_equal_approx(Color("ffc933")) and rb.TINTS[2].is_equal_approx(Color("ff5c4d")), "the final segment tints green, yellow, red")
+	check(tuning.timer_color(1.0).is_equal_approx(Color("35c98a")) and tuning.timer_color(0.4).is_equal_approx(Color("ffc933")) and tuning.timer_color(0.1).is_equal_approx(Color("ff5c4d")), "timer rings run green, yellow, red")
+	var rz_src = FileAccess.get_file_as_string("res://scripts/Overlay.gd")
+	check(rz_src.contains("round caps") and rz_src.contains("pulsing halo") and rz_src.contains("red dashed ring around the pair"), "timer rings have a track, round caps and a red pulsing halo; conflicts get a red dashed ring around the pair")
+	check(not rz_src.contains("Color(0, 0, 0, 0.8)") and not rz_src.contains("BLACK"), "the overlay draws no black outlines")
+	var rz_fx = main.fx
+	var rz_ok = true
+	for rz_p in rz_fx._emitters + rz_fx._puffs + rz_fx._sparkles:
+		rz_ok = rz_ok and (rz_p.mesh.material as StandardMaterial3D).albedo_texture != null
+	check(rz_ok, "particles are round dots and gold stars (textured), never squares")
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
