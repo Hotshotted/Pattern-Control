@@ -2090,7 +2090,7 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 
 	print("9j. shift length, pause menu")
-	check(tuning.shift_seconds == 100.0 and tuning.spawn_stop_seconds == 85.0, "par is 100 s, 15 s after spawning stops")
+	check(tuning.par_window == 15.0 and tuning.shift_scale == 1.0 and tuning.par_eff() == tuning.spawn_stop_eff() + 15.0, "par is 15 s after spawning stops")
 	var th_txt = []
 	for ai in Airports.COUNT:
 		th_txt.append(str(tuning.star_thresholds(ai)))
@@ -2418,7 +2418,7 @@ func _initialize() -> void:
 		cum_cost += l1[k]
 		steady = steady and cum_cost <= (k + 1) * 4 * poor_kept
 	check(steady, "...and the first six upgrades come steadily: all of them within %d poor shifts (%d coins in total)" % [ceili(float(cum_cost) / poor_kept), cum_cost])
-	check(tuning.shift_seconds - tuning.spawn_stop_seconds == 15.0 and tuning.early_bonus_per_second * 15.0 <= 100.0 and tuning.overtime_penalty_per_second < tuning.early_bonus_per_second, "par leaves a 15 s window; the early bonus tops out at %d coins, overtime costs %d per second" % [int(tuning.early_bonus_per_second * 15.0), int(tuning.overtime_penalty_per_second)])
+	check(tuning.par_window == 15.0 and tuning.early_bonus_per_second * 15.0 <= 100.0 and tuning.overtime_penalty_per_second < tuning.early_bonus_per_second, "par leaves a 15 s window; the early bonus tops out at %d coins, overtime costs %d per second" % [int(tuning.early_bonus_per_second * 15.0), int(tuning.overtime_penalty_per_second)])
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	main.select_airport(2)
@@ -3390,6 +3390,101 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
+	print("9t. landability: every airport, runway end, wind, aircraft type and entry edge")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	main._process(0.016)
+	var ld = load("res://tests/landability.gd").new()
+	ld.setup(tuning, load("res://scripts/Approach.gd").new(), load("res://scripts/Aircraft.gd").new(), tr.half_w, tr.half_h)
+	var ld_total = 0
+	var ld_storm = 0
+	# Two screens: a tall phone (9:16) and a tablet (3:4: the shortest view the game supports).
+	# Tall phones are held to the strict rule (no turn penalty at all). A tablet shows less of the field above and below the
+	# runways, so a short final from the side edges needs a bend close to the runway: there a turn penalty up to 0.6
+	# is accepted, but the final must still be long enough and the route free of terrain and storms.
+	for ld_screen in [[tuning.ortho_size * 0.5, 20.0 / 9.0, 0.0], [tuning.ortho_size * 0.5, 16.0 / 9.0, 0.0], [tuning.ortho_size * 0.5, 4.0 / 3.0, 0.6]]:
+		ld.allow_turn = ld_screen[2]
+		ld.half_w = ld_screen[0]
+		ld.half_h = ld_screen[0] * ld_screen[1] / cos(deg_to_rad(tuning.camera_tilt_deg))
+		for ai in Airports.COUNT:
+			var ld_res = ld.run(ai)
+			ld_total += ld_res["checked"]
+			ld_storm += ld_res["storm_blocked"]
+			print("      %s on a %.1f x %.1f view: %d approach checks (%d wind directions, %d aircraft types, %d entry points), %d failures, %d storm probes with the corridor itself covered" % [Airports.airport_name(ai), ld.half_w * 2.0, ld.half_h * 2.0, ld_res["checked"], ld.winds().size(), ld.arriving_types(ai).size(), ld.usable(ld.entries(), ld.circles([])).size(), ld_res["failures"].size(), ld_res["storm_blocked"]])
+			for lf in ld_res["failures"]:
+				print("        ", lf)
+			check(ld_res["failures"].is_empty() and ld_res["checked"] > 1000, "%s (%.1f x %.1f view): every runway end can be reached from every entry, avoiding terrain and storms, with a straight final of the wanted length%s (%d checks)" % [Airports.airport_name(ai), ld.half_w * 2.0, ld.half_h * 2.0, " and a clean approach" if ld.allow_turn == 0.0 else "", ld_res["checked"]])
+	ld.allow_turn = 0.0
+	ld.half_w = tr.half_w
+	ld.half_h = tr.half_h
+	# The checker really catches a blocked layout: the old Mountain Field (mountains in the approach lines).
+	Airports.current = 3
+	var ld_good = Airports.def(3)["hazards"].duplicate(true)
+	Airports.def(3)["hazards"].clear()
+	for ldh in [[-3.7, -4.4, 1.5], [3.6, -4.7, 1.6], [0.0, -5.9, 1.2], [-4.1, 4.9, 1.2], [3.9, 5.0, 1.2]]:
+		Airports.def(3)["hazards"].append({"center": Vector2(ldh[0], ldh[1]), "radius": ldh[2]})
+	var ld_old = ld.run(3)
+	Airports.def(3)["hazards"].clear()
+	Airports.def(3)["hazards"].append_array(ld_good)
+	check(ld_old["failures"].size() >= 4, "the checker flags the old Mountain Field layout (%d unlandable combinations)" % ld_old["failures"].size())
+	Airports.current = 2
+	# And the paths it finds really land in the game: Mountain Field, every end, three entries each.
+	main.select_airport(3)
+	main.restart()
+	tr.auto_spawn = false
+	main._process(0.016)
+	ld.half_w = tuning.ortho_size * 0.5
+	ld.half_h = ld.half_w * 16.0 / 9.0 / cos(deg_to_rad(tuning.camera_tilt_deg))
+	var ld_circ = ld.prepare(ld.circles([]))
+	var ld_ents = ld.usable(ld.entries(), ld.circles([]))
+	var ld_flown = 0
+	var ld_counts = [0, 0]
+	var ld_cb = func(_pl): ld_counts[0] += 1
+	var ld_cr = func(_pl, _k): ld_counts[1] += 1
+	tr.landed.connect(ld_cb)
+	tr.crashed.connect(ld_cr)
+	for lr in 2:
+		for le in 2:
+			for lk in 3:
+				var lent = ld_ents[(lk * 17 + lr * 5 + le * 11) % ld_ents.size()]
+				var lpath = ld.runway_path(lr, le, 2, lent, ld_circ)
+				tr.release_all()
+				var lpl = tr.place(lr, lent, 0.0, 2)
+				lpl.speed = 4.0
+				for lp in lpath:
+					lpl.push(lp)
+				lpl.push(Airports.end_threshold(lr, le))
+				lpl.push(Airports.end_far(lr, le))
+				lpl.cleared = true
+				lpl.land_end = le
+				lpl.heading = atan2(lpl.pts[lpl.head].x - lpl.pos.x, -(lpl.pts[lpl.head].y - lpl.pos.y))
+				lpl.vis_heading = lpl.heading
+				ld_flown += 1
+				for i in 60 * 40:
+					main.step(1.0 / 60.0)
+					if not lpl.active():
+						break
+	tr.landed.disconnect(ld_cb)
+	tr.crashed.disconnect(ld_cr)
+	check(ld_flown == 12 and ld_counts[0] == 12 and ld_counts[1] == 0, "flown in the game: %d of %d aircraft on the found paths landed, %d struck terrain" % [ld_counts[0], ld_flown, ld_counts[1]])
+	tr.release_all()
+	# The ?tune panel: the old sliders are gone; the shift length is the airport's own (scaled by one knob).
+	var tp_names = []
+	for tp_ent in main.tune_panel.ENTRIES:
+		tp_names.append(tp_ent[0])
+	check(not tp_names.has("spawn_stop_seconds") and not tp_names.has("shift_seconds") and tp_names.has("shift_scale") and tp_names.has("par_window"), "the tuning panel has no stale shift sliders any more")
+	main.select_airport(0)
+	var sh_base = tuning.spawn_stop_eff()
+	tuning.shift_scale = 2.0
+	check(absf(tuning.spawn_stop_eff() - sh_base * 2.0) < 0.01 and absf(tuning.par_eff() - (sh_base * 2.0 + tuning.par_window)) < 0.01, "...the knob scales every airport's own shift length (%.0f s -> %.0f s)" % [sh_base, tuning.spawn_stop_eff()])
+	tuning.shift_scale = 1.0
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
@@ -3463,7 +3558,7 @@ func _initialize() -> void:
 	check(tp.last_copied_text.contains("entry_color_fast = Color(") and tp.last_copied_text.contains("entry_warning_seconds = 3.5"), "Copy values includes the lead time and colours")
 	tp.reset_defaults()
 	check(is_equal_approx(tuning.entry_warning_seconds, old_lead) and tuning.entry_color_fast.is_equal_approx(old_col), "Reset restores them")
-	for name in ["intro_spawn_scale", "speed_fast", "timer_jet", "shift_seconds", "conflict_distance", "warn_distance"]:
+	for name in ["intro_spawn_scale", "speed_fast", "timer_jet", "shift_scale", "par_window", "conflict_distance", "warn_distance"]:
 		check(tp._sliders.has(name), "panel has a slider for %s" % name)
 	tp.close()
 	check(not tp.is_open and not main.get_tree().paused, "closing the panel resumes the game")

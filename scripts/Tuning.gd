@@ -160,8 +160,9 @@ var crosswind_seconds := 16.0
 
 # ---------- Timed shifts, coins and fines ----------
 ## A shift lasts exactly this long (seconds), shown as a countdown. Aircraft keep arriving until it ends.
-var shift_seconds := 100.0           # PAR time (15 s after spawning stops): finish by here for a bonus, after it the clock runs red and costs coins
-var spawn_stop_seconds := 85.0       # no new arrivals after this: "LAST ARRIVALS", then "CLEAR THE SKY"
+# The shift length is per airport (airport_profiles[i]["shift"]: seconds of arrivals, then "LAST ARRIVALS" and "CLEAR THE SKY").
+var shift_scale := 1.0               # ...times this (a tuning knob for every airport at once)
+var par_window := 15.0               # PAR comes this long after the last arrival: finish by then for a bonus, after it the clock runs red and costs coins
 var early_bonus_per_second := 6      # coins per whole second the sky is clear before par
 var overtime_penalty_per_second := 4 # coins per whole second after par
 var last_arrivals_seconds := 3.0     # how long the "LAST ARRIVALS" banner shows before the "CLEAR THE SKY" counter
@@ -300,10 +301,10 @@ func profile(i: int = -1) -> Dictionary:
 
 ## This airport's shift: arrivals for this long (45 / 60 / 75 / 90 s by airport), then par a fixed window later.
 func spawn_stop_eff() -> float:
-	return float(profile()["shift"])
+	return float(profile()["shift"]) * shift_scale
 
 func par_eff() -> float:
-	return spawn_stop_eff() + (shift_seconds - spawn_stop_seconds)
+	return spawn_stop_eff() + par_window
 
 func star_thresholds(i: int = -1) -> Array:
 	return profile(i)["stars"]

@@ -12,10 +12,10 @@ signal changed(property: String)
 
 ## [Tuning property, label, min, max, step]: the values tuned most.
 const ENTRIES := [
-	["spawn_stop_seconds", "Spawning stops at (s)", 20.0, 300.0, 1.0],
+	["shift_scale", "Shift length x (every airport)", 0.3, 3.0, 0.05],
 	["early_bonus_per_second", "Early bonus (coins / s)", 0.0, 50.0, 1.0],
 	["overtime_penalty_per_second", "Overtime penalty (coins / s)", 0.0, 50.0, 1.0],
-	["shift_seconds", "Par time (s)", 30.0, 400.0, 5.0],
+	["par_window", "Par window after last arrival (s)", 5.0, 60.0, 1.0],
 	["weather_interval_start", "Weather: gap at start (s)", 10.0, 150.0, 1.0],
 	["weather_interval_min", "Weather: gap at end (s)", 10.0, 150.0, 1.0],
 	["weather_warning_seconds", "Weather: warning lead (s)", 2.0, 20.0, 0.5],

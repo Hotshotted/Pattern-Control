@@ -40,7 +40,7 @@ static func _build() -> void:
 		},
 		{   # 2: two crossing runways: simultaneous landings conflict
 			"name": "County", "tag": "Crossing runways",
-			"runways": [_rw(Vector2(0.0, 0.2), 0.0, 6.5, ORANGE, "ORANGE"), _rw(Vector2(0.0, 0.2), 80.0, 6.5, BLUE, "BLUE")],
+			"runways": [_rw(Vector2(0.0, 0.2), 0.0, 6.5, ORANGE, "ORANGE"), _rw(Vector2(0.0, 0.2), 55.0, 5.4, BLUE, "BLUE")],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-3.3, 3.7),
 			"ground": Color(0.5, 0.68, 0.36),
@@ -61,9 +61,9 @@ static func _build() -> void:
 			"runways": [_rw(Vector2(-1.9, 0.6), 8.0, 6.2, ORANGE, "ORANGE"), _rw(Vector2(1.7, 0.6), 8.0, 6.2, BLUE, "BLUE")],
 			"pads": [], "lanes": [],
 			"hazards": [
-				{"center": Vector2(-3.7, -4.4), "radius": 1.5}, {"center": Vector2(3.6, -4.7), "radius": 1.6},
-				{"center": Vector2(0.0, -5.9), "radius": 1.2}, {"center": Vector2(-4.1, 4.9), "radius": 1.2},
-				{"center": Vector2(3.9, 5.0), "radius": 1.2},
+				{"center": Vector2(-4.2, -6.0), "radius": 1.2}, {"center": Vector2(4.3, -5.6), "radius": 1.3},
+				{"center": Vector2(0.55, -6.4), "radius": 0.8}, {"center": Vector2(-4.2, 5.6), "radius": 1.2},
+				{"center": Vector2(4.3, 5.4), "radius": 1.2},
 			],
 			"decor": [],
 			"tower": Vector2(0.0, 3.2), "windsock": Vector2(0.0, -1.2),
