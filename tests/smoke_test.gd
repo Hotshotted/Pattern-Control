@@ -2602,7 +2602,7 @@ func _initialize() -> void:
 	var sizes_ok = true
 	var sizes_seen = {}
 	for ch in main.hud.get_children():
-		if ch is Label and ch != main.hud._perf_label and ch.text.find("dev") < 0 and ch.text.find("local") < 0:
+		if ch is Label and ch != main.hud._perf_label and ch != main.hud._stamp:
 			var sz = ch.get_theme_font_size("font_size")
 			sizes_seen[sz] = true
 			sizes_ok = sizes_ok and (sz == main.hud.SZ_XL or sz == main.hud.SZ_M or sz == main.hud.SZ_S or sz == 26)
