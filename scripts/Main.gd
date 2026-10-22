@@ -21,6 +21,9 @@ const HEADER_DONE := "SHIFT\nCOMPLETE"
 @onready var traffic: Traffic = $Traffic
 var diorama: Diorama
 var _shake_left := 0.0
+var _audio_hold := false                 # the page went to the background: sound is held until the player taps Resume
+var _page_hidden := false
+var _poll_t := 0.0
 var _coin_step := 0
 var _coin_last_ms := -10000
 var _tick_next := 0.0                    # run time of the next timer tick
@@ -352,6 +355,8 @@ func _hitch_context() -> String:
 func _notification(what: int) -> void:
 	match what:
 		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+			if sfx != null:
+				_background()     # silence everything (held until the player taps Resume); pauses a shift in progress
 			if screen == SCREEN_PLAY and alive and not _warming:
 				pause_game()      # losing focus pauses the shift: it is waiting behind the pause menu when you come back
 			if not _suspended:
@@ -359,6 +364,8 @@ func _notification(what: int) -> void:
 				_paused_since_ms = Time.get_ticks_msec()
 				_note_event("window went to the background")
 		NOTIFICATION_APPLICATION_FOCUS_IN, NOTIFICATION_APPLICATION_RESUMED, NOTIFICATION_WM_WINDOW_FOCUS_IN:
+			if sfx != null:
+				_foreground()
 			if _suspended:
 				_suspended = false
 				_paused_total_ms += Time.get_ticks_msec() - _paused_since_ms
@@ -369,7 +376,66 @@ func _notification(what: int) -> void:
 func run_wall_time() -> float:
 	return maxf((Time.get_ticks_msec() - _run_start_ms - _paused_total_ms) / 1000.0, 0.0)
 
+# ---------- Background audio ----------
+
+## The page was hidden, blurred or the phone locked: silence everything, and pause a shift in progress. Nothing resumes by
+## itself: the player has to come back to the page and tap Resume (or, from the menu, tap anywhere).
+func _background() -> void:
+	_page_hidden = true
+	if not _audio_hold:
+		_audio_hold = true
+		sfx.hold()
+	if screen == SCREEN_PLAY and alive and not _warming:
+		pause_game()
+	_publish_state()
+
+func _foreground() -> void:
+	_page_hidden = false
+	_publish_state()
+
+## The player is back and has tapped (Resume, or any tap on a menu): sound may run again.
+func _release_audio() -> void:
+	if _page_hidden:
+		return
+	if _audio_hold:
+		_audio_hold = false
+		sfx.release()
+		if OS.has_feature("web"):
+			JavaScriptBridge.eval("window.__pwRelease && window.__pwRelease()")
+	_publish_state()
+
+## Web: the page tells us about visibility too (a hidden tab, a locked phone) in case the engine's own focus
+## notifications do not arrive; and we publish our state for the automated audio check.
+func _poll_page(delta: float) -> void:
+	if not OS.has_feature("web"):
+		return
+	_poll_t += delta
+	if _poll_t < 0.25:
+		return
+	_poll_t = 0.0
+	var hidden := bool(JavaScriptBridge.eval("!!window.__pwHidden"))
+	if hidden and not _page_hidden:
+		_background()
+	elif not hidden and _page_hidden:
+		_foreground()
+
+func _publish_state() -> void:
+	if not OS.has_feature("web"):
+		return
+	var rx := 195.0
+	var ry := 311.0
+	for k in hud._art.btn_count:
+		if hud._art.btn_id[k] == "resume":
+			var vp := get_viewport().get_visible_rect().size
+			var css_w := float(JavaScriptBridge.eval("window.innerWidth"))
+			var sc := css_w / vp.x
+			var c: Vector2 = hud._art.btn_rect[k].get_center()
+			rx = c.x * sc
+			ry = c.y * sc
+	JavaScriptBridge.eval("window.__pw = {paused: %s, muted: %s, held: %s, resume: [%.1f, %.1f]}" % [str(screen == SCREEN_PAUSE).to_lower(), str(AudioServer.is_bus_mute(0)).to_lower(), str(_audio_hold).to_lower(), rx, ry])
+
 func _process(raw_delta: float) -> void:
+	_poll_page(raw_delta)
 	_tick_shake(raw_delta)
 	# Music: the shift's own while playing; the calm menu bed everywhere else; the two crossfade.
 	if screen != SCREEN_PLAY and screen != SCREEN_PAUSE:
@@ -878,14 +944,17 @@ func pause_game() -> void:
 	_pause_since_ms = Time.get_ticks_msec()
 	_cancel_drag()
 	hud.show_pause(Save.sound_volume, Save.music_volume)
+	_publish_state()
 
 func resume_game() -> void:
 	if screen != SCREEN_PAUSE:
 		return
+	_release_audio()
 	_paused_total_ms += Time.get_ticks_msec() - _pause_since_ms
 	_skip_frames = Tuning.resume_skip_frames
 	screen = SCREEN_PLAY
 	hud.hide_pause()
+	_publish_state()
 
 ## Bus 0 = sound, 1 = music. (There is no audio content yet; the buses are ready for it.)
 func _set_volume(which: int, v: float) -> void:
@@ -929,6 +998,8 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.index, event.position)
 
 func _touch_down(index: int, pos: Vector2) -> void:
+	if _audio_hold and screen != SCREEN_PAUSE:
+		_release_audio()          # (back from the background, on a menu: any tap brings the sound back)
 	if hud.logo_active():
 		hud.skip_logo()
 		return

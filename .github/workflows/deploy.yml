@@ -83,6 +83,7 @@ jobs:
           sed -i '/<head>/r build/cache_bust.html' build/web/index.html
           grep -c "version.txt" build/web/index.html
           cp assets/fonts/Fredoka.ttf build/web/Fredoka.ttf   # (the loading page's wordmark font)
+          mkdir -p build/web/audio && cp assets/audio/loops/*.wav build/web/audio/   # (the page plays the music loops natively)
           grep -q "Clear Prop" build/web/index.html
           ! grep -q '\$GODOT_' build/web/index.html
           ls -la build/web

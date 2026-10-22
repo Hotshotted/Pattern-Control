@@ -111,9 +111,22 @@ game from this studio should sound like it belongs to the same room.
   (`Sfx.note_hz(degree)`), so anything that overlaps harmonises. The music is never pitch-shifted, because that would leave
   the key.
 * **Variation:** every repeated sound gets about +-3% random pitch and a hair of random level, so it never feels robotic.
-* **Rendering:** all sound is synthesised once at start-up into 16-bit `AudioStreamWAV` clips (16 kHz) and played from a
-  small pool: no files, no generators, and no buses created at run time (that silences the single-threaded web export). The
-  `SFX` and `Music` buses and the Master **limiter** (a hard limiter, ceiling -1 dB) come from `default_bus_layout.tres`.
+* **Rendering:** nothing is synthesised on the phone. `scripts/SfxSynth.gd` is the recipe and `tools/render_audio.gd`
+  bakes it into 44.1 kHz 16-bit mono WAVs in `assets/audio/` (one-shots) and `assets/audio/loops/` (calm, hot, tense, fog
+  and one shared engine `hum`), which are committed (re-run `godot --headless --path . --script tools/render_audio.gd`
+  after editing the recipe; the smoke test fails if they differ). One-shots play from a pool of 8 `AudioStreamPlayer`s.
+  No buses are created at run time (that silences the single-threaded web export): the `SFX` and `Music` buses and the
+  Master **limiter** (a hard limiter, ceiling -1 dB) come from `default_bus_layout.tres`.
+* **Loops on the web:** Godot's web samples loop by restarting a buffer from the main thread, which leaves a gap at every
+  wrap when a phone is busy. So the page (`PWAudio` in `web/shell.html`) plays the loops itself as native
+  `AudioBufferSource` loops (gapless, off the main thread, phase-locked, through a compressor-limiter); the game only
+  sends each layer's level. The loops ship beside the page, not in the pck. Loop waveforms are smooth sums of sines with no
+  jumps, and CI records the output in headless Chrome under CPU throttling and fails on discontinuities, repeated
+  buffers, dropouts or clipping (`tools/web_audio_check.js`).
+* **Background audio:** when the page is hidden, the phone is locked or the tab loses focus (`visibilitychange`,
+  `pagehide`, `blur`) every `AudioContext` is suspended by the page (this works even before the game has loaded), and the
+  game mutes the Master bus and pauses on Godot's focus-out. Sound stays off when the page comes back until the player taps
+  Resume. CI toggles page visibility and checks the output goes silent.
 
 **The sounds**
 

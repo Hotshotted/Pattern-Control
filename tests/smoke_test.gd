@@ -2309,11 +2309,13 @@ func _initialize() -> void:
 	for nm in k9_sfx.NAMES:
 		k9_all_made = k9_all_made and k9_sfx._streams.has(nm) and k9_sfx._streams[nm].data.size() > 100
 	check(k9_all_made, "every placeholder sound was generated (%s)" % ", ".join(k9_sfx.NAMES))
-	var k9_hums_ok = k9_sfx._hums.size() == 6
-	for k9_hp in k9_sfx._hums:
-		k9_hums_ok = k9_hums_ok and k9_hp.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD
-	check(k9_hums_ok and k9_sfx._music_calm.stream.data.size() == k9_sfx._music_hot.stream.data.size() and k9_sfx._music_hot.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "six looping engine hums and two equal-length music loops")
-	check(k9_sfx._streams["landing"] != k9_sfx._streams["go_around"] and k9_sfx._hums[0].stream.data != k9_sfx._hums[4].stream.data, "the sounds differ from each other")
+	check(k9_sfx._hum.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD and k9_sfx._music_calm.stream.data.size() == k9_sfx._music_hot.stream.data.size() and k9_sfx._music_hot.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "one shared engine bed and two equal-length music loops, all looping")
+	var k9_loop_players = 0
+	for k9_lp in k9_sfx.get_children():
+		if k9_lp is AudioStreamPlayer and k9_lp.stream is AudioStreamWAV and k9_lp.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD:
+			k9_loop_players += 1
+	check(k9_loop_players == 5, "five looping players in all (calm, hot, tense, fog, one engine bed), not one per aircraft type (%d)" % k9_loop_players)
+	check(k9_sfx._streams["landing"] != k9_sfx._streams["go_around"] and k9_sfx._hum.stream.data != k9_sfx._fog_amb.stream.data, "the sounds differ from each other")
 	main.restart()
 	tr.auto_spawn = false
 	var k9_c0 = k9_sfx.plays.duplicate()
@@ -3561,8 +3563,7 @@ func _initialize() -> void:
 	var wa_wavs = true
 	var wa_count = 0
 	var wa_all = wa_sfx._streams.values() + [wa_sfx._music_calm.stream, wa_sfx._music_hot.stream, wa_sfx._music_tense.stream, wa_sfx._fog_amb.stream]
-	for wa_h in wa_sfx._hums:
-		wa_all.append(wa_h.stream)
+	wa_all.append(wa_sfx._hum.stream)
 	for wa_s in wa_all:
 		wa_count += 1
 		wa_wavs = wa_wavs and wa_s is AudioStreamWAV and wa_s.format == AudioStreamWAV.FORMAT_16_BITS and wa_s.data.size() > 200 and wa_s.mix_rate >= 8000
@@ -3677,10 +3678,10 @@ func _initialize() -> void:
 	check(w_key_bad.is_empty(), "the chimes, plinks and fanfares all sit in the key of the music: %s" % str(w_key_bad))
 	var w_hz_ok = true
 	for w_dg in range(0, 14):
-		var w_hz = sx.note_hz(w_dg)
+		var w_hz = SfxSynth.note_hz(w_dg)
 		var w_semis = int(round(12.0 * log(w_hz / 261.6256) / log(2.0)))
 		w_hz_ok = w_hz_ok and w_in_key.has(posmod(w_semis, 12)) and absf(w_hz - 261.6256 * pow(2.0, w_semis / 12.0)) < 0.01
-	check(w_hz_ok and absf(sx.note_hz(5) - 523.25) < 0.1 and absf(sx.note_hz(4) - 440.0) < 0.1, "the scale helper is C major pentatonic (C4 261.6, A4 440, C5 523.3)")
+	check(w_hz_ok and absf(SfxSynth.note_hz(5) - 523.25) < 0.1 and absf(SfxSynth.note_hz(4) - 440.0) < 0.1, "the scale helper is C major pentatonic (C4 261.6, A4 440, C5 523.3)")
 	var w_land_d = []
 	var w_coin_d = []
 	for w_k in range(0, 7):
@@ -3707,8 +3708,7 @@ func _initialize() -> void:
 	for w_k in ["landing_0", "star", "unlock", "slam"]:
 		w_big_lo = minf(w_big_lo, sx_peak.call(sx_clip.call(w_k)))
 	var w_hum_pk = 0.0
-	for w_hp in sx._hums:
-		w_hum_pk = maxf(w_hum_pk, sx_peak.call(sx_clip_of(w_hp.stream)))
+	w_hum_pk = sx_peak.call(sx_clip_of(sx._hum.stream))
 	check(w_ui_pk < w_game_lo and w_game_hi < w_big_lo and w_ui_pk <= 0.16, "the mix is layered: UI %.2f < gameplay %.2f..%.2f < big moments %.2f" % [w_ui_pk, w_game_lo, w_game_hi, w_big_lo])
 	check(w_hum_pk <= 0.1 and w_hum_pk < w_ui_pk, "the engine hums are the quietest thing (peak %.2f)" % w_hum_pk)
 	var w_loud = 0.0
@@ -3719,8 +3719,7 @@ func _initialize() -> void:
 	check(sx._streams["landing_0"].data.size() / 2.0 / w_rate > 1.1 and sx._streams["tap"].data.size() / 2.0 / w_rate < 0.1, "chimes have a tail; UI clicks are short")
 	var w_seam_bad = []
 	var w_loops = {"calm": sx._music_calm.stream, "hot": sx._music_hot.stream, "tense": sx._music_tense.stream, "fog": sx._fog_amb.stream}
-	for w_hi in sx._hums.size():
-		w_loops["hum%d" % w_hi] = sx._hums[w_hi].stream
+	w_loops["hum"] = sx._hum.stream
 	for w_k in w_loops.keys():
 		var w_xs = sx_clip_of(w_loops[w_k])
 		var w_big_step = 0.0
@@ -3797,6 +3796,84 @@ func _initialize() -> void:
 	check(not w_sfx_src.contains("square") and not w_sfx_src.contains("sawtooth") and not w_sfx_src.contains("fposmod(f * t, 1.0) * 2.0"), "no square or saw waves in the sound code")
 	var w_dsty = FileAccess.get_file_as_string("res://docs/style.md")
 	check(w_dsty.contains("pentatonic") and w_dsty.contains("envelope") and w_dsty.contains("limiter") and w_dsty.contains("Mini Metro"), "the audio direction is documented in docs/style.md")
+
+	print("9x. pre-rendered audio, no clipping, loops, background audio")
+	# Every sound is a committed 44.1 kHz 16-bit mono WAV, and the committed files are exactly what the synth renders.
+	var xa_synth = SfxSynth.new()
+	var xa_fmt_bad = []
+	var xa_stale = []
+	var xa_all = {}
+	for xa_k in xa_synth.clips().keys():
+		xa_all["res://assets/audio/%s.wav" % xa_k] = xa_synth.clips()[xa_k]
+	var xa_loops = xa_synth.loops()
+	for xa_k in xa_loops.keys():
+		xa_all["res://assets/audio/loops/%s.wav" % xa_k] = xa_loops[xa_k]
+	for xa_path in xa_all.keys():
+		var xa_b = FileAccess.get_file_as_bytes(xa_path)
+		if xa_b.size() < 46 or xa_b.decode_u16(20) != 1 or xa_b.decode_u16(22) != 1 or xa_b.decode_u32(24) != 44100 or xa_b.decode_u16(34) != 16:
+			xa_fmt_bad.append(xa_path)
+			continue
+		var xa_s: PackedFloat32Array = xa_all[xa_path]
+		if xa_b.size() != 44 + xa_s.size() * 2:
+			xa_stale.append(xa_path)
+			continue
+		var xa_diff = 0
+		for xa_i in range(0, xa_s.size(), 97):
+			if absi(xa_b.decode_s16(44 + xa_i * 2) - int(clampf(xa_s[xa_i], -1.0, 1.0) * 32000.0)) > 2:
+				xa_diff += 1
+		if xa_diff > 0:
+			xa_stale.append(xa_path)
+	check(xa_fmt_bad.is_empty() and xa_all.size() >= 37, "all %d sounds are committed as 44.1 kHz 16-bit mono WAVs %s" % [xa_all.size(), str(xa_fmt_bad)])
+	check(xa_stale.is_empty(), "the committed WAVs match the synth (re-run tools/render_audio.gd): %s" % str(xa_stale))
+	# No sample-skipping steps in the loops (the beds are smooth sums of sines), and none clip.
+	var xa_step_bad = []
+	var xa_clip_bad = []
+	for xa_path in xa_all.keys():
+		var xa_x: PackedFloat32Array = xa_all[xa_path]
+		var xa_pk = 0.0
+		var xa_st = 0.0
+		for xa_i in range(1, xa_x.size()):
+			xa_pk = maxf(xa_pk, absf(xa_x[xa_i]))
+			xa_st = maxf(xa_st, absf(xa_x[xa_i] - xa_x[xa_i - 1]))
+		if xa_pk >= 0.99:
+			xa_clip_bad.append(xa_path)
+		if xa_path.contains("/loops/") and xa_st > 0.05:
+			xa_step_bad.append("%s %.3f" % [xa_path, xa_st])
+	check(xa_clip_bad.is_empty(), "no clip reaches full scale %s" % str(xa_clip_bad))
+	check(xa_step_bad.is_empty(), "no loop has jumps in it (smooth waveforms, no skipped or doubled samples) %s" % str(xa_step_bad))
+	# Worst case at once: every music layer, fog and the bed at their mixed levels (in dB, as Sfx.gd sets them) stay far
+	# below full scale, and the loudest one-shot on top of that is still under it, so the limiter only ever catches
+	# rare pile-ups.
+	var xa_gain = {"calm": -9.0, "hot": -8.0, "tense": -9.0, "fog": -10.0, "hum": -9.0}
+	var xa_sum = 0.0
+	for xa_k in xa_gain.keys():
+		var xa_p = 0.0
+		for xa_v in xa_loops[xa_k]:
+			xa_p = maxf(xa_p, absf(xa_v))
+		xa_sum += xa_p * db_to_linear(xa_gain[xa_k])
+	var xa_clips = xa_synth.clips()
+	var xa_loud = 0.0
+	for xa_k in xa_clips.keys():
+		for xa_v in xa_clips[xa_k]:
+			xa_loud = maxf(xa_loud, absf(xa_v))
+	check(xa_sum < 0.6 and xa_sum + xa_loud < 1.1, "the whole bed peaks at %.2f and a big sound (%.2f) on top stays near full scale, so the limiter rarely works" % [xa_sum, xa_loud])
+	# Web: the page plays the loops and holds everything in the background.
+	var xa_shell = FileAccess.get_file_as_string("res://web/shell.html")
+	var xa_shell_ok = true
+	for xa_w in ["PWAudio", "visibilitychange", "pagehide", "blur", "suspend", "__pwRelease", "__pwHidden", "loop = true", "DynamicsCompressor"]:
+		xa_shell_ok = xa_shell_ok and xa_shell.contains(xa_w)
+	check(xa_shell_ok, "the loading page plays native loops and suspends every AudioContext when hidden, before the game is ready")
+	check(FileAccess.get_file_as_string("res://export_presets.cfg").contains("assets/audio/loops/*") and FileAccess.get_file_as_string("res://.github/workflows/deploy.yml").contains("assets/audio/loops"), "the web build ships the loops beside the page, not inside the pck")
+	# Focus out holds everything; only Resume lets sound back.
+	main.restart()
+	tr.auto_spawn = false
+	main.step(1.0 / 60.0)
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	check(sx.held and AudioServer.is_bus_mute(0) and main.screen == main.SCREEN_PAUSE, "leaving the app mutes the Master bus and pauses the game")
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+	check(sx.held and AudioServer.is_bus_mute(0) and main.screen == main.SCREEN_PAUSE, "coming back does not bring the sound back by itself")
+	main.resume_game()
+	check(not sx.held and not AudioServer.is_bus_mute(0) and main.screen == main.SCREEN_PLAY, "Resume releases the sound and the game")
 	main.restart()
 	tr.auto_spawn = false
 

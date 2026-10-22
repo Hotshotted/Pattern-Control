@@ -9,22 +9,79 @@
 <meta name="author" content="Clear Prop Games">
 <title>$GODOT_PROJECT_NAME</title>
 <script>
-// Browsers keep an AudioContext suspended until a user gesture. Remember every context the engine makes and resume
-// them all on the first tap / key, so sound starts as soon as the player touches the game.
+// ---- Audio: contexts, background handling, and the looping music layers ----
+// 1. Browsers keep an AudioContext suspended until a user gesture. Every context the page or the engine makes is remembered
+//    here and resumed on the first tap / key.
+// 2. When the page goes to the background (tab hidden, phone locked, app switched: visibilitychange, pagehide, blur) EVERY
+//    context is suspended at once, even before the game is ready. They stay suspended after the page is visible again: the
+//    game (which pauses itself and mutes its Master bus) releases them when the player taps Resume (window.__pwRelease).
+//    If the game is not up yet, the first tap after coming back resumes them.
+// 3. PWAudio plays the looping layers (music, fog, engine bed) natively: AudioBufferSource loops run on the browser's audio
+//    thread, so a busy phone cannot leave a gap at the loop point (the engine's own web loops restart from the main thread).
 (function () {
   var Ctor = window.AudioContext || window.webkitAudioContext;
   if (!Ctor) { return; }
   var all = [];
+  window.__ctxs = all;
+  window.__pwHidden = false;
+  window.__pwGameReady = false;
+  var held = false;
   function Wrapped() {
     var c = new (Function.prototype.bind.apply(Ctor, [null].concat([].slice.call(arguments))))();
     all.push(c);
+    if (held) { try { c.suspend(); } catch (e) {} }
     return c;
   }
   Wrapped.prototype = Ctor.prototype;
   window.AudioContext = Wrapped;
   if (window.webkitAudioContext) { window.webkitAudioContext = Wrapped; }
-  function resume() { all.forEach(function (c) { if (c.state === 'suspended') { try { c.resume(); } catch (e) {} } }); }
-  ['touchend', 'pointerup', 'click', 'keydown', 'mouseup'].forEach(function (ev) { window.addEventListener(ev, resume, { capture: true }); });
+  function suspendAll() { all.forEach(function (c) { if (c.state === 'running') { try { c.suspend(); } catch (e) {} } }); }
+  function resumeAll() { all.forEach(function (c) { if (c.state === 'suspended') { try { c.resume(); } catch (e) {} } }); }
+  function hide() { window.__pwHidden = true; held = true; suspendAll(); }
+  function show() { if (!document.hidden) { window.__pwHidden = false; } }
+  document.addEventListener('visibilitychange', function () { if (document.hidden) { hide(); } else { show(); } });
+  window.addEventListener('pagehide', hide);
+  window.addEventListener('blur', hide);
+  window.addEventListener('focus', show);
+  window.addEventListener('pageshow', show);
+  window.__pwRelease = function () { held = false; resumeAll(); };
+  function gesture() {
+    if (document.hidden || window.__pwHidden) { return; }
+    if (held) { if (window.__pwGameReady) { return; } held = false; }
+    resumeAll();
+  }
+  ['touchend', 'pointerup', 'click', 'keydown', 'mouseup'].forEach(function (ev) { window.addEventListener(ev, gesture, { capture: true }); });
+
+  var api = { enabled: false };
+  window.PWAudio = api;
+  var ctx;
+  try { ctx = new window.AudioContext({ latencyHint: 'playback' }); } catch (e) { try { ctx = new window.AudioContext(); } catch (e2) { return; } }
+  ctx.__pw = true;
+  window.__pwCtx = ctx;
+  var master = ctx.createGain();
+  var limiter = ctx.createDynamicsCompressor();          // a gentle limiter on everything the page plays
+  limiter.threshold.value = -4; limiter.knee.value = 3; limiter.ratio.value = 20; limiter.attack.value = 0.003; limiter.release.value = 0.12;
+  master.connect(limiter); limiter.connect(ctx.destination);
+  var names = ['calm', 'hot', 'tense', 'fog', 'hum'];
+  var gains = {}, want = {}, bufs = {}, left = names.length, started = false;
+  names.forEach(function (n) { gains[n] = ctx.createGain(); gains[n].gain.value = 0; gains[n].connect(master); want[n] = -80; });
+  function lin(db) { return db <= -70 ? 0 : Math.pow(10, db / 20); }
+  function apply(n) { gains[n].gain.setTargetAtTime(lin(want[n]), ctx.currentTime, 0.04); }
+  function startAll() {
+    var t0 = ctx.currentTime + 0.1;
+    names.forEach(function (n) { var s = ctx.createBufferSource(); s.buffer = bufs[n]; s.loop = true; s.connect(gains[n]); s.start(t0); });
+    started = true;
+    names.forEach(apply);
+  }
+  names.forEach(function (n) {
+    fetch('audio/' + n + '.wav').then(function (r) { return r.arrayBuffer(); }).then(function (b) { return ctx.decodeAudioData(b); }).then(function (buf) {
+      bufs[n] = buf; left--; if (left === 0) { startAll(); }
+    }).catch(function () { api.enabled = false; });
+  });
+  api.enabled = true;
+  api.set = function (n, db) { if (!(n in want)) { return; } want[n] = db; if (started) { apply(n); } };
+  api.setMany = function (o) { for (var k in o) { api.set(k, o[k]); } };
+  api.setHeld = function (b) { master.gain.setTargetAtTime(b ? 0 : 1, ctx.currentTime, 0.015); };
 })();
 </script>
 <style>
