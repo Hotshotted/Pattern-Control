@@ -3539,6 +3539,53 @@ func _initialize() -> void:
 	DebugFlags.parse(["tune"])
 	main.hud.refresh_stamp()
 
+	print("9v. web audio: sample-based streams, buses from the layout, volumes, the first-gesture unlock")
+	var wa_scripts = ""
+	for wa_f in DirAccess.get_files_at("res://scripts"):
+		if wa_f.ends_with(".gd"):
+			wa_scripts += FileAccess.get_file_as_string("res://scripts/" + wa_f)
+	check(not wa_scripts.contains("AudioStreamGenerator") and not wa_scripts.contains("AudioStreamMicrophone"), "no generator or microphone streams anywhere: everything is sample based")
+	check(not wa_scripts.contains("add_bus("), "no bus is ever created at run time (in the single-threaded web export that silences all audio)")
+	var wa_layout = FileAccess.get_file_as_string("res://default_bus_layout.tres")
+	check(wa_layout.contains("&\"SFX\"") and wa_layout.contains("&\"Music\"") and ProjectSettings.get_setting("audio/buses/default_bus_layout") == "res://default_bus_layout.tres", "the SFX and Music buses come from the project's bus layout")
+	check(AudioServer.get_bus_index("SFX") >= 0 and AudioServer.get_bus_index("Music") >= 0 and AudioServer.get_bus_send(AudioServer.get_bus_index("Music")) == &"Master", "...and exist, sending to Master, from the first frame")
+	var wa_sfx = main.sfx
+	var wa_wavs = true
+	var wa_count = 0
+	var wa_all = wa_sfx._streams.values() + [wa_sfx._music_calm.stream, wa_sfx._music_hot.stream, wa_sfx._music_tense.stream, wa_sfx._fog_amb.stream]
+	for wa_h in wa_sfx._hums:
+		wa_all.append(wa_h.stream)
+	for wa_s in wa_all:
+		wa_count += 1
+		wa_wavs = wa_wavs and wa_s is AudioStreamWAV and wa_s.format == AudioStreamWAV.FORMAT_16_BITS and wa_s.data.size() > 200 and wa_s.mix_rate >= 8000
+		if wa_s is AudioStreamWAV:
+			var wa_nz = 0
+			for wa_b in range(0, mini(wa_s.data.size(), 20000), 2):
+				if wa_s.data[wa_b] != 0 or wa_s.data[wa_b + 1] != 0:
+					wa_nz += 1
+			wa_wavs = wa_wavs and wa_nz > 20
+	check(wa_wavs and wa_count >= 25, "every sound, hum and music layer (%d) is a pre-rendered 16-bit AudioStreamWAV with real sample data" % wa_count)
+	var wa_players_ok = true
+	for wa_p in wa_sfx.get_children():
+		if wa_p is AudioStreamPlayer:
+			wa_players_ok = wa_players_ok and AudioServer.get_bus_index(wa_p.bus) >= 0
+	check(wa_players_ok, "every player is on a bus that exists")
+	save.reset_all()
+	check(save.sound_volume == 0.8 and save.music_volume == 0.8, "the default volumes are 0.8, not zero")
+	main._apply_volumes()
+	check(not AudioServer.is_bus_mute(AudioServer.get_bus_index("SFX")) and not AudioServer.is_bus_mute(AudioServer.get_bus_index("Music")) and AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Music")) > -6.0, "...so neither bus is muted or quiet at start")
+	wa_sfx.unlocked = false
+	wa_sfx.set_menu_music(true)
+	wa_sfx._glide_music(0.2)
+	var wa_was_playing = wa_sfx._music_calm.playing
+	wa_sfx.unlock()
+	check(wa_sfx.unlocked and wa_was_playing and wa_sfx._music_calm.playing, "the first touch unlocks audio and (re)starts the music layers")
+	var wa_shell = FileAccess.get_file_as_string("res://web/shell.html")
+	check(wa_shell.contains("AudioContext") and wa_shell.contains(".resume()") and wa_shell.contains("touchend"), "the web page resumes the browser's audio context on the first tap")
+	check(FileAccess.file_exists("res://tools/web_audio_check.js") and FileAccess.get_file_as_string("res://.github/workflows/deploy.yml").contains("web_audio_check.js"), "CI loads the exported game in headless Chrome and listens for sound")
+	save.reset_all()
+	main._apply_volumes()
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true

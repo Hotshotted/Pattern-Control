@@ -87,6 +87,16 @@ jobs:
           ! grep -q '\$GODOT_' build/web/index.html
           ls -la build/web
 
+      # The exported game, loaded in headless Chrome and tapped like a phone: sound must really come out of it
+      # (the menu music after the first tap, the shift music after PLAY).
+      - name: Web audio check
+        timeout-minutes: 10
+        run: |
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
+          echo "using $CHROME"
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/pw" playwright-core
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_audio_check.js build/web "$CHROME"
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/web

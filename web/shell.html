@@ -8,6 +8,25 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="author" content="Clear Prop Games">
 <title>$GODOT_PROJECT_NAME</title>
+<script>
+// Browsers keep an AudioContext suspended until a user gesture. Remember every context the engine makes and resume
+// them all on the first tap / key, so sound starts as soon as the player touches the game.
+(function () {
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) { return; }
+  var all = [];
+  function Wrapped() {
+    var c = new (Function.prototype.bind.apply(Ctor, [null].concat([].slice.call(arguments))))();
+    all.push(c);
+    return c;
+  }
+  Wrapped.prototype = Ctor.prototype;
+  window.AudioContext = Wrapped;
+  if (window.webkitAudioContext) { window.webkitAudioContext = Wrapped; }
+  function resume() { all.forEach(function (c) { if (c.state === 'suspended') { try { c.resume(); } catch (e) {} } }); }
+  ['touchend', 'pointerup', 'click', 'keydown', 'mouseup'].forEach(function (ev) { window.addEventListener(ev, resume, { capture: true }); });
+})();
+</script>
 <style>
 @font-face { font-family: "Fredoka"; src: url("Fredoka.ttf") format("truetype"); font-weight: 300 700; font-display: swap; }
 html, body { margin: 0; height: 100%; background: #0d1a33; overflow: hidden; touch-action: none; }

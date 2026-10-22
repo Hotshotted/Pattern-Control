@@ -867,14 +867,13 @@ func _set_volume(which: int, v: float) -> void:
 		Save.music_volume = v
 	_apply_volumes()
 
+## The SFX and Music buses come from default_bus_layout.tres (loaded before the audio driver starts). They are NEVER
+## created at run time: in the single-threaded web export, adding a bus after start-up silences all audio.
 func _apply_volumes() -> void:
 	for pair in [["SFX", Save.sound_volume], ["Music", Save.music_volume]]:
 		var idx := AudioServer.get_bus_index(pair[0])
 		if idx < 0:
-			AudioServer.add_bus()
-			idx = AudioServer.bus_count - 1
-			AudioServer.set_bus_name(idx, pair[0])
-			AudioServer.set_bus_send(idx, "Master")
+			continue
 		AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(pair[1], 0.0001)))
 		AudioServer.set_bus_mute(idx, pair[1] <= 0.001)
 
@@ -888,6 +887,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if not _haptic_warmed:
 		_haptic_warmed = true
+		sfx.unlock()
 		if not DebugFlags.off("haptic"):
 			Input.vibrate_handheld(1)   # browsers only allow vibration after a touch: connect it early
 	if _warming:

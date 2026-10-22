@@ -28,6 +28,7 @@ var _music_hot: AudioStreamPlayer
 var _music_tense: AudioStreamPlayer
 var _fog_amb: AudioStreamPlayer
 var _music_on := false
+var unlocked := false                  # the first user gesture has happened (browsers keep audio suspended until then)
 var _menu_on := false
 var _calm_db := -80.0                  # what the players are at now; the targets come from the mode (a smooth crossfade)
 var _hot_db := -80.0
@@ -69,7 +70,7 @@ func _ready() -> void:
 
 func _player(bus: String) -> AudioStreamPlayer:
 	var p := AudioStreamPlayer.new()
-	p.bus = bus
+	p.bus = bus if AudioServer.get_bus_index(bus) >= 0 else "Master"      # (a missing bus must never be named: the web build aborts)
 	add_child(p)
 	return p
 
@@ -84,6 +85,19 @@ func play(sound: String, pitch: float = 1.0) -> void:
 	p.stream = _streams[sound]
 	p.pitch_scale = pitch
 	p.play()
+
+## The first touch: browsers only let audio run after a gesture. Looping layers that were started while the page was
+## still locked are restarted now, so they begin cleanly with the audio context running.
+func unlock() -> void:
+	if unlocked:
+		return
+	unlocked = true
+	if not enabled:
+		return
+	for p in [_music_calm, _music_hot, _music_tense, _fog_amb]:
+		if p != null and p.playing:
+			p.stop()
+			p.play()
 
 ## Aircraft per type currently on the field (index = Aircraft.Type): the hums follow these.
 func set_hum_counts(counts: PackedInt32Array) -> void:
