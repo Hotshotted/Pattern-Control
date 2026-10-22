@@ -4,12 +4,15 @@ extends SceneTree
 ## the daily modes and the aircraft tip, and saves one image each.
 
 var out := "/tmp/shots"
+var only := ""          # "types": just the aircraft line-up (a quick look while drawing them)
 var main: Node
 
 func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("out="):
 			out = a.substr(4)
+		if a.begins_with("only="):
+			only = a.substr(5)
 	DirAccess.make_dir_recursive_absolute(out)
 	var save = root.get_node("Save")
 	save.path = "user://shots_save.json"
@@ -33,7 +36,10 @@ func _initialize() -> void:
 		guard += 1
 	await _frames(30)
 	print("state: warming=", main._warming, " splash=", is_instance_valid(main.hud._splash), " ad=", main.hud._ad.visible, " menu=", main.hud._menu.visible, " screen=", main.screen)
-	await _walk(save)
+	if only == "types":
+		await _types_shots(save)
+	else:
+		await _walk(save)
 	quit()
 
 func _frames(n: int) -> void:
@@ -239,3 +245,24 @@ func _polish_shots() -> void:
 		hud._process(0.05)
 	await _frames(2)
 	_save_raw("27_unlock_reveal")
+
+## Every aircraft type on one airport, each in a runway colour (and a student pilot), plus the other airports' ground.
+func _types_shots(save) -> void:
+	save.unlocks["all_airports"] = true
+	for a in [5, 0, 1, 2, 3, 4]:
+		main.select_airport(a)
+		main.restart()
+		var tr = main.traffic
+		tr.auto_spawn = false
+		if a == 5:
+			var k := 0
+			for t in [0, 1, 2, 3, 4, 5]:
+				var target := 0 if t != 1 else 0
+				var p = tr.place(k % 3 if t != 1 and t != 5 else 0, Vector2(-3.2 + (k % 3) * 3.2, -5.0 + (k / 3) * 3.0), 0.5 * k, t)
+				if t == 3:
+					p.student = true
+				p.timer_left = p.timer_max * (0.9 - 0.15 * k)
+				k += 1
+			for i in 20:
+				main.step(1.0 / 60.0)
+		await _shot("30_airport_%d" % a)

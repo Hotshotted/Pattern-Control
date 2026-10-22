@@ -57,6 +57,9 @@ var _fuselages: Array[Node3D] = []
 var _wings: Array[Node3D] = []
 var _plane_groups: Array[Node3D] = []
 var _glider_groups: Array[Node3D] = []
+var _jet_groups: Array[Node3D] = []
+var _rotor_discs: Array[MeshInstance3D] = []
+var _badges: Array[Node3D] = []
 var _heli_groups: Array[Node3D] = []
 var _float_groups: Array[Node3D] = []
 var _rotors: Array[Node3D] = []
@@ -155,15 +158,23 @@ func _build_extras() -> void:
 	for k in n:
 		_trail_age[k] = 99.0
 
+## One pooled aircraft model (built once; only visibility, colours and transforms change in a run). Sunny Airfield: white
+## bodies with the livery colour (the target runway's) on the stripe, nose cap and fin; distinct silhouettes for the light
+## plane, the swept-wing jet, the helicopter, the long-winged glider and the seaplane with floats; a prop disc on the prop
+## planes, a rotor disc on the helicopter, and an orange "L" badge on a student pilot's wing.
+## (`_body_mats` is the livery colour: it is what the emergency flash and the runway colour paint.)
 func _build_node() -> void:
 	var root := Node3D.new()
 	root.visible = false
 	add_child(root)
 	_nodes.append(root)
-	var body := Prim.mat(Color.WHITE)
-	var wing := Prim.mat(Color.WHITE)
-	var dark := Prim.mat(Color(0.12, 0.16, 0.22))
-	var tailm := Prim.mat(Color.WHITE)
+	var white := Prim.mat(Color(0.97, 0.98, 1.0))
+	var body := Prim.mat(Color.WHITE)               # livery colour: nose cap, stripe, helicopter body
+	var wing := Prim.mat(Color(0.97, 0.98, 1.0))
+	var dark := Prim.mat(Color(0.17, 0.29, 0.48))      # canopy
+	var glass := Prim.mat(Color(0.62, 0.77, 1.0))
+	var grey := Prim.mat(Color(0.8, 0.83, 0.89))       # floats, engines
+	var tailm := Prim.mat(Color.WHITE)              # the fin
 	var stripem := Prim.mat(Color.WHITE)
 	var stripe_boxes: Array[MeshInstance3D] = []
 	_body_mats.append(body)
@@ -171,29 +182,31 @@ func _build_node() -> void:
 	_tail_mats.append(tailm)
 	_stripe_mats.append(stripem)
 	# The aircraft's nose points along local -z. Cylinders are stood on their side (x rotated 90 degrees).
-	# --- planes (small / medium / jet / seaplane)
+	# --- light planes (small / medium / seaplane): straight wings, a prop disc, a tail with a coloured fin
 	var group := Node3D.new()
 	root.add_child(group)
 	_plane_groups.append(group)
 	var fus := Node3D.new()
 	group.add_child(fus)
 	_fuselages.append(fus)
-	var tube := Prim.cyl(fus, 0.15, 0.15, 1.1, 6, Vector3.ZERO, body)
+	var tube := Prim.cyl(fus, 0.15, 0.15, 1.1, 8, Vector3.ZERO, white)
 	tube.rotation.x = deg_to_rad(90.0)
-	var nose := Prim.cyl(fus, 0.0, 0.15, 0.42, 6, Vector3(0, 0, -0.76), body)
+	var nose := Prim.cyl(fus, 0.0, 0.15, 0.42, 8, Vector3(0, 0, -0.76), body)
 	nose.rotation.x = deg_to_rad(-90.0)
 	Prim.box(fus, Vector3(0.15, 0.1, 0.3), Vector3(0, 0.15, -0.32), dark, false)
+	Prim.box(fus, Vector3(0.05, 0.04, 0.12), Vector3(-0.02, 0.2, -0.36), glass, false)
 	var disc_m := StandardMaterial3D.new()          # propeller blur: a pale translucent disc at the nose
 	disc_m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	disc_m.albedo_color = Color(1, 1, 1, 0.3)
 	disc_m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	var disc := Prim.cyl(fus, 0.3, 0.3, 0.015, 12, Vector3(0, 0, -0.98), disc_m, false)
+	var disc := Prim.cyl(fus, 0.3, 0.3, 0.015, 14, Vector3(0, 0, -0.98), disc_m, false)
 	disc.rotation.x = deg_to_rad(90.0)
 	_prop_discs.append(disc)
 	var wing_root := Node3D.new()
 	group.add_child(wing_root)
 	_wings.append(wing_root)
 	Prim.box(wing_root, Vector3(1.5, 0.07, 0.36), Vector3(0, 0.02, -0.08), wing)
+	stripe_boxes.append(Prim.box(wing_root, Vector3(1.4, 0.075, 0.07), Vector3(0, 0.022, -0.1), stripem, false))
 	var tail := Node3D.new()
 	group.add_child(tail)
 	Prim.box(tail, Vector3(0.62, 0.06, 0.2), Vector3(0, 0.02, 0.5), wing)
@@ -203,37 +216,68 @@ func _build_node() -> void:
 	group.add_child(floats)
 	_float_groups.append(floats)
 	for sx in [-1.0, 1.0]:
-		Prim.box(floats, Vector3(0.14, 0.1, 0.9), Vector3(sx * 0.4, -0.1, -0.08), body)
+		Prim.box(floats, Vector3(0.14, 0.1, 0.9), Vector3(sx * 0.4, -0.1, -0.08), grey)
 		Prim.box(floats, Vector3(0.05, 0.12, 0.05), Vector3(sx * 0.4, -0.02, -0.3), dark, false)
-	# --- glider: slim body, very long thin wings, T-tail
+	# --- jet: a long body, swept-back wings with engine pods, a swept tail with the coloured fin
+	var jet := Node3D.new()
+	root.add_child(jet)
+	_jet_groups.append(jet)
+	var jt := Prim.cyl(jet, 0.13, 0.13, 1.5, 8, Vector3.ZERO, white)
+	jt.rotation.x = deg_to_rad(90.0)
+	var jn := Prim.cyl(jet, 0.0, 0.13, 0.5, 8, Vector3(0, 0, -0.98), white)
+	jn.rotation.x = deg_to_rad(-90.0)
+	Prim.box(jet, Vector3(0.12, 0.07, 0.2), Vector3(0, 0.12, -0.62), dark, false)
+	for sx in [-1.0, 1.0]:
+		var sw := Prim.box(jet, Vector3(0.82, 0.05, 0.3), Vector3(sx * 0.44, 0.0, 0.1), wing)
+		sw.rotation.y = deg_to_rad(sx * 26.0)
+		var eng := Prim.cyl(jet, 0.07, 0.07, 0.3, 6, Vector3(sx * 0.42, -0.04, -0.02), grey)
+		eng.rotation.x = deg_to_rad(90.0)
+		var ts := Prim.box(jet, Vector3(0.36, 0.04, 0.16), Vector3(sx * 0.2, 0.02, 0.68), tailm)
+		ts.rotation.y = deg_to_rad(sx * 24.0)
+	Prim.box(jet, Vector3(0.06, 0.28, 0.24), Vector3(0, 0.17, 0.66), tailm)
+	stripe_boxes.append(Prim.box(jet, Vector3(0.06, 0.03, 1.15), Vector3(0, 0.13, 0.08), stripem, false))
+	# --- glider: slim body, very long thin wings with coloured tips, T-tail
 	var glider := Node3D.new()
 	root.add_child(glider)
 	_glider_groups.append(glider)
-	var gt := Prim.cyl(glider, 0.07, 0.05, 1.2, 5, Vector3.ZERO, body)
+	var gt := Prim.cyl(glider, 0.07, 0.05, 1.2, 6, Vector3.ZERO, white)
 	gt.rotation.x = deg_to_rad(90.0)
 	Prim.box(glider, Vector3(2.6, 0.04, 0.2), Vector3(0, 0.08, -0.15), wing)
-	Prim.box(glider, Vector3(0.12, 0.1, 0.28), Vector3(0, 0.13, -0.35), dark, false)
+	for sx in [-1.0, 1.0]:
+		stripe_boxes.append(Prim.box(glider, Vector3(0.3, 0.045, 0.2), Vector3(sx * 1.15, 0.08, -0.15), stripem, false))
+	Prim.box(glider, Vector3(0.12, 0.1, 0.28), Vector3(0, 0.13, -0.35), glass, false)
 	Prim.box(glider, Vector3(0.6, 0.04, 0.14), Vector3(0, 0.3, 0.55), wing)
 	Prim.box(glider, Vector3(0.04, 0.3, 0.16), Vector3(0, 0.17, 0.55), tailm)
 	stripe_boxes.append(Prim.box(glider, Vector3(0.06, 0.03, 0.9), Vector3(0, 0.1, 0.05), stripem, false))
-	# --- helicopter: stubby body, tail boom, a spinning rotor
+	# --- helicopter: a coloured stubby body, glass bubble, tail boom, a spinning rotor under a pale rotor disc
 	var heli := Node3D.new()
 	root.add_child(heli)
 	_heli_groups.append(heli)
-	var hb := Prim.cyl(heli, 0.26, 0.26, 0.7, 6, Vector3(0, 0.05, -0.1), body)
+	var hb := Prim.cyl(heli, 0.26, 0.26, 0.7, 8, Vector3(0, 0.05, -0.1), body)
 	hb.rotation.x = deg_to_rad(90.0)
-	Prim.box(heli, Vector3(0.3, 0.16, 0.22), Vector3(0, 0.1, -0.38), dark, false)
+	Prim.box(heli, Vector3(0.3, 0.16, 0.22), Vector3(0, 0.12, -0.38), glass, false)
 	Prim.box(heli, Vector3(0.1, 0.1, 0.8), Vector3(0, 0.08, 0.62), body)
 	Prim.box(heli, Vector3(0.05, 0.3, 0.18), Vector3(0, 0.2, 0.98), tailm)
-	stripe_boxes.append(Prim.box(heli, Vector3(0.12, 0.03, 0.7), Vector3(0, 0.14, 0.62), stripem, false))
 	for sx in [-1.0, 1.0]:
-		Prim.box(heli, Vector3(0.05, 0.05, 0.6), Vector3(sx * 0.24, -0.16, -0.1), dark, false)
+		Prim.box(heli, Vector3(0.05, 0.05, 0.6), Vector3(sx * 0.24, -0.16, -0.1), white, false)
 	var rotor := Node3D.new()
 	rotor.position = Vector3(0, 0.34, -0.1)
 	heli.add_child(rotor)
 	_rotors.append(rotor)
 	Prim.box(rotor, Vector3(1.7, 0.03, 0.12), Vector3.ZERO, wing)
 	Prim.box(rotor, Vector3(0.12, 0.03, 1.7), Vector3.ZERO, wing)
+	var rotor_disc := Prim.cyl(heli, 0.88, 0.88, 0.01, 18, Vector3(0, 0.33, -0.1), disc_m, false)
+	_rotor_discs.append(rotor_disc)
+	# --- the student pilot's "L": an orange badge on the right wing (all types), white strokes
+	var badge := Node3D.new()
+	badge.position = Vector3(0.52, 0.12, -0.05)
+	root.add_child(badge)
+	_badges.append(badge)
+	Prim.box(badge, Vector3(0.3, 0.03, 0.3), Vector3.ZERO, Prim.mat(Color("ff9f2e")), false)
+	var lm := Prim.mat(Color.WHITE)
+	Prim.box(badge, Vector3(0.06, 0.04, 0.2), Vector3(-0.05, 0.0, 0.0), lm, false)
+	Prim.box(badge, Vector3(0.15, 0.04, 0.06), Vector3(0.0, 0.0, 0.07), lm, false)
+	badge.visible = false
 	_stripes.append(stripe_boxes)
 
 # ---------- Spawning ----------
@@ -290,10 +334,9 @@ func place(target: int, pos: Vector2, heading: float, type: int, entered: bool =
 ## Paint every aircraft in an airline livery (tail + stripe colours; the standard one has none).
 func set_livery(index: int) -> void:
 	livery = index
-	var custom: bool = Cosmetics.LIVERIES[index]["stripe"] != null
 	for i in pool_n:
 		for box in _stripes[i]:
-			box.visible = custom
+			box.visible = true          # (the stripe is part of the look: the livery's colour, else the runway's)
 		var p := planes[i]
 		if p.active():
 			_sync(p, i)
@@ -309,8 +352,10 @@ func make_special(p: Aircraft, emergency: bool, vip: bool) -> void:
 
 ## Show the right model for the type: stubby props / medium / long jets; floats for seaplanes; a glider; a helicopter.
 func _set_model(i: int, type: int, cls: int) -> void:
-	var is_plane := type != Aircraft.Type.GLIDER and type != Aircraft.Type.HELI
+	var is_plane := type != Aircraft.Type.GLIDER and type != Aircraft.Type.HELI and type != Aircraft.Type.JET
 	_plane_groups[i].visible = is_plane
+	_jet_groups[i].visible = type == Aircraft.Type.JET
+	_rotor_discs[i].visible = type == Aircraft.Type.HELI
 	_glider_groups[i].visible = type == Aircraft.Type.GLIDER
 	_heli_groups[i].visible = type == Aircraft.Type.HELI
 	_float_groups[i].visible = type == Aircraft.Type.SEAPLANE
@@ -319,6 +364,7 @@ func _set_model(i: int, type: int, cls: int) -> void:
 	var span: float = [1.2, 1.0, 0.78][cls]
 	_fuselages[i].scale = Vector3(1.0, 1.0, long)
 	_wings[i].scale = Vector3(span, 1.0, 1.0)
+	_jet_groups[i].scale = Vector3(1.0, 1.0, 0.9 + 0.1 * long)
 	if i < _shadow_size.size():
 		match type:
 			Aircraft.Type.GLIDER:
@@ -973,18 +1019,15 @@ func _sync(p: Aircraft, i: int) -> void:
 	sh.position = Vector3(p.pos.x + 0.1 + 0.4 * up, 0.14, p.pos.y + 0.08 + 0.3 * up)
 	sh.rotation.y = -p.vis_heading
 	sh.scale = Vector3(_shadow_size[i].x, 1.0, _shadow_size[i].y) * (0.9 + 0.1 * alt)
-	_shadow_mats[i].set_shader_parameter("alpha", 0.34 - 0.12 * clampf(up, 0.0, 1.5))
+	_shadow_mats[i].set_shader_parameter("alpha", 0.22 - 0.08 * clampf(up, 0.0, 1.5))       # ink at ~20%: fainter the higher it flies
 	var base := Airports.land_color(p.tkind, p.runway)
-	var wing := base.lerp(Color.WHITE, 0.35)
 	if p.emergency and p.state != Aircraft.State.LANDING and sin(TAU * 3.0 * p.age) > 0.0:
 		base = Color(1.0, 0.12, 0.1)
-		wing = Color.WHITE
 	_body_mats[i].albedo_color = base
-	_wing_mats[i].albedo_color = wing
 	var lv: Dictionary = Cosmetics.LIVERIES[livery]
 	_tail_mats[i].albedo_color = lv["tail"] if lv["tail"] != null else base
-	if lv["stripe"] != null:
-		_stripe_mats[i].albedo_color = lv["stripe"]
+	_stripe_mats[i].albedo_color = lv["stripe"] if lv["stripe"] != null else base
+	_badges[i].visible = p.student
 	if p.type == Aircraft.Type.HELI:
 		_rotors[i].rotation.y = p.age * 22.0
 

@@ -5,11 +5,11 @@ extends RefCounted
 ## planes toward its heading, and its approach end (threshold) is the end they come from.
 ## (No Tuning references: the smoke test can read this class while it compiles.)
 
-const ORANGE := Color(1.0, 0.56, 0.12)
-const BLUE := Color(0.2, 0.66, 1.0)
+const ORANGE := Color("ff8a3d")
+const BLUE := Color("3d8bff")
 const PINK := Color(1.0, 0.45, 0.75)
-const PAD_COLOR := Color(0.7, 0.5, 1.0)      # helipads
-const LANE_COLOR := Color(0.2, 0.9, 0.8)     # seaplane lanes
+const PAD_COLOR := Color("a06bff")      # helipads
+const LANE_COLOR := Color("35c98a")     # seaplane lanes
 const COUNT := 6
 
 static var current := 0
@@ -34,25 +34,30 @@ static func _build() -> void:
 			"runways": [_rw(Vector2(0.0, 0.8), 0.0, 7.0, ORANGE, "ORANGE", 1.1)],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6),
-			"ground": Color(0.42, 0.68, 0.38),
+			"ground": Color("84c26b"),
 			"mix": {S: 0.7, G: 0.3},
 			"unlock_stars": 0, "weather": [],
 		},
 		{   # 2: two crossing runways: simultaneous landings conflict
 			"name": "County", "tag": "Crossing runways",
 			"runways": [_rw(Vector2(0.0, 0.2), 0.0, 6.5, ORANGE, "ORANGE"), _rw(Vector2(0.0, 0.2), 55.0, 5.4, BLUE, "BLUE")],
-			"pads": [], "lanes": [], "hazards": [], "decor": [],
+			"pads": [], "lanes": [], "hazards": [],
+			"decor": [{"shape": "box", "pos": Vector2(-3.3, -3.4), "size": Vector2(2.6, 3.4), "color": Color("d9c46a"), "y": 0.012},
+					{"shape": "box", "pos": Vector2(3.4, 4.0), "size": Vector2(2.4, 3.2), "color": Color("a8d070"), "y": 0.012},
+					{"shape": "box", "pos": Vector2(-3.5, 5.2), "size": Vector2(2.2, 2.4), "color": Color("e3cf7a"), "y": 0.012}],
 			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-3.3, 3.7),
-			"ground": Color(0.5, 0.68, 0.36),
+			"ground": Color("8fc766"),
 			"mix": {S: 0.35, M: 0.45, G: 0.2},
 			"unlock_stars": 2, "weather": ["crosswind"],
 		},
 		{   # 3: parallel runways and a helipad
 			"name": "Regional", "tag": "Parallel runways + helipad",
 			"runways": [_rw(Vector2(-2.6, 0.3), 0.0, 7.8, ORANGE, "ORANGE"), _rw(Vector2(0.4, 0.3), 0.0, 7.8, BLUE, "BLUE")],
-			"pads": [{"center": Vector2(3.5, 3.4), "radius": 0.85, "color": PAD_COLOR}], "lanes": [], "hazards": [], "decor": [],
+			"pads": [{"center": Vector2(3.5, 3.4), "radius": 0.85, "color": PAD_COLOR}], "lanes": [], "hazards": [],
+			"decor": [{"shape": "disc", "pos": Vector2(3.5, 3.4), "r": 1.45, "color": Color("d3d9e2"), "sides": 16, "y": 0.012},
+					{"shape": "box", "pos": Vector2(3.3, -2.4), "size": Vector2(2.4, 2.6), "color": Color("d3d9e2"), "y": 0.012}],
 			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.2, 0.8),
-			"ground": Color(0.36, 0.62, 0.36),
+			"ground": Color("78bb6c"),
 			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2},
 			"unlock_stars": 5, "weather": ["crosswind", "fog"],
 		},
@@ -65,9 +70,12 @@ static func _build() -> void:
 				{"center": Vector2(0.55, -6.4), "radius": 0.8}, {"center": Vector2(-4.2, 5.6), "radius": 1.2},
 				{"center": Vector2(4.3, 5.4), "radius": 1.2},
 			],
-			"decor": [],
+			"decor": [{"shape": "disc", "pos": Vector2(-4.2, -6.0), "r": 1.9, "color": Color("a7a392"), "sides": 9, "y": 0.012},
+					{"shape": "disc", "pos": Vector2(4.3, -5.6), "r": 2.0, "color": Color("a7a392"), "sides": 9, "y": 0.012},
+					{"shape": "disc", "pos": Vector2(-4.2, 5.6), "r": 1.9, "color": Color("a7a392"), "sides": 9, "y": 0.012},
+					{"shape": "disc", "pos": Vector2(4.3, 5.4), "r": 1.9, "color": Color("a7a392"), "sides": 9, "y": 0.012}],
 			"tower": Vector2(0.0, 3.2), "windsock": Vector2(0.0, -1.2),
-			"ground": Color(0.46, 0.58, 0.42),
+			"ground": Color("86b673"),
 			"mix": {S: 0.3, M: 0.35, G: 0.35},
 			"unlock_stars": 8, "weather": ["storm", "fog"],
 		},
@@ -77,10 +85,10 @@ static func _build() -> void:
 			"pads": [],
 			"lanes": [{"center": Vector2(0.2, 5.3), "heading": 90.0, "length": 6.0, "width": 1.0, "color": LANE_COLOR}],
 			"hazards": [],
-			"decor": [{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.4, "color": Color(0.5, 0.72, 0.4), "sides": 10, "y": 0.03},
-					{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.9, "color": Color(0.9, 0.85, 0.6), "sides": 10, "y": 0.01}],
+			"decor": [{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.4, "color": Color("84c26b"), "sides": 12, "y": 0.03},
+					{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.9, "color": Color("f1dfa0"), "sides": 12, "y": 0.01}],
 			"tower": Vector2(0.0, 0.3), "windsock": Vector2(0.0, -3.0),
-			"ground": Color(0.2, 0.5, 0.78), "water": true,
+			"ground": Color("3fa2d6"), "water": true,
 			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25},
 			"unlock_stars": 11, "weather": ["storm", "crosswind", "fog"],
 		},
@@ -91,10 +99,11 @@ static func _build() -> void:
 			"lanes": [{"center": Vector2(3.9, 1.8), "heading": 0.0, "length": 4.0, "width": 0.9, "color": LANE_COLOR},
 					{"center": Vector2(-0.6, 5.6), "heading": 90.0, "length": 6.4, "width": 0.9, "color": LANE_COLOR}],
 			"hazards": [],
-			"decor": [{"shape": "box", "pos": Vector2(3.9, 1.8), "size": Vector2(1.5, 4.8), "color": Color(0.2, 0.5, 0.78), "y": 0.02},
-					{"shape": "box", "pos": Vector2(-0.4, 5.6), "size": Vector2(7.6, 1.8), "color": Color(0.2, 0.5, 0.78), "y": 0.02}],
+			"decor": [{"shape": "box", "pos": Vector2(3.2, -3.9), "size": Vector2(2.7, 4.6), "color": Color("c9cfda"), "y": 0.012},
+					{"shape": "box", "pos": Vector2(3.9, 1.8), "size": Vector2(1.5, 4.8), "color": Color("3fa2d6"), "y": 0.02},
+					{"shape": "box", "pos": Vector2(-0.4, 5.6), "size": Vector2(7.6, 1.8), "color": Color("3fa2d6"), "y": 0.02}],
 			"tower": Vector2(2.6, -2.6), "windsock": Vector2(2.6, 3.0),
-			"ground": Color(0.4, 0.6, 0.4),
+			"ground": Color("7fbf74"),
 			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2},
 			"unlock_stars": 14, "weather": ["storm", "crosswind", "fog"],
 		},

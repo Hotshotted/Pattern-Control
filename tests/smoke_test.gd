@@ -1609,7 +1609,7 @@ func _initialize() -> void:
 	var fi = tr.planes.find(fx_plane)
 	check(tr._tail_mats[fi].albedo_color.is_equal_approx(Cosmetics.LIVERIES[1]["tail"]) and tr._stripes[fi][0].visible, "aircraft wear the livery's tail and stripe")
 	main.shop_pick("livery", 0)
-	check(not tr._stripes[fi][0].visible and tr._tail_mats[fi].albedo_color.is_equal_approx(tr._body_mats[fi].albedo_color), "the standard livery has no stripe and a body-coloured tail")
+	check(tr._stripes[fi][0].visible and tr._tail_mats[fi].albedo_color.is_equal_approx(tr._body_mats[fi].albedo_color) and tr._stripe_mats[fi].albedo_color.is_equal_approx(tr._body_mats[fi].albedo_color), "the standard livery wears the runway's colour on the stripe and the fin")
 	main.shop_pick("livery", 1)
 	tr.release_all()
 	save.write_file()
@@ -3876,6 +3876,52 @@ func _initialize() -> void:
 	check(not sx.held and not AudioServer.is_bus_mute(0) and main.screen == main.SCREEN_PLAY, "Resume releases the sound and the game")
 	main.restart()
 	tr.auto_spawn = false
+
+	print("9y. Sunny Airfield art: aircraft and ground")
+	main.restart()
+	tr.auto_spawn = false
+	var sa_types = {}
+	for sa_t in [GLIDER, HELI, SMALL, MEDIUM, JET, SEAPLANE]:
+		var sa_p = tr.place(0, Vector2(0, -3), 0.0, sa_t)
+		var sa_i = tr.planes.find(sa_p)
+		tr._sync(sa_p, sa_i)
+		sa_types[sa_t] = sa_i
+	check(tr._jet_groups[sa_types[JET]].visible and not tr._plane_groups[sa_types[JET]].visible and not tr._jet_groups[sa_types[SMALL]].visible and tr._plane_groups[sa_types[SMALL]].visible, "jets have their own swept-wing model, light planes keep the straight wing")
+	check(tr._rotor_discs[sa_types[HELI]].visible and not tr._rotor_discs[sa_types[SMALL]].visible and tr._float_groups[sa_types[SEAPLANE]].visible and not tr._float_groups[sa_types[SMALL]].visible, "helicopters get a rotor disc and seaplanes floats")
+	var sa_ok = true
+	for sa_t in sa_types.keys():
+		var sa_i2 = sa_types[sa_t]
+		sa_ok = sa_ok and (tr._wing_mats[sa_i2] as StandardMaterial3D).albedo_color.is_equal_approx(Color(0.97, 0.98, 1.0)) and tr._body_mats[sa_i2].albedo_color.is_equal_approx(Airports.land_color(tr.planes[sa_i2].tkind, tr.planes[sa_i2].runway)) and tr._stripes[sa_i2].size() >= 3
+	check(sa_ok, "aircraft have white wings, a livery stripe, and the livery colour is the target runway's")
+	var sa_stu = tr.planes[sa_types[SMALL]]
+	sa_stu.student = true
+	tr._sync(sa_stu, sa_types[SMALL])
+	var sa_nostu = tr.planes[sa_types[MEDIUM]]
+	tr._sync(sa_nostu, sa_types[MEDIUM])
+	check(tr._badges[sa_types[SMALL]].visible and not tr._badges[sa_types[MEDIUM]].visible, "a student pilot wears the orange L badge on the wing")
+	check(float(tr._shadow_mats[sa_types[SMALL]].get_shader_parameter("alpha")) <= 0.23 and float(tr._shadow_mats[sa_types[SMALL]].get_shader_parameter("alpha")) > 0.1, "aircraft shadows are ink at about 20%")
+	var sa_scene = main.airfield.variants[0]
+	var sa_outlined = 0
+	var sa_stack = [sa_scene.root]
+	while not sa_stack.is_empty():
+		var sa_n = sa_stack.pop_back()
+		if sa_n is MeshInstance3D and sa_n.material_overlay != null:
+			sa_outlined += 1
+		sa_stack.append_array(sa_n.get_children())
+	check(sa_outlined == 0, "the ground and its props have no outlines (%d outlined parts)" % sa_outlined)
+	check(Airports.ORANGE.is_equal_approx(Color("ff8a3d")) and Airports.BLUE.is_equal_approx(Color("3d8bff")) and Airports.PAD_COLOR.is_equal_approx(Color("a06bff")) and Airports.LANE_COLOR.is_equal_approx(Color("35c98a")) and Airports.def(0)["ground"].is_equal_approx(Color("84c26b")) and tuning.runway_asphalt.is_equal_approx(Color("3e4658")), "the Sunny Airfield palette: field, asphalt and the four runway colours")
+	var sa_shadows = 0
+	for sa_v in main.airfield.variants:
+		for sa_c in sa_v.root.get_children():
+			if sa_c is MeshInstance3D and sa_c.material_override is ShaderMaterial and (sa_c.material_override as ShaderMaterial).shader.resource_path.ends_with("prop_shadow.gdshader"):
+				sa_shadows += 1
+	var sa_tree_shadows = 0
+	for sa_h in sa_scene.tree_styles[0]:
+		for sa_c in sa_h.get_children():
+			if sa_c is MeshInstance3D and sa_c.material_override is ShaderMaterial:
+				sa_tree_shadows += 1
+	check(sa_shadows >= 12 and sa_tree_shadows >= 2, "ground props (tower, hangar, windsock, trees) sit on soft shadows (%d + %d)" % [sa_shadows, sa_tree_shadows])
+	tr.release_all()
 
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()

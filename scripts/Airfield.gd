@@ -22,6 +22,9 @@ class AirportScene:
 	var ground_mat: StandardMaterial3D
 	var stripe_mat: StandardMaterial3D
 	var leaf_mat: StandardMaterial3D
+	var leaf_mid: StandardMaterial3D        # the lighter crown layers (the highlight)
+	var leaf_hi: StandardMaterial3D
+	var patch_mat: StandardMaterial3D        # the darker mown patches
 	var trunk_mat: StandardMaterial3D
 	var tree_styles: Array = [[], [], []]   # per tree style: the holders to show
 	var strips: Array = []              # taxiway strips [from, to] (world x, z): ground vehicles drive along them
@@ -32,6 +35,7 @@ class AirportScene:
 	var veh_beacon: Array[StandardMaterial3D] = []
 	var lights: MultiMeshInstance3D
 
+var _hangar_at := Vector2(1000.0, 1000.0)   # where the hangar stands (kept clear of upgrade props)
 var wind: Wind                        # set by Main
 var variants: Array[AirportScene] = []
 var cur: AirportScene
@@ -40,9 +44,11 @@ var _sock_deg := 0.0
 
 func _ready() -> void:
 	var keep := Airports.current
+	Prim.outlines = false        # Sunny Airfield: the ground and its props have soft shadows and highlights, never outlines
 	for a in Airports.COUNT:
 		Airports.current = a
 		variants.append(_build_airport())
+	Prim.outlines = true
 	Airports.current = keep
 	select(keep)
 
@@ -64,12 +70,22 @@ func _build_airport() -> AirportScene:
 	Prim.box(root, Vector3(40.0, 0.2, 70.0), Vector3(0, -0.1, 0), v.ground_mat, false)
 	var stripe := Prim.mat(ground.lightened(0.07))
 	v.stripe_mat = stripe
+	var patch := Prim.mat(ground.darkened(0.06))
+	v.patch_mat = patch
 	var water: bool = Airports.def().get("water", false)
 	v.water = water
 	if not water:
-		for i in range(-5, 6):   # mowing stripes
-			if i % 2 == 0:
-				Prim.box(root, Vector3(40.0, 0.02, 3.0), Vector3(0, 0.005, i * 3.0), stripe, false)
+		# Mown patches in slightly different greens: long diagonal bands, light and dark, the same on every visit.
+		var rngp := RandomNumberGenerator.new()
+		rngp.seed = 31 + Airports.current * 17
+		for i in 9:
+			var bandp := Prim.box(root, Vector3(rngp.randf_range(7.0, 15.0), 0.02, rngp.randf_range(1.6, 3.4)), Vector3(rngp.randf_range(-6.0, 6.0), 0.005 + 0.001 * i, rngp.randf_range(-9.0, 9.0)), stripe if i % 2 == 0 else patch, false)
+			bandp.rotation.y = deg_to_rad(rngp.randf_range(-24.0, 24.0))
+	else:
+		var wave := Prim.mat(ground.lightened(0.14))
+		v.stripe_mat = wave
+		for i in 5:
+			Prim.box(root, Vector3(9.0 + 2.0 * (i % 3), 0.02, 0.5), Vector3(-5.0 + 2.5 * i, 0.005, -8.0 + 4.1 * i), wave, false)
 	for d in Airports.decor():
 		var m := Prim.mat(d["color"])
 		if d["shape"] == "disc":
@@ -89,6 +105,7 @@ func _build_airport() -> AirportScene:
 	_vehicles(v)
 	var tp := Airports.tower_pos()
 	_tower(root, Vector3(tp.x, 0.0, tp.y))
+	_apron(v)
 	var sp := Airports.windsock_pos()
 	_windsock(v, Vector3(sp.x, 0.0, sp.y))
 	if not water:
@@ -98,7 +115,9 @@ func _build_airport() -> AirportScene:
 
 ## Trees at a few fixed spots, each in three styles (round, pine, cactus): the theme picks which one shows.
 func _trees(v: AirportScene) -> void:
-	v.leaf_mat = Prim.mat(Color(0.2, 0.46, 0.25))
+	v.leaf_mat = Prim.mat(Color("3e8a48"))
+	v.leaf_mid = Prim.mat(v.leaf_mat.albedo_color.lightened(0.18))
+	v.leaf_hi = Prim.mat(v.leaf_mat.albedo_color.lightened(0.38))
 	v.trunk_mat = Prim.mat(Color(0.45, 0.3, 0.18))
 	for t in [Vector2(-4.4, 6.4), Vector2(-3.6, 7.6), Vector2(4.3, 6.9), Vector2(4.5, -6.5), Vector2(-4.4, -6.9), Vector2(3.7, -7.8), Vector2(-4.2, -3.9), Vector2(4.5, 4.4)]:
 		var blocked := false
@@ -113,11 +132,16 @@ func _trees(v: AirportScene) -> void:
 				blocked = true
 		if blocked:
 			continue
-		var round_t := Node3D.new()         # style 0: a round-crowned tree
+		var round_t := Node3D.new()         # style 0: a cluster of round crowns, each with a shadow, a lighter middle and a highlight
 		round_t.position = Vector3(t.x, 0.0, t.y)
 		v.root.add_child(round_t)
-		Prim.cyl(round_t, 0.05, 0.05, 0.4, 5, Vector3(0, 0.2, 0), v.trunk_mat)
-		Prim.cyl(round_t, 0.3, 0.38, 0.62, 7, Vector3(0, 0.7, 0), v.leaf_mat)
+		_shadow(round_t, 0.12, 0.1, 0.62, 0.62, 0.22, 0.02)
+		_shadow(round_t, 0.42, 0.34, 0.4, 0.4, 0.2, 0.02)
+		Prim.cyl(round_t, 0.34, 0.4, 0.55, 10, Vector3(0.0, 0.3, 0.0), v.leaf_mat, false)
+		Prim.cyl(round_t, 0.22, 0.28, 0.1, 10, Vector3(-0.04, 0.6, -0.04), v.leaf_mid, false)
+		Prim.cyl(round_t, 0.1, 0.12, 0.06, 8, Vector3(-0.09, 0.67, -0.09), v.leaf_hi, false)
+		Prim.cyl(round_t, 0.22, 0.26, 0.4, 9, Vector3(0.4, 0.22, 0.32), v.leaf_mat, false)
+		Prim.cyl(round_t, 0.12, 0.17, 0.08, 9, Vector3(0.37, 0.43, 0.29), v.leaf_mid, false)
 		var pine := Node3D.new()            # style 1: a pine
 		pine.position = Vector3(t.x, 0.0, t.y)
 		v.root.add_child(pine)
@@ -145,9 +169,13 @@ func apply_theme(index: int) -> void:
 		elif v.water:
 			ground = v.base_ground * (t["tint"] as Color)
 		v.ground_mat.albedo_color = ground
-		v.stripe_mat.albedo_color = ground.lightened(0.07)
+		v.stripe_mat.albedo_color = ground.lightened(0.07) if not v.water else ground.lightened(0.14)
+		if v.patch_mat != null:
+			v.patch_mat.albedo_color = ground.darkened(0.06)
 		if v.leaf_mat != null:
 			v.leaf_mat.albedo_color = t["leaf"]
+			v.leaf_mid.albedo_color = (t["leaf"] as Color).lightened(0.18)
+			v.leaf_hi.albedo_color = (t["leaf"] as Color).lightened(0.38)
 			v.trunk_mat.albedo_color = t["trunk"]
 		for st in 3:
 			for holder in v.tree_styles[st]:
@@ -161,7 +189,8 @@ func _runway(v: AirportScene, i: int) -> void:
 	v.root.add_child(root)
 	var len := Airports.rw_length(i)
 	var w := Airports.rw_width(i)
-	Prim.box(root, Vector3(w, 0.12, len), Vector3(0, 0.06, 0), Prim.mat(Tuning.runway_asphalt))
+	Prim.box(root, Vector3(w + 0.16, 0.11, len + 0.16), Vector3(0, 0.055, 0), Prim.mat(Tuning.runway_asphalt.darkened(0.3)), false)       # the darker rim
+	Prim.box(root, Vector3(w, 0.12, len), Vector3(0, 0.06, 0), Prim.mat(Tuning.runway_asphalt), false)
 	var edge := Prim.mat(col)
 	for s in [-1.0, 1.0]:
 		Prim.box(root, Vector3(0.08, 0.13, len - 0.1), Vector3(s * (w * 0.5 - 0.1), 0.065, 0), edge, false)
@@ -182,6 +211,14 @@ func _runway(v: AirportScene, i: int) -> void:
 			Prim.box(root, Vector3(0.08, 0.14, 0.4), Vector3(-0.27 + k * 0.18, 0.07, sign * (len * 0.5 - 0.9)), white, false)
 	for k in 5:
 		Prim.box(root, Vector3(0.09, 0.14, 0.36), Vector3(0, 0.07, (k - 2) * 1.0), white, false)
+	# Approach chevrons in the runway's colour: three Vs on the grass before each end, pointing at the runway.
+	var chev := Prim.mat(col.lerp(v.base_ground, 0.15))
+	for e in 2:
+		var sg := 1.0 if e == 0 else -1.0
+		for k in 3:
+			for sd in [-1.0, 1.0]:
+				var arm := Prim.box(root, Vector3(0.5, 0.03, 0.09), Vector3(sd * 0.2, 0.02, sg * (len * 0.5 + 0.95 + k * 0.42) + sg * 0.1), chev, false)
+				arm.rotation.y = deg_to_rad(sg * sd * 32.0)
 	Prim.lift(root)       # runways are drawn above the fog
 
 ## A parallel taxiway beside each runway that has room for one: asphalt strip, yellow centre dashes and two stubs to the
@@ -189,8 +226,8 @@ func _runway(v: AirportScene, i: int) -> void:
 func _taxiways(v: AirportScene) -> void:
 	if v.water:
 		return
-	var asphalt := Prim.mat(Tuning.runway_asphalt.darkened(0.12))
-	var yellow := Prim.mat(Color(0.95, 0.8, 0.2))
+	var asphalt := Prim.mat(Color("4a5265"))
+	var yellow := Prim.mat(Color("ffd23f"))
 	for i in Airports.rw_count():
 		var h := deg_to_rad(Airports.rw_heading_deg(i))
 		var dir := Vector2(sin(h), -cos(h))
@@ -265,19 +302,22 @@ func _lights(v: AirportScene) -> void:
 	v.root.add_child(mi)
 	v.lights = mi
 
-## A couple of ground vehicles driving up and down the first taxiway.
+## A couple of ground vehicles driving up and down the first taxiway: a yellow fuel truck with a blue cab, and a white van.
 func _vehicles(v: AirportScene) -> void:
 	if v.strips.is_empty():
 		return
-	var colors := [Color(0.95, 0.78, 0.18), Color(0.92, 0.93, 0.96)]
 	for k in 2:
 		var n := Node3D.new()
 		v.root.add_child(n)
-		var body := Prim.mat(colors[k])
-		Prim.box(n, Vector3(0.2, 0.1, 0.38), Vector3(0, 0.1, 0), body)
-		Prim.box(n, Vector3(0.18, 0.09, 0.14), Vector3(0, 0.19, -0.08), Prim.mat(Color(0.2, 0.28, 0.38)), false)
+		if k == 0:      # the fuel truck: a long yellow tank behind a blue cab
+			Prim.box(n, Vector3(0.22, 0.1, 0.36), Vector3(0, 0.1, 0.1), Prim.mat(Color("ffc933")), false)
+			Prim.box(n, Vector3(0.2, 0.1, 0.14), Vector3(0, 0.1, -0.16), Prim.mat(Color("3d8bff")), false)
+			Prim.box(n, Vector3(0.14, 0.02, 0.3), Vector3(0, 0.16, 0.1), Prim.mat(Color("ffe27a")), false)
+		else:
+			Prim.box(n, Vector3(0.2, 0.1, 0.34), Vector3(0, 0.1, 0), Prim.mat(Color("f3f7ff")), false)
+			Prim.box(n, Vector3(0.18, 0.09, 0.12), Vector3(0, 0.15, -0.1), Prim.mat(Color(0.2, 0.28, 0.38)), false)
 		var bm := Prim.mat(Color(1.0, 0.25, 0.2))
-		Prim.box(n, Vector3(0.06, 0.05, 0.06), Vector3(0, 0.25, 0.1), bm, false)
+		Prim.box(n, Vector3(0.06, 0.05, 0.06), Vector3(0, 0.22, 0.12), bm, false)
 		v.veh.append(n)
 		v.veh_beacon.append(bm)
 		v.veh_strip.append(0)
@@ -306,19 +346,21 @@ func _animate_ground(delta: float, now: int) -> void:
 	if not cur.veh.is_empty():
 		_place_vehicles(cur)
 
-## A round helipad with an H.
+## A round helipad with an H: a light concrete disc, a ring and an H in the pad's purple.
 func _pad(root: Node3D, pad: Dictionary) -> void:
 	var holder := Node3D.new()
 	root.add_child(holder)
 	var c: Vector2 = pad["center"]
 	var r: float = pad["radius"]
-	Prim.cyl(holder, r, r, 0.1, 14, Vector3(c.x, 0.05, c.y), Prim.mat(Tuning.runway_asphalt))
-	Prim.cyl(holder, r * 0.86, r * 0.86, 0.12, 14, Vector3(c.x, 0.05, c.y), Prim.mat(pad["color"]), false)
-	Prim.cyl(holder, r * 0.74, r * 0.74, 0.14, 14, Vector3(c.x, 0.06, c.y), Prim.mat(Tuning.runway_asphalt), false)
-	var white := Prim.mat(Color(0.95, 0.95, 0.92))
-	Prim.box(holder, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x - r * 0.28, 0.07, c.y), white, false)
-	Prim.box(holder, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x + r * 0.28, 0.07, c.y), white, false)
-	Prim.box(holder, Vector3(r * 0.56, 0.16, 0.1), Vector3(c.x, 0.07, c.y), white, false)
+	_shadow(holder, c.x + 0.08, c.y + 0.07, r * 2.5, r * 2.5, 0.2, 0.02)
+	Prim.cyl(holder, r * 1.06, r * 1.06, 0.1, 16, Vector3(c.x, 0.05, c.y), Prim.mat(Tuning.runway_asphalt.darkened(0.3)), false)
+	Prim.cyl(holder, r, r, 0.11, 16, Vector3(c.x, 0.055, c.y), Prim.mat(Color("e9edf4")), false)
+	Prim.cyl(holder, r * 0.84, r * 0.84, 0.12, 16, Vector3(c.x, 0.06, c.y), Prim.mat(pad["color"]), false)
+	Prim.cyl(holder, r * 0.74, r * 0.74, 0.13, 16, Vector3(c.x, 0.065, c.y), Prim.mat(Color("e9edf4")), false)
+	var mark := Prim.mat(pad["color"])
+	Prim.box(holder, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x - r * 0.28, 0.07, c.y), mark, false)
+	Prim.box(holder, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x + r * 0.28, 0.07, c.y), mark, false)
+	Prim.box(holder, Vector3(r * 0.56, 0.16, 0.1), Vector3(c.x, 0.07, c.y), mark, false)
 	Prim.lift(holder)       # pads are drawn above the fog
 
 ## A strip of water marked out for seaplanes.
@@ -329,7 +371,7 @@ func _lane(root: Node3D, lane: Dictionary) -> void:
 	root.add_child(n)
 	var len: float = lane["length"]
 	var w: float = lane["width"]
-	Prim.box(n, Vector3(w, 0.05, len), Vector3(0, 0.05, 0), Prim.mat(Color(0.3, 0.68, 0.85)), false)
+	Prim.box(n, Vector3(w, 0.05, len), Vector3(0, 0.05, 0), Prim.mat(Color("62b8e2")), false)
 	var edge := Prim.mat(lane["color"])
 	for s in [-1.0, 1.0]:
 		Prim.box(n, Vector3(0.07, 0.08, len), Vector3(s * w * 0.5, 0.06, 0), edge, false)
@@ -340,30 +382,73 @@ func _lane(root: Node3D, lane: Dictionary) -> void:
 		Prim.box(n, Vector3(0.08, 0.08, 0.34), Vector3(0, 0.07, -len * 0.5 + 0.9 + k * 1.0), white, false)
 	Prim.lift(n)            # lanes are drawn above the fog
 
-## A low-poly mountain: two peaks with snow caps. Its radius is the no-fly zone.
+## A low-poly mountain: two peaks with snow caps and a soft shadow. Its radius is the no-fly zone.
 func _mountain(root: Node3D, c: Vector2, r: float) -> void:
-	var rock := Prim.mat(Color(0.48, 0.46, 0.44))
-	var rock2 := Prim.mat(Color(0.56, 0.54, 0.5))
-	var snow := Prim.mat(Color(0.96, 0.97, 1.0))
-	Prim.cyl(root, 0.0, r * 0.95, r * 1.5, 7, Vector3(c.x, r * 0.75, c.y), rock)
-	Prim.cyl(root, 0.0, r * 0.4, r * 0.55, 7, Vector3(c.x, r * 1.25, c.y), snow)
-	Prim.cyl(root, 0.0, r * 0.6, r * 0.9, 6, Vector3(c.x + r * 0.55, r * 0.45, c.y + r * 0.2), rock2)
+	var rock := Prim.mat(Color(0.56, 0.54, 0.52))
+	var rock2 := Prim.mat(Color(0.66, 0.63, 0.58))
+	var snow := Prim.mat(Color(0.97, 0.98, 1.0))
+	_shadow(root, c.x + r * 0.22, c.y + r * 0.2, r * 2.5, r * 2.3, 0.22, 0.02)
+	Prim.cyl(root, 0.0, r * 0.95, r * 1.5, 7, Vector3(c.x, r * 0.75, c.y), rock, false)
+	Prim.cyl(root, 0.0, r * 0.4, r * 0.55, 7, Vector3(c.x, r * 1.25, c.y), snow, false)
+	Prim.cyl(root, 0.0, r * 0.6, r * 0.9, 6, Vector3(c.x + r * 0.55, r * 0.45, c.y + r * 0.2), rock2, false)
 
+## A soft round shadow lying on the ground (build time): centre (x, z), size (w, d), `alpha` of ink, height `y`.
+func _shadow(parent: Node3D, x: float, z: float, w: float, d: float, alpha: float, y: float) -> void:
+	var mi := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(w, d)
+	mi.mesh = pm
+	var m := ShaderMaterial.new()
+	m.shader = preload("res://shaders/prop_shadow.gdshader")
+	m.set_shader_parameter("alpha", alpha)
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = Vector3(x, y, z)
+	parent.add_child(mi)
+
+## The tower: a pale base, a shaft and a blue octagonal cab with a white dot on its roof (and a soft shadow).
 func _tower(root: Node3D, at: Vector3) -> void:
-	var base := Prim.mat(Color(0.85, 0.83, 0.78))
-	Prim.box(root, Vector3(0.9, 0.5, 0.7), at + Vector3(0, 0.25, 0), base)
-	Prim.cyl(root, 0.13, 0.17, 0.9, 6, at + Vector3(0, 0.95, 0), Prim.mat(Color(0.7, 0.7, 0.72)))
-	Prim.box(root, Vector3(0.56, 0.24, 0.56), at + Vector3(0, 1.52, 0), Prim.mat(Color(0.4, 0.7, 0.85)))
-	Prim.cyl(root, 0.0, 0.42, 0.22, 4, at + Vector3(0, 1.75, 0), Prim.mat(Color(0.8, 0.25, 0.2)))
+	_shadow(root, at.x + 0.2, at.z + 0.2, 2.2, 1.8, 0.22, 0.05)
+	Prim.box(root, Vector3(1.0, 0.1, 0.8), at + Vector3(0, 0.05, 0), Prim.mat(Color("cfd5df")), false)     # the apron it stands on
+	Prim.box(root, Vector3(0.9, 0.5, 0.7), at + Vector3(0, 0.3, 0), Prim.mat(Color("e9edf4")), false)
+	Prim.box(root, Vector3(0.9, 0.04, 0.7), at + Vector3(0, 0.56, 0), Prim.mat(Color("f7f9fc")), false)
+	Prim.cyl(root, 0.14, 0.18, 0.8, 8, at + Vector3(0, 0.95, 0), Prim.mat(Color("d6dbe4")), false)
+	Prim.cyl(root, 0.34, 0.3, 0.26, 8, at + Vector3(0, 1.45, 0), Prim.mat(Color("5aa0ff")), false)
+	Prim.cyl(root, 0.4, 0.4, 0.06, 8, at + Vector3(0, 1.62, 0), Prim.mat(Color("d6dbe4")), false)
+	Prim.cyl(root, 0.26, 0.3, 0.06, 8, at + Vector3(0, 1.68, 0), Prim.mat(Color("7db6ff")), false)
+	Prim.cyl(root, 0.08, 0.08, 0.03, 8, at + Vector3(0, 1.72, 0), Prim.mat(Color.WHITE), false)
+
+## Hangar and apron: a pale hangar with a ridged roof on a concrete apron beside the tower, if there is room.
+func _apron(v: AirportScene) -> void:
+	_hangar_at = Vector2(1000.0, 1000.0)
+	var tp := Airports.tower_pos()
+	for off in [Vector2(-1.7, 0.6), Vector2(1.7, 0.6), Vector2(-1.7, -0.9), Vector2(1.7, -0.9), Vector2(0.0, 1.9), Vector2(0.0, -1.9)]:
+		var p: Vector2 = tp + off
+		if not _spot_free(p, 0.85):
+			continue
+		_hangar_at = p
+		var n := Node3D.new()
+		n.position = Vector3(p.x, 0.0, p.y)
+		v.root.add_child(n)
+		_shadow(n, 0.18, 0.2, 2.5, 2.1, 0.2, 0.03)
+		Prim.box(n, Vector3(1.5, 0.05, 1.3), Vector3(0, 0.025, 0), Prim.mat(Color("cfd5df")), false)
+		Prim.box(n, Vector3(1.1, 0.4, 0.8), Vector3(0, 0.25, -0.1), Prim.mat(Color("e4e9f1")), false)
+		var ridge := Prim.mat(Color("c3cad6"))
+		for k in 5:
+			Prim.box(n, Vector3(1.1, 0.03, 0.05), Vector3(0, 0.46, -0.4 + k * 0.16), ridge, false)
+		Prim.box(n, Vector3(1.1, 0.04, 0.05), Vector3(0, 0.45, -0.5), Prim.mat(Color("f7f9fc")), false)
+		Prim.box(n, Vector3(0.7, 0.28, 0.04), Vector3(0, 0.2, 0.32), Prim.mat(Color("8d97aa")), false)       # the hangar door
+		break
 
 ## A pole with a striped cone on top. The cone's pivot turns to point downwind.
 func _windsock(v: AirportScene, at: Vector3) -> void:
+	_shadow(v.root, at.x + 0.25, at.z + 0.2, 0.7, 0.7, 0.2, 0.02)
 	Prim.cyl(v.root, 0.04, 0.05, 1.3, 5, at + Vector3(0, 0.65, 0), Prim.mat(Color(0.8, 0.8, 0.82)))
 	var sock := Node3D.new()
 	sock.position = at + Vector3(0, 1.3, 0)
 	v.root.add_child(sock)
 	v.sock = sock
-	var orange := Prim.mat(Color(1.0, 0.45, 0.1))
+	var orange := Prim.mat(Color("ff6a3d"))
 	var white := Prim.mat(Color(0.97, 0.97, 0.95))
 	var radii := [0.22, 0.17, 0.12, 0.07]
 	for k in 3:
@@ -443,7 +528,7 @@ func _spot_free(p: Vector2, r: float, bound: float = 6.0) -> bool:
 	for hz in Airports.hazards():
 		if p.distance_to(hz["center"]) < hz["radius"] + r:
 			return false
-	if p.distance_to(Airports.tower_pos()) < 0.8 + r or p.distance_to(Airports.windsock_pos()) < 0.5 + r:
+	if p.distance_to(Airports.tower_pos()) < 0.8 + r or p.distance_to(Airports.windsock_pos()) < 0.5 + r or p.distance_to(_hangar_at) < 1.0 + r:
 		return false
 	return absf(p.x) < 4.6 and absf(p.y) < bound
 

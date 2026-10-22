@@ -23,7 +23,7 @@ var ortho_size := 10.0
 ## (The runways themselves are in Airports.gd.) A path whose end comes within this of the matching
 ## approach end is cleared to land.
 var approach_radius := 1.0
-var runway_asphalt := Color(0.24, 0.25, 0.28)
+var runway_asphalt := Color("3e4658")
 
 # ---------- Planes ----------
 ## Speed classes (units / second): slow props, medium, fast jets.
@@ -255,7 +255,7 @@ var prewarm_max_seconds := 6.0
 # ---------- Look ----------
 var intro_logo := true                # the animated studio / game logo at boot (skippable)
 var grass_color := Color(0.36, 0.62, 0.36)
-var outline_thickness := 0.05
+var outline_thickness := 0.03
 
 # ---------- Airport difficulty ----------
 ## One profile per airport, in order: easy first, building up. Keys:

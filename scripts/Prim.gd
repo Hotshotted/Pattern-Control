@@ -3,6 +3,10 @@ extends RefCounted
 ## Low-poly primitive helpers: every shape gets a black inverted-hull outline (shaders/outline_part.gdshader)
 ## as its material_overlay. Used at build time only: nothing here runs during a run.
 
+## Sunny Airfield: aircraft carry a thin, soft slate outline (like the canvas' 45%-ink stroke); the ground and its props
+## carry none (they get soft shadows and highlights instead), so the airfield builds with `outlines = false`.
+const SOFT_OUTLINE := Color(0.32, 0.38, 0.5)
+static var outlines := true
 static var _outline: ShaderMaterial
 
 ## The one outline material shared by every shape.
@@ -10,7 +14,7 @@ static func outline() -> ShaderMaterial:
 	if _outline == null:
 		_outline = ShaderMaterial.new()
 		_outline.shader = preload("res://shaders/outline_part.gdshader")
-		_outline.set_shader_parameter("outline_color", Color.BLACK)
+		_outline.set_shader_parameter("outline_color", SOFT_OUTLINE)
 		_outline.set_shader_parameter("thickness", Tuning.outline_thickness)
 	return _outline
 
@@ -21,7 +25,7 @@ static func outline_top() -> ShaderMaterial:
 	if _outline_top == null:
 		_outline_top = ShaderMaterial.new()
 		_outline_top.shader = preload("res://shaders/outline_part_top.gdshader")
-		_outline_top.set_shader_parameter("outline_color", Color.BLACK)
+		_outline_top.set_shader_parameter("outline_color", SOFT_OUTLINE)
 		_outline_top.set_shader_parameter("thickness", Tuning.outline_thickness)
 		_outline_top.render_priority = ABOVE_FOG
 	return _outline_top
@@ -55,7 +59,7 @@ static func _finish(parent: Node3D, mesh: Mesh, m: Material, pos: Vector3, outli
 	mi.mesh = mesh
 	mi.material_override = m
 	mi.position = pos
-	if outlined:
+	if outlined and outlines:
 		mi.material_overlay = outline()
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
