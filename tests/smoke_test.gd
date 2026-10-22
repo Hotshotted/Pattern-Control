@@ -3451,7 +3451,10 @@ func _initialize() -> void:
 			for lk in 3:
 				var lent = ld_ents[(lk * 17 + lr * 5 + le * 11) % ld_ents.size()]
 				var lpath = ld.runway_path(lr, le, 2, lent, ld_circ)
-				tr.release_all()
+				main.restart()          # (a fresh shift each time: no wind shift or storm arrives mid-flight)
+				tr.auto_spawn = false
+				set_wind(main, 0.0)
+				main.wind.countdown = 99999.0
 				var lpl = tr.place(lr, lent, 0.0, 2)
 				lpl.speed = 4.0
 				for lp in lpath:
