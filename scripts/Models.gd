@@ -50,33 +50,33 @@ static func block(p: Node3D, size: Vector3, at: Vector3, c: Color) -> MeshInstan
 	return _box(p, size, at, c)
 
 ## The hangar: walls, a rust roof with a lighter ridge line, and an open door on the south side.
-static func hangar(p: Node3D, at: Vector2, s: float = 1.0) -> Node3D:
+static func hangar(p: Node3D, at: Vector2, s: float = 1.0, roof: Color = RUST, wall: Color = Color("e8e1d2")) -> Node3D:
 	var n := Node3D.new()
 	n.position = Vector3(at.x, 0.0, at.y)
 	p.add_child(n)
 	var w := 1.3 * s
 	var d := 0.95 * s
 	cast(n, Vector2.ZERO, w, d, 0.5 * s, 0.03)
-	block(n, Vector3(w, 0.4, d), Vector3(0, 0.2, 0), Color("e8e1d2"))
-	block(n, Vector3(w + 0.08, 0.06, d + 0.08), Vector3(0, 0.43, 0), RUST)
-	_box(n, Vector3(w + 0.08, 0.03, 0.06), Vector3(0, 0.47, 0), Color("f59a7c"))                           # the ridge
+	block(n, Vector3(w, 0.4, d), Vector3(0, 0.2, 0), wall)
+	block(n, Vector3(w + 0.08, 0.06, d + 0.08), Vector3(0, 0.43, 0), roof)
+	_box(n, Vector3(w + 0.08, 0.03, 0.06), Vector3(0, 0.47, 0), roof.lightened(0.3))                           # the ridge
 	for k in [-1.0, 1.0]:
-		_box(n, Vector3(w + 0.06, 0.012, 0.025), Vector3(0, 0.465, k * d * 0.26), Color("b8503a"))      # roof seams
+		_box(n, Vector3(w + 0.06, 0.012, 0.025), Vector3(0, 0.465, k * d * 0.26), roof.darkened(0.2))      # roof seams
 	_box(n, Vector3(w * 0.62, 0.34, 0.05), Vector3(0, 0.19, d * 0.5 + 0.03), Color("3a2c2a"))              # the open door
 	_box(n, Vector3(w * 0.62, 0.012, 0.16), Vector3(0, 0.012, d * 0.5 + 0.13), Color("d9d3c8"))            # the lit floor showing through it
 	return n
 
 ## The FBO: teal roof, cream porch with two posts.
-static func fbo(p: Node3D, at: Vector2, s: float = 1.0) -> Node3D:
+static func fbo(p: Node3D, at: Vector2, s: float = 1.0, roof: Color = TEAL, wall: Color = Color("efe6d3")) -> Node3D:
 	var n := Node3D.new()
 	n.position = Vector3(at.x, 0.0, at.y)
 	p.add_child(n)
 	var w := 1.0 * s
 	var d := 0.7 * s
 	cast(n, Vector2.ZERO, w, d, 0.4 * s, 0.03)
-	block(n, Vector3(w, 0.3, d), Vector3(0, 0.15, 0), Color("efe6d3"))
-	block(n, Vector3(w + 0.06, 0.05, d + 0.06), Vector3(0, 0.33, 0), TEAL)
-	_box(n, Vector3(w + 0.06, 0.025, 0.05), Vector3(0, 0.36, 0), Color("8fe0d8"))
+	block(n, Vector3(w, 0.3, d), Vector3(0, 0.15, 0), wall)
+	block(n, Vector3(w + 0.06, 0.05, d + 0.06), Vector3(0, 0.33, 0), roof)
+	_box(n, Vector3(w + 0.06, 0.025, 0.05), Vector3(0, 0.36, 0), roof.lightened(0.3))
 	block(n, Vector3(w * 0.5, 0.03, 0.2 * s), Vector3(0, 0.3, d * 0.5 + 0.12 * s), CREAM)
 	for k in [-1.0, 1.0]:
 		_box(n, Vector3(0.03, 0.28, 0.03), Vector3(k * w * 0.22, 0.14, d * 0.5 + 0.2 * s), Color("cdbfa4"))
@@ -309,10 +309,9 @@ static func balloon(p: Node3D) -> Node3D:
 	return n
 
 ## A bird: two little wings that flap by scaling. Returns the node; its two wing meshes are children 0 and 1.
-static func bird(p: Node3D) -> Node3D:
+static func bird(p: Node3D, c: Color = Color("3a3f4c")) -> Node3D:
 	var n := Node3D.new()
 	p.add_child(n)
-	var c := Color("3a3f4c")
 	for sx in [-1.0, 1.0]:
 		var w := _box(n, Vector3(0.1, 0.01, 0.05), Vector3(sx * 0.05, 0.0, 0.0), c)
 		w.rotation.y = deg_to_rad(-sx * 20.0)
@@ -328,3 +327,106 @@ static func mower(p: Node3D) -> Node3D:
 	_box(n, Vector3(0.08, 0.05, 0.08), Vector3(0, 0.13, 0.05), Color("3a3f4c"))
 	blob(n, Vector2(0.05, 0.05), 0.5, 0.5, 0.03, 0.8)
 	return n
+
+## The lighthouse (coastal): a white tower with two red bands, a gallery and a lantern whose lamp blinks (its material goes into `lamp_out`).
+static func lighthouse(p: Node3D, at: Vector2, lamp_out: Array = []) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(at.x, 0.0, at.y)
+	p.add_child(n)
+	cast(n, Vector2.ZERO, 0.5, 0.5, 1.6, 0.03)
+	_cyl(n, 0.3, 0.34, 0.1, 10, Vector3(0, 0.05, 0), Color("c9b896"))
+	_cyl(n, 0.2, 0.27, 0.5, 10, Vector3(0, 0.35, 0), Color("f6f3ea"))
+	_cyl(n, 0.17, 0.2, 0.3, 10, Vector3(0, 0.75, 0), Color("e2483b"))
+	_cyl(n, 0.14, 0.17, 0.3, 10, Vector3(0, 1.05, 0), Color("f6f3ea"))
+	_cyl(n, 0.12, 0.14, 0.2, 10, Vector3(0, 1.3, 0), Color("e2483b"))
+	_cyl(n, 0.2, 0.2, 0.04, 10, Vector3(0, 1.43, 0), Color("4a5a6a"))
+	var lamp := _m(Color("ffe9a0"))
+	lamp.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	lamp.emission_enabled = true
+	lamp.emission = Color("ffe9a0")
+	lamp.emission_energy_multiplier = 0.0
+	Prim.cyl(n, 0.09, 0.09, 0.12, 8, Vector3(0, 1.51, 0), lamp, false)
+	_cyl(n, 0.0, 0.14, 0.1, 8, Vector3(0, 1.62, 0), Color("e2483b"))
+	lamp_out.append(lamp)
+	return n
+
+## A short wooden pier running along +x from `at`, with posts, and gulls on it.
+static func pier(p: Node3D, at: Vector2, length: float = 1.3) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(at.x, 0.0, at.y)
+	p.add_child(n)
+	blob(n, Vector2(length * 0.5 + 0.06, 0.06), length + 0.5, 0.7, 0.02, 0.9)
+	_box(n, Vector3(length, 0.04, 0.32), Vector3(length * 0.5, 0.07, 0), Color("a8723f"))
+	for i in 5:
+		_box(n, Vector3(0.02, 0.045, 0.32), Vector3(0.12 + i * length / 5.0, 0.085, 0), Color("8a5a30"))
+	for i in 3:
+		for sz in [-1.0, 1.0]:
+			_box(n, Vector3(0.05, 0.12, 0.05), Vector3(0.1 + i * length * 0.45, 0.03, sz * 0.17), Color("6b4a2a"))
+	for g in 3:
+		gull(n, Vector2(0.3 + g * 0.38, (g % 2) * 0.1 - 0.05), 0.08)
+	return n
+
+## A gull standing (or, scaled up in the air, flying): white body, grey wings.
+static func gull(p: Node3D, at: Vector2, y: float) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(at.x, y, at.y)
+	p.add_child(n)
+	_box(n, Vector3(0.05, 0.04, 0.09), Vector3(0, 0, 0), Color("fbfaf6"))
+	_box(n, Vector3(0.12, 0.012, 0.04), Vector3(0, 0.02, 0.01), Color("b8bfc9"))
+	_box(n, Vector3(0.02, 0.02, 0.02), Vector3(0, 0.01, -0.055), Color("f0a23a"))
+	return n
+
+## The timber lodge (alpine): log walls, a dark red roof with a snow cap, a stone chimney. Chimney position goes in `chimney_out`.
+static func lodge(p: Node3D, at: Vector2, chimney_out: Array = []) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(at.x, 0.0, at.y)
+	p.add_child(n)
+	cast(n, Vector2.ZERO, 1.1, 0.75, 0.55, 0.03)
+	block(n, Vector3(1.1, 0.36, 0.75), Vector3(0, 0.18, 0), Color("a8744a"))
+	block(n, Vector3(1.18, 0.07, 0.83), Vector3(0, 0.4, 0), Color("8f3a2e"))
+	_box(n, Vector3(1.18, 0.03, 0.06), Vector3(0, 0.45, 0), Color("c9654f"))
+	for i in 3:
+		_box(n, Vector3(0.28, 0.012, 0.3), Vector3(-0.38 + i * 0.38, 0.442, -0.22), Color("f4f6fa"))      # snow on the roof
+	_box(n, Vector3(0.14, 0.34, 0.14), Vector3(0.38, 0.5, 0.18), Color("8a8f98"))
+	_box(n, Vector3(0.18, 0.04, 0.18), Vector3(0.38, 0.69, 0.18), Color("6f747c"))
+	_box(n, Vector3(0.3, 0.2, 0.04), Vector3(-0.2, 0.12, 0.39), Color("5a3a22"))
+	chimney_out.append(Vector3(at.x + 0.38, 0.75, at.y + 0.18))
+	return n
+
+## A pine tree: three stacked cones on a trunk, with a soft shadow.
+static func pine(p: Node3D, at: Vector2, s: float = 1.0) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(at.x, 0.0, at.y)
+	p.add_child(n)
+	blob(n, Vector2(0.16 * s, 0.14 * s), 0.62 * s, 0.62 * s, 0.02, 1.0)
+	_cyl(n, 0.03, 0.04, 0.12 * s, 5, Vector3(0, 0.06 * s, 0), Color("6b4a2a"))
+	_cyl(n, 0.0, 0.26 * s, 0.34 * s, 8, Vector3(0, 0.26 * s, 0), Color("2f6b3c"))
+	_cyl(n, 0.0, 0.2 * s, 0.3 * s, 8, Vector3(0, 0.44 * s, 0), Color("3f8048"))
+	_cyl(n, 0.0, 0.14 * s, 0.24 * s, 8, Vector3(0, 0.6 * s, 0), Color("4f9657"))
+	_cyl(n, 0.0, 0.06 * s, 0.08 * s, 8, Vector3(0, 0.72 * s, 0), Color("f4f6fa"))
+	return n
+
+## A chairlift line from `a` to `b`: two pylons, a cable, and two chairs (returned, to be moved along the cable).
+static func chairlift(p: Node3D, a: Vector2, b: Vector2, chairs_out: Array = []) -> void:
+	for q in [a, b]:
+		_box(p, Vector3(0.05, 0.4, 0.05), Vector3(q.x, 0.2, q.y), Color("8a8f98"))
+		_box(p, Vector3(0.32, 0.03, 0.04), Vector3(q.x, 0.4, q.y), Color("6f747c"))
+		blob(p, Vector2(q.x + 0.1, q.y + 0.1), 0.4, 0.4, 0.02, 0.7)
+	var mid := (a + b) * 0.5
+	var d := b - a
+	var cable := _box(p, Vector3(0.012, 0.012, d.length()), Vector3(mid.x, 0.4, mid.y), Color("3a3f4c"))
+	cable.rotation.y = atan2(d.x, d.y)
+	for k in 2:
+		var ch := Node3D.new()
+		p.add_child(ch)
+		_box(ch, Vector3(0.03, 0.1, 0.03), Vector3(0, 0.34, 0), Color("3a3f4c"))
+		_box(ch, Vector3(0.12, 0.03, 0.08), Vector3(0, 0.28, 0), Color("e2483b"))
+		chairs_out.append(ch)
+
+## A soft white patch of snow on the ground.
+static func snow_patch(p: Node3D, at: Vector2, r: float) -> void:
+	var m := _m(Color(1, 1, 1, 0.7))
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var mi := Prim.cyl(p, r, r, 0.008, 12, Vector3(at.x, 0.016, at.y), m, false)
+	mi.scale = Vector3(1.0, 1.0, 0.8)

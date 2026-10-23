@@ -6,6 +6,13 @@ extends Node3D
 ## end is active in the current wind, dull when not), helipads, seaplane lanes, mountains, a control tower,
 ## a windsock that swings with the wind, and trees. A landing makes that end flash (glow()).
 
+## The palette of each look: the countryside (the default), the coast and the Alps: hangar and FBO roofs, walls and the apron.
+const PALETTE := {
+	"countryside": {"hangar": Color("e2654a"), "fbo": Color("4fb8b2"), "wall": Color("e8e1d2"), "wall2": Color("efe6d3"), "apron": Color("b6bbc2")},
+	"coastal": {"hangar": Color("3f8fc2"), "fbo": Color("eaa64a"), "wall": Color("f7f4ea"), "wall2": Color("fbf8ee"), "apron": Color("d2cab6")},
+	"alpine": {"hangar": Color("6b4a3a"), "fbo": Color("9a3b2e"), "wall": Color("b98757"), "wall2": Color("c7955f"), "apron": Color("9aa0a8")},
+}
+
 ## One airport's nodes and the little state it animates.
 class AirportScene:
 	var root: Node3D
@@ -22,6 +29,13 @@ class AirportScene:
 	var ground_mat: StandardMaterial3D
 	var stripe_mat: StandardMaterial3D
 	var tufts: MultiMeshInstance3D
+	var style := "countryside"
+	var lamps: Array = []                   # the lighthouse lamp (it pulses)
+	var smoke: Array = []                   # the lodge chimney's puffs: [{node, mat, t}]
+	var smoke_at := Vector3.ZERO
+	var chairs: Array = []                  # the chairlift's chairs
+	var chair_a := Vector2.ZERO
+	var chair_b := Vector2.ZERO
 	var beacons: Array = []                 # the tower's red beacon (it blinks)
 	var apron_c := Vector2.ZERO
 	var apron_s := 1.0
@@ -120,7 +134,9 @@ func _build_airport() -> AirportScene:
 	_lights(v)
 	_vehicles(v)
 	_occupied = []
+	v.style = Airports.style()
 	_ramp(v)
+	_landmark(v)
 	_life(v)
 	var sp := Airports.windsock_pos()
 	_windsock(v, Vector3(sp.x, 0.0, sp.y))
@@ -308,9 +324,12 @@ func apply_theme(index: int) -> void:
 			v.leaf_mid.albedo_color = t.get("leaf_mid", (t["leaf"] as Color).lightened(0.18))
 			v.leaf_hi.albedo_color = t.get("leaf_hi", (t["leaf"] as Color).lightened(0.38))
 			v.trunk_mat.albedo_color = t["trunk"]
+		var want: int = t["style"]
+		if v.style == "alpine" and want == 0:
+			want = 1         # (the mountains have pines)
 		for st in 3:
 			for holder in v.tree_styles[st]:
-				holder.visible = st == t["style"]
+				holder.visible = st == want
 
 func _runway(v: AirportScene, i: int) -> void:
 	var col := Airports.rw_color(i)
@@ -606,13 +625,14 @@ func _ramp(v: AirportScene) -> void:
 	v.apron_s = s
 	v.scenery.append(c)
 	_occupied.append([c, 2.1 * s])
-	var slab := Prim.box(root, Vector3(2.8 * s, 0.03, 3.2 * s), Vector3(c.x, 0.0, c.y), Prim.mat(Color("b6bbc2")), false)
+	var pal: Dictionary = PALETTE[v.style]
+	var slab := Prim.box(root, Vector3(2.8 * s, 0.03, 3.2 * s), Vector3(c.x, 0.0, c.y), Prim.mat(pal["apron"]), false)
 	var edge := Prim.box(root, Vector3(2.8 * s + 0.06, 0.028, 3.2 * s + 0.06), Vector3(c.x, -0.002, c.y), Prim.mat(Color("8c9199")), false)
 	edge.position.y = -0.002
 	Models.tower(root, tp, beacons)
 	v.beacons.append_array(beacons)
-	Models.hangar(root, c + Vector2(-0.7, -1.0) * s, s)
-	Models.fbo(root, c + Vector2(-0.65, 0.1) * s, s)
+	Models.hangar(root, c + Vector2(-0.7, -1.0) * s, s, pal["hangar"], pal["wall"])
+	Models.fbo(root, c + Vector2(-0.65, 0.1) * s, s, pal["fbo"], pal["wall2"])
 	Models.picnic(root, c + Vector2(0.2, 0.25) * s)
 	Models.car_lot(root, c + Vector2(1.0, 0.18) * s, s)
 	# oil stains on the concrete
@@ -661,14 +681,76 @@ func _ramp(v: AirportScene) -> void:
 		_occupied.append([gl, 0.7])
 		v.scenery.append(gl)
 		Models.glider_trailer(root, gl, 8.0)
-	# the landmark beyond the fence: a red barn and a white silo (the countryside; the others have their own)
-	if not v.water and Airports.current != 3:
-		var corners := [Vector2(-3.4, 7.9), Vector2(3.4, 7.9), Vector2(-3.4, -8.2), Vector2(3.4, -8.2)]
-		var bp = _find_rect(corners, 2.4, 1.4)
-		if bp != null:
-			_occupied.append([bp, 1.1])
-			v.scenery.append(bp)
-			Models.barn(root, bp)
+
+## The landmark of each look: the countryside has a red barn and a white silo beyond the fence; the coast a lighthouse and a pier with
+## gulls; the Alps a timber lodge with chimney smoke, pines and a chairlift with two chairs. All outside the paths' strips.
+func _landmark(v: AirportScene) -> void:
+	var root := v.root
+	match v.style:
+		"coastal":
+			var lh = _find_rect([Vector2(-3.9, -3.4), Vector2(-3.9, 4.0), Vector2(3.9, 4.2), Vector2(-3.9, 0.4)], 1.0, 1.0)
+			if lh != null:
+				_occupied.append([lh, 0.8])
+				v.scenery.append(lh)
+				Models.lighthouse(root, lh, v.lamps)
+			var pr = _find_rect([Vector2(4.2, 2.8), Vector2(-4.2, -6.0), Vector2(4.2, -4.8)], 1.7, 0.8)
+			if pr != null:
+				_occupied.append([pr, 0.9])
+				v.scenery.append(pr)
+				Models.pier(root, pr + Vector2(-0.65, 0.0))
+		"alpine":
+			var lo = _find_rect([Vector2(-3.9, 2.8), Vector2(-3.9, -2.2), Vector2(3.9, -3.8), Vector2(-3.8, 5.0)], 1.7, 1.2)
+			if lo != null:
+				_occupied.append([lo, 1.1])
+				v.scenery.append(lo)
+				var chim: Array = []
+				Models.lodge(root, lo, chim)
+				v.smoke_at = chim[0]
+				var smat := StandardMaterial3D.new()
+				smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				for k in 4:
+					var m := smat.duplicate() as StandardMaterial3D
+					m.albedo_color = Color(0.93, 0.92, 0.9, 0.0)
+					var puff := Prim.cyl(root, 0.16, 0.16, 0.01, 10, v.smoke_at, m, false)
+					puff.visible = false
+					v.smoke.append({"node": puff, "mat": m, "t": k * 0.25})
+			# pines, in a loose bunch beside the lodge and along the far edge
+			var pine_n := 0
+			var rng := RandomNumberGenerator.new()
+			rng.seed = 91
+			var tries := 0
+			while pine_n < 7 and tries < 200:
+				tries += 1
+				var pp := Vector2(rng.randf_range(-4.5, 4.5), rng.randf_range(-8.0, 8.0))
+				if _spot_free(pp, 0.3, 9.0) and _clear_of_paths(pp, 0.1):
+					_occupied.append([pp, 0.35])
+					Models.pine(root, pp, rng.randf_range(0.9, 1.3))
+					pine_n += 1
+			# a chairlift line along a clear column at one side
+			for x in [-4.6, 4.6]:
+				var a := Vector2(x, -5.2)
+				var b := Vector2(x, 1.6)
+				var ok := true
+				for q in 8:
+					if not _clear_of_paths(a.lerp(b, q / 7.0), -0.2):
+						ok = false
+				if ok:
+					Models.chairlift(root, a, b, v.chairs)
+					v.chair_a = a
+					v.chair_b = b
+					break
+			for hz in Airports.hazards():
+				var hc: Vector2 = hz["center"]
+				Models.snow_patch(root, hc + Vector2(hz["radius"] * 0.9, hz["radius"] * 0.8), 0.45)
+		_:
+			if not v.water and Airports.current != 3:
+				var corners := [Vector2(-3.4, 7.9), Vector2(3.4, 7.9), Vector2(-3.4, -8.2), Vector2(3.4, -8.2)]
+				var bp = _find_rect(corners, 2.4, 1.4)
+				if bp != null:
+					_occupied.append([bp, 1.1])
+					v.scenery.append(bp)
+					Models.barn(root, bp)
 
 ## The first of `cands` (centres) whose w x d rectangle lies in the field, clear of the paths' strips and of everything built.
 func _find_rect(cands: Array, w: float, d: float) -> Variant:
@@ -704,7 +786,7 @@ func _life(v: AirportScene) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 5150 + Airports.current * 31
 	for k in 2:
-		var b := Models.bird(root)
+		var b := Models.bird(root, Color("fbfaf6") if v.style == "coastal" else Color("3a3f4c"))
 		b.position.y = 1.1
 		var sh := Models.blob(root, Vector2.ZERO, 0.3, 0.3, 0.02, 0.6)
 		var a := rng.randf() * TAU
@@ -803,6 +885,9 @@ func _process(delta: float) -> void:
 	_animate_ground(delta, now)
 	if DebugFlags.life_enabled():
 		_animate_life(delta)
+	var pulse := 1.4 if int(now / 1400.0) % 2 == 0 else 0.2
+	for lm2 in cur.lamps:
+		lm2.emission_energy_multiplier = pulse
 	for bm in cur.beacons:
 		bm.emission_energy_multiplier = blink
 		bm.albedo_color = Color(0.95, 0.23, 0.19) if blink > 0.0 else Color(0.45, 0.14, 0.12)
@@ -877,6 +962,22 @@ func _animate_life(delta: float) -> void:
 		n.get_child(0).rotation.y = deg_to_rad(-20.0 - 25.0 * sin(_life_t * 9.0 + p.x))
 		n.get_child(1).rotation.y = deg_to_rad(20.0 + 25.0 * sin(_life_t * 9.0 + p.x))
 		(b["shadow"] as Node3D).position = Vector3(p.x + 0.3, 0.02, p.y + 0.3)
+	for sm in v.smoke:
+		sm["t"] = fposmod(float(sm["t"]) + delta * 0.18, 1.0)
+		var u: float = sm["t"]
+		var dir := Vector2(1.0, 0.4)
+		if wind != null:
+			var tw := deg_to_rad(wind.toward_deg())
+			dir = Vector2(sin(tw), -cos(tw))
+		var puff: MeshInstance3D = sm["node"]
+		puff.visible = true
+		puff.position = Vector3(v.smoke_at.x + dir.x * u * 0.9, v.smoke_at.y, v.smoke_at.z + dir.y * u * 0.9)
+		puff.scale = Vector3.ONE * lerpf(0.6, 2.0, u)
+		(sm["mat"] as StandardMaterial3D).albedo_color = Color(0.93, 0.92, 0.9, 0.55 * (1.0 - u) * minf(u * 8.0, 1.0))
+	for ci in v.chairs.size():
+		var cu := fposmod(_life_t * 0.035 + ci * 0.5, 1.0)
+		var cp := v.chair_a.lerp(v.chair_b, cu)
+		(v.chairs[ci] as Node3D).position = Vector3(cp.x, 0.0, cp.y)
 	if not v.balloon.is_empty():
 		var bx: float = v.balloon["x"] + delta * 0.11
 		if bx > 6.5:

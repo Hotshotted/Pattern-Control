@@ -4080,6 +4080,11 @@ func _initialize() -> void:
 				cl_bad.append("%s %s" % [Airports.airport_name(cl_i), str(cl_p)])
 	Airports.current = cl_keep
 	check(cl_apron == Airports.COUNT and cl_bad.is_empty(), "every airport has a ramp, and the big scenery stands outside the paths' strips %s" % str(cl_bad))
+	var cl_coast = cl_af.variants[Airports.index_of("Island")]
+	var cl_alp = cl_af.variants[Airports.index_of("Mountain Field")]
+	check(cl_coast.style == "coastal" and cl_coast.lamps.size() == 1, "the island has a lighthouse with a lamp")
+	check(cl_alp.style == "alpine" and cl_alp.smoke.size() == 4, "the mountain lodge has chimney smoke")
+	check(cl_alp.chairs.size() == 2 or cl_alp.chair_a == Vector2.ZERO, "the chairlift has two chairs when it fits")
 	var cl_v0 = cl_af.variants[0]
 	var cl_trucks = 0
 	for cl_i in Airports.COUNT:
