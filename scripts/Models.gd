@@ -31,6 +31,7 @@ static func cast(parent: Node3D, at: Vector2, fw: float, fd: float, h: float, y:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.position = Vector3(at.x + len * k * 0.5, y, at.y + len * k * 0.5)
 	parent.add_child(mi)
+	Shadow.register(mi, Vector2(len * k * 0.5, len * k * 0.5))
 
 ## A round soft shadow (trees, tanks, the balloon).
 static func blob(parent: Node3D, at: Vector2, w: float, d: float, y: float = 0.02, alpha: float = 1.0) -> MeshInstance3D:

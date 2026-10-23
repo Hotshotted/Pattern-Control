@@ -292,6 +292,7 @@ func restart() -> void:
 	overlay.clear()
 	airfield.reset()
 	airfield.ramp_begin()
+	_set_day(0.4 if bad_mode else 0.0)
 	traffic.half_w = view_size * 0.5
 	traffic.half_h = _half_height()
 	traffic.release_all()
@@ -317,6 +318,7 @@ func _show_menu() -> void:
 	hud.bad_streak = Save.daily_streak("bad")
 	hud.bad_done = Save.daily_done_today("bad")
 	airfield.progress = -1.0
+	_set_day(0.0)
 	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport), Save.stars_of(airport))
 
 # ---------- Frame time: the simulation can never run ahead of the clock ----------
@@ -553,9 +555,16 @@ func _timer_ticks(t: float, par: float) -> void:
 	sfx.play("tick", TICK_PITCH[0 if k > 0.66 else (1 if k > 0.33 else 2)])      # G, then A, then C: the ticks climb the scale as time runs out
 	_tick_next = t + lerpf(0.22, 0.9, k)
 
+## The light moves on through the shift: a warmer glow, a cooler shade, longer shadows, warmer grass (Bad Pilot Day starts 40% in).
+func _set_day(t: float) -> void:
+	light.set_time(t)
+	airfield.set_time(t)
+	traffic.shadow_scale = Shadow.offset_scale(t)
+
 ## The music intensifies through the shift and towards the finale (there is no engine hum: the music is the only continuous sound).
 func _update_audio(frac: float) -> void:
 	airfield.progress = frac
+	_set_day(0.4 + 0.6 * frac if bad_mode else frac)
 	sfx.set_music(true, frac, 1.0 if _finale > 0 else 0.0)
 	sfx.set_fog(traffic.fog_amount)
 

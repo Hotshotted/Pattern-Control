@@ -4398,6 +4398,29 @@ func _initialize() -> void:
 	sn_tr.release_all()
 	check(sn_q.ghost_t == 0.0, "nothing fades after the aircraft is gone")
 
+	print("15. Polish 3: the light moves on through the shift")
+	var ti_shadow = load("res://scripts/Shadow.gd")
+	main.restart()
+	check(main.light.time == 0.0 and is_equal_approx(main.light.material.get_shader_parameter("warm_amount"), 0.35) and is_equal_approx(main.light.material.get_shader_parameter("cool_amount"), 0.20), "a shift starts with the 35% glow and the 20% shade")
+	main._set_day(0.5)
+	check(is_equal_approx(main.light.material.get_shader_parameter("warm_amount"), 0.425) and is_equal_approx(main.light.material.get_shader_parameter("cool_amount"), 0.25), "half way: 42.5% and 25% (linear)")
+	main._set_day(1.0)
+	check(is_equal_approx(main.light.material.get_shader_parameter("warm_amount"), 0.50) and is_equal_approx(main.light.material.get_shader_parameter("cool_amount"), 0.30), "at the end: 50% and 30%")
+	check(is_equal_approx(main.traffic.shadow_scale, 1.3), "the aircraft's shadow offsets are 30% longer")
+	var ti_c = ti_shadow._casters[0]
+	check(ti_shadow._casters.size() > 50 and ti_c[0].position.is_equal_approx(ti_c[1] + Vector3(ti_c[2].x, 0.0, ti_c[2].y) * 0.3), "every prop shadow offset is 30%% longer (%d shadows)" % ti_shadow._casters.size())
+	var ti_g0 = main.airfield.cur.ground_mat.albedo_color
+	main._set_day(0.0)
+	var ti_g1 = main.airfield.cur.ground_mat.albedo_color
+	check(ti_g1.b > ti_g0.b and ti_g1.g >= ti_g0.g and ti_c[0].position.is_equal_approx(ti_c[1]), "the grass is a touch warmer at the end, and the start restores it all")
+	main.restart()
+	check(main.light.time == 0.0, "a restart resets the light")
+	main.bad_mode = true
+	main.restart()
+	check(is_equal_approx(main.light.time, 0.4) and is_equal_approx(main.light.material.get_shader_parameter("warm_amount"), lerpf(0.35, 0.5, 0.4)), "Bad Pilot Day starts 40% of the way in")
+	main.bad_mode = false
+	main.restart()
+
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
 	if failures.is_empty():

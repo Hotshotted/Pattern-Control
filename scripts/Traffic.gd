@@ -22,6 +22,7 @@ signal touchdown(plane: Aircraft)      # the wheels just touched the runway (dus
 
 const MAX_POOL := 16
 var pool_n := MAX_POOL                  # (the menu's scenic traffic keeps a small pool)
+var shadow_scale := 1.0                 # the aircraft's shadow offsets grow over a shift (see Shadow.offset_scale)
 var scenic := false                     # the menu diorama: no timers, conflicts or random go-arounds
 const MAX_HAZARDS := 16
 const PLANE_Y := 0.35
@@ -1061,7 +1062,7 @@ func _sync(p: Aircraft, i: int) -> void:
 	var sh := _shadows[i]
 	sh.visible = n.visible
 	var up := (h - PLANE_Y * 0.65) / 0.5
-	sh.position = Vector3(p.pos.x + 0.03 + 0.4 * up, 0.14, p.pos.y + 0.02 + 0.3 * up)       # (hugging the wheels on the ground, further away the higher it flies)
+	sh.position = Vector3(p.pos.x + (0.03 + 0.4 * up) * shadow_scale, 0.14, p.pos.y + (0.02 + 0.3 * up) * shadow_scale)       # (hugging the wheels on the ground, further away the higher it flies)
 	sh.rotation.y = -p.vis_heading
 	sh.scale = Vector3(_shadow_size[i].x, 1.0, _shadow_size[i].y) * (0.9 + 0.1 * alt)
 	_shadow_mats[i].set_shader_parameter("alpha", Shadow.ALPHA - 0.08 * clampf(up, 0.0, 1.5))       # blue-grey at 26%: fainter the higher it flies

@@ -7,6 +7,7 @@ extends CanvasLayer
 const GRAIN := 128
 
 var rect: ColorRect
+var time := 0.0
 var material: ShaderMaterial
 
 static var _grain: ImageTexture
@@ -45,6 +46,13 @@ func _ready() -> void:
 
 func _fit() -> void:
 	material.set_shader_parameter("view_size", get_viewport().get_visible_rect().size)
+
+## Time of day (0 = the shift's start, 1 = its end): the warm glow goes 35% -> 50% and the cool shade 20% -> 30%, linearly.
+func set_time(t: float) -> void:
+	t = clampf(t, 0.0, 1.0)
+	material.set_shader_parameter("warm_amount", lerpf(0.35, 0.50, t))
+	material.set_shader_parameter("cool_amount", lerpf(0.20, 0.30, t))
+	time = t
 
 ## Is the light on screen?
 func is_on() -> bool:

@@ -29,6 +29,7 @@ class AirportScene:
 	var ground_mat: StandardMaterial3D
 	var stripe_mat: StandardMaterial3D
 	var tufts: MultiMeshInstance3D
+	var ground_now := Color.WHITE           # the ground's colour before the time of day warms it
 	var style := "countryside"
 	var lamps: Array = []                   # the lighthouse lamp (it pulses)
 	var smoke: Array = []                   # the lodge chimney's puffs: [{node, mat, t}]
@@ -82,6 +83,17 @@ var variants: Array[AirportScene] = []
 var cur: AirportScene
 var selected := 0
 var _sock_deg := 0.0
+var _day := 0.0                           # how far through the shift the light is (0..1): warmer grass, longer shadows
+
+## Time of day: the grass gets a touch warmer and every shadow a little longer as the shift goes on.
+func set_time(t: float) -> void:
+	_day = clampf(t, 0.0, 1.0)
+	Shadow.set_time(_day)
+	for v in variants:
+		v.ground_mat.albedo_color = _warmed(v.ground_now, _day)
+
+static func _warmed(c: Color, t: float) -> Color:
+	return Color(c.r, c.g * (1.0 - 0.02 * t), c.b * (1.0 - 0.09 * t), c.a)
 
 # The ramp: where landed aircraft taxi to and park (see Ramp.gd). The taxiing ones are scenery: no collisions, drawn under everything.
 const TAXI_SPEED := 1.05                  # units / second
@@ -120,6 +132,7 @@ func _build_airport() -> AirportScene:
 	v.root = root
 	var ground := Airports.ground_color()
 	v.base_ground = ground
+	v.ground_now = ground
 	v.ground_mat = Prim.mat(ground)
 	_ground(root, v.ground_mat, bool(Airports.def().get("water", false)))
 	var stripe := _overlay_mat(Color(1, 1, 1, 0.12))        # lighter and darker patches are translucent, so they follow the field's own light
@@ -343,7 +356,8 @@ func apply_theme(index: int) -> void:
 			ground = t["ground"]
 		elif v.water:
 			ground = v.base_ground * (t["tint"] as Color)
-		v.ground_mat.albedo_color = ground
+		v.ground_now = ground
+		v.ground_mat.albedo_color = _warmed(ground, _day)
 		if v.leaf_mat != null:
 			v.leaf_mat.albedo_color = t["leaf"]
 			v.leaf_mid.albedo_color = t.get("leaf_mid", (t["leaf"] as Color).lightened(0.18))
@@ -613,7 +627,7 @@ func _mountain(root: Node3D, c: Vector2, r: float) -> void:
 	Prim.cyl(root, 0.0, r * 0.6, r * 0.9, 6, Vector3(c.x + r * 0.55, r * 0.45, c.y + r * 0.2), rock2, false)
 
 ## A soft round shadow lying on the ground (build time): centre (x, z), size (w, d), `alpha` (1 = the standard 26%), height `y`.
-func _shadow(parent: Node3D, x: float, z: float, w: float, d: float, alpha: float, y: float, tex: Texture2D = null) -> void:
+func _shadow(parent: Node3D, x: float, z: float, w: float, d: float, alpha: float, y: float, tex: Texture2D = null) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(w, d)
@@ -622,6 +636,7 @@ func _shadow(parent: Node3D, x: float, z: float, w: float, d: float, alpha: floa
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.position = Vector3(x, y, z)
 	parent.add_child(mi)
+	return mi
 
 ## The shadow of a box-like thing with footprint (fw, fd) at (x, z) and height `h`: cast toward the lower-right, half as long as
 ## the thing is high, soft-edged.
@@ -630,7 +645,8 @@ func _cast(parent: Node3D, x: float, z: float, fw: float, fd: float, h: float, y
 	var k := 0.7071
 	var w := (fw + len * k) / 0.62
 	var d := (fd + len * k) / 0.62
-	_shadow(parent, x + len * k * 0.5, z + len * k * 0.5, w, d, alpha, y, Shadow.rect())
+	var mi := _shadow(parent, x + len * k * 0.5, z + len * k * 0.5, w, d, alpha, y, Shadow.rect())
+	Shadow.register(mi, Vector2(len * k * 0.5, len * k * 0.5))
 
 ## The ramp: the apron with the tower, the hangar, the FBO, the picnic and the car park, the tie-downs with their parked planes (one
 ## being washed), a fenced fuel farm with its truck, the glider on its trailer, and the landmark beyond the fence. Everything keeps

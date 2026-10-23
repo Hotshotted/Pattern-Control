@@ -7,6 +7,12 @@ const COLOR := Color("3b4a6b")
 const ALPHA := 0.26
 const SIZE := 64
 
+## Every shadow with an offset from the thing that casts it, so the offsets can grow as the sun gets lower over a shift:
+## [node, its base position, the offset it already has (x, z)].
+static var _casters: Array = []
+static var _time := -1.0
+const OFFSET_GROWTH := 0.3          # the offsets are 30% longer at the end of a shift
+
 static var _disc: ImageTexture
 static var _rect: ImageTexture
 static var _plane: ImageTexture
@@ -55,3 +61,35 @@ static func material(tex: Texture2D, alpha_scale: float = 1.0) -> StandardMateri
 	m.albedo_color = Color(COLOR, ALPHA * alpha_scale)
 	m.albedo_texture = tex
 	return m
+
+## Remember a shadow quad whose position includes `offset` (x, z) from its caster.
+static func register(node: MeshInstance3D, offset: Vector2) -> void:
+	_casters.append([node, node.position, offset])
+	if _time > 0.0:
+		_place(_casters[_casters.size() - 1], 1.0 + OFFSET_GROWTH * _time)
+
+static func _place(c: Array, scale: float) -> void:
+	var n: MeshInstance3D = c[0]
+	if is_instance_valid(n):
+		var base: Vector3 = c[1]
+		var off: Vector2 = c[2]
+		n.position = base + Vector3(off.x, 0.0, off.y) * (scale - 1.0)
+
+## How much longer the offsets are at shift time `t` (0..1).
+static func offset_scale(t: float) -> float:
+	return 1.0 + OFFSET_GROWTH * clampf(t, 0.0, 1.0)
+
+## The shift is `t` of the way through (0..1): every registered shadow moves out to its offset at that time.
+static func set_time(t: float) -> void:
+	t = clampf(t, 0.0, 1.0)
+	if absf(t - _time) < 0.002:
+		return
+	_time = t
+	var s := offset_scale(t)
+	var i := 0
+	while i < _casters.size():
+		if not is_instance_valid(_casters[i][0]):
+			_casters.remove_at(i)
+			continue
+		_place(_casters[i], s)
+		i += 1

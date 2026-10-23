@@ -241,3 +241,10 @@ line; the coloured dots keep their halo. A finger within `snap_radius` (0.45) of
 `snap_reach` (3.6) behind the threshold and heading for it, snaps onto the centreline and locks: a soft click, a pulse ring at the lock point
 and a short buzz (`navigator.vibrate` on the web, `Input.vibrate_handheld` elsewhere). Tapping a plane clears its path, which fades out over
 `path_fade_seconds`. The snap radius, reach, smoothing and fade are in `?tune`.
+
+## Time passing (polish pass, item 3)
+
+Over the shift the light moves on, linearly: the warm glow goes from 35% to 50% and the cool shade from 20% to 30%; every shadow
+offset (props, buildings, the aircraft's own) is up to 30% longer (`Shadow.set_time`, which moves the registered shadow quads out
+along their own offset); and the grass gradient gets a touch warmer (blue down 9%, green down 2%). A restart resets it all; Bad Pilot Day
+starts 40% of the way in.
