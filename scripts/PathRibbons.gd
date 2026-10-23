@@ -70,25 +70,29 @@ func _ready() -> void:
 		last_alpha_near.append(0.0)
 		last_alpha_far.append(0.0)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if traffic == null:
 		return
 	for i in Traffic.MAX_POOL:
 		var p := traffic.planes[i]
 		if p.active() and p.count > 0 and not p.fogged:
+			p.ghost_t = 0.0
 			_build(p, i)
+		elif p.active() and p.ghost_t > 0.0 and p.ghost_n > 0 and not p.fogged:
+			p.ghost_t = maxf(p.ghost_t - delta, 0.0)
+			_build(p, i, true)
 		elif _nodes[i].visible:
 			_meshes[i].clear_surfaces()
 			_outlines[i].clear_surfaces()
 			_nodes[i].visible = false
 			_outline_nodes[i].visible = false
 
-func _build(p: Aircraft, i: int) -> void:
-	var n := p.count
+func _build(p: Aircraft, i: int, ghost: bool = false) -> void:
+	var n := p.ghost_n if ghost else p.count
 	var dir := Vector2(sin(p.vis_heading), -cos(p.vis_heading))
 	_pts[0] = p.pos + dir * NOSE[p.speed_class]
 	for k in n:
-		_pts[k + 1] = p.pts[p.head + k]
+		_pts[k + 1] = p.ghost[k] if ghost else p.pts[p.head + k]
 	var m := n + 1
 	last_start[i] = _pts[0]
 	# Opacity grows with the distance along the path from the nose.
@@ -103,6 +107,10 @@ func _build(p: Aircraft, i: int) -> void:
 		var b := _pts[mini(k + 1, m - 1)]
 		var tan := b - a
 		_nrm[k] = Vector2(-tan.y, tan.x).normalized() if tan.length_squared() > 0.000001 else Vector2(1, 0)
+	if ghost:          # a path a tap cleared: it fades away
+		var f := clampf(p.ghost_t / maxf(Tuning.path_fade_seconds, 0.01), 0.0, 1.0)
+		for k in m:
+			_alpha[k] *= f
 	last_alpha_near[i] = _alpha[0]
 	last_alpha_far[i] = _alpha[m - 1]
 	var col := Airports.land_color(p.tkind, p.runway)

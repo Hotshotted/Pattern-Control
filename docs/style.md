@@ -233,3 +233,11 @@ the airport's average landing pay, rounded up; the door shows "N / cap"), then t
 to six **overflow spots** on the grass along the taxiway, then only the "+N" tag by the apron. A helicopter sits on the pad for 3 s, then
 air-taxis to the marked heli spot; a seaplane taxies to the island's dock. Crashes park nothing. Everything that can park is built once, hidden;
 a shift restart clears it in place. The results card says "Hangar full · 9 on the ramp" or "Hangar 5 / 8".
+
+## Path feel (polish pass, item 2)
+
+While drawing, the path follows the average of the finger's last four points (`path_smooth_points`), so a shaky finger draws a smooth
+line; the coloured dots keep their halo. A finger within `snap_radius` (0.45) of an open runway end's extended centreline, between 0.5 and
+`snap_reach` (3.6) behind the threshold and heading for it, snaps onto the centreline and locks: a soft click, a pulse ring at the lock point
+and a short buzz (`navigator.vibrate` on the web, `Input.vibrate_handheld` elsewhere). Tapping a plane clears its path, which fades out over
+`path_fade_seconds`. The snap radius, reach, smoothing and fade are in `?tune`.

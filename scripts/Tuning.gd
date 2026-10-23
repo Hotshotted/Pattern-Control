@@ -23,6 +23,13 @@ var ortho_size := 10.0
 ## (The runways themselves are in Airports.gd.) A path whose end comes within this of the matching
 ## approach end is cleared to land.
 var approach_radius := 1.0
+## Drawing a path: a finger this close to a runway end's extended centreline (behind the threshold, heading for it) snaps onto it and locks.
+var snap_radius := 0.45
+var snap_reach := 3.6               # ...from the threshold back along the centreline this far
+var snap_min_reach := 0.5           # ...but not this close (the threshold's own capture takes over there)
+var path_smooth_points := 4.0       # the path follows the average of the finger's last this many points
+var path_fade_seconds := 0.25       # a path cleared by a tap fades out over this long
+var snap_haptic_ms := 18
 var runway_asphalt := Color("6a7079")      # the lit end; the shading takes it to about #565B66
 
 # ---------- Planes ----------

@@ -83,6 +83,8 @@ var view_size := 10.0                 # world units across the screen width (the
 var _drag_index := -1
 var _drag_plane: Aircraft = null
 var _drag_active := false
+var _smooth_buf := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
+var _smooth_count := 0
 var _touch_start := Vector2.ZERO
 var _touch_ms := 0
 var _last_world := Vector2.ZERO
@@ -140,6 +142,7 @@ func _ready() -> void:
 	traffic.conflict.connect(_on_conflict)
 	traffic.timed_out.connect(_on_timed_out)
 	traffic.cleared.connect(_on_cleared)
+	traffic.snapped.connect(_on_snapped)
 	traffic.wrong_runway.connect(_on_wrong_runway)
 	airport = Save.selected_airport if Save.airport_open(Save.selected_airport) else 0
 	Airports.current = airport
@@ -617,7 +620,7 @@ func _on_landed(p: Aircraft) -> void:
 	hud.popup(text, tcol, overlay.world_to_screen(land_at) + Vector2(0, -80))
 	_star_feedback(land_at)
 	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(Tuning.haptic_ms)
+		_vibrate(Tuning.haptic_ms)
 
 ## A star threshold was just crossed: a gold burst and a "STAR!" popup.
 func _star_feedback(at: Vector2) -> void:
@@ -723,6 +726,23 @@ func _on_appeared(p: Aircraft) -> void:
 		Save.tips_seen[key] = true
 		Save.write_file()
 		hud.show_tip(TIPS[key][0], TIPS[key][1])
+
+## A path snapped onto a runway's centreline and locked: a soft click, a pulse ring where it locked and a short buzz.
+func _on_snapped(p: Aircraft, at: Vector2) -> void:
+	var col := Airports.land_color(p.tkind, p.runway)
+	overlay.ripple(at, col, 0.45)
+	overlay.ripple(at, Color.WHITE, 0.3)
+	sfx.play("tap")
+	_vibrate(Tuning.snap_haptic_ms)
+
+## A short buzz: the browser's navigator.vibrate on the web (Godot's own call is a no-op there on some browsers), else the handheld's.
+func _vibrate(ms: int) -> void:
+	if DebugFlags.off("haptic"):
+		return
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("if (navigator.vibrate) navigator.vibrate(%d)" % ms)
+	else:
+		Input.vibrate_handheld(ms)
 
 func _on_cleared(p: Aircraft) -> void:
 	overlay.ripple(Airports.land_threshold(p.tkind, p.runway, p.land_end), Airports.land_color(p.tkind, p.runway), 0.5)
@@ -1046,6 +1066,7 @@ func _touch_down(index: int, pos: Vector2) -> void:
 	_drag_index = index
 	_drag_plane = p
 	_drag_active = false
+	_smooth_count = 0
 	_touch_start = w
 	_touch_ms = Time.get_ticks_msec()
 	_last_world = w
@@ -1363,6 +1384,19 @@ func _touch_move(index: int, pos: Vector2) -> void:
 	_last_world = w
 	feed_drag(w)
 
+## The path follows the average of the finger's last few points (Tuning.path_smooth_points), so a shaky finger draws a smooth line.
+func _smooth(w: Vector2) -> Vector2:
+	var n := clampi(roundi(Tuning.path_smooth_points), 1, _smooth_buf.size())
+	if _smooth_count == 0:
+		_smooth_buf.fill(w)
+	_smooth_buf[_smooth_count % _smooth_buf.size()] = w
+	_smooth_count += 1
+	var sum := Vector2.ZERO
+	var used := mini(n, _smooth_count)
+	for k in used:
+		sum += _smooth_buf[posmod(_smooth_count - 1 - k, _smooth_buf.size())]
+	return sum / used
+
 ## The finger is at world position `w` (the tests call this directly).
 func feed_drag(w: Vector2) -> void:
 	if _drag_plane == null:
@@ -1378,7 +1412,7 @@ func feed_drag(w: Vector2) -> void:
 			return
 		_drag_active = true
 		overlay.active_runway = _drag_plane.runway
-	if traffic.extend_path(_drag_plane, w):
+	if traffic.extend_path(_drag_plane, _smooth(w), w):
 		_cancel_drag()
 
 func _touch_up(index: int, pos: Vector2) -> void:

@@ -64,9 +64,13 @@ var pts := PackedVector2Array()
 var head := 0
 var count := 0
 var draw_buf := PackedVector2Array()   # scratch for the overlay (pos + remaining points)
+var ghost := PackedVector2Array()      # the path a tap just cleared: it fades out (drawn by PathRibbons)
+var ghost_n := 0
+var ghost_t := 0.0                     # seconds of fade left
 
 func _init() -> void:
 	pts.resize(PATH_MAX)
+	ghost.resize(PATH_MAX)
 	draw_buf.resize(PATH_MAX + 1)
 
 func reset() -> void:
@@ -102,6 +106,8 @@ func reset() -> void:
 	age = 0.0
 	head = 0
 	count = 0
+	ghost_t = 0.0
+	ghost_n = 0
 
 func clear_path() -> void:
 	head = 0
@@ -112,6 +118,15 @@ func clear_path() -> void:
 	ga_geo = false
 	ga_chance = 0.0
 	ga_band = 0
+
+## Clear the path, but keep a copy that fades out (a tap on the plane).
+func fade_path(seconds: float) -> void:
+	if count > 0:
+		for i in count:
+			ghost[i] = pts[head + i]
+		ghost_n = count
+		ghost_t = seconds
+	clear_path()
 
 func last_point() -> Vector2:
 	return pts[head + count - 1] if count > 0 else pos

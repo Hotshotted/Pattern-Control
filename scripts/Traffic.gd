@@ -17,6 +17,7 @@ signal go_around(plane: Aircraft, reason: int)   # climbing out: the runway was 
 signal runway_conflict(a: Aircraft, b: Aircraft)   # landed on a crossing runway while it was busy
 signal refused(plane: Aircraft, text: String, at: Vector2)   # a path / tap the aircraft can't follow (with why)
 signal appeared(plane: Aircraft)       # it just came on screen (first-time tips hook in here)
+signal snapped(plane: Aircraft, at: Vector2)   # a path locked onto a runway's extended centreline
 signal touchdown(plane: Aircraft)      # the wheels just touched the runway (dust puff, a little pop)
 
 const MAX_POOL := 16
@@ -538,11 +539,16 @@ func _end_active(kind: int, idx: int, end: int) -> bool:
 
 ## The finger is now at `world`: lay path points up to it. Returns true when the path has
 ## reached an ACTIVE approach end of the place the aircraft lands on (it is cleared to land; the drag is over).
-func extend_path(p: Aircraft, world: Vector2) -> bool:
+## The finger is at `raw`; the path follows `world` (the finger's smoothed position).
+func extend_path(p: Aircraft, world: Vector2, raw: Vector2 = Vector2(INF, INF)) -> bool:
 	if p.cleared:
 		return true
+	if raw.x == INF:
+		raw = world
 	var last := p.last_point()
 	var kind := p.tkind
+	if kind != Aircraft.Kind.PAD and _try_snap(p, last, raw):
+		return true
 	var radius := Tuning.pad_capture_radius if kind == Aircraft.Kind.PAD else Tuning.approach_radius
 	for idx in Airports.land_count(kind):
 		if idx != p.runway and not p.any_target:
@@ -551,7 +557,7 @@ func extend_path(p: Aircraft, world: Vector2) -> bool:
 			continue
 		for e in Airports.land_ends(kind):
 			var thr := Airports.land_threshold(kind, idx, e)
-			if _dist_to_segment(thr, last, world) <= radius:
+			if _dist_to_segment(thr, last, raw) <= radius:
 				if _end_active(kind, idx, e):
 					p.push(thr)
 					p.push(Airports.land_far(kind, idx, e))
@@ -566,7 +572,7 @@ func extend_path(p: Aircraft, world: Vector2) -> bool:
 					p.inactive_shown = true
 					inactive_end.emit(p, idx, e)
 	if not p.wrong_shown:
-		_check_refusals(p, last, world)
+		_check_refusals(p, last, raw)
 	var d := world - last
 	var len := d.length()
 	if len >= Tuning.path_spacing:
@@ -578,14 +584,52 @@ func extend_path(p: Aircraft, world: Vector2) -> bool:
 			k += 1
 	return false
 
+## Snap: the finger is within `snap_radius` of the extended centreline of an open end of this aircraft's runway, behind its
+## threshold and heading for it: the path locks onto the centreline and the aircraft is cleared to land.
+func _try_snap(p: Aircraft, last: Vector2, raw: Vector2) -> bool:
+	var kind := p.tkind
+	var move := raw - last
+	for idx in Airports.land_count(kind):
+		if idx != p.runway and not p.any_target:
+			continue
+		if kind == Aircraft.Kind.RUNWAY and not Airports.suitable_runway(p.type, idx):
+			continue
+		for e in Airports.land_ends(kind):
+			var thr := Airports.land_threshold(kind, idx, e)
+			var h := deg_to_rad(Airports.land_heading_deg(kind, idx, e))
+			var dir := Vector2(sin(h), -cos(h))
+			var rel := raw - thr
+			var u := -rel.dot(dir)
+			var lat := absf(rel.dot(Vector2(-dir.y, dir.x)))
+			if u < Tuning.snap_min_reach or u > Tuning.snap_reach or lat > Tuning.snap_radius:
+				continue
+			if move.length() > 0.05 and move.normalized().dot(dir) < 0.35:
+				continue
+			if not _end_active(kind, idx, e):
+				continue
+			var at := thr - dir * u
+			if last.distance_to(at) > 0.05:
+				p.push(at, 2)
+			p.push(thr)
+			p.push(Airports.land_far(kind, idx, e))
+			p.cleared = true
+			p.runway = idx
+			p.land_end = e
+			if p.type == Aircraft.Type.GLIDER:
+				p.locked = true
+			snapped.emit(p, at)
+			cleared.emit(p)
+			return true
+	return false
+
 ## The path went for a place this aircraft can't use: say why (once per drag).
-func _check_refusals(p: Aircraft, last: Vector2, world: Vector2) -> void:
+func _check_refusals(p: Aircraft, last: Vector2, raw: Vector2) -> void:
 	for kind in 3:
 		for idx in Airports.land_count(kind):
 			for e in Airports.land_ends(kind):
 				var radius := Tuning.pad_capture_radius if kind == Aircraft.Kind.PAD else Tuning.approach_radius
 				var thr := Airports.land_threshold(kind, idx, e)
-				if _dist_to_segment(thr, last, world) > radius:
+				if _dist_to_segment(thr, last, raw) > radius:
 					continue
 				var text := ""
 				if kind == Aircraft.Kind.RUNWAY:
@@ -650,7 +694,7 @@ func toggle_hold(p: Aircraft) -> void:
 		return
 	if p.state != Aircraft.State.FLY:
 		return
-	p.clear_path()
+	p.fade_path(Tuning.path_fade_seconds)
 	if p.vip and p.vip_ok:
 		p.vip_ok = false
 		refused.emit(p, "VIP delayed: bonus lost", p.pos)

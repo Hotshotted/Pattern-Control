@@ -158,6 +158,7 @@ func draw_path(main: Node, p: Aircraft, points: Array) -> void:
 
 func _initialize() -> void:
 	var tuning = root.get_node("Tuning")
+	tuning.path_smooth_points = 1.0       # (the older sections draw exact paths; section 14 tests the smoothing)
 	var save = root.get_node("Save")
 	save.path = "user://smoke_test_save.json"   # never touch a real save
 	save.reset_all()
@@ -4355,6 +4356,47 @@ func _initialize() -> void:
 			if rp_e["node"].visible:
 				rp_vis += 1
 	check(rp_vis == 0 and rp_rv0.root.get_child_count() == rp_children, "...in place (nothing left parked, nothing new built)")
+
+	print("14. Polish 2: path feel")
+	main.restart()
+	var sn_tr = main.traffic
+	sn_tr.auto_spawn = false
+	sn_tr.wind = null
+	var sn_thr = Airports.end_threshold(0, 0)
+	var sn_dir = Airports.end_dir(0, 0)
+	var sn_perp = Vector2(-sn_dir.y, sn_dir.x)
+	var sn_hits = []
+	var sn_cb = func(_p, at): sn_hits.append(at)
+	sn_tr.snapped.connect(sn_cb)
+	var sn_p = sn_tr.place(0, sn_thr - sn_dir * 4.0 + sn_perp * 3.0, 0.0, 2)
+	sn_p.runway = 0
+	check(sn_tr.begin_path(sn_p), "a path can start")
+	var sn_far_try = sn_tr.extend_path(sn_p, sn_thr - sn_dir * 2.0 + sn_perp * 1.6)
+	check(not sn_far_try and not sn_p.cleared and sn_hits.is_empty(), "a finger outside the snap radius does not snap")
+	var sn_ok = sn_tr.extend_path(sn_p, sn_thr - sn_dir * 1.4 + sn_perp * 0.3)
+	var sn_pt = sn_p.pts[sn_p.head + sn_p.count - 3]
+	check(sn_ok and sn_p.cleared and sn_hits.size() == 1, "a finger within the snap radius of the extended centreline locks on")
+	check(absf((sn_pt - sn_thr).dot(sn_perp)) < 0.01 and absf((sn_pt - sn_thr).dot(sn_dir) + 1.4) < 0.02, "...at the point on the centreline (%s)" % str(sn_pt))
+	check(sn_p.last_point().is_equal_approx(Airports.end_far(0, 0)), "...and the path runs straight down the runway")
+	sn_tr.snapped.disconnect(sn_cb)
+	sn_tr.release_all()
+	var sn_n0 = tuning.path_smooth_points
+	tuning.path_smooth_points = 4.0
+	main._smooth_count = 0
+	var sn_last = Vector2.ZERO
+	for sn_k in 4:
+		sn_last = main._smooth(Vector2(0.4 if sn_k % 2 == 1 else 0.0, 0.0))
+	check(is_equal_approx(sn_last.x, 0.2), "the path follows the average of the last four points (%.2f)" % sn_last.x)
+	tuning.path_smooth_points = sn_n0
+	var sn_q = sn_tr.place(0, Vector2(-2.0, -5.0), 0.0, 2)
+	sn_tr.begin_path(sn_q)
+	for sn_k in 6:
+		sn_q.push(Vector2(-2.0 + sn_k * 0.3, -4.0))
+	sn_tr.toggle_hold(sn_q)
+	check(sn_q.count == 0 and sn_q.ghost_n == 6 and sn_q.ghost_t > 0.0, "a tap clears the path and leaves a fading copy")
+	check(tp._sliders.has("snap_radius") and tp._sliders.has("path_smooth_points"), "?tune exposes the snap radius and the smoothing")
+	sn_tr.release_all()
+	check(sn_q.ghost_t == 0.0, "nothing fades after the aircraft is gone")
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
