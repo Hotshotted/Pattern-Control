@@ -288,6 +288,7 @@ func restart() -> void:
 	fx.clear()
 	overlay.clear()
 	airfield.reset()
+	airfield.ramp_begin()
 	traffic.half_w = view_size * 0.5
 	traffic.half_h = _half_height()
 	traffic.release_all()
@@ -473,6 +474,7 @@ func step(delta: float) -> void:
 	if screen == SCREEN_PAUSE:
 		return
 	traffic.step(delta)
+	airfield.step_taxi(delta)
 	var worst := 0.0
 	for p in traffic.planes:
 		if p.active():
@@ -561,6 +563,7 @@ func _on_touchdown(p: Aircraft) -> void:
 	if p.tkind != Aircraft.Kind.PAD:
 		fx.puff(p.pos)
 		sfx.play("touch")
+		sfx.play("chirp")
 
 func _on_landed(p: Aircraft) -> void:
 	if not alive:
@@ -583,6 +586,7 @@ func _on_landed(p: Aircraft) -> void:
 	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
 	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
+	airfield.begin_taxi(p.type, p.tkind, p.runway, p.land_end)
 	sfx.play_step("landing", mini(streak - 1, Sfx.STEPS - 1))      # (landings in quick succession climb the scale)
 	hud.set_landed(score, true)
 	hud.set_shift(shift)
@@ -918,6 +922,7 @@ func _reason_text() -> String:
 		"Early bonus|+%d (%d s)" % [shift.time_bonus, shift.early_seconds],
 		"Fines|-%d" % shift.fines,
 		"Overtime|-%d (%d s)" % [shift.overtime_penalty, shift.overtime_seconds],
+		"Ramp|%s" % airfield.ramp.summary(),
 		"Net total (stars)|%d" % shift.balance(),
 		"Guaranteed kept|%d" % shift.kept(),
 	]
@@ -926,6 +931,7 @@ func _reason_text() -> String:
 ## Fill in the results screen from `last_result`; the rewarded offers show until one has been used.
 func _show_results(doubled: bool) -> void:
 	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
+	hud.ramp_note = airfield.ramp.summary() if airfield.ramp_active or airfield.ramp.landed > 0 else ""
 	hud.show_results(HEADER_DONE, last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_coins_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], doubled)
 	hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
 	var unlocked: Array = last_result.get("unlocked", [])

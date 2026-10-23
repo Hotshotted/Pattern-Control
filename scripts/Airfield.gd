@@ -38,6 +38,17 @@ class AirportScene:
 	var chair_b := Vector2.ZERO
 	var beacons: Array = []                 # the tower's red beacon (it blinks)
 	var apron_c := Vector2.ZERO
+	var docks_at: Array[Vector2] = []        # where seaplanes tie up (the pier)
+	var ramp_ok := false                    # this airport has a ramp (hangar, tie-downs, ...)
+	var slots := {}                         # slot kind -> Array of {node, chocks, pos, yaw, goals, tail, heli}
+	var spares: Array = []                  # nodes that taxi to the hangar and vanish: {node, busy}
+	var hangar_goals: Array[Vector2] = []
+	var hangar_tail := PackedVector2Array()
+	var extra_goals: Array[Vector2] = []
+	var extra_tail := PackedVector2Array()
+	var hangar_label: Label3D
+	var extra_tag: Label3D
+	var routes := {}                        # a taxi route is fixed per airport: "kind:i:e|slot:idx" -> its points
 	var apron_s := 1.0
 	var scenery: Array[Vector2] = []        # where the big pieces of scenery stand (the tests check they are clear of the paths' strips)
 	var truck: Node3D                       # the fuel truck and its route (it drives from the fuel farm to a parked plane and back)
@@ -71,6 +82,19 @@ var variants: Array[AirportScene] = []
 var cur: AirportScene
 var selected := 0
 var _sock_deg := 0.0
+
+# The ramp: where landed aircraft taxi to and park (see Ramp.gd). The taxiing ones are scenery: no collisions, drawn under everything.
+const TAXI_SPEED := 1.05                  # units / second
+const TAXI_FAST := 9.0                    # (times that) for an older one that has to hurry up
+const TAXI_MAX := 4                       # at most this many taxi at their own pace
+const HELI_SIT := 3.0                     # a helicopter sits on the pad this long, then air-taxis away
+const SPARES := 6
+const HELI_SPARES := 2
+var ramp := Ramp.new()
+var taxis: Array = []                     # the aircraft taxiing now: {node, chocks, route, len, d, wait, ff, slot, hdg, spare}
+var ramp_active := false
+var hangar_shown := 0                     # how many have rolled into the hangar / been added to the "+N" so far (the taxi has to arrive)
+var extra_shown := 0
 
 func _ready() -> void:
 	var keep := Airports.current
@@ -137,6 +161,7 @@ func _build_airport() -> AirportScene:
 	v.style = Airports.style()
 	_ramp(v)
 	_landmark(v)
+	_ramp_slots(v)
 	_life(v)
 	var sp := Airports.windsock_pos()
 	_windsock(v, Vector3(sp.x, 0.0, sp.y))
@@ -640,18 +665,6 @@ func _ramp(v: AirportScene) -> void:
 	for o in [Vector2(-0.35, 0.82), Vector2(0.95, 1.35)]:
 		var st := Prim.cyl(root, 0.1 * s, 0.1 * s, 0.006, 10, Vector3(c.x + o.x * s, 0.02, c.y + o.y * s), oil, false)
 		st.scale = Vector3(1.3, 1.0, 0.8)
-	# the tie-downs: three painted Ts, two parked planes (chocked) and one being washed
-	var accents := [Airports.ORANGE, Airports.BLUE, Airports.ORANGE]
-	var yaws := [-9.0, 4.0, 11.0]
-	for i in 3:
-		var tx := (-0.9 + 0.9 * i) * s
-		var tz := 1.18 * s
-		Models.tie_down(root, c + Vector2(tx, tz + 0.12 * s))
-		var at := c + Vector2(tx, tz + 0.1 * s)
-		if i == 1:
-			Models.washed_plane(root, at, yaws[i], accents[i], 0.74 * s)
-		else:
-			Models.parked_plane(root, at, yaws[i], accents[i], 0.74 * s)
 	# the fuel farm and its truck
 	var farm = _find_rect([c + Vector2(0.0, 1.6 * s + 1.3), c + Vector2(-1.4 * s - 1.25, 1.0 * s), c + Vector2(1.4 * s + 1.25, 1.0 * s), c + Vector2(0.0, -1.6 * s - 1.3), c + Vector2(-1.4 * s - 1.25, -1.0 * s)], 1.1, 1.1)
 	if farm != null:
@@ -698,6 +711,7 @@ func _landmark(v: AirportScene) -> void:
 				_occupied.append([pr, 0.9])
 				v.scenery.append(pr)
 				Models.pier(root, pr + Vector2(-0.65, 0.0))
+				v.docks_at = [pr + Vector2(-0.3, 0.5), pr + Vector2(0.35, 0.5)]
 		"alpine":
 			var lo = _find_rect([Vector2(-3.9, 2.8), Vector2(-3.9, -2.2), Vector2(3.9, -3.8), Vector2(-3.8, 5.0)], 1.7, 1.2)
 			if lo != null:
@@ -864,6 +878,7 @@ func show_all(on: bool) -> void:
 func reset() -> void:
 	for v in variants:
 		v.glow_born.fill(0)
+	_ramp_clear()
 
 func _process(delta: float) -> void:
 	if cur == null:
@@ -1195,3 +1210,336 @@ func upgrade_nodes_visible(id: String) -> int:
 		if u[1] == id and u[0].visible:
 			n += 1
 	return n
+
+
+# ---------- The ramp: hangar, tie-downs, overflow spots, heli spot, dock ----------
+
+func _slot_node(v: AirportScene, root: Node3D, pos: Vector2, yaw: float, accent: Color, heli: bool) -> Dictionary:
+	var k := 0.5 * v.apron_s
+	var n: Node3D
+	var ch: Node3D = null
+	if heli:
+		n = Models.parked_heli(root, pos, accent, k * 0.9)
+	else:
+		n = Models.parked_plane(root, pos, 0.0, accent, k, false)
+		ch = Models.chocks(n, k)
+	n.rotation.y = -yaw
+	n.visible = false
+	return {"node": n, "chocks": ch, "pos": pos, "yaw": yaw, "heli": heli}
+
+## The apron's six tie-downs (the second row on an extension of the slab, to the south or else the west), the hangar's door, the "+N"
+## tag, the overflow spots on the grass along the taxiway, the heli spot (airports with a pad) and the dock (the island's pier).
+## Every plane that will ever park is built here, hidden, and only shown when one arrives: nothing is allocated during a shift.
+func _ramp_slots(v: AirportScene) -> void:
+	if Airports.apron().is_empty():
+		return
+	var root := v.root
+	var c := v.apron_c
+	var s := v.apron_s
+	var pal: Dictionary = PALETTE[v.style]
+	var accents := [Airports.ORANGE, Airports.BLUE]
+	v.ramp_ok = true
+	var south := _clear_of_paths(c + Vector2(0.0, 2.15 * s), -0.9)
+	var west := not south and _clear_of_paths(c + Vector2(-1.95 * s, 0.0), -0.9)
+	var ex := c.x + 1.55 * s
+	var aisle1 := c.y + 0.82 * s
+	var aisle2 := c.y + 1.72 * s
+	var ties: Array = []
+	for i in 3:
+		var x := c.x + (-0.9 + 0.9 * i) * s
+		var p := Vector2(x, c.y + 1.28 * s)
+		ties.append({"pos": p, "yaw": PI, "goals": [Vector2(ex, aisle1)], "tail": PackedVector2Array([Vector2(x, aisle1), p])})
+	var tag_pos := c + Vector2(1.0 * s, 1.45 * s)
+	v.extra_goals = [Vector2(ex, aisle1)]
+	v.extra_tail = PackedVector2Array([Vector2(c.x + 1.0 * s, aisle1), tag_pos])
+	if south:
+		Prim.box(root, Vector3(2.8 * s, 0.03, 1.1 * s), Vector3(c.x, 0.0, c.y + 2.15 * s), Prim.mat(pal["apron"]), false)
+		for i in 3:
+			var x2 := c.x + (-0.9 + 0.9 * i) * s
+			var p2 := Vector2(x2, c.y + 2.23 * s)
+			ties.append({"pos": p2, "yaw": PI, "goals": [Vector2(ex, aisle2)], "tail": PackedVector2Array([Vector2(x2, aisle2), p2])})
+		tag_pos = c + Vector2(1.0 * s, 2.4 * s)
+		v.extra_goals = [Vector2(ex, aisle2)]
+		v.extra_tail = PackedVector2Array([Vector2(c.x + 1.0 * s, aisle2), tag_pos])
+	elif west:
+		Prim.box(root, Vector3(1.1 * s, 0.03, 3.2 * s), Vector3(c.x - 1.95 * s, 0.0, c.y), Prim.mat(pal["apron"]), false)
+		for i in 3:
+			var p3 := Vector2(c.x - 1.95 * s, c.y + (-0.55 + 0.95 * i) * s)
+			ties.append({"pos": p3, "yaw": PI * 0.5, "goals": [p3 + Vector2(-1.0 * s, 0.0)], "tail": PackedVector2Array([p3])})
+		tag_pos = c + Vector2(-1.95 * s, -1.35 * s)
+		v.extra_goals = [tag_pos + Vector2(-1.0 * s, 0.0)]
+		v.extra_tail = PackedVector2Array([tag_pos])
+	v.slots["tie"] = []
+	for i in ties.size():
+		var t: Dictionary = ties[i]
+		var e := _slot_node(v, root, t["pos"], t["yaw"], accents[i % 2], false)
+		e["goals"] = t["goals"]
+		e["tail"] = t["tail"]
+		(v.slots["tie"] as Array).append(e)
+		Models.tie_down(root, (t["pos"] as Vector2) + Vector2(sin(t["yaw"]), -cos(t["yaw"])) * -0.02, -rad_to_deg(t["yaw"]))
+	# the hangar: the door faces south; aircraft come along the gap between it and the FBO
+	var door := Vector2(c.x - 0.7 * s, c.y - 0.62 * s)
+	v.hangar_goals = [Vector2(ex, c.y - 0.38 * s), Vector2(c.x - 1.55 * s, c.y - 0.38 * s)]
+	v.hangar_tail = PackedVector2Array([Vector2(c.x - 0.7 * s, c.y - 0.38 * s), door])
+	v.hangar_label = _ramp_label(root, Vector3(c.x - 0.7 * s, 0.55, c.y - 1.0 * s), 0.0042 * s, Color("f7f0e1"))
+	v.extra_tag = _ramp_label(root, Vector3(tag_pos.x, 0.06, tag_pos.y), 0.0042 * s, Color("f7f0e1"))
+	v.extra_tag.visible = false
+	v.hangar_label.visible = false
+	# the overflow spots: on the grass along the taxiway, nearest the apron first
+	v.slots["over"] = []
+	var far0 := Airports.land_far(Aircraft.Kind.RUNWAY, 0, 0)
+	var dir0 := Airports.end_dir(0, 0)
+	var best: PackedVector2Array
+	for g in v.hangar_goals:
+		var r0 := Ramp.taxi_route(far0, dir0, g, v.hangar_tail)
+		if not r0.is_empty() and (best.is_empty() or Ramp.route_length(r0) < Ramp.route_length(best)):
+			best = r0
+	var chosen: Array[Vector2] = []
+	var walk: Array = []         # [point, tangent] along the route, from the apron end back
+	var total := Ramp.route_length(best)
+	var d := total - 2.2 * s
+	while d > 1.4:
+		walk.append(_route_at(best, d))
+		d -= 0.8
+	for w in walk:
+		if chosen.size() >= Ramp.OVERS:
+			break
+		var wp: Vector2 = w[0]
+		var wt: Vector2 = w[1]
+		var wn := Vector2(-wt.y, wt.x)
+		for sg in [1.0, -1.0]:
+			var cp: Vector2 = wp + wn * sg * 0.72
+			if chosen.size() >= Ramp.OVERS:
+				break
+			if not _spot_free(cp, 0.4, 8.6) or not _clear_of_paths(cp, -0.3) or cp.distance_to(c) < 2.0 * s + 0.3:
+				continue
+			var near := false
+			for o in chosen:
+				if o.distance_to(cp) < 0.95:
+					near = true
+			if near:
+				continue
+			chosen.append(cp)
+			_occupied.append([cp, 0.42])
+			var ye := atan2(wt.x, -wt.y)
+			var e2 := _slot_node(v, root, cp, ye, accents[chosen.size() % 2], false)
+			e2["goals"] = [cp]
+			e2["tail"] = PackedVector2Array()
+			(v.slots["over"] as Array).append(e2)
+			break
+	# a marked heli spot (airports with a pad)
+	v.slots["heli"] = []
+	if not Airports.pads().is_empty():
+		var hs = _find_rect([c + Vector2(-1.4 * s - 1.0, 1.0 * s), c + Vector2(1.4 * s + 1.0, 1.0 * s), c + Vector2(-1.4 * s - 1.0, -1.2 * s), c + Vector2(1.4 * s + 1.0, -1.2 * s), c + Vector2(0.0, 1.6 * s + 1.6)], 0.9, 0.9)
+		if hs != null:
+			_occupied.append([hs, 0.5])
+			Prim.cyl(root, 0.4, 0.4, 0.012, 16, Vector3(hs.x, 0.02, hs.y), Prim.mat(Airports.PAD_COLOR.lightened(0.15)), false)
+			Prim.cyl(root, 0.34, 0.34, 0.012, 16, Vector3(hs.x, 0.026, hs.y), Prim.mat(Color("f2ede4")), false)
+			var hl := _ramp_label(root, Vector3(hs.x, 0.034, hs.y), 0.0035, Airports.PAD_COLOR)
+			hl.text = "H"
+			var he := _slot_node(v, root, hs, 0.0, Airports.PAD_COLOR, true)
+			he["goals"] = [hs]
+			he["tail"] = PackedVector2Array()
+			(v.slots["heli"] as Array).append(he)
+	# the dock (the pier's two berths)
+	v.slots["dock"] = []
+	for dk in v.docks_at:
+		var de := _slot_node(v, root, dk, PI * 0.5, accents[(v.slots["dock"] as Array).size() % 2], false)
+		de["goals"] = [dk]
+		de["tail"] = PackedVector2Array()
+		(v.slots["dock"] as Array).append(de)
+	# the aircraft that taxi to the hangar (and to the "+N") and vanish
+	for i in SPARES + HELI_SPARES:
+		var heli := i >= SPARES
+		var sp := _slot_node(v, root, Vector2.ZERO, 0.0, accents[i % 2] if not heli else Airports.PAD_COLOR, heli)
+		sp["busy"] = false
+		v.spares.append(sp)
+
+func _ramp_label(root: Node3D, at: Vector3, px: float, col: Color) -> Label3D:
+	var lab := Label3D.new()
+	lab.font_size = 96
+	lab.pixel_size = px
+	lab.modulate = col
+	lab.outline_modulate = Color(0.23, 0.14, 0.06, 0.9)
+	lab.outline_size = 10
+	lab.shaded = false
+	lab.double_sided = false
+	lab.no_depth_test = false
+	lab.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	lab.position = at
+	lab.render_priority = 5
+	root.add_child(lab)
+	return lab
+
+## The point and direction `d` units along a polyline.
+func _route_at(r: PackedVector2Array, d: float) -> Array:
+	var left := maxf(d, 0.0)
+	for k in r.size() - 1:
+		var seg := r[k].distance_to(r[k + 1])
+		if left <= seg or k == r.size() - 2:
+			var t := (r[k + 1] - r[k]).normalized() if seg > 0.0001 else Vector2(0, -1)
+			return [r[k] + t * minf(left, seg), t]
+		left -= seg
+	return [r[0], Vector2(0, -1)]
+
+## A new shift: the hangar is empty and the ramp bare (in place; the planes and labels were all built with the airport).
+func ramp_begin() -> void:
+	_ramp_clear()
+	var v := cur
+	ramp_active = v != null and v.ramp_ok
+	if not ramp_active:
+		return
+	ramp.reset(Ramp.capacity(), (v.slots["over"] as Array).size(), (v.slots["dock"] as Array).size(), (v.slots["heli"] as Array).size(), (v.slots["tie"] as Array).size())
+	_ramp_labels()
+
+func _ramp_clear() -> void:
+	ramp_active = false
+	taxis.clear()
+	hangar_shown = 0
+	extra_shown = 0
+	for v in variants:
+		if not v.ramp_ok:
+			continue
+		for kind in v.slots:
+			for e in v.slots[kind]:
+				(e["node"] as Node3D).visible = false
+				if e["chocks"] != null:
+					(e["chocks"] as Node3D).visible = false
+		for e in v.spares:
+			(e["node"] as Node3D).visible = false
+			e["busy"] = false
+		v.hangar_label.visible = false
+		v.extra_tag.visible = false
+
+func _ramp_labels() -> void:
+	var v := cur
+	if v == null or not v.ramp_ok:
+		return
+	v.hangar_label.visible = ramp_active
+	v.hangar_label.text = "%d / %d" % [hangar_shown, ramp.cap]
+	v.hangar_label.modulate = Color("ffd25a") if hangar_shown >= ramp.cap else Color("f7f0e1")
+	v.extra_tag.visible = ramp_active and extra_shown > 0
+	v.extra_tag.text = "+%d" % extra_shown
+
+## An aircraft has landed: it taxis along its airport's fixed route to its place (see Ramp.place). Returns that place.
+func begin_taxi(type: int, kind: int, idx: int, end: int) -> Dictionary:
+	if not ramp_active:
+		return {}
+	var v := cur
+	var slot := ramp.place(type)
+	var far := Airports.land_far(kind, idx, end)
+	var hdg := deg_to_rad(Airports.land_heading_deg(kind, idx, end))
+	var dir := Vector2(sin(hdg), -cos(hdg))
+	var sk: String = slot["kind"]
+	var key := "%d:%d:%d|%s:%d" % [kind, idx, end, sk, slot["idx"]]
+	var route: PackedVector2Array = v.routes.get(key, PackedVector2Array())
+	if route.is_empty():
+		var entry := _slot_entry(v, slot)
+		for g in entry["goals"]:
+			var r := Ramp.taxi_route(far, dir, g, entry["tail"], kind != Aircraft.Kind.PAD)
+			if not r.is_empty() and (route.is_empty() or Ramp.route_length(r) < Ramp.route_length(route)):
+				route = r
+		if route.is_empty():
+			route = PackedVector2Array([far, far])        # (never: every slot has a goal that can be reached)
+		v.routes[key] = route
+	# keep at most TAXI_MAX at their own pace: the older ones hurry
+	var moving := 0
+	for t in taxis:
+		if not t["ff"]:
+			moving += 1
+	var ti := 0
+	while moving > TAXI_MAX - 1 and ti < taxis.size():
+		if not taxis[ti]["ff"]:
+			taxis[ti]["ff"] = true
+			moving -= 1
+		ti += 1
+	var entry_node := _taxi_node(v, slot, type)
+	if entry_node.is_empty() and not taxis.is_empty():
+		var old: Dictionary = taxis.pop_front()
+		_finish_taxi(old)
+		entry_node = _taxi_node(v, slot, type)
+	if entry_node.is_empty():
+		_count_arrival(slot)
+		return slot
+	var node: Node3D = entry_node["node"]
+	node.visible = true
+	node.position = Vector3(route[0].x, 0.0, route[0].y)
+	var h0 := atan2(dir.x, -dir.y)
+	node.rotation.y = -h0
+	if entry_node["chocks"] != null:
+		(entry_node["chocks"] as Node3D).visible = false
+	taxis.append({"node": node, "entry": entry_node, "route": route, "len": Ramp.route_length(route), "d": 0.0, "wait": HELI_SIT if type == Aircraft.Type.HELI else 0.0, "ff": false, "slot": slot, "hdg": h0})
+	return slot
+
+func _slot_entry(v: AirportScene, slot: Dictionary) -> Dictionary:
+	match slot["kind"]:
+		"hangar":
+			return {"goals": v.hangar_goals, "tail": v.hangar_tail}
+		"extra":
+			return {"goals": v.extra_goals, "tail": v.extra_tail}
+		_:
+			var e: Dictionary = (v.slots[slot["kind"]] as Array)[slot["idx"]]
+			return {"goals": e["goals"], "tail": e["tail"]}
+
+## The node that taxis for `slot`: the parking place's own plane, or a spare one that vanishes into the hangar / the "+N".
+func _taxi_node(v: AirportScene, slot: Dictionary, type: int) -> Dictionary:
+	var k: String = slot["kind"]
+	if k != "hangar" and k != "extra":
+		return (v.slots[k] as Array)[slot["idx"]]
+	for i in v.spares.size():
+		var sp: Dictionary = v.spares[i]
+		if not sp["busy"] and bool(sp["heli"]) == (type == Aircraft.Type.HELI):
+			sp["busy"] = true
+			return sp
+	return {}
+
+func _count_arrival(slot: Dictionary) -> void:
+	match slot["kind"]:
+		"hangar":
+			hangar_shown += 1
+		"extra":
+			extra_shown += 1
+	_ramp_labels()
+
+func _finish_taxi(t: Dictionary) -> void:
+	var slot: Dictionary = t["slot"]
+	var e: Dictionary = t["entry"]
+	var node: Node3D = t["node"]
+	match slot["kind"]:
+		"hangar", "extra":
+			node.visible = false
+			e["busy"] = false
+		_:
+			var p: Vector2 = e["pos"]
+			node.position = Vector3(p.x, 0.0, p.y)
+			node.rotation.y = -float(e["yaw"])
+			if e["chocks"] != null:
+				(e["chocks"] as Node3D).visible = true
+	_count_arrival(slot)
+
+## Move the taxiing aircraft along their routes (the shift's own clock: a paused shift stands still).
+func step_taxi(delta: float) -> void:
+	var i := 0
+	while i < taxis.size():
+		var t: Dictionary = taxis[i]
+		if t["wait"] > 0.0:
+			t["wait"] = float(t["wait"]) - delta
+			i += 1
+			continue
+		var fast: bool = t["ff"]
+		t["d"] = float(t["d"]) + TAXI_SPEED * (TAXI_FAST if fast else 1.0) * delta
+		if float(t["d"]) >= float(t["len"]):
+			_finish_taxi(t)
+			taxis.remove_at(i)
+			continue
+		var at := _route_at(t["route"], float(t["d"]))
+		var p: Vector2 = at[0]
+		var tan: Vector2 = at[1]
+		var node: Node3D = t["node"]
+		node.position = Vector3(p.x, 0.0, p.y)
+		var want := atan2(tan.x, -tan.y)
+		var diff := wrapf(want - float(t["hdg"]), -PI, PI)
+		var turn := 4.0 * delta * (TAXI_FAST * 0.5 if fast else 1.0)
+		t["hdg"] = float(t["hdg"]) + clampf(diff, -turn, turn)
+		node.rotation.y = -float(t["hdg"])
+		i += 1

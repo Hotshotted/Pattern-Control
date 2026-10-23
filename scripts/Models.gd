@@ -140,10 +140,14 @@ static func washed_plane(p: Node3D, at: Vector2, yaw_deg: float, accent: Color, 
 	return n
 
 ## A tie-down: a cream T painted on the apron (the stem points at the plane's nose).
-static func tie_down(p: Node3D, at: Vector2) -> void:
+static func tie_down(p: Node3D, at: Vector2, yaw_deg: float = 0.0) -> void:
+	var n := Node3D.new()
+	n.position = Vector3(at.x, 0.0, at.y)
+	n.rotation.y = deg_to_rad(yaw_deg)
+	p.add_child(n)
 	var c := Color("f2ede4")
-	_box(p, Vector3(0.05, 0.012, 0.4), Vector3(at.x, 0.03, at.y), c)
-	_box(p, Vector3(0.26, 0.012, 0.05), Vector3(at.x, 0.03, at.y - 0.2), c)
+	_box(n, Vector3(0.05, 0.012, 0.4), Vector3(0, 0.03, 0), c)
+	_box(n, Vector3(0.26, 0.012, 0.05), Vector3(0, 0.03, -0.2), c)
 
 ## A fenced fuel farm: two white tanks inside a square of cream rails.
 static func fuel_farm(p: Node3D, at: Vector2, s: float = 1.0) -> Node3D:
@@ -430,3 +434,29 @@ static func snow_patch(p: Node3D, at: Vector2, r: float) -> void:
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	var mi := Prim.cyl(p, r, r, 0.008, 12, Vector3(at.x, 0.016, at.y), m, false)
 	mi.scale = Vector3(1.0, 1.0, 0.8)
+
+## The wheel chocks of a parked plane (a node of its own, so they can appear once the plane has parked). `k` is the plane's scale.
+static func chocks(p: Node3D, k: float) -> Node3D:
+	var n := Node3D.new()
+	p.add_child(n)
+	for sx in [-1.0, 1.0]:
+		_box(n, Vector3(0.05, 0.04, 0.03), Vector3(sx * 0.18 * k, 0.02, -0.2 * k - 0.07), Color("2a2a2e"))
+	n.visible = false
+	return n
+
+## A parked helicopter: pale body, a tail boom, skids and a rotor (it is still).
+static func parked_heli(p: Node3D, at: Vector2, accent: Color, k: float = 0.5) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(at.x, 0.0, at.y)
+	p.add_child(n)
+	var white := Color("f6f8fc")
+	_box(n, Vector3(0.34 * k * 2.0, 0.18 * k * 2.0, 0.5 * k * 2.0), Vector3(0, 0.16, 0), white)
+	_box(n, Vector3(0.3 * k * 2.0, 0.09, 0.2 * k * 2.0), Vector3(0, 0.2, -0.22 * k * 2.0), Color("2b4a7a"))
+	_box(n, Vector3(0.07 * k * 2.0, 0.07 * k * 2.0, 0.7 * k * 2.0), Vector3(0, 0.18, 0.55 * k * 2.0), accent)
+	_box(n, Vector3(0.03, 0.14 * k * 2.0, 0.1 * k * 2.0), Vector3(0, 0.24, 0.9 * k * 2.0), accent)
+	for sx in [-1.0, 1.0]:
+		_box(n, Vector3(0.03, 0.02, 0.55 * k * 2.0), Vector3(sx * 0.2 * k * 2.0, 0.04, 0.0), Color("2a2d36"))
+	_box(n, Vector3(1.5 * k * 2.0, 0.015, 0.06), Vector3(0, 0.3, 0), Color("c9cfda"))
+	_box(n, Vector3(0.06, 0.015, 1.5 * k * 2.0), Vector3(0, 0.3, 0), Color("c9cfda"))
+	cast(n, Vector2(0, 0.1), 1.2 * k * 2.0, 1.2 * k * 2.0, 0.28, 0.025, 0.9)
+	return n

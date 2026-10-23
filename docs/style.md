@@ -221,3 +221,15 @@ the loading pages it spins while the progress bar fills. No raw text ever shows 
 ## The build stamp
 
 The commit and build time are for debugging only: they show, small, in the bottom-left corner with `?debug`, `?tune` or `?perf`, and never otherwise.
+
+## Landing, taxi and the hangar (polish pass, item 1)
+
+A landing ends in a puff of dust and a tiny tyre chirp (a soft E5→G5 glide in the key, played on the next eighth of the music, far under it).
+The aircraft rolls out, leaves the runway past its far end and taxies at 1.05 units/s along a fixed route to its place. The route is
+the shortest one that keeps 0.5 clear of every runway box (`Ramp.route`), so it never crosses one. Taxiing aircraft are scenery: they
+have no collisions, sit on the ground under the paths and the flying traffic, and at most four taxi at their own pace (the older ones
+hurry at 9x). Where they go (`Ramp.place`): the **hangar** takes as many as break the shift even (the one-star threshold divided by
+the airport's average landing pay, rounded up; the door shows "N / cap"), then the six **tie-downs** on the apron (chocks appear), then up
+to six **overflow spots** on the grass along the taxiway, then only the "+N" tag by the apron. A helicopter sits on the pad for 3 s, then
+air-taxis to the marked heli spot; a seaplane taxies to the island's dock. Crashes park nothing. Everything that can park is built once, hidden;
+a shift restart clears it in place. The results card says "Hangar full · 9 on the ramp" or "Hangar 5 / 8".

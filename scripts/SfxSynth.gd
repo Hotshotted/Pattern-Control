@@ -41,6 +41,8 @@ static func note_hz(deg: int) -> float:
 func _build_effects_into(clips: Dictionary) -> void:
 	# Touchdown: a very soft, low-passed tap, far below the chime (no squeal).
 	clips["touch"] = _norm(_lp(_lp(_thud(0.16), 220.0), 220.0), 0.03)
+	# Tyre chirp: a tiny, soft upward blip in the key (E5 gliding to G5), far below the chime; the game plays it on the beat.
+	clips["chirp"] = _norm(_lp(_chirp(note_hz(7), note_hz(8), 0.09), 1500.0), LVL_UI * 0.35)
 	# Arrival: a very soft, short tone (G4); the game plays it on the beat.
 	clips["arrive"] = _norm(_soft(note_hz(3), 0.2, 1.0), LVL_UI * 0.3)
 	# Landing: ONE soft chime in the key, each landing in quick succession one step higher up the scale (the game plays it
@@ -215,6 +217,18 @@ func _soft(f: float, dur: float, amp: float) -> PackedFloat32Array:
 		var tri := 4.0 * absf(ph - 0.5) - 1.0
 		out[i] = (0.8 * sin(TAU * f * t) + 0.2 * tri) * exp(-t * 6.0) * amp * _win(i, n, a_n, r_n)
 	return _lp(out, 900.0)
+
+## A short glide from `f0` to `f1` Hz, a sine with a quick attack and release.
+func _chirp(f0: float, f1: float, dur: float) -> PackedFloat32Array:
+	var n := int(dur * rate)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	for i in n:
+		var u := float(i) / maxf(n - 1, 1)
+		ph += TAU * lerpf(f0, f1, u) / rate
+		out[i] = sin(ph) * _win(i, n, int(0.012 * rate), int(0.04 * rate))
+	return out
 
 ## A warm chord: sines with a slow bloom and a long release.
 func _chord(freqs: Array, dur: float) -> PackedFloat32Array:

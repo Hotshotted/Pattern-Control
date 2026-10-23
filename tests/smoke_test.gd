@@ -4260,6 +4260,102 @@ func _initialize() -> void:
 	check(DebugFlags.off("haptic") and DebugFlags.off("hold"), "nofx=all switches everything off")
 	DebugFlags.parse(["tune"])
 
+	print("13. Polish 1: the hangar, the ramp and the taxi routes")
+	var RampC = load("res://scripts/Ramp.gd")
+	var rp_bad = []
+	var rp_keep = Airports.current
+	for rp_i in Airports.COUNT:
+		Airports.current = rp_i
+		var rp_cap = RampC.capacity(rp_i)
+		var rp_pay = RampC.mean_pay(rp_i)
+		var rp_cost = RampC.shift_cost(rp_i)
+		if not (rp_cap * rp_pay >= rp_cost and (rp_cap - 1) * rp_pay < rp_cost):
+			rp_bad.append("%s cap %d pay %.1f cost %d" % [Airports.airport_name(rp_i), rp_cap, rp_pay, rp_cost])
+	check(rp_bad.is_empty(), "the hangar capacity is the break-even landing count %s" % str(rp_bad))
+	var rp = RampC.new()
+	rp.reset(5, 6, 0, 1, 6)
+	var rp_places = []
+	for rp_k in 5 + 17:
+		rp_places.append(rp.place(Aircraft.Type.SMALL)["kind"])
+	check(rp.hangar == 5 and rp.ties == 6 and rp.overs == 6 and rp.extra == 5 and rp.on_ramp() == 17, "ramp count = landings beyond the hangar (%d on the ramp)" % rp.on_ramp())
+	check(rp_places[4] == "hangar" and rp_places[5] == "tie" and rp_places[11] == "over" and rp_places[17] == "extra", "the order is hangar, tie-downs, grass, then the +N")
+	check(rp.summary() == "Hangar full · 17 on the ramp", "the results line says it (%s)" % rp.summary())
+	rp.reset(8, 6, 0, 1, 6)
+	for rp_k in 5:
+		rp.place(Aircraft.Type.SMALL)
+	check(rp.summary() == "Hangar 5 / 8" and rp.on_ramp() == 0, "...and 'Hangar 5 / 8' when not full (%s)" % rp.summary())
+	rp.reset(1, 6, 0, 1, 6)
+	rp.place(Aircraft.Type.SMALL)
+	check(rp.place(Aircraft.Type.HELI)["kind"] == "heli" and rp.place(Aircraft.Type.HELI)["kind"] == "tie", "a helicopter goes to the heli spot first")
+	var rp_cross = []
+	var rp_slots = 0
+	for rp_i in Airports.COUNT:
+		Airports.current = rp_i
+		main.airfield.select(rp_i)
+		var rp_rv = main.airfield.cur
+		check(rp_rv.ramp_ok and (rp_rv.slots["tie"] as Array).size() == 6, "%s has six tie-downs" % Airports.airport_name(rp_i))
+		var rp_goals = []
+		for rp_rk in ["tie", "over", "heli", "dock"]:
+			for rp_e in rp_rv.slots[rp_rk]:
+				rp_goals.append([rp_e["goals"], rp_e["tail"]])
+		rp_goals.append([rp_rv.hangar_goals, rp_rv.hangar_tail])
+		rp_goals.append([rp_rv.extra_goals, rp_rv.extra_tail])
+		for rp_rk in range(Airports.land_count(Aircraft.Kind.RUNWAY)):
+			for rp_re in 2:
+				var rp_far = Airports.land_far(Aircraft.Kind.RUNWAY, rp_rk, rp_re)
+				var rp_dir = Airports.end_dir(rp_rk, rp_re)
+				for rp_g in rp_goals:
+					var rp_any = false
+					for rp_gp in rp_g[0]:
+						var rp_rr = RampC.taxi_route(rp_far, rp_dir, rp_gp, rp_g[1])
+						if rp_rr.is_empty():
+							continue
+						rp_any = true
+						rp_slots += 1
+						for rp_sg in range(1, rp_rr.size() - 1):
+							if RampC.crosses_runway(rp_rr[rp_sg], rp_rr[rp_sg + 1], 0.05):
+								rp_cross.append("%s rw%d e%d seg %d" % [Airports.airport_name(rp_i), rp_rk, rp_re, rp_sg])
+					if not rp_any:
+						rp_cross.append("%s rw%d e%d: a slot has no route (%s)" % [Airports.airport_name(rp_i), rp_rk, rp_re, str(rp_g[0])])
+	Airports.current = rp_keep
+	main.airfield.select(rp_keep)
+	check(rp_slots > 0 and rp_cross.is_empty(), "no taxi route crosses a runway (%d routes) %s" % [rp_slots, str(rp_cross.slice(0, 4))])
+	# in the game: landings park, nothing is allocated, a restart clears the ramp in place
+	main.restart()
+	var rp_rv0 = main.airfield.cur
+	var rp_children = rp_rv0.root.get_child_count()
+	var rp_cap = main.airfield.ramp.cap
+	check(main.airfield.ramp_active and rp_cap == RampC.capacity(), "a shift starts with an empty hangar of %d" % rp_cap)
+	var rp_max_moving = 0
+	for rp_k in rp_cap + 9:
+		main.airfield.begin_taxi(Aircraft.Type.SMALL, 0, 0, rp_k % 2)
+		var rp_moving = 0
+		for rp_t in main.airfield.taxis:
+			if not rp_t["ff"]:
+				rp_moving += 1
+		rp_max_moving = maxi(rp_max_moving, rp_moving)
+		main.airfield.step_taxi(0.5)
+	check(rp_max_moving <= 4, "at most four taxi at their own pace (%d)" % rp_max_moving)
+	for rp_k in 400:
+		main.airfield.step_taxi(0.5)
+	check(main.airfield.taxis.is_empty() and main.airfield.hangar_shown == rp_cap, "they all arrive; the hangar door shows %d / %d" % [main.airfield.hangar_shown, rp_cap])
+	check(main.airfield.ramp.on_ramp() == 9, "ramp count equals landings beyond the hangar (%d)" % main.airfield.ramp.on_ramp())
+	var rp_parked = 0
+	for rp_rk in ["tie", "over"]:
+		for rp_e in rp_rv0.slots[rp_rk]:
+			if rp_e["node"].visible and rp_e["chocks"].visible:
+				rp_parked += 1
+	check(rp_parked == mini(9, 6 + (rp_rv0.slots["over"] as Array).size()), "the parked planes show their chocks (%d)" % rp_parked)
+	check(rp_rv0.root.get_child_count() == rp_children, "nothing was allocated by parking")
+	main.restart()
+	check(main.airfield.ramp.on_ramp() == 0 and main.airfield.hangar_shown == 0 and main.airfield.taxis.is_empty(), "a restart clears the ramp")
+	var rp_vis = 0
+	for rp_rk in rp_rv0.slots:
+		for rp_e in rp_rv0.slots[rp_rk]:
+			if rp_e["node"].visible:
+				rp_vis += 1
+	check(rp_vis == 0 and rp_rv0.root.get_child_count() == rp_children, "...in place (nothing left parked, nothing new built)")
+
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
 	if failures.is_empty():

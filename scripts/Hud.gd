@@ -1267,6 +1267,7 @@ var daily_streak := 0
 var daily_done := false
 var bad_streak := 0
 var bad_done := false
+var ramp_note := ""             # the results card says where the landed aircraft ended up ("Hangar full · 4 on the ramp")
 var mode := ""                 # "", "daily" or "bad": a small badge on the HUD
 
 func _ready() -> void:
@@ -1919,7 +1920,8 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	_art.res_chips[0] = shift.earned + shift.bonus
 	_art.res_chips[1] = shift.time_bonus
 	_art.res_chips[2] = shift.fines + shift.overtime_penalty
-	_art.res_sub = "%s \u00b7 %d landed%s" % [Airports.airport_name(), shift.landed, (" \u00b7 cleared %d s early" % shift.early_seconds) if shift.early_seconds > 0 else ""]
+	var sub_extra := (" \u00b7 " + ramp_note) if ramp_note != "" else ((" \u00b7 cleared %d s early" % shift.early_seconds) if shift.early_seconds > 0 else "")
+	_art.res_sub = "%s \u00b7 %d landed%s" % [Airports.airport_name(), shift.landed, sub_extra]
 	_art.res_unlock = ""
 	if not _art.show_result or _art.res_t > 60.0:
 		_art.res_t = 0.0

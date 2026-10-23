@@ -43,6 +43,8 @@ func _initialize() -> void:
 		await _types_shots(save)
 	elif only == "cozy":
 		await _cozy_shots(save)
+	elif only == "polish":
+		await _game_feel_shots(save)
 	else:
 		await _walk(save)
 	quit()
@@ -327,6 +329,44 @@ func _cozy_shots(save) -> void:
 	for k in 15:
 		main.shift.on_landed(3, 14, 0)
 	main.shift.fine(40, "conflict")
+	main.hud.set_shift(main.shift)
+	tr.run_time = main.get_node("/root/Tuning").par_eff() - 4.0
+	main.step(1.0 / 60.0)
+	await _shot("%s_results" % prefix)
+
+## The game-feel polish: a mid-shift with aircraft taxiing and parked on the ramp, and the results card (docs/screens/polish_<n>_*.png).
+func _game_feel_shots(save) -> void:
+	save.coins = 240
+	save.stars[0] = 3
+	save.stars[1] = 2
+	save.stars[2] = 1
+	save.stars[3] = 1
+	save.stars[4] = 1
+	main.select_airport(2)
+	main.restart()
+	var tr = main.traffic
+	tr.auto_spawn = false
+	tr.grace_until = 9999.0
+	for k in 3:
+		var p = tr.place(k % 2, Vector2(-3.0 + k * 2.4, -6.4 + (k % 2) * 1.6), 0.4 * k - 0.4, [2, 3, 4][k])
+		p.timer_left = p.timer_max * 0.8
+	var pays := [2, 3, 2, 4, 2, 3, 2, 3, 2, 2, 3, 2, 3]
+	for k in pays.size():
+		main.shift.on_landed(pays[k], 10, 0)
+		main.airfield.begin_taxi(pays[k], 0, k % 2, k % 2)
+		for j in 100:
+			main.step(1.0 / 60.0)
+	main.hud.set_shift(main.shift)
+	await _shot("%s_shift" % prefix)
+	main._show_menu()
+	main.restart()
+	tr.auto_spawn = false
+	for k in 13:
+		main.shift.on_landed(2, 10, 0)
+		main.airfield.begin_taxi(2, 0, k % 2, k % 2)
+	for j in 800:
+		main.airfield.step_taxi(0.1)
+	main.shift.fine(20, "conflict")
 	main.hud.set_shift(main.shift)
 	tr.run_time = main.get_node("/root/Tuning").par_eff() - 4.0
 	main.step(1.0 / 60.0)
