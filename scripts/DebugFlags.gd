@@ -9,6 +9,7 @@ extends RefCounted
 ##   ?god                                        planes never collide or run dry (to look at the traffic)
 ##   ?nolight                                    switch off the warm / cool light overlay and the film grain (to compare)
 ##   ?nolife                                     switch off the moving scenery (truck, birds, balloon, mower, windsock sway)
+##   ?nowind                                     switch off the visible wind (drifting streaks, leaning grass, swaying trees, pond ripples)
 ##   ?debug                                      show the build stamp (it also shows with ?tune and ?perf)
 ## Combine with "&", e.g.  ?perf&tune. The active flags are printed under the build stamp.
 
@@ -23,6 +24,8 @@ static var tune := false
 static var god := false
 static var nolight := false
 static var nolife := false
+static var nowind := false
+static var windtest := false
 static var debug := false
 
 ## True if the named effect has been switched off.
@@ -53,7 +56,16 @@ static func light_enabled() -> bool:
 
 static func life_enabled() -> bool:
 	_load()
-	return not nolife
+	return not nolife and not windtest
+
+## ?windtest (the web check's field): no aircraft arrive and nothing but the wind moves.
+static func windtest_enabled() -> bool:
+	_load()
+	return windtest
+
+static func wind_enabled() -> bool:
+	_load()
+	return not nowind
 
 static func god_enabled() -> bool:
 	_load()
@@ -79,6 +91,10 @@ static func summary() -> String:
 		parts.append("nolight")
 	if nolife:
 		parts.append("nolife")
+	if nowind:
+		parts.append("nowind")
+	if windtest:
+		parts.append("windtest")
 	if god:
 		parts.append("god")
 	if debug:
@@ -111,6 +127,8 @@ static func parse(args: Array[String]) -> void:
 	god = false
 	nolight = false
 	nolife = false
+	nowind = false
+	windtest = false
 	debug = false
 	for a in args:
 		var kv := a.split("=", true, 1)
@@ -138,6 +156,10 @@ static func parse(args: Array[String]) -> void:
 				nolight = true
 			"nolife":
 				nolife = true
+			"nowind":
+				nowind = true
+			"windtest":
+				windtest = true
 			"debug":
 				debug = true
 			"v":

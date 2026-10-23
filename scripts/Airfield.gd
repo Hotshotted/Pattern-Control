@@ -29,6 +29,8 @@ class AirportScene:
 	var ground_mat: StandardMaterial3D
 	var stripe_mat: StandardMaterial3D
 	var tufts: MultiMeshInstance3D
+	var tuft_base: Array[Transform3D] = []   # the tufts upright (they lean downwind from this)
+	var pond: Dictionary = {}               # {center, r, ripples: [{node, mat, t, off}]}
 	var ground_now := Color.WHITE           # the ground's colour before the time of day warms it
 	var style := "countryside"
 	var lamps: Array = []                   # the lighthouse lamp (it pulses)
@@ -83,6 +85,22 @@ var variants: Array[AirportScene] = []
 var cur: AirportScene
 var selected := 0
 var _sock_deg := 0.0
+# Wind you can always see: thin cream streaks drift across the field the way the air is going, the grass leans, the trees sway, the pond ripples.
+const STREAKS := 12
+const SWING_SECONDS := 1.2
+var _st_mm: MultiMesh
+var _st_node: MultiMeshInstance3D
+var _st_mat: StandardMaterial3D
+var _st_pos := PackedVector2Array()
+var _st_len := PackedFloat32Array()
+var _st_age := PackedFloat32Array()
+var _st_ttl := PackedFloat32Array()
+var _st_alpha := PackedFloat32Array()      # what each streak's opacity was set to (the tests read it back)
+var _st_rng := RandomNumberGenerator.new()
+var _wd := -1.0                           # the direction the air is drifting now (degrees, toward): it swings to the wind's
+var _last_from := -1.0
+var _gust_t := 0.0                        # seconds left of the shift's gust (brighter streaks, harder sway)
+var _sway_t := 0.0
 var _day := 0.0                           # how far through the shift the light is (0..1): warmer grass, longer shadows
 
 ## Time of day: the grass gets a touch warmer and every shadow a little longer as the shift goes on.
@@ -116,6 +134,7 @@ func _ready() -> void:
 		variants.append(_build_airport())
 	Prim.outlines = true
 	Airports.current = keep
+	_build_streaks()
 	select(keep)
 
 ## Show airport `a` (Airports.current should already be `a`).
@@ -294,6 +313,7 @@ func _tufts(v: AirportScene) -> void:
 	mm.instance_count = spots.size()
 	for k in spots.size():
 		mm.set_instance_transform(k, spots[k])
+	v.tuft_base = spots
 	var mi := MultiMeshInstance3D.new()
 	mi.multimesh = mm
 	mi.material_override = m
@@ -774,6 +794,12 @@ func _landmark(v: AirportScene) -> void:
 				var hc: Vector2 = hz["center"]
 				Models.snow_patch(root, hc + Vector2(hz["radius"] * 0.9, hz["radius"] * 0.8), 0.45)
 		_:
+			if not v.water:
+				var pd = _find_rect([Vector2(-3.6, 6.6), Vector2(3.6, -6.8), Vector2(-3.6, -6.4), Vector2(3.6, 6.8), Vector2(-3.8, 2.0), Vector2(-3.8, -2.0)], 1.4, 1.1)
+				if pd != null:
+					_occupied.append([pd, 0.8])
+					v.scenery.append(pd)
+					_make_pond(v, pd, 0.55)
 			if not v.water and Airports.current != 3:
 				var corners := [Vector2(-3.4, 7.9), Vector2(3.4, 7.9), Vector2(-3.4, -8.2), Vector2(3.4, -8.2)]
 				var bp = _find_rect(corners, 2.4, 1.4)
@@ -895,6 +921,9 @@ func reset() -> void:
 	for v in variants:
 		v.glow_born.fill(0)
 	_ramp_clear()
+	_last_from = -1.0
+	_gust_t = 0.0
+	_wd = -1.0
 
 func _process(delta: float) -> void:
 	if cur == null:
@@ -916,6 +945,7 @@ func _process(delta: float) -> void:
 	_animate_ground(delta, now)
 	if DebugFlags.life_enabled():
 		_animate_life(delta)
+	_animate_wind(delta, now)
 	var pulse := 1.4 if int(now / 1400.0) % 2 == 0 else 0.2
 	for lm2 in cur.lamps:
 		lm2.emission_energy_multiplier = pulse
@@ -1559,3 +1589,134 @@ func step_taxi(delta: float) -> void:
 		t["hdg"] = float(t["hdg"]) + clampf(diff, -turn, turn)
 		node.rotation.y = -float(t["hdg"])
 		i += 1
+
+
+# ---------- The wind you can always see ----------
+
+func _build_streaks() -> void:
+	_st_rng.seed = 4242
+	_st_pos.resize(STREAKS)
+	_st_len.resize(STREAKS)
+	_st_age.resize(STREAKS)
+	_st_ttl.resize(STREAKS)
+	_st_alpha.resize(STREAKS)
+	var quad := PlaneMesh.new()
+	quad.size = Vector2(1.0, 0.03)
+	_st_mat = StandardMaterial3D.new()
+	_st_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_st_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_st_mat.vertex_color_use_as_albedo = true
+	_st_mat.albedo_color = Color(0.99, 0.95, 0.85, 1.0)
+	_st_mat.render_priority = 1
+	_st_mm = MultiMesh.new()
+	_st_mm.transform_format = MultiMesh.TRANSFORM_3D
+	_st_mm.use_colors = true
+	_st_mm.mesh = quad
+	_st_mm.instance_count = STREAKS
+	for i in STREAKS:
+		_st_pos[i] = Vector2(_st_rng.randf_range(-5.0, 5.0), _st_rng.randf_range(-9.0, 9.0))
+		_st_len[i] = _st_rng.randf_range(0.55, 1.1)          # 60-120 px
+		_st_ttl[i] = _st_rng.randf_range(5.0, 9.0)
+		_st_age[i] = _st_rng.randf() * _st_ttl[i]
+		_st_mm.set_instance_color(i, Color(1, 1, 1, 0))
+	_st_node = MultiMeshInstance3D.new()
+	_st_node.multimesh = _st_mm
+	_st_node.material_override = _st_mat
+	_st_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_st_node.position = Vector3(0, 0.62, 0)          # above the props of the ground, below the paths (which are drawn over everything) and the aircraft's fliers
+	_st_node.visible = DebugFlags.wind_enabled()
+	add_child(_st_node)
+
+## The pond: a little water with a sand rim; its ripples (a few thin rings) are pooled.
+func _make_pond(v: AirportScene, c: Vector2, r: float) -> void:
+	var root := v.root
+	Prim.cyl(root, r + 0.08, r + 0.1, 0.012, 16, Vector3(c.x, 0.016, c.y), Prim.mat(Color("d8c98f")), false)
+	Prim.cyl(root, r, r, 0.012, 16, Vector3(c.x, 0.024, c.y), Prim.mat(Color("6fb7d4")), false)
+	Prim.cyl(root, r * 0.6, r * 0.6, 0.012, 14, Vector3(c.x - r * 0.12, 0.03, c.y - r * 0.12), Prim.mat(Color("8ccce2")), false)
+	var ripples: Array = []
+	var prng := RandomNumberGenerator.new()
+	prng.seed = 5 + Airports.current
+	for k in 3:
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.albedo_color = Color(1, 1, 1, 0)
+		var ring := TorusMesh.new()
+		ring.inner_radius = 0.46
+		ring.outer_radius = 0.5
+		ring.rings = 16
+		ring.ring_segments = 4
+		var mi := MeshInstance3D.new()
+		mi.mesh = ring
+		mi.material_override = mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.scale = Vector3(0.01, 0.1, 0.01)
+		mi.position = Vector3(c.x, 0.04, c.y)
+		root.add_child(mi)
+		ripples.append({"node": mi, "mat": mat, "t": k / 3.0, "off": Vector2(prng.randf_range(-0.4, 0.4), prng.randf_range(-0.4, 0.4)) * r})
+	v.pond = {"center": c, "r": r, "ripples": ripples}
+
+func _animate_wind(delta: float, now: int) -> void:
+	if wind == null or cur == null:
+		return
+	var on := DebugFlags.wind_enabled()
+	_st_node.visible = on
+	var toward := wind.toward_deg()
+	if _last_from >= 0.0 and wind.from_deg != _last_from:
+		_gust_t = SWING_SECONDS
+	_last_from = wind.from_deg
+	if _wd < 0.0:
+		_wd = toward                         # (a new shift or the first frame: no swing)
+	_wd = fposmod(_wd + wrapf(toward - _wd, -180.0, 180.0) * (1.0 - exp(-delta * 2.5)), 360.0)
+	_gust_t = maxf(_gust_t - delta, 0.0)
+	if not on:
+		return
+	_sway_t += delta
+	var strength := wind.strength()
+	var dir := Vector2(sin(deg_to_rad(_wd)), -cos(deg_to_rad(_wd)))
+	var speed := lerpf(0.19, 0.55, strength)        # 20-60 px/s
+	var bright := 1.0 + clampf(_gust_t / SWING_SECONDS, 0.0, 1.0)          # the streaks briefly double
+	var th := atan2(-dir.y, dir.x)
+	for i in STREAKS:
+		_st_age[i] += delta
+		if _st_age[i] >= _st_ttl[i]:
+			_st_age[i] = 0.0
+			_st_ttl[i] = _st_rng.randf_range(5.0, 9.0)
+			_st_len[i] = _st_rng.randf_range(0.55, 1.1)
+			_st_pos[i] = Vector2(_st_rng.randf_range(-5.0, 5.0), _st_rng.randf_range(-9.0, 9.0))
+		_st_pos[i] += dir * speed * (0.8 + 0.4 * float(i % 3) / 2.0) * delta
+		var u := _st_age[i] / _st_ttl[i]
+		var a := 0.10 * bright * sin(PI * u)
+		_st_mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, th).scaled(Vector3(_st_len[i], 1.0, 1.0)), Vector3(_st_pos[i].x, 0.0, _st_pos[i].y)))
+		_st_alpha[i] = a
+		_st_mm.set_instance_color(i, Color(1, 1, 1, a))
+	# the grass leans downwind (more the stronger it blows)
+	var v := cur
+	if v.tufts != null and not v.tuft_base.is_empty():
+		var axis := Vector3(dir.y, 0.0, -dir.x)
+		var lean := Basis(axis, deg_to_rad(8.0 + 16.0 * strength))
+		var mm := v.tufts.multimesh
+		for k in v.tuft_base.size():
+			var tb := v.tuft_base[k]
+			mm.set_instance_transform(k, Transform3D(lean * tb.basis, tb.origin))
+	# the trees sway: a slow rock about a lean downwind, harder for a second after a shift
+	var hard := 1.0 + 2.0 * clampf(_gust_t / 1.0, 0.0, 1.0)
+	var lean_t := deg_to_rad(1.5 + 2.5 * strength)
+	for st in 3:
+		for holder in v.tree_styles[st]:
+			var ph: float = holder.position.x * 1.7 + holder.position.z * 0.9
+			var ang := lean_t + deg_to_rad(1.6 * (0.4 + strength)) * hard * sin(_sway_t * 1.9 + ph)
+			holder.basis = Basis(Vector3(dir.y, 0.0, -dir.x), ang)
+	# the pond ripples
+	if not v.pond.is_empty():
+		var r: float = v.pond["r"]
+		var c: Vector2 = v.pond["center"]
+		for rp in v.pond["ripples"]:
+			rp["t"] = fposmod(float(rp["t"]) + delta * 0.3, 1.0)
+			var t: float = rp["t"]
+			var mi: MeshInstance3D = rp["node"]
+			var off: Vector2 = rp["off"]
+			var pp := c + off + dir * t * 0.25 * r
+			mi.position = Vector3(pp.x, 0.04, pp.y)
+			mi.scale = Vector3(r * 0.9 * t + 0.02, 0.1, r * 0.55 * t + 0.02)
+			(rp["mat"] as StandardMaterial3D).albedo_color = Color(1, 1, 1, 0.5 * (1.0 - t) * minf(t * 6.0, 1.0))

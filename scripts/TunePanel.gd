@@ -31,6 +31,8 @@ const ENTRIES := [
 	["wind_interval_min", "Wind: shift every (s) at end", 8.0, 150.0, 1.0],
 	["wind_min_change_deg", "Wind: min turn per shift (deg)", 20.0, 150.0, 5.0],
 	["short_final_distance", "Go-around: decision distance", 0.5, 4.0, 0.1],
+	["go_around_telegraph", "Go-around: warning (s)", 0.0, 3.0, 0.1],
+	["go_around_cancel_factor", "Go-around: cancel if chance below x", 0.1, 1.0, 0.05],
 	["approach_turn_free_deg", "Approach: free turning (deg)", 0.0, 120.0, 5.0],
 	["approach_turn_full_deg", "Approach: worst turning (deg)", 90.0, 360.0, 5.0],
 	["final_need_base", "Approach: final wanted (base)", 0.0, 4.0, 0.1],

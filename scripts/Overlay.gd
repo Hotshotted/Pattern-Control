@@ -129,10 +129,17 @@ func _draw_all_inner() -> void:
 			if wind.is_closed(r):
 				_tag(xf * Airports.rw_center(r) + Vector2(0, -90), "CLOSED %d" % ceili(wind.closed_left[r]), Color(1.0, 0.4, 0.3))
 	_students_drawn = 0
+	_go_tags = 0
 	for p in traffic.planes:
 		if not p.active() or not p.entered or p.fogged or p.state == Aircraft.State.DIVERT or p.state == Aircraft.State.LANDING:
 			continue
 		var at := xf * p.pos + Vector2(-60, -62)
+		if p.ga_pending:
+			_tag(xf * p.pos + Vector2(10, -72), "?", Color(1.0, 0.85, 0.3, 0.6 + 0.4 * sin(t * 18.0)))
+			_go_tags += 1
+		elif p.climb > 0.0 and p.go_arounds > 0:
+			_tag(xf * p.pos + Vector2(-130, -72), "GOING AROUND", Color(1.0, 0.78, 0.25), 260.0)
+			_go_tags += 1
 		if p.emergency:
 			var blink := 0.55 + 0.45 * sin(t * 12.0)
 			_tag(at, "SOS", Color(1.0, 0.25, 0.2, blink))
@@ -143,6 +150,12 @@ func _draw_all_inner() -> void:
 			_tag(at, "L", Color(1.0, 0.62, 0.15))
 		elif p.type == Aircraft.Type.GLIDER and p.locked:
 			_tag(at, "LOCKED", Color(0.8, 0.9, 1.0, 0.8))
+
+var _go_tags := 0
+
+## How many go-around tags (the '?' and 'GOING AROUND') the last draw showed (for the tests).
+func go_around_tags_drawn() -> int:
+	return _go_tags
 
 ## How many student badges the last draw showed (for the tests).
 func student_tags_drawn() -> int:
@@ -198,9 +211,9 @@ func _draw_closures(t: float) -> void:
 			_c.draw_line(p0, p1, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.3), 0.3)
 			_c.draw_line(p0, p1, Color(1.0, 0.18, 0.12, a), 0.2)
 
-func _tag(at: Vector2, text: String, col: Color) -> void:
-	_c.draw_string_outline(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, 120.0, 30, 8, Style.INK)
-	_c.draw_string(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, 120.0, 30, col)
+func _tag(at: Vector2, text: String, col: Color, w: float = 120.0) -> void:
+	_c.draw_string_outline(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, w, 30, 8, Style.INK)
+	_c.draw_string(_font, at, text, HORIZONTAL_ALIGNMENT_CENTER, w, 30, col)
 
 ## Helipad and water-lane markers: a ring on each landing spot (always open), like a runway's approach end.
 func _draw_place_markers(t: float) -> void:
@@ -322,6 +335,9 @@ func _draw_timer_ring(p: Aircraft, t: float) -> void:
 	_c.draw_arc(p.pos, r, start, end, 40, col, w)
 	_c.draw_circle(p.pos + Vector2(cos(start), sin(start)) * r, w * 0.5, col)      # round caps
 	_c.draw_circle(p.pos + Vector2(cos(end), sin(end)) * r, w * 0.5, col)
+	if p.red_pulse_t >= 0.0:                                                      # turning red: one ring leaves the timer and fades
+		var k := clampf(p.red_pulse_t / maxf(Tuning.red_pulse_seconds, 0.01), 0.0, 1.0)
+		_c.draw_arc(p.pos, r + 0.15 + 0.9 * Style.ease_out_cubic(k), 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.85 * (1.0 - k)), 0.16 * (1.0 - k) + 0.04)
 	if red:                                                                      # urgency does not rely on colour alone: a pulsing halo
 		_c.draw_arc(p.pos, r + 0.2 + 0.05 * pulse, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.2 + 0.25 * pulse), 0.07)
 

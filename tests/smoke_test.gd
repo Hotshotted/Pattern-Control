@@ -2998,8 +2998,8 @@ func _initialize() -> void:
 	set_wind(main, 0.0)
 	hud.skip_animations()
 	var q_arrived0 = hud.coins_arrived
-	main._on_landed(tr.place(0, Vector2(0, 0), 0.0, SMALL))
-	check(hud.flying_coins() >= 1 and hud.flying_coins() <= 5, "a landing sends coins flying (%d)" % hud.flying_coins())
+	main._on_touchdown(tr.place(0, Vector2(0, 0), 0.0, SMALL))
+	check(hud.flying_coins() >= 1 and hud.flying_coins() <= 5, "the coins leave at touchdown (%d)" % hud.flying_coins())
 	hud._process(0.1)
 	check(hud._art.fc_s[0] > 0.0 or hud._art.fc_s[1] > 0.0, "...they are drawn on the way")
 	for i in 40:
@@ -4420,6 +4420,197 @@ func _initialize() -> void:
 	check(is_equal_approx(main.light.time, 0.4) and is_equal_approx(main.light.material.get_shader_parameter("warm_amount"), lerpf(0.35, 0.5, 0.4)), "Bad Pilot Day starts 40% of the way in")
 	main.bad_mode = false
 	main.restart()
+
+	print("16. Polish 4: wind you can always see")
+	main.restart()
+	var wd_af = main.airfield
+	var wd_w = main.wind
+	main.traffic.auto_spawn = false
+	wd_w.from_deg = 270.0                       # blowing toward the east
+	wd_af._wd = -1.0
+	wd_af._last_from = -1.0
+	wd_af._animate_wind(0.1, 0)
+	check(wd_af._st_mm.instance_count == 12 and wd_af._st_node.visible, "twelve wind streaks are pooled and visible")
+	var wd_x0 = wd_af._st_pos[0].x
+	var wd_y0 = wd_af._st_pos[0].y
+	for wd_k in 20:
+		wd_af._animate_wind(0.1, 0)
+	check(wd_af._st_pos[0].x > wd_x0 + 0.3 or wd_af._st_age[0] < 2.0, "the streaks drift the way the air is going (%.2f -> %.2f)" % [wd_x0, wd_af._st_pos[0].x])
+	check(absf(wd_af._st_pos[0].y - wd_y0) < 0.2 or wd_af._st_age[0] < 2.0, "...straight along it")
+	var wd_len_ok = true
+	for wd_i in 12:
+		wd_len_ok = wd_len_ok and wd_af._st_len[wd_i] >= 0.55 and wd_af._st_len[wd_i] <= 1.1
+	check(wd_len_ok, "each is 60-120 px long")
+	var wd_a_max = 0.0
+	for wd_i in 12:
+		wd_a_max = maxf(wd_a_max, wd_af._st_alpha[wd_i])
+	check(wd_a_max > 0.02 and wd_a_max <= 0.1001, "...at about 10%% opacity (%.3f)" % wd_a_max)
+	var wd_sp0 = wd_af._st_pos[3]
+	wd_af._animate_wind(1.0, 0)
+	var wd_moved = wd_af._st_pos[3].distance_to(wd_sp0)
+	check(wd_moved > 0.1 and wd_moved < 0.7, "they drift at 20-60 px a second (%.2f units in a second)" % wd_moved)
+	var wd_c = wd_af.cur
+	check(wd_c.tufts == null or (wd_c.tufts.multimesh.get_instance_transform(0).basis != wd_c.tuft_base[0].basis), "the grass leans downwind")
+	var wd_tree = null
+	for wd_st in 3:
+		for wd_h in wd_c.tree_styles[wd_st]:
+			wd_tree = wd_h
+	check(wd_tree == null or not wd_tree.basis.is_equal_approx(Basis.IDENTITY), "the trees sway")
+	# a wind shift: the streaks swing over about 1.2 s and double in brightness, the trees sway harder
+	var wd_d0 = wd_af._wd
+	wd_w.from_deg = 0.0                          # now toward the south
+	wd_af._animate_wind(0.1, 0)
+	check(wd_af._gust_t > 1.0, "a wind shift starts the gust")
+	var wd_swing = absf(wrapf(180.0 - wd_af._wd, -180.0, 180.0))
+	check(wd_swing > 60.0, "...and the streaks are only part of the way round (%.0f deg to go)" % wd_swing)
+	var wd_b_max = 0.0
+	for wd_i in 12:
+		wd_b_max = maxf(wd_b_max, wd_af._st_alpha[wd_i])
+	check(wd_b_max > wd_a_max * 1.4, "...briefly brighter (%.3f vs %.3f)" % [wd_b_max, wd_a_max])
+	for wd_k in 13:
+		wd_af._animate_wind(0.1, 0)
+	check(absf(wrapf(180.0 - wd_af._wd, -180.0, 180.0)) < 12.0 and wd_af._gust_t < 0.1, "...and have swung round after about 1.2 s")
+	# the HUD arrow turns smoothly
+	main.hud._art.wind_toward = 180.0
+	main.hud._art.wind_shown = 90.0
+	main.hud._process(0.1)
+	check(main.hud._art.wind_shown > 90.0 and main.hud._art.wind_shown < 180.0, "the wind arrow turns smoothly (%.0f)" % main.hud._art.wind_shown)
+	# the pond (countryside airports) and ?nowind
+	var wd_pond = wd_af.variants[0]
+	check(not wd_pond.pond.is_empty() and wd_af._clear_of_paths(wd_pond.pond["center"], -0.9), "the grass strip has a pond outside the paths' strips")
+	DebugFlags.parse(["nowind", "windtest"])
+	check(not DebugFlags.wind_enabled() and DebugFlags.windtest_enabled() and DebugFlags.summary().contains("nowind") and not DebugFlags.life_enabled(), "?nowind and ?windtest parse")
+	wd_af._animate_wind(0.1, 0)
+	check(not wd_af._st_node.visible, "?nowind hides the streaks")
+	DebugFlags.parse(["tune"])
+	wd_af._animate_wind(0.1, 0)
+	check(wd_af._st_node.visible, "...and they come back without it")
+	check(main.sfx.plays.has("gust") or main.sfx.NAMES.has("gust"), "the wind shift has a soft gust sound")
+
+	print("17. Polish 5: the go-around telegraph")
+	main.restart()
+	var ga_tr = main.traffic
+	ga_tr.auto_spawn = false
+	ga_tr.wind = null
+	ga_tr.go_rng.seed = 5
+	var ga_warned = []
+	var ga_cancelled = []
+	var ga_went = []
+	var ga_cb1 = func(_p, _r): ga_warned.append(ga_tr.run_time)
+	var ga_cb2 = func(_p): ga_cancelled.append(ga_tr.run_time)
+	var ga_cb3 = func(_p, _r): ga_went.append(ga_tr.run_time)
+	ga_tr.go_around_warned.connect(ga_cb1)
+	ga_tr.go_around_cancelled.connect(ga_cb2)
+	ga_tr.go_around.connect(ga_cb3)
+	var ga_thr = Airports.end_threshold(0, 0)
+	var ga_dir = Airports.end_dir(0, 0)
+	var ga_side = Vector2(-ga_dir.y, ga_dir.x)
+	# a plane with a ragged, hopeless final: the dice always say go around
+	var ga_old_max = tuning.go_around_max
+	tuning.go_around_max = 1.0
+	tuning.go_around_free = 0.0
+	var ga_p = ga_tr.place(0, ga_thr - ga_dir * 6.0 + ga_side * 1.0, atan2(ga_dir.x, -ga_dir.y), 2)
+	ga_p.runway = 0
+	ga_p.student = true
+	tuning.student_go_around_floor = 1.0
+	ga_tr.begin_path(ga_p)
+	for ga_k in 8:
+		ga_p.push(ga_thr - ga_dir * (5.0 - ga_k * 0.45) + ga_side * 1.0 * (1.0 if ga_k % 2 == 0 else -1.0))
+	ga_p.push(ga_thr)
+	ga_p.push(Airports.end_far(0, 0))
+	ga_p.cleared = true
+	var ga_steps = 0
+	while ga_warned.is_empty() and ga_steps < 4000:
+		ga_tr.step(1.0 / 60.0)
+		ga_steps += 1
+	check(ga_warned.size() == 1 and ga_p.ga_pending, "a go-around is signalled before it happens")
+	var ga_roll0 = 0.0
+	var ga_wob = 0.0
+	var ga_tags_seen = false
+	var ga_node = ga_tr._nodes[ga_tr.planes.find(ga_p)]
+	for ga_k in 25:
+		ga_tr.step(1.0 / 60.0)
+		ga_wob = maxf(ga_wob, absf(ga_node.rotation.z))
+	check(ga_wob > deg_to_rad(2.0) and ga_wob <= deg_to_rad(4.5) + absf(ga_p.bank), "the plane wobbles up to 4 degrees of roll (%.1f)" % rad_to_deg(ga_wob))
+	await process_frame
+	await process_frame
+	check(main.overlay.go_around_tags_drawn() >= 1, "...and shows a '?' tag")
+	var ga_left = 1.0 - (ga_tr.run_time - ga_warned[0])
+	while ga_went.is_empty() and ga_steps < 6000:
+		ga_tr.step(1.0 / 60.0)
+		ga_steps += 1
+	check(ga_went.size() == 1 and ga_went[0] - ga_warned[0] < tuning.go_around_telegraph + 0.05, "otherwise it goes around within the warning second (%.2f s later)" % (ga_went[0] - ga_warned[0] if not ga_went.is_empty() else -1.0))
+	check(not ga_p.ga_pending and ga_p.climb > 0.0, "...and the tag becomes GOING AROUND while it climbs")
+	await process_frame
+	await process_frame
+	check(main.overlay.go_around_tags_drawn() >= 1, "(the tag is drawn)")
+	# the same again, but the player redraws a straight final within the second
+	ga_tr.release_all()
+	ga_warned.clear()
+	ga_cancelled.clear()
+	ga_went.clear()
+	ga_p = ga_tr.place(0, ga_thr - ga_dir * 6.0 + ga_side * 1.0, atan2(ga_dir.x, -ga_dir.y), 2)
+	ga_p.runway = 0
+	ga_p.student = true
+	ga_tr.begin_path(ga_p)
+	for ga_k in 8:
+		ga_p.push(ga_thr - ga_dir * (5.0 - ga_k * 0.45) + ga_side * 1.0 * (1.0 if ga_k % 2 == 0 else -1.0))
+	ga_p.push(ga_thr)
+	ga_p.push(Airports.end_far(0, 0))
+	ga_p.cleared = true
+	ga_steps = 0
+	while ga_warned.is_empty() and ga_steps < 4000:
+		ga_tr.step(1.0 / 60.0)
+		ga_steps += 1
+	check(ga_p.ga_pending, "a second warning")
+	tuning.student_go_around_floor = 0.0
+	tuning.student_go_around_mult = 0.0
+	ga_p.student = false
+	ga_tr.begin_path(ga_p)
+	check(ga_p.ga_redrawn, "starting a new final is noticed")
+	for ga_k in 6:
+		ga_p.push(ga_p.pos.lerp(ga_thr, (ga_k + 1) / 7.0))
+	ga_p.push(ga_thr)
+	ga_p.push(Airports.end_far(0, 0))
+	ga_p.cleared = true
+	for ga_k in 6:
+		ga_tr.step(1.0 / 60.0)
+	check(ga_cancelled.size() == 1 and not ga_p.ga_pending and ga_went.is_empty(), "a cleaner final inside the second cancels the go-around")
+	check(ga_tr.go_around_warns >= 1 and ga_tr.go_around_cancels == 1, "the cancel rate is logged (%d of %d)" % [ga_tr.go_around_cancels, ga_tr.go_around_warns])
+	ga_tr.go_around_warned.disconnect(ga_cb1)
+	ga_tr.go_around_cancelled.disconnect(ga_cb2)
+	ga_tr.go_around.disconnect(ga_cb3)
+	tuning.go_around_max = ga_old_max
+	ga_tr.release_all()
+	check(tp._sliders.has("go_around_telegraph"), "?tune exposes the warning time")
+
+	print("18. Polish 6: juice")
+	main.restart()
+	var ju_tr = main.traffic
+	ju_tr.auto_spawn = false
+	var ju_p = ju_tr.place(0, Vector2(-2.0, -5.0), 0.0, 2)
+	ju_p.entered = true
+	ju_p.timer_left = ju_p.timer_max * 0.9
+	ju_tr.step(1.0 / 60.0)
+	check(not ju_p.red_seen and ju_p.red_pulse_t < 0.0, "a healthy timer ring does not pulse")
+	ju_p.timer_left = ju_p.timer_max * (tuning.timer_red_fraction - 0.01)
+	ju_tr.step(1.0 / 60.0)
+	check(ju_p.red_seen and ju_p.red_pulse_t >= 0.0, "the ring pulses when it turns red")
+	for ju_k in 60:
+		ju_tr.step(1.0 / 60.0)
+	check(ju_p.red_pulse_t < 0.0 and ju_p.red_seen, "...once (it is over after %.1f s and does not start again)" % tuning.red_pulse_seconds)
+	ju_tr.release_all()
+	check(not ju_p.red_seen and ju_p.red_pulse_t < 0.0, "a new aircraft starts over")
+	# the coins: one by one, with a plink on each arrival that climbs the scale, the counter bumping
+	var ju_arrived0 = main.hud.coins_arrived
+	main.hud.fly_coins(Vector2(540, 900), 3)
+	var ju_starts = []
+	for ju_k in 3:
+		ju_starts.append(main.hud._fc_t[ju_k])
+	check(ju_starts[0] > ju_starts[1] and ju_starts[1] > ju_starts[2], "the coins are staggered, one after the other (%s)" % str(ju_starts))
+	for ju_k in 80:
+		main.hud._process(0.05)
+	check(main.hud.coins_arrived - ju_arrived0 == 3, "...each arrives at the counter on its own (%d)" % (main.hud.coins_arrived - ju_arrived0))
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")

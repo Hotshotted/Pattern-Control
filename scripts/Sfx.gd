@@ -14,13 +14,13 @@ const RATE := 44100
 const POOL := 8
 const STEPS := 7               # landing chimes / coin plinks: this many steps up the scale
 const BEAT := 0.75             # music: seconds per beat, 8 beats per loop (6 s)
-const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "star", "slam", "back", "toggle", "buy", "error", "whoosh", "unlock", "touch", "chirp", "arrive"]
+const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "star", "slam", "back", "toggle", "buy", "error", "whoosh", "unlock", "touch", "chirp", "gust", "rev", "arrive"]
 ## Gameplay sounds that wait for the next eighth-note of the music so they land on the beat (taps and results stingers do not).
-const QUANTIZED := ["landing", "chirp", "coin", "arrive", "go_around", "alarm", "fine", "tick", "wind", "last_arrivals", "clear_sky"]
+const QUANTIZED := ["landing", "chirp", "gust", "coin", "arrive", "go_around", "alarm", "fine", "tick", "wind", "last_arrivals", "clear_sky"]
 const EIGHTH := BEAT * 0.5           # the music's grid: 16 eighths per 6 s loop
 const LOOP_SECS := BEAT * 8.0
 const MAX_PENDING := 12
-const FILES := ["touch", "chirp", "arrive", "fine", "alarm", "go_around", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "back", "toggle", "error", "whoosh", "buy", "star", "unlock", "slam"]
+const FILES := ["touch", "chirp", "gust", "rev", "arrive", "fine", "alarm", "go_around", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "back", "toggle", "error", "whoosh", "buy", "star", "unlock", "slam"]
 const LAYERS := ["calm", "hot", "tense", "fog"]
 
 var enabled := true

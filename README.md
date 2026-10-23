@@ -110,6 +110,7 @@ prints stars per airport. The last full run is in `tools/economy_sim_results.txt
 
 | Flag | What it does |
 | --- | --- |
+| `?nolight` / `?nolife` / `?nowind` | switch off the warm / cool light and film grain, the moving scenery (truck, birds, balloon, mower), or the visible wind (streaks, leaning grass, swaying trees, pond ripples), to compare or to find a hitch |
 | `?perf` | worst-frame-time readout, hitch log (frames over 50 ms), sim vs wall clock |
 | `?tune` | TUNE button (top right): live sliders for spawn rate, speeds, conflict distance, aircraft timers, wind, weather...; **Copy values** puts the changed values on the clipboard, **Reset** restores defaults; debug buttons: +1000 coins, unlock all airports, max upgrades, force a wind shift, trigger a storm / fog / crosswind, reset save, reset daily |
 | `?nofx=burst,ripple,popup,haptic,glow,hold` | switch effects off (`all` for every one) |

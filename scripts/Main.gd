@@ -112,6 +112,7 @@ func _ready() -> void:
 	traffic.rerouted.connect(_on_rerouted)
 	traffic.crashed.connect(_on_crashed)
 	traffic.go_around.connect(_on_go_around)
+	traffic.go_around_warned.connect(func(_p, _r): sfx.play("rev"))
 	hud.star_reached.connect(_on_star_reached)
 	hud.coin_arrived.connect(_on_coin_arrived)
 	hud.transition_started.connect(func(_d: int): if not _warming: sfx.play("whoosh"))
@@ -270,6 +271,7 @@ func restart() -> void:
 	_drag_active = false
 	_doubled = false
 	traffic.all_students = bad_mode
+	traffic.auto_spawn = not DebugFlags.windtest_enabled()
 	if daily_mode:
 		var seed_v := (Save.today() * 2654435761) & 0x7fffffff
 		if bad_mode:
@@ -501,6 +503,8 @@ func step(delta: float) -> void:
 	if wind.from_deg != _last_wind_deg:
 		if _last_wind_deg >= 0.0:
 			sfx.play("wind")
+			if DebugFlags.wind_enabled():
+				sfx.play("gust")
 		_last_wind_deg = wind.from_deg
 	if _drag_active and (_drag_plane == null or not _drag_plane.active()):
 		_cancel_drag()
@@ -576,6 +580,9 @@ func _on_touchdown(p: Aircraft) -> void:
 		fx.puff(p.pos)
 		sfx.play("touch")
 		sfx.play("chirp")
+	# the coins leave the wheels the moment they touch and arc to the counter one by one (the counter bumps and ticks on each)
+	var pay := Tuning.landing_pay(p.type) * (Tuning.student_pay_mult if p.student else 1.0)
+	hud.fly_coins(overlay.world_to_screen(p.pos), clampi(roundi(pay / 8.0), 1, 5))
 
 func _on_landed(p: Aircraft) -> void:
 	if not alive:
@@ -609,7 +616,6 @@ func _on_landed(p: Aircraft) -> void:
 	overlay.ripple(land_at, Color.WHITE, 0.6)
 	if p.tkind == Aircraft.Kind.RUNWAY:
 		airfield.glow(p.runway, p.land_end)
-	hud.fly_coins(overlay.world_to_screen(land_at), clampi((base + extra) / 8, 1, 5))
 	var text := "+%d" % (base + extra)
 	var tcol := Color(1, 1, 1)
 	if streak >= 2:

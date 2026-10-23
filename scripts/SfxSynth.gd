@@ -64,6 +64,10 @@ func _build_effects_into(clips: Dictionary) -> void:
 	# Wind shift: three slow, low bell notes (E, D, A).
 	var w := _mix_at(_mix_at(_bell(note_hz(7), 0.9, 1.0, 0.6), _bell(note_hz(6), 0.9, 0.9, 0.6), int(0.22 * rate)), _bell(note_hz(4), 1.2, 0.9, 0.6), int(0.44 * rate))
 	clips["wind"] = _norm(_reverb(w, 0.35, 0.6), LVL_GAME * 0.8)
+	# The engine note rising before a go-around: a soft glide from A3 up to E4 (in the key) over most of a second.
+	clips["rev"] = _norm(_lp(_chirp(note_hz(4) * 0.5, note_hz(2), 0.9), 1100.0), LVL_UI * 0.6)
+	# Gust: a soft swell of low, filtered air under the music when the wind shifts (no pitch, far below the bells).
+	clips["gust"] = _norm(_lp(_whoosh(1.0, 260.0, 620.0), 900.0), LVL_UI * 0.7)
 	# Last arrivals: a gentle rising figure (G A C E). Clear sky: a warm major chord, slowly blooming.
 	var la := PackedFloat32Array()
 	for k in 4:

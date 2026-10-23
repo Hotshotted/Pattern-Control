@@ -38,6 +38,7 @@ class Art extends Control:
 	var bar_shown := 0.0
 	var thresholds := PackedInt32Array([0, 0, 0])   # coins for 1, 2, 3 stars
 	var wind_toward := 0.0
+	var wind_shown := 0.0               # the arrow's drawn direction: it turns smoothly to wind_toward
 	var wind_text := "000"
 	var wind_warn := false
 	var show_wind := false
@@ -894,7 +895,7 @@ class Art extends Control:
 		var flash := wind_warn and int(Time.get_ticks_msec() / 250.0) % 2 == 0
 		draw_style_box(_sb_accent if flash else _sb_normal, card)
 		var c := card.get_center() + Vector2(0, -22.0)
-		var d := Vector2(sin(deg_to_rad(wind_toward)), -cos(deg_to_rad(wind_toward)))
+		var d := Vector2(sin(deg_to_rad(wind_shown)), -cos(deg_to_rad(wind_shown)))
 		var n := Vector2(-d.y, d.x)
 		draw_line(c - d * 28.0, c + d * 8.0, Style.TEXT, 9.0)
 		tri(c + d * 36.0, c + d * 6.0 + n * 18.0, c + d * 6.0 - n * 18.0, Style.TEXT)
@@ -1261,6 +1262,7 @@ var _banner_total := 1.0
 var _tip_q: Array = []
 var _play_labels_on := false
 var _wind_secs := -1
+var _wind_inited := false
 var _wind_posted := false
 var _last_bal := 0
 var daily_streak := 0
@@ -1881,6 +1883,7 @@ func _hide_all_screens() -> void:
 	_art.show_play = false
 	_art.show_result = false
 	_art.show_wind = false
+	_wind_inited = false
 	_art.header_text = ""
 	_art.header2_text = ""
 	_art.lockup = false
@@ -2213,6 +2216,9 @@ func finale_text() -> String:
 
 ## The wind widget: an arrow showing where the air is going and its direction number.
 func set_wind(from_deg: float, toward_deg: float) -> void:
+	if not _wind_inited:
+		_art.wind_shown = toward_deg
+		_wind_inited = true
 	_art.wind_toward = toward_deg
 	_art.wind_text = Wind.label(from_deg)
 	_art.queue_redraw()
@@ -2394,6 +2400,10 @@ func flash(color: Color) -> void:
 
 func _process(delta: float) -> void:
 	var now := Time.get_ticks_msec()
+	var wdiff := wrapf(_art.wind_toward - _art.wind_shown, -180.0, 180.0)
+	if absf(wdiff) > 0.05:          # the wind arrow turns smoothly
+		_art.wind_shown = fposmod(_art.wind_shown + wdiff * (1.0 - exp(-delta * 5.0)), 360.0)
+		_art.queue_redraw()
 	# The coin total rolls up (or down) to its target.
 	if absf(_coin_shown - float(_coin_target)) > 0.01:
 		_coin_shown = move_toward(_coin_shown, float(_coin_target), maxf(absf(float(_coin_target) - _coin_shown) * 6.0 * delta, 30.0 * delta))

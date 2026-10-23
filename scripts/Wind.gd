@@ -118,3 +118,8 @@ static func label(deg: float) -> String:
 ## Which compass direction the air is moving TOWARD (what the windsock points at).
 func toward_deg() -> float:
 	return fposmod(from_deg + 180.0, 360.0)
+
+## How strong the air is, 0..1 (only for looks: the drifting streaks, the lean of the grass, the sway of the trees): gentler at the first
+## airports, with a slow gusting.
+func strength() -> float:
+	return clampf(0.3 + 0.3 * Tuning.wind_scale_eff() + 0.08 * sin(Time.get_ticks_msec() / 2600.0), 0.15, 1.0)

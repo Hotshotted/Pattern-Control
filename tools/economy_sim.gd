@@ -17,11 +17,12 @@ var ONLY_AIRPORTS := [0, 1, 2, 3, 4, 5]
 ## aircraft; aligned: how often the path is a proper straight final; wrong_end: picks a closed runway end;
 ## notice: how soon an aircraft whose path did not work gets a new one (s); avoid: chance per tick to put an
 ## aircraft in a hold when it is about to conflict; sequence: chance of waiting for the runway's previous arrival
-## to be nearly down before sending the next one.
+## to be nearly down before sending the next one. fix: chance per tick that an aircraft that wobbles (a go-around is a second away)
+## gets a new, straight final.
 const PLAYERS := {
-	"poor":    {"ignore": 0.20, "react": 0.04, "aligned": 0.15, "wrong_end": 0.25, "notice": 8.0, "avoid": 0.12, "sequence": 0.10, "gap": 3.0},
-	"average": {"ignore": 0.06, "react": 0.12, "aligned": 0.55, "wrong_end": 0.06, "notice": 4.0, "avoid": 0.5, "sequence": 0.50, "gap": 2.5},
-	"good":    {"ignore": 0.01, "react": 0.5, "aligned": 0.92, "wrong_end": 0.00, "notice": 2.0, "avoid": 0.9, "sequence": 0.95, "gap": 1.0},
+	"poor":    {"ignore": 0.20, "react": 0.04, "aligned": 0.15, "wrong_end": 0.25, "notice": 8.0, "avoid": 0.12, "sequence": 0.10, "gap": 3.0, "fix": 0.01},
+	"average": {"ignore": 0.06, "react": 0.12, "aligned": 0.55, "wrong_end": 0.06, "notice": 4.0, "avoid": 0.5, "sequence": 0.50, "gap": 2.5, "fix": 0.04},
+	"good":    {"ignore": 0.01, "react": 0.5, "aligned": 0.92, "wrong_end": 0.00, "notice": 2.0, "avoid": 0.9, "sequence": 0.95, "gap": 1.0, "fix": 0.12},
 }
 
 var main: Node
@@ -160,7 +161,7 @@ func _run_player(who: String, mode: String) -> Dictionary:
 		var s = main.shift
 		rows.append({"airport": ap, "landed": s.landed, "earned": s.earned, "bonus": s.bonus + s.time_bonus, "fines": s.fines + s.overtime_penalty,
 				"net": s.balance(), "kept": s.kept(), "paid": s.payout(), "stars": s.stars(), "gain": save.coins - coins0, "end_t": main.traffic.run_time,
-				"conflicts": s.conflicts, "diversions": s.diversions, "crashes": s.crashes, "clean_stars": _stars_for(s.earned + s.bonus + s.time_bonus, s.thresholds), "spawned": _spawned, "gos": _gos, "bank": save.coins})
+				"conflicts": s.conflicts, "diversions": s.diversions, "crashes": s.crashes, "clean_stars": _stars_for(s.earned + s.bonus + s.time_bonus, s.thresholds), "spawned": _spawned, "gos": _gos, "warns": main.traffic.go_around_warns, "cancels": main.traffic.go_around_cancels, "bank": save.coins})
 		if mode == "buying":
 			var progress := true
 			while progress:
@@ -226,6 +227,9 @@ func _autopilot(skill: Dictionary) -> void:
 				tag["state"] = "wait"
 			continue
 		if p.state != Aircraft.State.FLY:
+			continue
+		if p.ga_pending and not p.ga_redrawn and rng.randf() < float(skill.get("fix", 0.0)):
+			_route(p, skill, true)       # the wobble: redraw a clean, straight final
 			continue
 		if p.type != Aircraft.Type.GLIDER and rng.randf() < avoid and _threat(p) != null:
 			tr.toggle_hold(p)
@@ -297,19 +301,25 @@ func _runway_busy(p: Aircraft, gap: float = 3.0) -> bool:
 				return true
 	return false
 
-func _route(p: Aircraft, skill: Dictionary) -> void:
+func _route(p: Aircraft, skill: Dictionary, clean: bool = false) -> void:
 	var r: int = p.runway
 	var e := 0
 	if p.tkind == Aircraft.Kind.RUNWAY:
 		e = 0 if main.wind.is_active(r, 0) else 1
-		if rng.randf() < float(skill["wrong_end"]):
+		if clean:
+			e = p.land_end
+		elif rng.randf() < float(skill["wrong_end"]):
 			e = 1 - e
 	var thr: Vector2 = Airports.land_threshold(p.tkind, r, e)
 	var pts := []
-	if p.tkind == Aircraft.Kind.RUNWAY and rng.randf() < float(skill["aligned"]):
+	if p.tkind == Aircraft.Kind.RUNWAY and (clean or rng.randf() < float(skill["aligned"])):
 		var rd: Vector2 = (Airports.land_far(p.tkind, r, e) - thr).normalized()
-		for d in [3.6, 2.4, 1.2]:
-			pts.append(thr - rd * d)
+		if clean:        # straight at the threshold, along the runway line for the last stretch
+			pts.append(p.pos.lerp(thr - rd * 1.0, 0.5))
+			pts.append(thr - rd * 1.0)
+		else:
+			for d in [3.6, 2.4, 1.2]:
+				pts.append(thr - rd * d)
 		pts.append(thr)
 	else:
 		pts = [p.pos.lerp(thr, 0.3), p.pos.lerp(thr, 0.7), thr]
@@ -338,6 +348,12 @@ func _print(report: Dictionary) -> void:
 			tot += r["gain"]
 			print("%5d %7d %6d %7d %5d %5d %4d %4d %4d %6d %7d %5d  %5.0f %5d %5d %7d %10d %14d" % [n + 1, r["airport"], r["landed"], r["earned"], r["bonus"], r["fines"], r["net"], r["kept"], r["paid"], r["stars"], r["gain"], r["bank"], r["end_t"], r["conflicts"], r["diversions"], r["spawned"], r["gos"], r["clean_stars"]])
 		print("average coins/shift: %.0f   total after %d shifts: %d" % [float(tot) / rep["rows"].size(), rep["rows"].size(), tot])
+		var warns := 0
+		var cancels := 0
+		for r in rep["rows"]:
+			warns += int(r.get("warns", 0))
+			cancels += int(r.get("cancels", 0))
+		print("go-around warnings: %d, cancelled by a cleaner final: %d (cancel rate %.0f%%)" % [warns, cancels, 100.0 * cancels / maxf(warns, 1)])
 		if rep["afford"].size() > 0:
 			var parts := []
 			for k in rep["afford"]:

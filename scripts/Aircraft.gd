@@ -51,6 +51,13 @@ var ga_turn_deg := 0.0
 var ga_chance := 0.0            # predicted go-around chance of the cleared approach (drives the path tint)
 var ga_band := 0                # 0 green, 1 yellow, 2 red
 var student := false            # student pilot: far more go-arounds, double coins
+var ga_pending := false         # a go-around is signalled and about to happen (wobble, '?' tag)
+var ga_t := 0.0                 # seconds until it does
+var ga_reason := 0
+var ga_roll := 0.0              # the go-around chance it was rolled at
+var ga_redrawn := false         # the player has started a new final since the warning
+var red_seen := false           # its timer ring has turned red (it pulses once when it does)
+var red_pulse_t := -1.0         # seconds since that pulse started (-1 = none)
 var go_arounds := 0             # how many times it has gone around
 var climb := 0.0                # seconds of go-around climb-out left (a small lift on screen)
 var bank := 0.0                 # roll angle (radians) into a turn: drawn, smoothed
@@ -94,6 +101,12 @@ func reset() -> void:
 	pop_t = 0.0
 	student = false
 	go_arounds = 0
+	red_seen = false
+	red_pulse_t = -1.0
+	ga_pending = false
+	ga_t = 0.0
+	ga_redrawn = false
+	ga_roll = 0.0
 	any_target = false
 	emergency = false
 	vip = false

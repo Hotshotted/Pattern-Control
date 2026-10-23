@@ -13,6 +13,8 @@ signal inactive_end(plane: Aircraft, runway: int, end: int)  # ...or for an end 
 signal rerouted(plane: Aircraft)   # the wind shifted: its path now ends on a closed end
 signal spawned(plane: Aircraft)
 signal crashed(plane: Aircraft, kind: int)   # flew into terrain (kind 0) or a storm cell (kind 1)
+signal go_around_warned(plane: Aircraft, reason: int)   # a go-around is coming in a second (the plane wobbles)
+signal go_around_cancelled(plane: Aircraft)   # ...and the player redrew a cleaner final in time
 signal go_around(plane: Aircraft, reason: int)   # climbing out: the runway was busy, or the approach was poor (Approach.Reason)
 signal runway_conflict(a: Aircraft, b: Aircraft)   # landed on a crossing runway while it was busy
 signal refused(plane: Aircraft, text: String, at: Vector2)   # a path / tap the aircraft can't follow (with why)
@@ -22,6 +24,8 @@ signal touchdown(plane: Aircraft)      # the wheels just touched the runway (dus
 
 const MAX_POOL := 16
 var pool_n := MAX_POOL                  # (the menu's scenic traffic keeps a small pool)
+var go_around_warns := 0                # (statistics for the sims) warned / cancelled go-arounds this shift
+var go_around_cancels := 0
 var shadow_scale := 1.0                 # the aircraft's shadow offsets grow over a shift (see Shadow.offset_scale)
 var scenic := false                     # the menu diorama: no timers, conflicts or random go-arounds
 const MAX_HAZARDS := 16
@@ -527,6 +531,8 @@ func begin_path(p: Aircraft) -> bool:
 		refused.emit(p, "Glider: first path only", p.pos)
 		return false
 	p.clear_path()
+	if p.ga_pending:
+		p.ga_redrawn = true
 	p.wrong_shown = false
 	p.inactive_shown = false
 	if p.state == Aircraft.State.HOLD:
@@ -695,6 +701,10 @@ func toggle_hold(p: Aircraft) -> void:
 		return
 	if p.state != Aircraft.State.FLY:
 		return
+	if p.ga_pending:       # holding is an answer too: the warning is cancelled
+		p.ga_pending = false
+		go_around_cancels += 1
+		go_around_cancelled.emit(p)
 	p.fade_path(Tuning.path_fade_seconds)
 	if p.vip and p.vip_ok:
 		p.vip_ok = false
@@ -761,6 +771,8 @@ func add_hazard(c: Vector2, r: float, kind: int) -> int:
 	return hz_count - 1
 
 func release_all() -> void:
+	go_around_warns = 0
+	go_around_cancels = 0
 	fog_amount = 0.0
 	fog_target = 0.0
 	_busy_until.fill(0.0)
@@ -810,9 +822,18 @@ func step(delta: float) -> void:
 			p.climb = maxf(p.climb - delta, 0.0)
 		if p.pop_t > 0.0:
 			p.pop_t = maxf(p.pop_t - delta, 0.0)
+		if p.red_pulse_t >= 0.0:
+			p.red_pulse_t += delta
+			if p.red_pulse_t > Tuning.red_pulse_seconds:
+				p.red_pulse_t = -1.0
+		elif not p.red_seen and p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD) and p.timer_frac() <= Tuning.timer_red_fraction:
+			p.red_seen = true               # the ring just turned red: one pulse
+			p.red_pulse_t = 0.0
 		_move(p, delta, mult)
 		if p.active():
-			if p.cleared and p.state == Aircraft.State.FLY and p.can_go_around():
+			if p.ga_pending:
+				_tick_telegraph(p, delta)
+			if p.active() and p.cleared and p.state == Aircraft.State.FLY and p.can_go_around():
 				_score_approach(p, mult)
 			_sync(p, i)
 	_check_conflicts()
@@ -961,10 +982,42 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 		chance = 0.0
 	p.ga_chance = chance
 	p.ga_band = approach.band(chance)
-	if dist <= Tuning.short_final_distance and not p.ga_checked:
+	# The dice roll one telegraph earlier than the go-around itself: the plane wobbles for that second.
+	var lead := p.speed * mult * Tuning.go_around_telegraph
+	if p.ga_pending:
+		if p.ga_redrawn and chance < p.ga_roll * Tuning.go_around_cancel_factor:
+			p.ga_pending = false           # a cleaner final, in time: it lands after all
+			p.ga_checked = true
+			go_around_cancels += 1
+			go_around_cancelled.emit(p)
+		elif dist <= Tuning.short_final_distance:
+			_fire_go_around(p)
+	elif not p.ga_checked and dist <= Tuning.short_final_distance + lead:
 		p.ga_checked = true
 		if go_rng.randf() < chance:
-			_start_go_around(p, approach.reason)
+			if Tuning.go_around_telegraph <= 0.0 or dist <= Tuning.short_final_distance:
+				_start_go_around(p, approach.reason)
+			else:
+				p.ga_pending = true
+				p.ga_t = Tuning.go_around_telegraph
+				p.ga_reason = approach.reason
+				p.ga_roll = chance
+				p.ga_redrawn = false
+				go_around_warns += 1
+				go_around_warned.emit(p, approach.reason)
+
+## The warning second is running: when it is up (and the final was not redrawn cleaner) the go-around happens.
+func _tick_telegraph(p: Aircraft, dt: float) -> void:
+	if p.state != Aircraft.State.FLY:
+		p.ga_pending = false
+		return
+	p.ga_t -= dt
+	if p.ga_t <= 0.0:
+		_fire_go_around(p)
+
+func _fire_go_around(p: Aircraft) -> void:
+	p.ga_pending = false
+	_start_go_around(p, p.ga_reason)
 
 ## Climb out along the runway heading with the remaining timer; the path is gone, so a new one is needed.
 func _start_go_around(p: Aircraft, reason: int) -> void:
@@ -1055,7 +1108,8 @@ func _sync(p: Aircraft, i: int) -> void:
 		pitch = 0.14 * (1.0 - minf(p.roll_t / maxf(Tuning.touchdown_fraction, 0.01), 1.0))
 	var h := PLANE_Y * alt + lift
 	n.position = Vector3(p.pos.x, h, p.pos.y)
-	n.rotation = Vector3(pitch, -p.vis_heading, -p.bank)
+	var wobble := deg_to_rad(Tuning.telegraph_wobble_deg) * sin(p.age * 38.0) * clampf(1.0 - p.ga_t / maxf(Tuning.go_around_telegraph, 0.01) * 0.5, 0.5, 1.0) if p.ga_pending else 0.0
+	n.rotation = Vector3(pitch, -p.vis_heading, -p.bank + wobble)
 	var pop := 1.0 + 0.22 * sin(PI * clampf(1.0 - p.pop_t / TOUCH_POP, 0.0, 1.0)) if p.pop_t > 0.0 else 1.0
 	n.scale = Vector3.ONE * (0.9 + 0.1 * alt) * pop
 	# The shadow: on the ground, further away (and fainter) the higher the aircraft is.

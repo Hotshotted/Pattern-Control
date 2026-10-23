@@ -220,6 +220,10 @@ var bad_day_pay_mult := 1.5          # ...and every landing pays big (x student_
 var bad_day_threshold_mult := 2.5    # ...so the star thresholds are higher
 var bad_day_bonus_mult := 2.0        # ...and so is the completion bonus
 var go_around_climb_seconds := 1.6   # how long the climb-out lift shows
+var red_pulse_seconds := 0.6         # the timer ring's one pulse when it turns red
+var go_around_telegraph := 1.0       # a go-around is signalled this long before it happens (wobble, a ? tag, the engine note)
+var go_around_cancel_factor := 0.6   # redrawing the final cancels it if the new approach is this much cleaner (its chance below this x the old)
+var telegraph_wobble_deg := 4.0      # the roll of the wobble
 ## The first time a star is ever earned at an airport it pays this much extra.
 var landing_keep_fraction := 0.5   # the share of a shift's landing pay that is always kept, whatever the fines
 var coins_first_star_bonus := 100

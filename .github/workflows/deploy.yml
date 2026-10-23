@@ -98,6 +98,13 @@ jobs:
           npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/pw" playwright-core
           NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_audio_check.js build/web "$CHROME"
 
+      # The wind must be visible: on an empty field two frames a moment apart differ where the streaks drift (and with ?nowind they do not).
+      - name: Wind motion check
+        timeout-minutes: 10
+        run: |
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
+          NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_wind_check.js build/web "$CHROME"
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/web

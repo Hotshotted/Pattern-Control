@@ -248,3 +248,27 @@ Over the shift the light moves on, linearly: the warm glow goes from 35% to 50% 
 offset (props, buildings, the aircraft's own) is up to 30% longer (`Shadow.set_time`, which moves the registered shadow quads out
 along their own offset); and the grass gradient gets a touch warmer (blue down 9%, green down 2%). A restart resets it all; Bad Pilot Day
 starts 40% of the way in.
+
+## Wind you can always see (polish pass, item 4)
+
+Twelve thin cream streaks (60-120 px, about 10% opacity) drift across the field the way the air is going, at 20-60 px/s by the wind's
+strength, above the ground props and below the paths and the aircraft (a pooled MultiMesh, each streak fades in and out and is reborn
+elsewhere). The grass tufts lean downwind, the trees rock about a lean, the pond ripples and the windsock points downwind. When the wind
+shifts the streaks swing round over about 1.2 s and briefly double in brightness, the trees sway three times harder for a second and a
+soft gust (a low swell of filtered air, quantised to the music) plays; the wind card's arrow turns smoothly. `?nowind` switches all of
+this off; `?windtest` (used by CI) clears the field of aircraft and lets only the wind move. CI loads the real web export twice
+(`tools/web_wind_check.js`) and compares two frames a moment apart on the open grass beside the runway: with the wind enough pixels
+move, with `?nowind` none do.
+
+## The go-around telegraph (polish pass, item 5)
+
+A go-around is signalled one second before it happens (`go_around_telegraph`): the aircraft wobbles (±4° of roll), a "?" tag shows over
+it and its engine note rises (a soft glide in the key). If the player redraws a final whose go-around chance is under 60% of the one it was
+rolled at before the second is up, the go-around is cancelled; holding the aircraft cancels it too. Otherwise the tag becomes "GOING AROUND"
+and the climb-out proceeds as before. `tools/economy_sim.gd` logs how many warnings were cancelled by the bots (the better the bot, the more).
+
+## Juice (polish pass, item 6)
+
+Coins leave the wheels at touchdown, not at the end of the roll, and arc to the counter one after the other; each plinks (climbing the
+scale) and bumps the counter on arrival. Buttons squash to 94% while pressed and spring back. A timer ring pulses once as it turns red.
+Score pops rotate a few degrees at random (Cozy phase 3).
