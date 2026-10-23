@@ -1,15 +1,12 @@
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, shadows_disabled;
-// A soft drop shadow in the shape of a little aircraft (a fuselage and a wing), lying on the ground.
+// A soft drop shadow in the shape of a little aircraft lying on the ground: blue-grey #3B4A6B, its soft edge baked into `tex`
+// (see Shadow.gd), so nothing is blurred at run time.
 
-uniform float alpha = 0.3;
+uniform sampler2D tex : filter_linear;
+uniform float alpha = 0.26;
 
 void fragment() {
-	vec2 p = (UV - 0.5) * 2.0;
-	float fus = 1.0 - length(p / vec2(0.16, 0.95));
-	float wng = 1.0 - length(p / vec2(0.95, 0.2));
-	float tail = 1.0 - length((p - vec2(0.0, 0.75)) / vec2(0.35, 0.1));
-	float d = max(max(fus, wng), tail);
-	ALBEDO = vec3(0.02, 0.04, 0.08);
-	ALPHA = alpha * smoothstep(0.0, 0.55, d);
+	ALBEDO = vec3(0.2314, 0.2902, 0.4196);
+	ALPHA = alpha * texture(tex, UV).a;
 }

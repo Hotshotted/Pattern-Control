@@ -8,7 +8,7 @@ const THEME_COUNT := 5
 const LIVERY_COUNT := 6
 
 const THEMES := [
-	{"id": "classic", "name": "Classic", "cost": 0, "ground": null, "tint": Color(1, 1, 1), "leaf": Color("3e8a48"), "trunk": Color(0.45, 0.3, 0.18),
+	{"id": "classic", "name": "Classic", "cost": 0, "ground": null, "tint": Color(1, 1, 1), "leaf": Color("3f7d3f"), "leaf_mid": Color("69a955"), "leaf_hi": Color("9ad46e"), "trunk": Color(0.45, 0.3, 0.18),
 		"style": 0, "bg": Color(0.2, 0.26, 0.34), "ambient": Color(0.8, 0.82, 0.9), "ambient_energy": 0.5, "sun": 1.0},
 	{"id": "autumn", "name": "Autumn", "cost": 300, "ground": Color(0.6, 0.5, 0.26), "tint": Color(1.0, 0.92, 0.8), "leaf": Color(0.88, 0.4, 0.1), "trunk": Color(0.4, 0.26, 0.15),
 		"style": 0, "bg": Color(0.3, 0.22, 0.16), "ambient": Color(1.0, 0.88, 0.75), "ambient_energy": 0.55, "sun": 1.0},

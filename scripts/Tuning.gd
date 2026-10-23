@@ -23,7 +23,7 @@ var ortho_size := 10.0
 ## (The runways themselves are in Airports.gd.) A path whose end comes within this of the matching
 ## approach end is cleared to land.
 var approach_radius := 1.0
-var runway_asphalt := Color("3e4658")
+var runway_asphalt := Color("6a7079")      # the lit end; the shading takes it to about #565B66
 
 # ---------- Planes ----------
 ## Speed classes (units / second): slow props, medium, fast jets.

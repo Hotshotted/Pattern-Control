@@ -21,6 +21,7 @@ class AirportScene:
 	var base_ground := Color.WHITE
 	var ground_mat: StandardMaterial3D
 	var stripe_mat: StandardMaterial3D
+	var tufts: MultiMeshInstance3D
 	var leaf_mat: StandardMaterial3D
 	var leaf_mid: StandardMaterial3D        # the lighter crown layers (the highlight)
 	var leaf_hi: StandardMaterial3D
@@ -67,10 +68,10 @@ func _build_airport() -> AirportScene:
 	var ground := Airports.ground_color()
 	v.base_ground = ground
 	v.ground_mat = Prim.mat(ground)
-	Prim.box(root, Vector3(40.0, 0.2, 70.0), Vector3(0, -0.1, 0), v.ground_mat, false)
-	var stripe := Prim.mat(ground.lightened(0.07))
+	_ground(root, v.ground_mat, bool(Airports.def().get("water", false)))
+	var stripe := _overlay_mat(Color(1, 1, 1, 0.12))        # lighter and darker patches are translucent, so they follow the field's own light
 	v.stripe_mat = stripe
-	var patch := Prim.mat(ground.darkened(0.06))
+	var patch := _overlay_mat(Color(0, 0, 0, 0.07))
 	v.patch_mat = patch
 	var water: bool = Airports.def().get("water", false)
 	v.water = water
@@ -82,7 +83,7 @@ func _build_airport() -> AirportScene:
 			var bandp := Prim.box(root, Vector3(rngp.randf_range(7.0, 15.0), 0.02, rngp.randf_range(1.6, 3.4)), Vector3(rngp.randf_range(-6.0, 6.0), 0.005 + 0.001 * i, rngp.randf_range(-9.0, 9.0)), stripe if i % 2 == 0 else patch, false)
 			bandp.rotation.y = deg_to_rad(rngp.randf_range(-24.0, 24.0))
 	else:
-		var wave := Prim.mat(ground.lightened(0.14))
+		var wave := _overlay_mat(Color(1, 1, 1, 0.16))
 		v.stripe_mat = wave
 		for i in 5:
 			Prim.box(root, Vector3(9.0 + 2.0 * (i % 3), 0.02, 0.5), Vector3(-5.0 + 2.5 * i, 0.005, -8.0 + 4.1 * i), wave, false)
@@ -110,12 +111,130 @@ func _build_airport() -> AirportScene:
 	_windsock(v, Vector3(sp.x, 0.0, sp.y))
 	if not water:
 		_trees(v)
+		_tufts(v)
 	_upgrade_props(v)
 	return v
 
+## The field: a grid with vertex colours that run from the lit upper-left (#B9DC72) through #8FC45C to the shaded lower-right (#76AA4B),
+## as ratios of the material's own colour (so a theme or an airport's own ground keeps the same light). Water gets a gentler version.
+func _ground(root: Node3D, m: Material, water: bool) -> void:
+	var cols_n := 10
+	var rows_n := 14
+	var verts := PackedVector3Array()
+	var cols := PackedColorArray()
+	var norms := PackedVector3Array()
+	var idx := PackedInt32Array()
+	var mid := Color(0.774, 0.891, 0.807)
+	var low := Color(0.639, 0.773, 0.658)
+	for j in rows_n + 1:
+		for i in cols_n + 1:
+			var x := -20.0 + 40.0 * i / cols_n
+			var z := -35.0 + 70.0 * j / rows_n
+			verts.append(Vector3(x, 0.0, z))
+			norms.append(Vector3.UP)
+			var t := ((x + 20.0) / 40.0 + (z + 35.0) / 70.0) * 0.5
+			var c := Color.WHITE.lerp(mid, t * 2.0) if t < 0.5 else mid.lerp(low, (t - 0.5) * 2.0)
+			cols.append(Color.WHITE.lerp(c, 0.4) if water else c)
+	for j in rows_n:
+		for i in cols_n:
+			var a := j * (cols_n + 1) + i
+			var b := a + 1
+			var c2 := a + cols_n + 1
+			var d := c2 + 1
+			idx.append_array([a, b, c2, b, d, c2])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_COLOR] = cols
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.mesh = am
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(mi)
+
+## A flat translucent colour (the mown patches and the waves).
+func _overlay_mat(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = c
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	return m
+
+## Is `p` clear of the strips where paths get drawn: the approach corridors beyond every runway end, the runways themselves and the
+## water lanes? Everything that is scenery (tufts, parked planes, cars, the picnic...) keeps to such places.
+func _clear_of_paths(p: Vector2, margin: float = 0.4) -> bool:
+	for i in Airports.rw_count():
+		var h := deg_to_rad(Airports.rw_heading_deg(i))
+		var dir := Vector2(sin(h), -cos(h))
+		var rel := p - Airports.rw_center(i)
+		var along := rel.dot(dir)
+		var lateral := absf(rel.dot(Vector2(-dir.y, dir.x)))
+		var half := Airports.rw_length(i) * 0.5
+		if lateral < Airports.rw_width(i) * 0.5 + 1.0 + margin and absf(along) < half + 6.5:
+			return false
+	for lane in Airports.lanes():
+		var lh := deg_to_rad(lane["heading"])
+		var ld := Vector2(sin(lh), -cos(lh))
+		var lrel: Vector2 = p - (lane["center"] as Vector2)
+		if absf(lrel.dot(Vector2(-ld.y, ld.x))) < lane["width"] * 0.5 + 1.2 and absf(lrel.dot(ld)) < lane["length"] * 0.5 + 1.2:
+			return false
+	for pad in Airports.pads():
+		if p.distance_to(pad["center"]) < pad["radius"] + 1.4:
+			return false
+	return true
+
+## Small three-blade grass tufts scattered sparsely over the grass (one MultiMesh per airport; nothing moves).
+func _tufts(v: AirportScene) -> void:
+	var blade := ArrayMesh.new()
+	var verts := PackedVector3Array()
+	var cols := PackedColorArray()
+	var norms := PackedVector3Array()
+	for k in 3:
+		var a := k * TAU / 3.0 + 0.5
+		var d := Vector3(cos(a), 0.0, sin(a))
+		var s := Vector3(-d.z, 0.0, d.x)
+		verts.append_array([s * 0.025, -s * 0.025, d * 0.15 + Vector3(0, 0.06, 0)])
+		cols.append_array([Color(0.78, 0.78, 0.78), Color(0.78, 0.78, 0.78), Color(1, 1, 1)])
+		norms.append_array([Vector3.UP, Vector3.UP, Vector3.UP])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_COLOR] = cols
+	blade.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var m := Prim.mat(Color("7ab351"))
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77 + Airports.current * 13
+	var spots: Array[Transform3D] = []
+	var tries := 0
+	while spots.size() < 46 and tries < 500:
+		tries += 1
+		var p := Vector2(rng.randf_range(-4.8, 4.8), rng.randf_range(-8.6, 8.6))
+		if not _spot_free(p, 0.35, 9.0) or not _clear_of_paths(p):
+			continue
+		var tr := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.7, 1.1)), Vector3(p.x, 0.012, p.y))
+		spots.append(tr)
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = blade
+	mm.instance_count = spots.size()
+	for k in spots.size():
+		mm.set_instance_transform(k, spots[k])
+	var mi := MultiMeshInstance3D.new()
+	mi.multimesh = mm
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	v.root.add_child(mi)
+	v.tufts = mi
+
 ## Trees at a few fixed spots, each in three styles (round, pine, cactus): the theme picks which one shows.
 func _trees(v: AirportScene) -> void:
-	v.leaf_mat = Prim.mat(Color("3e8a48"))
+	v.leaf_mat = Prim.mat(Color("3f7d3f"))
 	v.leaf_mid = Prim.mat(v.leaf_mat.albedo_color.lightened(0.18))
 	v.leaf_hi = Prim.mat(v.leaf_mat.albedo_color.lightened(0.38))
 	v.trunk_mat = Prim.mat(Color(0.45, 0.3, 0.18))
@@ -135,8 +254,8 @@ func _trees(v: AirportScene) -> void:
 		var round_t := Node3D.new()         # style 0: a cluster of round crowns, each with a shadow, a lighter middle and a highlight
 		round_t.position = Vector3(t.x, 0.0, t.y)
 		v.root.add_child(round_t)
-		_shadow(round_t, 0.12, 0.1, 0.62, 0.62, 0.22, 0.02)
-		_shadow(round_t, 0.42, 0.34, 0.4, 0.4, 0.2, 0.02)
+		_shadow(round_t, 0.2, 0.18, 0.95, 0.95, 1.0, 0.02)
+		_shadow(round_t, 0.5, 0.42, 0.6, 0.6, 0.9, 0.02)
 		Prim.cyl(round_t, 0.34, 0.4, 0.55, 10, Vector3(0.0, 0.3, 0.0), v.leaf_mat, false)
 		Prim.cyl(round_t, 0.22, 0.28, 0.1, 10, Vector3(-0.04, 0.6, -0.04), v.leaf_mid, false)
 		Prim.cyl(round_t, 0.1, 0.12, 0.06, 8, Vector3(-0.09, 0.67, -0.09), v.leaf_hi, false)
@@ -169,13 +288,10 @@ func apply_theme(index: int) -> void:
 		elif v.water:
 			ground = v.base_ground * (t["tint"] as Color)
 		v.ground_mat.albedo_color = ground
-		v.stripe_mat.albedo_color = ground.lightened(0.07) if not v.water else ground.lightened(0.14)
-		if v.patch_mat != null:
-			v.patch_mat.albedo_color = ground.darkened(0.06)
 		if v.leaf_mat != null:
 			v.leaf_mat.albedo_color = t["leaf"]
-			v.leaf_mid.albedo_color = (t["leaf"] as Color).lightened(0.18)
-			v.leaf_hi.albedo_color = (t["leaf"] as Color).lightened(0.38)
+			v.leaf_mid.albedo_color = t.get("leaf_mid", (t["leaf"] as Color).lightened(0.18))
+			v.leaf_hi.albedo_color = t.get("leaf_hi", (t["leaf"] as Color).lightened(0.38))
 			v.trunk_mat.albedo_color = t["trunk"]
 		for st in 3:
 			for holder in v.tree_styles[st]:
@@ -194,7 +310,7 @@ func _runway(v: AirportScene, i: int) -> void:
 	var edge := Prim.mat(col)
 	for s in [-1.0, 1.0]:
 		Prim.box(root, Vector3(0.08, 0.13, len - 0.1), Vector3(s * (w * 0.5 - 0.1), 0.065, 0), edge, false)
-	var white := Prim.mat(Color(0.93, 0.93, 0.9))
+	var white := Prim.mat(Color("f2ede4").lerp(Tuning.runway_asphalt, 0.1))       # cream, 90%
 	# End 0 is approached from behind its landing direction (local +z end); end 1 from the other side (-z).
 	for e in 2:
 		var sign := 1.0 if e == 0 else -1.0
@@ -220,14 +336,37 @@ func _runway(v: AirportScene, i: int) -> void:
 				var arm := Prim.box(root, Vector3(0.5, 0.03, 0.09), Vector3(sd * 0.2, 0.02, sg * (len * 0.5 + 0.95 + k * 0.42) + sg * 0.1), chev, false)
 				arm.rotation.y = deg_to_rad(sg * sd * 32.0)
 	Prim.lift(root)       # runways are drawn above the fog
+	# Rubber streaks in the touchdown zones (20% black), and the runway numbers (cream, 80%).
+	var rubber := StandardMaterial3D.new()
+	rubber.albedo_color = Color(0, 0, 0, 0.14)
+	rubber.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rubber.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rubber.render_priority = 3
+	var hdg := Airports.rw_heading_deg(i)
+	for e in 2:
+		var sg := 1.0 if e == 0 else -1.0
+		for sd in [-1.0, 1.0]:
+			Prim.box(root, Vector3(minf(w * 0.2, 0.22), 0.02, 0.8), Vector3(sd * w * 0.22, 0.125, sg * (len * 0.5 - 2.5)), rubber, false)
+		var num := posmod(roundi((hdg + 180.0 * e) / 10.0), 36)
+		var lab := Label3D.new()
+		lab.text = "%02d" % (36 if num == 0 else num)
+		lab.font_size = 96
+		lab.pixel_size = 0.0046
+		lab.modulate = Color(0.949, 0.929, 0.894, 0.8)
+		lab.shaded = false
+		lab.double_sided = false
+		lab.rotation_degrees = Vector3(-90.0, 0.0 if e == 0 else 180.0, 0.0)
+		lab.position = Vector3(0.0, 0.142, sg * (len * 0.5 - 1.55))
+		lab.render_priority = 4
+		root.add_child(lab)
 
 ## A parallel taxiway beside each runway that has room for one: asphalt strip, yellow centre dashes and two stubs to the
 ## runway. All of it lies on the ground, under everything that moves.
 func _taxiways(v: AirportScene) -> void:
 	if v.water:
 		return
-	var asphalt := Prim.mat(Color("4a5265"))
-	var yellow := Prim.mat(Color("ffd23f"))
+	var asphalt := Prim.mat(Color("a3a8b0"))
+	var yellow := Prim.mat(Color("e6c35a"))
 	for i in Airports.rw_count():
 		var h := deg_to_rad(Airports.rw_heading_deg(i))
 		var dir := Vector2(sin(h), -cos(h))
@@ -352,7 +491,7 @@ func _pad(root: Node3D, pad: Dictionary) -> void:
 	root.add_child(holder)
 	var c: Vector2 = pad["center"]
 	var r: float = pad["radius"]
-	_shadow(holder, c.x + 0.08, c.y + 0.07, r * 2.5, r * 2.5, 0.2, 0.02)
+	_shadow(holder, c.x + 0.05, c.y + 0.05, r * 2.5, r * 2.5, 0.7, 0.02)
 	Prim.cyl(holder, r * 1.06, r * 1.06, 0.1, 16, Vector3(c.x, 0.05, c.y), Prim.mat(Tuning.runway_asphalt.darkened(0.3)), false)
 	Prim.cyl(holder, r, r, 0.11, 16, Vector3(c.x, 0.055, c.y), Prim.mat(Color("e9edf4")), false)
 	Prim.cyl(holder, r * 0.84, r * 0.84, 0.12, 16, Vector3(c.x, 0.06, c.y), Prim.mat(pad["color"]), false)
@@ -387,28 +526,34 @@ func _mountain(root: Node3D, c: Vector2, r: float) -> void:
 	var rock := Prim.mat(Color(0.56, 0.54, 0.52))
 	var rock2 := Prim.mat(Color(0.66, 0.63, 0.58))
 	var snow := Prim.mat(Color(0.97, 0.98, 1.0))
-	_shadow(root, c.x + r * 0.22, c.y + r * 0.2, r * 2.5, r * 2.3, 0.22, 0.02)
+	_shadow(root, c.x + r * 0.27, c.y + r * 0.27, r * 2.7, r * 2.7, 1.0, 0.02)
 	Prim.cyl(root, 0.0, r * 0.95, r * 1.5, 7, Vector3(c.x, r * 0.75, c.y), rock, false)
 	Prim.cyl(root, 0.0, r * 0.4, r * 0.55, 7, Vector3(c.x, r * 1.25, c.y), snow, false)
 	Prim.cyl(root, 0.0, r * 0.6, r * 0.9, 6, Vector3(c.x + r * 0.55, r * 0.45, c.y + r * 0.2), rock2, false)
 
-## A soft round shadow lying on the ground (build time): centre (x, z), size (w, d), `alpha` of ink, height `y`.
-func _shadow(parent: Node3D, x: float, z: float, w: float, d: float, alpha: float, y: float) -> void:
+## A soft round shadow lying on the ground (build time): centre (x, z), size (w, d), `alpha` (1 = the standard 26%), height `y`.
+func _shadow(parent: Node3D, x: float, z: float, w: float, d: float, alpha: float, y: float, tex: Texture2D = null) -> void:
 	var mi := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(w, d)
 	mi.mesh = pm
-	var m := ShaderMaterial.new()
-	m.shader = preload("res://shaders/prop_shadow.gdshader")
-	m.set_shader_parameter("alpha", alpha)
-	mi.material_override = m
+	mi.material_override = Shadow.material(tex if tex != null else Shadow.disc(), alpha)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.position = Vector3(x, y, z)
 	parent.add_child(mi)
 
+## The shadow of a box-like thing with footprint (fw, fd) at (x, z) and height `h`: cast toward the lower-right, half as long as
+## the thing is high, soft-edged.
+func _cast(parent: Node3D, x: float, z: float, fw: float, fd: float, h: float, y: float, alpha: float = 1.0) -> void:
+	var len := h * 0.5
+	var k := 0.7071
+	var w := (fw + len * k) / 0.62
+	var d := (fd + len * k) / 0.62
+	_shadow(parent, x + len * k * 0.5, z + len * k * 0.5, w, d, alpha, y, Shadow.rect())
+
 ## The tower: a pale base, a shaft and a blue octagonal cab with a white dot on its roof (and a soft shadow).
 func _tower(root: Node3D, at: Vector3) -> void:
-	_shadow(root, at.x + 0.2, at.z + 0.2, 2.2, 1.8, 0.22, 0.05)
+	_cast(root, at.x, at.z, 0.9, 0.7, 1.7, 0.05)
 	Prim.box(root, Vector3(1.0, 0.1, 0.8), at + Vector3(0, 0.05, 0), Prim.mat(Color("cfd5df")), false)     # the apron it stands on
 	Prim.box(root, Vector3(0.9, 0.5, 0.7), at + Vector3(0, 0.3, 0), Prim.mat(Color("e9edf4")), false)
 	Prim.box(root, Vector3(0.9, 0.04, 0.7), at + Vector3(0, 0.56, 0), Prim.mat(Color("f7f9fc")), false)
@@ -430,7 +575,7 @@ func _apron(v: AirportScene) -> void:
 		var n := Node3D.new()
 		n.position = Vector3(p.x, 0.0, p.y)
 		v.root.add_child(n)
-		_shadow(n, 0.18, 0.2, 2.5, 2.1, 0.2, 0.03)
+		_cast(n, 0.0, 0.0, 1.1, 0.8, 0.45, 0.03)
 		Prim.box(n, Vector3(1.5, 0.05, 1.3), Vector3(0, 0.025, 0), Prim.mat(Color("cfd5df")), false)
 		Prim.box(n, Vector3(1.1, 0.4, 0.8), Vector3(0, 0.25, -0.1), Prim.mat(Color("e4e9f1")), false)
 		var ridge := Prim.mat(Color("c3cad6"))
@@ -442,7 +587,7 @@ func _apron(v: AirportScene) -> void:
 
 ## A pole with a striped cone on top. The cone's pivot turns to point downwind.
 func _windsock(v: AirportScene, at: Vector3) -> void:
-	_shadow(v.root, at.x + 0.25, at.z + 0.2, 0.7, 0.7, 0.2, 0.02)
+	_cast(v.root, at.x, at.z, 0.12, 0.12, 1.3, 0.02, 0.8)
 	Prim.cyl(v.root, 0.04, 0.05, 1.3, 5, at + Vector3(0, 0.65, 0), Prim.mat(Color(0.8, 0.8, 0.82)))
 	var sock := Node3D.new()
 	sock.position = at + Vector3(0, 1.3, 0)

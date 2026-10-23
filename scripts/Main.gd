@@ -59,6 +59,7 @@ var _slider_drag := -1                # pause menu: the volume slider being drag
 var _pause_since_ms := 0
 var _last_land_t := -100.0            # run time of the previous landing (quick-succession bonus)
 var sfx: Sfx
+var light: LightOverlay            # the warm / cool light over the field (see LightOverlay)
 var _finale := 0                      # 0 spawning, 1 'LAST ARRIVALS' banner, 2 'CLEAR THE SKY' counter
 var _finale_start := 0.0
 var _last_over := -1
@@ -130,6 +131,8 @@ func _ready() -> void:
 	diorama.wind = wind
 	add_child(diorama)
 	overlay.camera = camera
+	light = LightOverlay.new()
+	add_child(light)
 	traffic.landed.connect(_on_landed)
 	traffic.spawned.connect(func(_p: Aircraft): sfx.play("arrive"))      # (a very soft tone, on the beat)
 	traffic.touchdown.connect(_on_touchdown)

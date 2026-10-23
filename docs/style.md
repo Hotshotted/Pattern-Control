@@ -32,46 +32,51 @@ Contrast: `TEXT`, `TEXT_SOFT` and `ACCENT` on `SURFACE_DARK`, and `TEXT_ON_LIGHT
 4.5:1 (checked by the smoke test). Text on a coloured button is always drawn with an ink outline (1/8 of its size).
 Colour is never the only signal: fines and overtime also use a minus sign / a plus sign, stars use a shape.
 
-## Sunny Airfield (the art direction)
+## Cozy Airfield (the art direction)
 
-A top-down **toy diorama**: a bright field, soft shadows instead of hard outlines, white aircraft in the colour of the runway
-they are heading for, and a navy interface floating over it all. The design canvas (Menu, Shift in progress, Results, Airport
-select, Asset and style sheet) is the reference; other games from the studio can follow the same rules.
+A top-down, warm, soft and lived-in toy diorama. Same game and layouts as ever; the mood comes from the light first, then from
+shaded surfaces, soft shadows and a little life. (It replaces the earlier "Sunny Airfield" look.)
 
-* **No black outlines on the world.** Ground props (trees, tower, hangar, windsock, pads, vehicles, mountains) get a soft round
-  drop shadow (ink at about 20 %, offset down-right) and a lighter top face or highlight. Aircraft keep only a thin, soft slate
-  edge so they always pop above the ground. Anything drawn over the game world in text gets a thick ink outline.
-* **Palette (world):** field `#84C26B` with mown patches in slightly different greens; asphalt `#3E4658` with a darker rim;
-  taxiways `#4A5265` with dashed yellow `#FFD23F` centrelines; apron/concrete `#CFD5DF`; water `#3FA2D6` with lighter wave bands.
-  Runway colours: orange `#FF8A3D`, blue `#3D8BFF`, helipad purple `#A06BFF`, seaplane lane green `#35C98A`; go `#35C98A`,
-  caution `#FFC933`, trouble `#FF5C4D`. Gold is only ever money and stars.
-* **Aircraft:** white bodies and wings; the **livery colour is the target runway's** (stripe along the body and wing, nose cap,
-  fin; the helicopter body). Soft offset shadow (larger offset = higher). A pale prop disc on prop planes, a rotor disc on the
-  helicopter. Silhouettes must differ at a glance: the light plane (straight wing), the **swept-wing jet** with engine pods, the
-  helicopter, the long-winged glider with coloured tips, the seaplane with floats; a **student pilot** wears an orange "L" badge.
-* **Ground kit:** runway = dark rim, asphalt, runway-colour edge bands, white piano-key thresholds, dashed white centreline,
-  and approach chevrons in the runway's colour on the grass before each end. Apron with a **hangar with a ridged roof**, the
-  **tower with a blue octagonal cab and a white dot**, a striped windsock, a yellow fuel truck with a blue cab. Trees are
-  **clusters of round crowns** (dark base, lighter middle, a highlight) with their shadows. Each airport has its own dressing
-  (crop patches at County, concrete aprons at Regional and International, scree around the Mountain Field peaks, a sand ring
-  and water at the Island).
-* **Readability marks:** a flight path is a line of **round dots** in the runway's colour (soft shadow dots under it); its final
-  segment tints green / yellow / red by approach quality. A timer ring is a thick ring on a dark translucent track with round
-  caps: green, then yellow, then red, and red adds a pulsing outer halo. A conflict is a **red dashed ring around the pair**.
-  Particles are round dots and gold four-point stars, never squares.
-* **Screens:** the menu is a logo lockup (a tilted gold "AIR TRAFFIC CONTROL" tag, PATTERN in white over WORK in gold, thick ink
-  outline and a drop shadow), an airport card with a mini-map and previous / next arrows, the one big PLAY button, and a bottom
-  **dock of four colour tiles** (Upgrades blue, Hangar purple, Daily orange with a red dot until it is played, Bad Day red "L").
-  The HUD is a pause button top-left, a clock pill, the big coin count, a rounded star bar with a star at each threshold, and a
-  wind dial top-right. Results: SHIFT COMPLETE, three big tilted stars, a card with a red NEW BEST tag, a big gold "+coins", a
-  three-chip breakdown (landings, early clear, fines), a dashed-gold unlock card, PLAY AGAIN, and a quiet ad pill. Airport
-  select: a large card per airport with an illustrated mini-map and a one-line tag; a locked airport is dimmed with a padlock and
-  "Needs N" stars. Coin and star totals sit in navy pills in the corners.
-* **Colour tiles:** rounded square, an ink border and a 10 px lip underneath, a white glyph, the label below.
-* **Build rules:** every shape is created once and pooled (aircraft models, shadows, path meshes, particles); the dot paths and
-  prop shadows are shaders on pooled meshes, so nothing is allocated during play. The landability check and collision are
-  untouched by the art. `tools/perf_check.gd` renders International with a busy sky and prints the frame times (under software
-  rendering these are far higher than on a phone; the CPU cost of our own code stays around 3.5 ms).
+**Light and shading**
+* The camera looks straight down. **One light overlay** (`LightOverlay`, a ColorRect with `shaders/light_overlay.gdshader`) sits over
+  the whole field, above the 3D scene and below the paths, rings and interface: a warm radial glow `#FFD68A` pinned to the
+  upper-left corner (35 % at its centre, fading to 0 by 90 % of the screen diagonal, added to the picture), a cool radial shade
+  `#2F4A7A` pinned to the lower-right (20 %, fading the same way), and **8 % static film grain** from a tiled 128 px noise texture
+  (made once, never per-frame). `?nolight` switches the overlay off for comparison.
+* Surfaces are softly shaded, not flat: every roof, wing, tree and tank runs from lighter at its upper-left to darker at its
+  lower-right, about 18 % in value (`Prim.SHADE`), baked into vertex colours at build time: no per-frame cost. The field itself is
+  a gradient mesh. **No outlines anywhere on the ground**; aircraft keep a thin, soft slate edge only.
+* **Shadows** are blue-grey `#3B4A6B` at 26 %, soft-edged with the softness baked into small textures once (`Shadow.gd`; nothing is
+  blurred at run time), cast toward the lower-right. A building's shadow is half as long as the building is high. A flying plane's
+  shadow slides further away as it climbs and fades a little; on the ground it hugs the wheels.
+
+**Palette (Countryside; one palette per airport, Coastal and Alpine are config variants with their own ground, walls and accent)**
+* Grass: a gradient across the field from `#B9DC72` (upper-left) through `#8FC45C` to `#76AA4B` (lower-right), lighter and darker
+  translucent patches, and small three-blade grass tufts scattered sparsely (never in the approach corridors).
+* Runway asphalt `#6A7079` to `#565B66`; markings cream `#F2EDE4` at 90 %, runway numbers at 80 %, rubber streaks on the touchdown
+  zones at 20 % black. Taxiway `#A3A8B0` with yellow `#E6C35A` centreline dashes. Apron `#B6BBC2` to `#9CA1A9`.
+* Accents: orange `#F0803C` (runway 1 livery, the primary button), blue `#4C8FD6` (runway 2), violet `#8E6BBE` (helipad), teal
+  `#2BA3A6` (seaplane lane). Airframes stay white with the livery on the nose, wingtips and fin and a soft gradient across the wings.
+* Trees: round canopies with a radial gradient from `#9AD46E` to `#3F7D3F`, each with a soft shadow.
+* Buildings: rust hangar roof `#E2654A` to `#B3452F`, teal FBO roof `#4FB8B2` to `#2F8D88`, cream tower `#FFF2DC` to `#E3D3B6` with
+  a navy cab and a red beacon; a 4 px darker side on the right and bottom.
+
+**Readability is unchanged:** paths are lines of round dots in the runway colour (final segment green / yellow / red), timer rings
+are thick on a dark track (green, yellow, red, red adds a halo), conflicts are a red dashed ring around the pair. Scenery, life and
+props are placed outside the approach corridors and the strips where paths get drawn, so nothing can block or confuse a path.
+
+**The ground kit and the life** (pooled, pre-warmed; only the truck, birds, balloon, mower and windsock move; `?nolife` stops them):
+parked planes on tie-downs with wheel chocks, a plane being washed, a fuel farm and a fuel truck that drives to a parked plane and
+back, a picnic table with a dog, a small car park, PAPI lights, two birds, a mower leaving stripes, a hot-air balloon and a glider on
+a trailer (scenery only), and a landmark per airport (Countryside: red barn and silo; Coastal: lighthouse and pier with gulls;
+Alpine: timber lodge with chimney smoke, pines and a chairlift).
+
+**Interface:** cream surfaces (gradient `#FFF8EA` to `#F6E8CF`, a solid 4 px bottom edge `#C9A46E`, a soft drop shadow, text `#5A3A12`),
+pills fully rounded, cards 22 px radius. The primary button is orange (`#FF9D4F` to `#F0803C`, a 7 px bottom edge `#B85A1B`, inset
+top highlight, white text with a slight dark shadow); pressing it drops it onto its edge. The display face is **Bowlby One SC**
+(title, timer, score, headers) in cream `#FFF4DF` with a stacked warm extrusion (`#C9641F` to `#803D11`) and a soft shadow; the title
+sits at a 2 degree tilt. Body and labels are **Rubik** 800 and 500. The coin is a real gold coin (`#F2B233`, darker rim, a propeller
+mark); stars are gold with a dark outline, empty stars cream. HUD positions never move.
 
 ## Typography
 

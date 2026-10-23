@@ -3878,7 +3878,7 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
-	print("9y. Sunny Airfield art: aircraft and ground")
+	print("9y. Cozy Airfield art: aircraft and ground")
 	main.restart()
 	tr.auto_spawn = false
 	var sa_types = {}
@@ -3900,7 +3900,7 @@ func _initialize() -> void:
 	var sa_nostu = tr.planes[sa_types[MEDIUM]]
 	tr._sync(sa_nostu, sa_types[MEDIUM])
 	check(tr._badges[sa_types[SMALL]].visible and not tr._badges[sa_types[MEDIUM]].visible, "a student pilot wears the orange L badge on the wing")
-	check(float(tr._shadow_mats[sa_types[SMALL]].get_shader_parameter("alpha")) <= 0.23 and float(tr._shadow_mats[sa_types[SMALL]].get_shader_parameter("alpha")) > 0.1, "aircraft shadows are ink at about 20%")
+	check(float(tr._shadow_mats[sa_types[SMALL]].get_shader_parameter("alpha")) <= 0.27 and float(tr._shadow_mats[sa_types[SMALL]].get_shader_parameter("alpha")) > 0.1, "aircraft shadows are blue-grey at about 26%")
 	var sa_scene = main.airfield.variants[0]
 	var sa_outlined = 0
 	var sa_stack = [sa_scene.root]
@@ -3910,21 +3910,21 @@ func _initialize() -> void:
 			sa_outlined += 1
 		sa_stack.append_array(sa_n.get_children())
 	check(sa_outlined == 0, "the ground and its props have no outlines (%d outlined parts)" % sa_outlined)
-	check(Airports.ORANGE.is_equal_approx(Color("ff8a3d")) and Airports.BLUE.is_equal_approx(Color("3d8bff")) and Airports.PAD_COLOR.is_equal_approx(Color("a06bff")) and Airports.LANE_COLOR.is_equal_approx(Color("35c98a")) and Airports.def(0)["ground"].is_equal_approx(Color("84c26b")) and tuning.runway_asphalt.is_equal_approx(Color("3e4658")), "the Sunny Airfield palette: field, asphalt and the four runway colours")
+	check(Airports.ORANGE.is_equal_approx(Color("f0803c")) and Airports.BLUE.is_equal_approx(Color("4c8fd6")) and Airports.PAD_COLOR.is_equal_approx(Color("8e6bbe")) and Airports.LANE_COLOR.is_equal_approx(Color("2ba3a6")) and Airports.def(0)["ground"].is_equal_approx(Color("b9dc72")) and tuning.runway_asphalt.is_equal_approx(Color("6a7079")), "the Cozy Airfield palette: grass, asphalt and the four accent colours")
 	var sa_shadows = 0
 	for sa_v in main.airfield.variants:
 		for sa_c in sa_v.root.get_children():
-			if sa_c is MeshInstance3D and sa_c.material_override is ShaderMaterial and (sa_c.material_override as ShaderMaterial).shader.resource_path.ends_with("prop_shadow.gdshader"):
+			if sa_c is MeshInstance3D and sa_c.material_override is StandardMaterial3D and (sa_c.material_override as StandardMaterial3D).albedo_texture != null and (sa_c.material_override as StandardMaterial3D).albedo_color.is_equal_approx(Color(Shadow.COLOR, Shadow.ALPHA * (sa_c.material_override as StandardMaterial3D).albedo_color.a / Shadow.ALPHA)):
 				sa_shadows += 1
 	var sa_tree_shadows = 0
 	for sa_h in sa_scene.tree_styles[0]:
 		for sa_c in sa_h.get_children():
-			if sa_c is MeshInstance3D and sa_c.material_override is ShaderMaterial:
+			if sa_c is MeshInstance3D and sa_c.material_override is StandardMaterial3D and (sa_c.material_override as StandardMaterial3D).albedo_texture != null:
 				sa_tree_shadows += 1
-	check(sa_shadows >= 12 and sa_tree_shadows >= 2, "ground props (tower, hangar, windsock, trees) sit on soft shadows (%d + %d)" % [sa_shadows, sa_tree_shadows])
+	check(sa_shadows >= 12 and sa_tree_shadows >= 2, "ground props (tower, hangar, windsock, trees) sit on soft baked shadows (%d + %d)" % [sa_shadows, sa_tree_shadows])
 	tr.release_all()
 
-	print("9z. Sunny Airfield art: readability")
+	print("9z. Cozy Airfield art: readability")
 	check(rb._nodes[0].material_override is ShaderMaterial and (rb._nodes[0].material_override as ShaderMaterial).shader.resource_path.ends_with("path_dots.gdshader"), "paths are lines of round dots (the dot shader), not ribbons")
 	check(rb.TINTS[0].is_equal_approx(Color("35c98a")) and rb.TINTS[1].is_equal_approx(Color("ffc933")) and rb.TINTS[2].is_equal_approx(Color("ff5c4d")), "the final segment tints green, yellow, red")
 	check(tuning.timer_color(1.0).is_equal_approx(Color("35c98a")) and tuning.timer_color(0.4).is_equal_approx(Color("ffc933")) and tuning.timer_color(0.1).is_equal_approx(Color("ff5c4d")), "timer rings run green, yellow, red")
@@ -3937,7 +3937,7 @@ func _initialize() -> void:
 		rz_ok = rz_ok and (rz_p.mesh.material as StandardMaterial3D).albedo_texture != null
 	check(rz_ok, "particles are round dots and gold stars (textured), never squares")
 
-	print("9zz. Sunny Airfield art: screens")
+	print("9zz. Cozy Airfield art: screens")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	main._show_menu()
@@ -3972,7 +3972,7 @@ func _initialize() -> void:
 	check(sc_art.pause_card.size.x > 600.0 and sc_art.btn_kind[sc_art.btn_id.find("restart")] == 3, "the pause menu sits on a sheet with colour tiles")
 	main.resume_game()
 	var sc_doc = FileAccess.get_file_as_string("res://docs/style.md")
-	check(sc_doc.contains("## Sunny Airfield") and sc_doc.contains("round dots") and sc_doc.contains("colour tiles") and sc_doc.contains("swept-wing jet"), "docs/style.md documents the Sunny Airfield art direction")
+	check(sc_doc.contains("## Cozy Airfield") and sc_doc.contains("#FFD68A") and sc_doc.contains("film grain") and sc_doc.contains("#3B4A6B"), "docs/style.md documents the Cozy Airfield art direction")
 	check(sc_art._sb_hdr != null and sc_art._sb_card != null and sc_art._sb_dock != null, "the pills, card and dock styles exist")
 	main._show_menu()
 
@@ -4035,6 +4035,34 @@ func _initialize() -> void:
 	main.resume_game()
 	var qa_fog = qa._players["fog"]
 	check(qa_fog.bus == &"Ambience", "the fog ambience is on the Ambience bus")
+
+	print("9zw. Cozy Airfield: light, shading, shadows")
+	var cz_light = main.light
+	check(cz_light != null and cz_light.rect != null and cz_light.rect.material is ShaderMaterial and (cz_light.rect.material as ShaderMaterial).shader.code.contains("blend_premul_alpha"), "one light overlay (a ColorRect with a shader) covers the field")
+	var cz_m = cz_light.material
+	check(absf(float(cz_m.get_shader_parameter("warm_amount")) - 0.35) < 0.001 and absf(float(cz_m.get_shader_parameter("cool_amount")) - 0.2) < 0.001 and absf(float(cz_m.get_shader_parameter("grain_amount")) - 0.08) < 0.001 and (cz_m.get_shader_parameter("warm") as Color).is_equal_approx(Color("ffd68a")) and (cz_m.get_shader_parameter("cool") as Color).is_equal_approx(Color("2f4a7a")), "warm #FFD68A 35%, cool #2F4A7A 20%, grain 8%")
+	var cz_g1 = LightOverlay.grain_texture().get_image().get_pixel(3, 5)
+	var cz_g2 = LightOverlay.grain_texture().get_image().get_pixel(3, 5)
+	check(cz_g1 == cz_g2 and LightOverlay.grain_texture().get_width() == 128 and cz_light.rect.visible == DebugFlags.light_enabled(), "the film grain is a tiled static texture")
+	DebugFlags.parse(["nolight", "nolife"])
+	check(not DebugFlags.light_enabled() and not DebugFlags.life_enabled() and DebugFlags.summary().contains("nolight") and DebugFlags.summary().contains("nolife"), "?nolight and ?nolife parse")
+	DebugFlags.parse(["tune"])
+	var cz_lo = 1.0
+	var cz_hi = 0.0
+	var cz_stack = []
+	for cz_n in main.airfield.variants[0].root.get_children():
+		if cz_n is MeshInstance3D and cz_n.mesh is ArrayMesh and cz_n != main.airfield.variants[0].root.get_child(0) and cz_n.get_child_count() == 0:
+			var cz_arr = (cz_n.mesh as ArrayMesh).surface_get_arrays(0)
+			if cz_arr[Mesh.ARRAY_COLOR] != null and cz_arr[Mesh.ARRAY_VERTEX].size() == 24:      # a shaded box
+				for cz_c in (cz_arr[Mesh.ARRAY_COLOR] as PackedColorArray):
+					cz_lo = minf(cz_lo, cz_c.r)
+					cz_hi = maxf(cz_hi, cz_c.r)
+	check(cz_hi > 0.97 and cz_lo < 0.86 and cz_lo > 0.78, "every shape is shaded lit to shade, about 18%% (%.2f .. %.2f)" % [cz_lo, cz_hi])
+	check(Shadow.COLOR.is_equal_approx(Color("3b4a6b")) and absf(Shadow.ALPHA - 0.26) < 0.001 and Shadow.rect().get_image().get_pixel(32, 32).a > 0.95 and Shadow.rect().get_image().get_pixel(1, 1).a < 0.05, "shadows are #3B4A6B at 26% with a baked soft edge")
+	var cz_ground = main.airfield.variants[0].root.get_child(0)
+	check(cz_ground is MeshInstance3D and (cz_ground.mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_COLOR].size() > 100, "the field is a gradient mesh (lit upper-left to shaded lower-right)")
+	var cz_tufts = main.airfield.variants[0].tufts
+	check(cz_tufts != null and cz_tufts.multimesh.instance_count >= 20 and cz_tufts.multimesh.instance_count <= 60, "sparse grass tufts are scattered (%d)" % cz_tufts.multimesh.instance_count)
 
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()

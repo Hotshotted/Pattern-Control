@@ -7,6 +7,8 @@ extends RefCounted
 ##   ?perf                                       show a worst-frame-time readout
 ##   ?tune                                       show the on-screen tuning panel (TUNE button, top-right)
 ##   ?god                                        planes never collide or run dry (to look at the traffic)
+##   ?nolight                                    switch off the warm / cool light overlay and the film grain (to compare)
+##   ?nolife                                     switch off the moving scenery (truck, birds, balloon, mower, windsock sway)
 ##   ?debug                                      show the build stamp (it also shows with ?tune and ?perf)
 ## Combine with "&", e.g.  ?perf&tune. The active flags are printed under the build stamp.
 
@@ -19,6 +21,8 @@ static var noprewarm := false
 static var perf := false
 static var tune := false
 static var god := false
+static var nolight := false
+static var nolife := false
 static var debug := false
 
 ## True if the named effect has been switched off.
@@ -43,6 +47,14 @@ static func stamp_enabled() -> bool:
 	_load()
 	return debug or tune or perf
 
+static func light_enabled() -> bool:
+	_load()
+	return not nolight
+
+static func life_enabled() -> bool:
+	_load()
+	return not nolife
+
 static func god_enabled() -> bool:
 	_load()
 	return god
@@ -63,6 +75,10 @@ static func summary() -> String:
 		parts.append("perf")
 	if tune:
 		parts.append("tune")
+	if nolight:
+		parts.append("nolight")
+	if nolife:
+		parts.append("nolife")
 	if god:
 		parts.append("god")
 	if debug:
@@ -93,6 +109,8 @@ static func parse(args: Array[String]) -> void:
 	perf = false
 	tune = false
 	god = false
+	nolight = false
+	nolife = false
 	debug = false
 	for a in args:
 		var kv := a.split("=", true, 1)
@@ -116,6 +134,10 @@ static func parse(args: Array[String]) -> void:
 				tune = true
 			"god":
 				god = true
+			"nolight":
+				nolight = true
+			"nolife":
+				nolife = true
 			"debug":
 				debug = true
 			"v":

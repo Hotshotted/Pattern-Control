@@ -48,11 +48,31 @@ static func lift(node: Node) -> void:
 	for c in node.get_children():
 		lift(c)
 
+## Cozy Airfield: every surface is softly shaded. A shape's vertex colours run from 1.0 at its upper-left (-x, -z, where the light
+## is) to 1 - SHADE at its lower-right (about 15-20% darker), multiplied into the material's colour: no per-frame cost.
+const SHADE := 0.18
+
 static func mat(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color
 	m.roughness = 1.0
+	m.vertex_color_use_as_albedo = true
 	return m
+
+## A mesh with the lit-to-shade vertex colours baked in. `ext` is the shape's extent in x and z (the gradient spans it).
+static func _shaded(src: PrimitiveMesh, ext: Vector2) -> ArrayMesh:
+	var arrays := src.get_mesh_arrays()
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var cols := PackedColorArray()
+	cols.resize(verts.size())
+	for i in verts.size():
+		var u := clampf((verts[i].x / maxf(ext.x, 0.001) + verts[i].z / maxf(ext.y, 0.001)) * 0.5 + 0.5, 0.0, 1.0)
+		var f := 1.0 - SHADE * u
+		cols[i] = Color(f, f, f, 1.0)
+	arrays[Mesh.ARRAY_COLOR] = cols
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return am
 
 static func _finish(parent: Node3D, mesh: Mesh, m: Material, pos: Vector3, outlined: bool) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
@@ -68,7 +88,7 @@ static func _finish(parent: Node3D, mesh: Mesh, m: Material, pos: Vector3, outli
 static func box(parent: Node3D, size: Vector3, pos: Vector3, m: Material, outlined: bool = true) -> MeshInstance3D:
 	var b := BoxMesh.new()
 	b.size = size
-	return _finish(parent, b, m, pos, outlined)
+	return _finish(parent, _shaded(b, Vector2(size.x, size.z)), m, pos, outlined)
 
 ## A low-poly cylinder / cone (top_r = 0): `sides` radial segments, axis = local y.
 static func cyl(parent: Node3D, top_r: float, bottom_r: float, height: float, sides: int, pos: Vector3, m: Material, outlined: bool = true) -> MeshInstance3D:
@@ -78,4 +98,5 @@ static func cyl(parent: Node3D, top_r: float, bottom_r: float, height: float, si
 	c.height = height
 	c.radial_segments = sides
 	c.rings = 1
-	return _finish(parent, c, m, pos, outlined)
+	var r := maxf(maxf(top_r, bottom_r) * 2.0, 0.01)
+	return _finish(parent, _shaded(c, Vector2(r, r)), m, pos, outlined)

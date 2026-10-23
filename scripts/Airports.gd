@@ -5,11 +5,11 @@ extends RefCounted
 ## planes toward its heading, and its approach end (threshold) is the end they come from.
 ## (No Tuning references: the smoke test can read this class while it compiles.)
 
-const ORANGE := Color("ff8a3d")
-const BLUE := Color("3d8bff")
+const ORANGE := Color("f0803c")
+const BLUE := Color("4c8fd6")
 const PINK := Color(1.0, 0.45, 0.75)
-const PAD_COLOR := Color("a06bff")      # helipads
-const LANE_COLOR := Color("35c98a")     # seaplane lanes
+const PAD_COLOR := Color("8e6bbe")      # helipads
+const LANE_COLOR := Color("2ba3a6")     # seaplane lanes
 const COUNT := 6
 
 static var current := 0
@@ -34,7 +34,7 @@ static func _build() -> void:
 			"runways": [_rw(Vector2(0.0, 0.8), 0.0, 7.0, ORANGE, "ORANGE", 1.1)],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6),
-			"ground": Color("84c26b"),
+			"ground": Color("b9dc72"),
 			"mix": {S: 0.7, G: 0.3},
 			"unlock_stars": 0, "weather": [],
 		},
@@ -46,7 +46,7 @@ static func _build() -> void:
 					{"shape": "box", "pos": Vector2(3.4, 4.0), "size": Vector2(2.4, 3.2), "color": Color("a8d070"), "y": 0.012},
 					{"shape": "box", "pos": Vector2(-3.5, 5.2), "size": Vector2(2.2, 2.4), "color": Color("e3cf7a"), "y": 0.012}],
 			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-3.3, 3.7),
-			"ground": Color("8fc766"),
+			"ground": Color("c0dc6e"),
 			"mix": {S: 0.35, M: 0.45, G: 0.2},
 			"unlock_stars": 2, "weather": ["crosswind"],
 		},
@@ -57,7 +57,7 @@ static func _build() -> void:
 			"decor": [{"shape": "disc", "pos": Vector2(3.5, 3.4), "r": 1.45, "color": Color("d3d9e2"), "sides": 16, "y": 0.012},
 					{"shape": "box", "pos": Vector2(3.3, -2.4), "size": Vector2(2.4, 2.6), "color": Color("d3d9e2"), "y": 0.012}],
 			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.2, 0.8),
-			"ground": Color("78bb6c"),
+			"ground": Color("b2db78"),
 			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2},
 			"unlock_stars": 5, "weather": ["crosswind", "fog"],
 		},
@@ -75,7 +75,7 @@ static func _build() -> void:
 					{"shape": "disc", "pos": Vector2(-4.2, 5.6), "r": 1.9, "color": Color("a7a392"), "sides": 9, "y": 0.012},
 					{"shape": "disc", "pos": Vector2(4.3, 5.4), "r": 1.9, "color": Color("a7a392"), "sides": 9, "y": 0.012}],
 			"tower": Vector2(0.0, 3.2), "windsock": Vector2(0.0, -1.2),
-			"ground": Color("86b673"),
+			"ground": Color("b0cf86"),
 			"mix": {S: 0.3, M: 0.35, G: 0.35},
 			"unlock_stars": 8, "weather": ["storm", "fog"],
 		},
@@ -88,7 +88,7 @@ static func _build() -> void:
 			"decor": [{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.4, "color": Color("84c26b"), "sides": 12, "y": 0.03},
 					{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.9, "color": Color("f1dfa0"), "sides": 12, "y": 0.01}],
 			"tower": Vector2(0.0, 0.3), "windsock": Vector2(0.0, -3.0),
-			"ground": Color("3fa2d6"), "water": true,
+			"ground": Color("5db8e0"), "water": true,
 			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25},
 			"unlock_stars": 11, "weather": ["storm", "crosswind", "fog"],
 		},
@@ -103,7 +103,7 @@ static func _build() -> void:
 					{"shape": "box", "pos": Vector2(3.9, 1.8), "size": Vector2(1.5, 4.8), "color": Color("3fa2d6"), "y": 0.02},
 					{"shape": "box", "pos": Vector2(-0.4, 5.6), "size": Vector2(7.6, 1.8), "color": Color("3fa2d6"), "y": 0.02}],
 			"tower": Vector2(2.6, -2.6), "windsock": Vector2(2.6, 3.0),
-			"ground": Color("7fbf74"),
+			"ground": Color("b6dc7a"),
 			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2},
 			"unlock_stars": 14, "weather": ["storm", "crosswind", "fog"],
 		},

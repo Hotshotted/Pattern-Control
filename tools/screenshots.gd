@@ -4,7 +4,8 @@ extends SceneTree
 ## the daily modes and the aircraft tip, and saves one image each.
 
 var out := "/tmp/shots"
-var only := ""          # "types": just the aircraft line-up (a quick look while drawing them)
+var only := ""          # "types": just the aircraft line-up (a quick look while drawing them); "cozy": the four comparison screens
+var prefix := "cozy"    # file name prefix of the "cozy" shots (docs/screens/cozy_<phase>_<screen>.png)
 var main: Node
 
 func _initialize() -> void:
@@ -13,6 +14,8 @@ func _initialize() -> void:
 			out = a.substr(4)
 		if a.begins_with("only="):
 			only = a.substr(5)
+		if a.begins_with("prefix="):
+			prefix = a.substr(7)
 	DirAccess.make_dir_recursive_absolute(out)
 	var save = root.get_node("Save")
 	save.path = "user://shots_save.json"
@@ -38,6 +41,8 @@ func _initialize() -> void:
 	print("state: warming=", main._warming, " splash=", is_instance_valid(main.hud._splash), " ad=", main.hud._ad.visible, " menu=", main.hud._menu.visible, " screen=", main.screen)
 	if only == "types":
 		await _types_shots(save)
+	elif only == "cozy":
+		await _cozy_shots(save)
 	else:
 		await _walk(save)
 	quit()
@@ -277,3 +282,52 @@ func _types_shots(save) -> void:
 			for i in 6:
 				main.step(1.0 / 60.0)
 		await _shot("30_airport_%d" % a)
+
+## The four screens to compare on a phone: the menu, mid-shift (several aircraft, some with paths), the airports list and the results.
+func _cozy_shots(save) -> void:
+	save.coins = 240
+	save.stars[0] = 3
+	save.stars[1] = 2
+	save.stars[2] = 1
+	save.best_coins[0] = 120
+	save.unlocks["all_airports"] = false
+	main.select_airport(0)
+	main._show_menu()
+	for i in 240:                       # let the menu's living field run a few seconds
+		await process_frame
+	await _shot("%s_menu" % prefix)
+	main.select_airport(2)
+	main.restart()
+	var tr = main.traffic
+	tr.auto_spawn = false
+	tr.grace_until = 9999.0
+	for k in 6:
+		var p = tr.place(k % 2, Vector2(-3.4 + (k % 3) * 2.6, -6.2 + (k / 3) * 2.4), 0.5 * k - 0.4, [2, 3, 4, 1, 2, 0][k])
+		p.timer_left = p.timer_max * (0.95 - 0.16 * k)
+		if k % 2 == 0:
+			var th: Vector2 = Airports.end_threshold(k % 2, 1)
+			for j in 20:
+				p.push(p.pos.lerp(th, float(j + 1) / 20.0) + Vector2(sin(j * 0.3) * 0.3, 0.0))
+			p.cleared = true
+			p.ga_band = k / 2
+	for i in 150:
+		main.step(1.0 / 60.0)
+	main.shift.on_landed(3, 14, 0)
+	main.shift.on_landed(3, 14, 0)
+	main.shift.on_landed(3, 14, 4)
+	main.hud.set_shift(main.shift)
+	await _shot("%s_shift" % prefix)
+	tr.release_all()
+	main._show_menu()
+	main._on_button("airports")
+	await _shot("%s_airports" % prefix)
+	main._show_menu()
+	main.restart()
+	tr.auto_spawn = false
+	for k in 15:
+		main.shift.on_landed(3, 14, 0)
+	main.shift.fine(40, "conflict")
+	main.hud.set_shift(main.shift)
+	tr.run_time = main.get_node("/root/Tuning").par_eff() - 4.0
+	main.step(1.0 / 60.0)
+	await _shot("%s_results" % prefix)

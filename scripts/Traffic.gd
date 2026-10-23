@@ -124,7 +124,8 @@ func _build_extras() -> void:
 		var m := ShaderMaterial.new()
 		m.shader = sh
 		m.render_priority = 3          # after the runways and aircraft (which sit at 2): depth-tested, so planes cover their own shadow
-		m.set_shader_parameter("alpha", 0.3)
+		m.set_shader_parameter("alpha", Shadow.ALPHA)
+		m.set_shader_parameter("tex", Shadow.plane())
 		mi.material_override = m
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mi.visible = false
@@ -1016,10 +1017,10 @@ func _sync(p: Aircraft, i: int) -> void:
 	var sh := _shadows[i]
 	sh.visible = n.visible
 	var up := (h - PLANE_Y * 0.65) / 0.5
-	sh.position = Vector3(p.pos.x + 0.1 + 0.4 * up, 0.14, p.pos.y + 0.08 + 0.3 * up)
+	sh.position = Vector3(p.pos.x + 0.03 + 0.4 * up, 0.14, p.pos.y + 0.02 + 0.3 * up)       # (hugging the wheels on the ground, further away the higher it flies)
 	sh.rotation.y = -p.vis_heading
 	sh.scale = Vector3(_shadow_size[i].x, 1.0, _shadow_size[i].y) * (0.9 + 0.1 * alt)
-	_shadow_mats[i].set_shader_parameter("alpha", 0.22 - 0.08 * clampf(up, 0.0, 1.5))       # ink at ~20%: fainter the higher it flies
+	_shadow_mats[i].set_shader_parameter("alpha", Shadow.ALPHA - 0.08 * clampf(up, 0.0, 1.5))       # blue-grey at 26%: fainter the higher it flies
 	var base := Airports.land_color(p.tkind, p.runway)
 	if p.emergency and p.state != Aircraft.State.LANDING and sin(TAU * 3.0 * p.age) > 0.0:
 		base = Color(1.0, 0.12, 0.1)
