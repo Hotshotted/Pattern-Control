@@ -2,13 +2,13 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://b2t0esav3p4gu"
-path="res://.godot/imported/Nunito.ttf-9a0d659c7c014361f3d844547f0a9ee8.fontdata"
+uid="uid://m40c8hyaeu5k"
+path="res://.godot/imported/BowlbyOneSC.ttf-feee9bed18417f4c67835209cd87a82b.fontdata"
 
 [deps]
 
-source_file="res://assets/fonts/Nunito.ttf"
-dest_files=["res://.godot/imported/Nunito.ttf-9a0d659c7c014361f3d844547f0a9ee8.fontdata"]
+source_file="res://assets/fonts/BowlbyOneSC.ttf"
+dest_files=["res://.godot/imported/BowlbyOneSC.ttf-feee9bed18417f4c67835209cd87a82b.fontdata"]
 
 [params]
 

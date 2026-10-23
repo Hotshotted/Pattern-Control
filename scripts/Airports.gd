@@ -62,7 +62,7 @@ static func _build() -> void:
 			"unlock_stars": 5, "weather": ["crosswind", "fog"],
 		},
 		{   # 4: terrain no-fly zones
-			"name": "Mountain Field", "tag": "Keep clear of the mountains",
+			"style": "alpine", "name": "Mountain Field", "tag": "Keep clear of the mountains",
 			"runways": [_rw(Vector2(-1.9, 0.6), 8.0, 6.2, ORANGE, "ORANGE"), _rw(Vector2(1.7, 0.6), 8.0, 6.2, BLUE, "BLUE")],
 			"pads": [], "lanes": [],
 			"hazards": [
@@ -80,7 +80,7 @@ static func _build() -> void:
 			"unlock_stars": 8, "weather": ["storm", "fog"],
 		},
 		{   # 5: an island in the water, with a seaplane lane
-			"name": "Island", "tag": "Water landing lane",
+			"style": "coastal", "name": "Island", "tag": "Water landing lane",
 			"runways": [_rw(Vector2(-1.6, 0.3), 0.0, 7.4, ORANGE, "ORANGE"), _rw(Vector2(1.6, 0.3), 0.0, 7.4, BLUE, "BLUE")],
 			"pads": [],
 			"lanes": [{"center": Vector2(0.2, 5.3), "heading": 90.0, "length": 6.0, "width": 1.0, "color": LANE_COLOR}],
@@ -217,6 +217,10 @@ static func tower_pos() -> Vector2:
 	if ap.is_empty():
 		return def()["tower"]
 	return (ap["center"] as Vector2) + Vector2(0.95, -1.0) * float(ap["s"])
+
+## The look of an airport: "countryside" (the default), "coastal" (the island) or "alpine" (the mountain field).
+static func style(i: int = -1) -> String:
+	return def(i).get("style", "countryside")
 
 ## The airport's apron (where the tower, hangar, FBO and the parked planes are): {"center": Vector2, "s": scale}, or {} if none.
 static func apron() -> Dictionary:

@@ -1060,6 +1060,11 @@ func _on_button(id: String) -> void:
 		hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
 	elif id == "airports":
 		_show_select()
+	elif id.begins_with("pick:"):
+		select_airport(int(id.substr(5)))
+		Airports.current = airport
+		airfield.select(airport)
+		_show_select()
 	elif id == "airport_prev" or id == "airport_next":
 		_cycle_airport(-1 if id == "airport_prev" else 1)
 	elif id == "upgrades":

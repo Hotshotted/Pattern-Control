@@ -3,34 +3,41 @@ extends RefCounted
 ## The visual identity in one place (the written version is docs/style.md): palette, type, radii, spacing, motion
 ## timings, shadows, safe areas. Nothing in here touches the autoloads, so any script can use it.
 
-# ---- palette ----
-const PRIMARY := Color("3d8bff")         # sky blue: the brand colour, links, selection
-const PRIMARY_DARK := Color("2459c4")
-const ACCENT := Color("ffc933")          # sun gold: coins, stars, rewards
-const ACCENT_DARK := Color("c98a0b")
-const SUCCESS := Color("35c98a")         # go / play / earned
+# ---- palette (Cozy Airfield) ----
+const PRIMARY := Color("4c8fd6")         # blue: selection, info (runway 2)
+const PRIMARY_DARK := Color("2f6aa8")
+const ACCENT := Color("f2b233")          # coin gold: coins, stars, rewards
+const ACCENT_DARK := Color("b87a14")
+const SUCCESS := Color("35c98a")         # go / earned
 const SUCCESS_DARK := Color("1a8a5a")
-const WARNING := Color("ff9f2e")
-const DANGER := Color("ff5c4d")
-const DANGER_DARK := Color("b63227")
-# neutrals and surfaces
-const INK := Color("0a1020")             # outlines, deepest dark
-const SURFACE_DARK := Color("14213d")    # cards and sheets on the dark UI
-const SURFACE_DARK_2 := Color("1d3157")  # raised / selected dark surface
-const SURFACE_LIGHT := Color("f3f7ff")   # light surface (popups on the light theme)
-const SURFACE_LIGHT_2 := Color("d9e5f8")
-const TEXT := Color("ffffff")
-const TEXT_SOFT := Color("bcd0ec")
-const TEXT_QUIET := Color("8497b8")
-const TEXT_ON_LIGHT := Color("14213d")
-const LINE := Color(0.62, 0.72, 0.9, 0.9)
-const SCRIM := Color("060b18")           # the shade behind screens and sheets
+const WARNING := Color("f0803c")         # orange: streaks, the primary button, runway 1
+const DANGER := Color("ea4a3c")          # fines, conflicts, overtime, last 15 s
+const DANGER_DARK := Color("a8302a")
+const ORANGE_TOP := Color("ff9d4f")      # the primary button: top of its gradient...
+const ORANGE := Color("f0803c")          # ...its bottom...
+const ORANGE_EDGE := Color("b85a1b")     # ...and the 7 px edge it sits on
+# neutrals and surfaces: everything is cream (the names are kept: SURFACE_DARK is the cream's lower, darker end)
+const INK := Color("3a2410")             # outlines, deepest dark (a warm brown, never black)
+const SURFACE_DARK := Color("f6e8cf")    # cards and sheets: cream, bottom of the gradient
+const SURFACE_DARK_2 := Color("ebd9b6")  # raised / selected surface
+const SURFACE_LIGHT := Color("fff8ea")   # cream, top of the gradient
+const SURFACE_LIGHT_2 := Color("f6e8cf")
+const EDGE := Color("c9a46e")            # the solid 4 px bottom edge of every cream surface
+const TEXT := Color("5a3a12")            # text on cream
+const TEXT_SOFT := Color("7a5a2c")
+const TEXT_QUIET := Color("a88c5e")
+const TEXT_ON_LIGHT := Color("5a3a12")
+const WORLD_TEXT := Color("fff4df")      # display text over the field: cream with a warm extrusion
+const EXT_TOP := Color("c9641f")         # the stacked extrusion, from the letters down...
+const EXT_BOTTOM := Color("803d11")
+const LINE := Color(0.79, 0.64, 0.43, 0.9)
+const SCRIM := Color("2b1b0a")           # the warm shade behind a screen or sheet
 
 # ---- radii, spacing (px in the 1080 x 1920 viewport) ----
 const R_S := 14
-const R_M := 26                          # cards, chips
+const R_M := 22                          # cards, chips
 const R_L := 40                          # primary buttons, sheets
-const R_PILL := 60                       # banners, pills
+const R_PILL := 999                      # banners, pills: fully rounded
 const SP_1 := 8
 const SP_2 := 16
 const SP_3 := 24
@@ -39,10 +46,10 @@ const SP_5 := 64
 const GUTTER := 40                       # screen edge to content
 
 # ---- shadows ----
-const SHADOW_COLOR := Color(0.01, 0.03, 0.08, 0.45)
+const SHADOW_COLOR := Color(0.35, 0.22, 0.07, 0.3)
 const SHADOW_SIZE := 16
 const SHADOW_OFFSET := Vector2(0.0, 8.0)
-const LIP := 10.0                        # the dark "thickness" under a chunky button
+const LIP := 7.0                         # the 7 px edge under the primary button (a press drops it onto the edge)
 
 # ---- motion (seconds) ----
 const T_FAST := 0.12                     # press / release
@@ -57,25 +64,46 @@ const SZ_XL := 110
 const SZ_M := 56
 const SZ_S := 30
 const WGHT := 2003265652                 # the OpenType 'wght' axis tag
-const DISPLAY_WEIGHT := 600.0            # Fredoka SemiBold: titles and numbers
-const TEXT_WEIGHT := 700.0               # Nunito Bold: everything else
+const LABEL_WEIGHT := 800.0              # Rubik ExtraBold: labels
+const BODY_WEIGHT := 500.0               # Rubik Medium: one-line descriptions
 
-static var _display: FontVariation
+static var _display: Font
 static var _text: FontVariation
+static var _body: FontVariation
 
+## Bowlby One SC: the title, the timer, the score and the screen headers.
 static func display() -> Font:
 	if _display == null:
-		_display = FontVariation.new()
-		_display.base_font = preload("res://assets/fonts/Fredoka.ttf")
-		_display.variation_opentype = {WGHT: DISPLAY_WEIGHT}
+		_display = preload("res://assets/fonts/BowlbyOneSC.ttf")
 	return _display
 
+## Rubik 800: labels.
 static func text() -> Font:
 	if _text == null:
 		_text = FontVariation.new()
-		_text.base_font = preload("res://assets/fonts/Nunito.ttf")
-		_text.variation_opentype = {WGHT: TEXT_WEIGHT}
+		_text.base_font = preload("res://assets/fonts/Rubik.ttf")
+		_text.variation_opentype = {WGHT: LABEL_WEIGHT}
 	return _text
+
+## Rubik 500: descriptions.
+static func body() -> Font:
+	if _body == null:
+		_body = FontVariation.new()
+		_body.base_font = preload("res://assets/fonts/Rubik.ttf")
+		_body.variation_opentype = {WGHT: BODY_WEIGHT}
+	return _body
+
+## Display text over the field: cream letters on a stacked warm extrusion (#C9641F down to #803D11) and a soft shadow.
+## `pos` is the baseline start, as for draw_string.
+static func draw_ext(ci: CanvasItem, pos: Vector2, s: String, size_px: int, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0, col: Color = WORLD_TEXT, depth: int = 5, alpha: float = 1.0) -> void:
+	var f := display()
+	var step := maxf(size_px / 28.0, 1.5)
+	ci.draw_string(f, pos + Vector2(0, step * depth + 3.0), s, align, width, size_px, Color(0.2, 0.1, 0.02, 0.22 * alpha))       # the soft shadow
+	for i in range(depth, 0, -1):
+		var k := float(i - 1) / maxf(depth - 1, 1)
+		var c := EXT_TOP.lerp(EXT_BOTTOM, k)
+		ci.draw_string(f, pos + Vector2(0, step * i), s, align, width, size_px, Color(c, alpha))
+	ci.draw_string(f, pos, s, align, width, size_px, Color(col, col.a * alpha))
 
 ## The font for a string at a size: the display face for big text and for numbers, the text face for the rest.
 static func font_for(s: String, size_px: int) -> Font:

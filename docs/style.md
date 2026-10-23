@@ -1,36 +1,40 @@
 # Pattern Work: style guide
 
-One identity for every screen: **friendly, chunky, high-contrast, sunny**. A dark navy interface floats over the bright
-airfield; gold means money and stars, green means go, red means trouble. Everything below lives in code in
-`scripts/Style.gd` (the tokens) and `scripts/Hud.gd` (the drawing). Change the token, not the call site.
+One identity for every screen: **warm, soft, chunky and lived-in** ("Cozy Airfield"). Cream surfaces float over a sunlit airfield;
+orange is the one thing to press, gold means money and stars, green means go, red means trouble. Everything below lives in code
+in `scripts/Style.gd` (the tokens) and `scripts/Hud.gd` (the drawing). Change the token, not the call site.
 
 ## Palette
 
 | Role | Token | Hex | Use |
 |---|---|---|---|
-| Primary | `PRIMARY` | `#3d8bff` | brand blue: selection, links, info |
-| Primary dark | `PRIMARY_DARK` | `#2459c4` | pressed / lip of blue elements |
-| Accent | `ACCENT` | `#ffc933` | coins, stars, rewards, the one thing to look at |
-| Accent dark | `ACCENT_DARK` | `#c98a0b` | lip of gold elements |
-| Success | `SUCCESS` | `#35c98a` | PLAY, earned, go |
-| Success dark | `SUCCESS_DARK` | `#1a8a5a` | lip of the primary button, affordable cards |
-| Warning | `WARNING` | `#ff9f2e` | streaks, wind and weather notices |
-| Danger | `DANGER` | `#ff5c4d` | fines, conflicts, overtime, last 15 s |
-| Danger dark | `DANGER_DARK` | `#b63227` | lip of red elements |
-| Ink | `INK` | `#0a1020` | outlines, deepest dark |
-| Surface dark | `SURFACE_DARK` | `#14213d` | cards, sheets, pills on the dark UI |
-| Surface dark 2 | `SURFACE_DARK_2` | `#1d3157` | raised or selected dark surface |
-| Surface light | `SURFACE_LIGHT` | `#f3f7ff` | popups on a light theme |
-| Surface light 2 | `SURFACE_LIGHT_2` | `#d9e5f8` | light cards, dividers |
-| Text | `TEXT` | `#ffffff` | primary text on dark |
-| Text soft | `TEXT_SOFT` | `#bcd0ec` | secondary text |
-| Text quiet | `TEXT_QUIET` | `#8497b8` | tertiary / disabled text |
-| Text on light | `TEXT_ON_LIGHT` | `#14213d` | text on the light surfaces |
-| Scrim | `SCRIM` | `#060b18` | the shade behind a screen or sheet |
+| Primary | `PRIMARY` | `#4c8fd6` | blue: selection, info (runway 2) |
+| Primary dark | `PRIMARY_DARK` | `#2f6aa8` | pressed / edge of blue elements |
+| Accent | `ACCENT` | `#f2b233` | the coin and the stars, rewards |
+| Accent dark | `ACCENT_DARK` | `#b87a14` | the coin's rim, edges of gold elements |
+| Success | `SUCCESS` | `#35c98a` | go, earned, the green timer ring |
+| Success dark | `SUCCESS_DARK` | `#1a8a5a` | earned text on cream |
+| Warning | `WARNING` | `#f0803c` | orange: streaks, notices, runway 1, the primary button |
+| Danger | `DANGER` | `#ea4a3c` | fines, conflicts, overtime, last 15 s |
+| Danger dark | `DANGER_DARK` | `#a8302a` | edges of red elements |
+| Ink | `INK` | `#3a2410` | outlines (a warm brown, never black) |
+| Surface dark | `SURFACE_DARK` | `#f6e8cf` | cream: cards, sheets, pills (the lower end of their gradient) |
+| Surface dark 2 | `SURFACE_DARK_2` | `#ebd9b6` | raised or selected cream, chips |
+| Surface light | `SURFACE_LIGHT` | `#fff8ea` | cream, the top end of the gradient |
+| Surface light 2 | `SURFACE_LIGHT_2` | `#f6e8cf` | cream cards, dividers |
+| Text | `TEXT` | `#5a3a12` | text on cream |
+| Text soft | `TEXT_SOFT` | `#7a5a2c` | secondary text on cream |
+| Text quiet | `TEXT_QUIET` | `#a88c5e` | tertiary / disabled text |
+| Text on light | `TEXT_ON_LIGHT` | `#5a3a12` | text on the lightest cream |
+| Scrim | `SCRIM` | `#2b1b0a` | the warm shade behind a screen or sheet |
 
-Contrast: `TEXT`, `TEXT_SOFT` and `ACCENT` on `SURFACE_DARK`, and `TEXT_ON_LIGHT` on `SURFACE_LIGHT`, are all at least
-4.5:1 (checked by the smoke test). Text on a coloured button is always drawn with an ink outline (1/8 of its size).
-Colour is never the only signal: fines and overtime also use a minus sign / a plus sign, stars use a shape.
+Also `EDGE` `#c9a46e` (the solid 4 px bottom edge of every cream surface), `ORANGE_TOP` `#ff9d4f` / `ORANGE` `#f0803c` /
+`ORANGE_EDGE` `#b85a1b` (the primary button), `WORLD_TEXT` `#fff4df` (display text over the field) and the extrusion
+`EXT_TOP` `#c9641f` to `EXT_BOTTOM` `#803d11`. Gold text on cream is darkened to `#8a5a05` (`Hud.C_GOLD_TXT`).
+
+Contrast: `TEXT` and `TEXT_SOFT` on `SURFACE_DARK`, gold text on cream (`#8a5a05`), and `TEXT_ON_LIGHT` on `SURFACE_LIGHT` are all
+at least 4.5:1 (checked by the smoke test). Display text over the game world is cream on a warm extrusion, which reads on any
+ground. Colour is never the only signal: fines and overtime also use a minus sign / a plus sign, stars use a shape.
 
 ## Cozy Airfield (the art direction)
 
@@ -80,35 +84,34 @@ mark); stars are gold with a dark outline, empty stars cream. HUD positions neve
 
 ## Typography
 
-Both fonts are open-licence (SIL OFL 1.1; licence files in `assets/fonts/`), variable fonts from the google/fonts repository.
+Both fonts are open-licence (SIL OFL 1.1; licence files `OFL-BowlbyOneSC.txt` and `OFL-Rubik.txt` in `assets/fonts/`), from the
+google/fonts repository.
 
-* **Display: Fredoka SemiBold (600)**, rounded and friendly. Titles, every number (coins, clock, costs, "+488") and
-  anything at XL / M size.
-* **Text: Nunito Bold (700)**, soft and very readable. Labels, one-line descriptions, tips.
-* Three sizes only: **XL 110** (the one primary thing), **M 56** (card titles, banners), **S 30** (secondary).
-* Text on the game view always carries an ink outline (size / 8, at least 4 px) so it reads over any ground.
+* **Display: Bowlby One SC**, heavy and friendly small caps. The title, the timer, the score, every number and the screen headers
+  and card names. Over the field it is cream (`#FFF4DF`) on a stacked warm extrusion (`#C9641F` to `#803D11`) with a soft shadow
+  (`Style.draw_ext`, `ExtLabel`); on a cream card it is brown. The title "PATTERN WORK" sits at a 2 degree tilt.
+* **Labels: Rubik 800** (ExtraBold) and **descriptions: Rubik 500** (Medium).
+* Three sizes: **XL 110** (the one primary thing), **M 56** (card titles, banners), **S 30** (secondary); long labels shrink to fit.
+* Text on cream is `#5A3A12` with no outline; text over the game view is cream with the extrusion or an ink outline.
 * Labels are at most about four words; a description is one short line.
 
 ## Shape
 
-* Corner radii: **S 14** (inner highlights), **M 26** (cards, chips), **L 40** (primary button, sheets), **pill 60** (banners, tips, round buttons).
-* Borders: 3 px light line on cards and sheets (alpha 0.55), 5 px on the primary button.
-* **Shadow:** soft, offset down: colour `#030814` at 45 %, blur 16 px, offset (0, 8). Every raised panel has it; flat things do not.
-* **Gradient:** every card and button has a light-to-clear highlight across its top half (a rounded cap that fades down), so
-  panels read as slightly domed rather than flat.
-* **Chunky lip:** the primary button sits on a darker lip 10 px tall; pressing pushes it down into the lip.
+* Corner radii: **S 14** (inner highlights), **M 22** (cards, chips), **L 40** (primary button, sheets), **pill** fully rounded (banners, tips, the corner totals).
+* Cream surfaces: a gradient `#FFF8EA` (top) to `#F6E8CF` (bottom), a solid **4 px bottom edge** `#C9A46E`, no outline.
+* **Shadow:** soft, offset down: a warm brown at 30 %, blur 16 px, offset (0, 8). Every raised panel has it; flat things do not.
+* **Chunky edge:** the primary button sits on a 7 px edge `#B85A1B`; pressing drops the button onto it.
 
 ## Buttons
 
 | Style | Look | Used for |
 |---|---|---|
-| Primary | big, green, XL text and an icon, chunky lip | PLAY, PLAY AGAIN, RESUME: one per screen |
-| Secondary | dark surface, light border, soft shadow | cards, list rows, chips, round menu buttons |
-| Ghost | translucent dark round chip, icon only, no shadow | back, home, pause |
+| Primary | big, orange gradient `#FF9D4F` to `#F0803C`, white display text with a slight dark shadow, a 7 px edge, an inset top highlight | Start shift, Next shift, Resume: one per screen |
+| Secondary | cream, a 4 px bottom edge, soft shadow | Airports, Bad pilot day, cards, list rows, chips |
+| Round | a small cream circle with a brown icon and a label under it | Upgrades, Hangar, Daily, back, home, pause |
 
-States: **normal**, **pressed** (face pushed down 5 px, primary squashes into its lip), **disabled** (flat, greyed, no
-shadow, no lip; taps are swallowed, not passed to the game), **accent** (selected / affordable: green fill; a maxed
-upgrade is gold).
+States: **normal**, **pressed** (cream drops 4 px; the primary drops onto its edge), **disabled** (flat, greyed, no shadow; taps
+are swallowed, not passed to the game), **selected** (an orange ring; a maxed upgrade is gold).
 
 ## Icons
 
@@ -211,7 +214,7 @@ surface (`assets/splash.svg`), followed in the game by the studio mark and the g
 
 The studio mark is a three-blade gold propeller with a dark outline and a white hub in a round dark badge with a blue ring
 (`Style.draw_mark`, the same drawing as the SVG in `web/shell.html`). The wordmark is `CLEAR PROP GAMES` in the display face
-(Fredoka SemiBold) with the middle word in gold (`Style.draw_wordmark`). The mark spins up and settles in the logo intro; on
+(Bowlby One SC) with the middle word in gold (`Style.draw_wordmark`). The mark spins up and settles in the logo intro; on
 the loading pages it spins while the progress bar fills. No raw text ever shows while loading: the web loading page
 (`web/shell.html`) is the brand background, the mark, the wordmark and a bar, with a plain message only if the game cannot start.
 

@@ -139,7 +139,7 @@ Shift lengths differ by airport (45 / 60 / 75 / 75 / 90 / 90 s of arrivals, par 
 
 ## Credits
 
-*Pattern Work* is made by **Clear Prop Games**. Fonts: Fredoka and Nunito (SIL Open Font License, see `assets/fonts/`).
+*Pattern Work* is made by **Clear Prop Games**. Fonts: Bowlby One SC and Rubik (SIL Open Font License, see `assets/fonts/`).
 
 ## Loading page and build stamp
 

@@ -852,7 +852,7 @@ func _initialize() -> void:
 	var cards = {}
 	for k in main.hud._art.btn_count:
 		cards[main.hud._art.btn_id[k]] = main.hud._art.btn_rect[k]
-	check(cards.has("airport:0") and cards.has("locked:1") and cards.has("locked:5") and cards.has("back"), "airport 1 is open, the others show as locked, with a Back button")
+	check(cards.has("pick:0") and cards.has("locked:1") and cards.has("locked:5") and cards.has("back"), "airport 1 is open, the others show as locked, with a Back button")
 	check(main.hud._art.btn_lock[main.hud._art.btn_id.find("locked:1")] == 2 and main.hud._art.btn_state[main.hud._art.btn_id.find("locked:1")] == 1, "a locked card shows a padlock and the stars it needs")
 	var locked_pos = cards["locked:1"].get_center()
 	touch(main, 0, true, locked_pos)
@@ -861,9 +861,13 @@ func _initialize() -> void:
 	save.award_star(0, 0)
 	save.award_star(0, 1)
 	main._show_select()
-	check(save.stars_total() == 2 and main.hud.button_at(cards["locked:1"].get_center()) == "airport:1", "two stars open County")
+	check(save.stars_total() == 2 and main.hud.button_at(cards["locked:1"].get_center()) == "pick:1", "two stars open County")
 	touch(main, 0, true, cards["locked:1"].get_center())
 	touch(main, 0, false, cards["locked:1"].get_center())
+	check(main.screen == main.SCREEN_SELECT and main.airport == 1 and main.hud._art.btn_id.has("airport:1"), "tapping an open airport's card selects it and shows its Fly here button")
+	var fly_at = main.hud._art.btn_rect[main.hud._art.btn_id.find("airport:1")].get_center()
+	touch(main, 0, true, fly_at)
+	touch(main, 0, false, fly_at)
 	check(main.screen == main.SCREEN_PLAY and main.airport == 1 and Airports.rw_count() == 2 and main.airfield.selected == 1, "tapping an open airport starts a shift there")
 	check(save.selected_airport == 1, "the choice is remembered")
 	set_wind(main, 40.0)
@@ -1637,7 +1641,7 @@ func _initialize() -> void:
 	save.day_override = 20000
 	main._show_menu()
 	var daily_idx = main.hud._art.btn_id.find("daily")
-	check(main.hud._art.btn_kind[daily_idx] == 3 and main.hud._art.btn_text[daily_idx] == "Daily" and main.hud._art.btn_badge[daily_idx] == -2, "the Daily tile has a red dot before the first streak")
+	check(main.hud._art.btn_kind[daily_idx] == 7 and main.hud._art.btn_text[daily_idx] == "Daily" and main.hud._art.btn_badge[daily_idx] == -2, "the Daily button has a red dot before the first streak")
 	var runs_seen = []
 	for run_i in 3:
 		save.day_override = 20000 if run_i < 2 else 20001
@@ -2605,10 +2609,10 @@ func _initialize() -> void:
 	check(menu_words and art.btn_count <= 8, "menu: short labels, no descriptions (%d buttons)" % art.btn_count)
 	var round_n = 0
 	for k in art.btn_count:
-		if art.btn_kind[k] == 3:
+		if art.btn_kind[k] == 7:
 			round_n += 1
 			menu_words = menu_words and art.btn_glyph[k] != ""
-	check(round_n == 4 and menu_words, "menu: the secondary actions are four round icon buttons")
+	check(round_n == 3 and menu_words, "menu: Upgrades, Hangar and Daily are three small round icon buttons")
 	check(not main.hud._score.visible and not main.hud._best.visible, "menu: no leftover shift numbers behind it")
 	check(not main.hud._ad.visible, "menu: nothing else is covering it")
 	# The three text sizes: every label in the interface uses one of them.
@@ -2854,8 +2858,8 @@ func _initialize() -> void:
 	for tk in [Style.PRIMARY, Style.PRIMARY_DARK, Style.ACCENT, Style.ACCENT_DARK, Style.SUCCESS, Style.SUCCESS_DARK, Style.WARNING, Style.DANGER, Style.DANGER_DARK, Style.INK, Style.SURFACE_DARK, Style.SURFACE_DARK_2, Style.SURFACE_LIGHT, Style.SURFACE_LIGHT_2, Style.TEXT, Style.TEXT_SOFT, Style.TEXT_QUIET, Style.TEXT_ON_LIGHT, Style.SCRIM]:
 		tokens_ok = tokens_ok and sdoc.contains("#" + tk.to_html(false))
 	check(tokens_ok, "docs/style.md lists every palette colour of Style.gd")
-	check(sdoc.contains("Fredoka") and sdoc.contains("Nunito") and sdoc.contains("Safe areas") and sdoc.contains("ease-out-back") and sdoc.contains("Ghost"), "...and the typography, buttons, safe areas and motion")
-	check(FileAccess.file_exists("res://assets/fonts/OFL.txt") and FileAccess.get_file_as_string("res://assets/fonts/OFL.txt").contains("SIL OPEN FONT LICENSE") and FileAccess.file_exists("res://assets/fonts/OFL-Nunito.txt"), "both fonts ship with their OFL licence file")
+	check(sdoc.contains("Bowlby One SC") and sdoc.contains("Rubik") and sdoc.contains("Safe areas") and sdoc.contains("ease-out-back") and sdoc.contains("Round"), "...and the typography, buttons, safe areas and motion")
+	check(FileAccess.file_exists("res://assets/fonts/OFL-BowlbyOneSC.txt") and FileAccess.get_file_as_string("res://assets/fonts/OFL-BowlbyOneSC.txt").contains("SIL OPEN FONT LICENSE") and FileAccess.file_exists("res://assets/fonts/OFL-Rubik.txt") and FileAccess.get_file_as_string("res://assets/fonts/OFL-Rubik.txt").contains("SIL OPEN FONT LICENSE"), "both fonts ship with their OFL licence file")
 	var lum = func(c: Color):
 		var f = func(v): return v / 12.92 if v <= 0.03928 else pow((v + 0.055) / 1.055, 2.4)
 		return 0.2126 * f.call(c.r) + 0.7152 * f.call(c.g) + 0.0722 * f.call(c.b)
@@ -2863,10 +2867,10 @@ func _initialize() -> void:
 		var la = lum.call(a)
 		var lb = lum.call(b)
 		return (maxf(la, lb) + 0.05) / (minf(la, lb) + 0.05)
-	check(contrast.call(Style.TEXT, Style.SURFACE_DARK) >= 4.5 and contrast.call(Style.TEXT_SOFT, Style.SURFACE_DARK) >= 4.5 and contrast.call(Style.ACCENT, Style.SURFACE_DARK) >= 4.5 and contrast.call(Style.TEXT_ON_LIGHT, Style.SURFACE_LIGHT) >= 4.5, "text and gold on the dark surface (and dark on light) are at least 4.5:1")
+	check(contrast.call(Style.TEXT, Style.SURFACE_DARK) >= 4.5 and contrast.call(Style.TEXT_SOFT, Style.SURFACE_DARK) >= 4.5 and contrast.call(main.hud.C_GOLD_TXT, Style.SURFACE_DARK) >= 4.5 and contrast.call(Style.TEXT_ON_LIGHT, Style.SURFACE_LIGHT) >= 4.5, "text and gold text on the cream surface (and brown on the lightest cream) are at least 4.5:1")
 	var fd = Style.display()
 	var ft = Style.text()
-	check(fd is FontVariation and ft is FontVariation and fd.base_font.resource_path.ends_with("Fredoka.ttf") and ft.base_font.resource_path.ends_with("Nunito.ttf") and fd.variation_opentype[Style.WGHT] == 600.0 and ft.variation_opentype[Style.WGHT] == 700.0, "one display weight (Fredoka 600) and one text weight (Nunito 700)")
+	check(fd is FontFile and fd.resource_path.ends_with("BowlbyOneSC.ttf") and ft is FontVariation and ft.base_font.resource_path.ends_with("Rubik.ttf") and ft.variation_opentype[Style.WGHT] == 800.0 and Style.body().variation_opentype[Style.WGHT] == 500.0, "Bowlby One SC for display, Rubik 800 for labels and Rubik 500 for descriptions")
 	check(Style.font_for("PLAY", 110) == fd and Style.font_for("Radar", 30) == ft and Style.font_for("160", 30) == fd and Style.font_for("+40", 30) == fd, "titles and numbers use the display face, small words the text face")
 	check(main.hud._score.get_theme_font("font") == fd and main.hud._ad_sub.get_theme_font("font") == ft, "labels use them too")
 	var no_emoji = true
@@ -3519,7 +3523,7 @@ func _initialize() -> void:
 	check(Style.STUDIO == "Clear Prop Games" and br_all, "the studio is Clear Prop Games in the README, style guide, project metadata and loading page")
 	check(Style.STUDIO_WORDS == ["CLEAR", "PROP", "GAMES"], "the wordmark reads CLEAR PROP GAMES")
 	check(ex_cfg.contains("html/custom_html_shell=\"res://web/shell.html\"") and br_shell.contains("$GODOT_URL") and br_shell.contains("$GODOT_CONFIG") and br_shell.contains("startGame") and br_shell.contains("onProgress") and br_shell.contains("<head>"), "the web export uses the custom loading page and it still starts the engine")
-	check(br_shell.contains("#0d1a33") and br_shell.contains("class=\"bar") and br_shell.contains("class=\"mark\"") and not br_shell.contains("Loading") and not br_shell.contains("loading..."), "the loading page is the brand background, the mark and a progress bar, with no loading text")
+	check(br_shell.contains("#3a2410") and br_shell.contains("class=\"bar") and br_shell.contains("class=\"mark\"") and not br_shell.contains("Loading") and not br_shell.contains("loading..."), "the loading page is the brand background, the mark and a progress bar, with no loading text")
 	# The in-game loading cover: opaque, no text, nothing jumbled behind it.
 	var sp_cover = null
 	main.hud.begin_prewarm()
@@ -3942,13 +3946,11 @@ func _initialize() -> void:
 	save.unlocks["all_airports"] = true
 	main._show_menu()
 	var sc_art = main.hud._art
-	check(sc_art.lockup and sc_art.dock_rect.size.x > 600.0 and not main.hud._menu_title.visible, "the menu has the logo lockup and a bottom dock")
-	var sc_tiles = {}
+	check(sc_art.lockup and not main.hud._menu_title.visible and sc_art.lockup_airport == Airports.airport_name(main.airport), "the menu has the tilted title and the selected airport under it, no panels over the field")
+	var sc_kinds = {}
 	for sc_k in sc_art.btn_count:
-		if sc_art.btn_kind[sc_k] == 3:
-			sc_tiles[sc_art.btn_id[sc_k]] = sc_art.btn_tint[sc_k]
-	check(sc_tiles.size() == 4 and sc_tiles["upgrades"].is_equal_approx(Style.PRIMARY) and sc_tiles["shop"].is_equal_approx(Color("a06bff")) and sc_tiles["daily"].is_equal_approx(Style.WARNING) and sc_tiles["bad"].is_equal_approx(Style.DANGER), "the dock tiles: Upgrades blue, Hangar purple, Daily orange, Bad Day red")
-	check(sc_art.btn_id.find("airport_prev") >= 0 and sc_art.btn_id.find("airport_next") >= 0 and sc_art.btn_kind[sc_art.btn_id.find("airports")] == 5 and sc_art.btn_map[sc_art.btn_id.find("airports")] == main.airport, "the airport card has previous / next arrows and a mini-map")
+		sc_kinds[sc_art.btn_id[sc_k]] = [sc_art.btn_kind[sc_k], sc_art.btn_text[sc_k]]
+	check(sc_kinds["play"] == [2, "Start shift"] and sc_kinds["airports"] == [0, "Airports"] and sc_kinds["bad"] == [0, "Bad pilot day"] and sc_kinds["upgrades"][0] == 7 and sc_kinds["shop"] == [7, "Hangar"] and sc_kinds["daily"][0] == 7 and sc_art.btn_count == 6, "the menu: Start shift (orange), Airports and Bad pilot day (cream), and three small round buttons")
 	main.select_airport(0)
 	main._on_button("airport_next")
 	check(main.airport == 1 and Airports.current == 1 and main.screen == main.SCREEN_MENU, "the next arrow moves to the next airport and the field behind the menu follows")
@@ -4138,6 +4140,30 @@ func _initialize() -> void:
 			cl_labels += 1
 		cl_stack.append_array(cl_n.get_children())
 	check(cl_labels >= 3, "runway numbers and the taxiway sign are on the field (%d labels)" % cl_labels)
+
+	print("9zu. Cozy Airfield: fonts and interface")
+	check(main.hud._score is ExtLabel and main.hud._best is ExtLabel and main.hud._pop_labels[0] is ExtLabel, "the timer, the score and the score pops are display-face labels with the warm extrusion")
+	check(Style.WORLD_TEXT.is_equal_approx(Color("fff4df")) and Style.EXT_TOP.is_equal_approx(Color("c9641f")) and Style.EXT_BOTTOM.is_equal_approx(Color("803d11")), "cream #FFF4DF letters on a #C9641F to #803D11 extrusion")
+	main.hud.popup("+12", Color(1, 0.8, 0.2), Vector2(500, 900))
+	var zu_rot = []
+	for zu_i in 6:
+		main.hud.popup("+12", Color(1, 0.8, 0.2), Vector2(500, 900))
+		for zu_l in main.hud._pop_labels:
+			if zu_l.visible and absf(zu_l.rotation) > 0.0001:
+				zu_rot.append(snappedf(zu_l.rotation, 0.001))
+	check(zu_rot.size() >= 3 and zu_rot.min() < 0.0 + 0.1 and absf(zu_rot.max()) <= deg_to_rad(6.01), "score pops lean a few degrees, a different way each time")
+	var zu_art = main.hud._art
+	check(zu_art._sb_normal.border_width_bottom == 4 and zu_art._sb_normal.border_color.is_equal_approx(Style.EDGE) and zu_art._sb_normal.bg_color.is_equal_approx(Style.SURFACE_DARK) and zu_art._sb_normal.corner_radius_top_left == 22, "cream cards: a solid 4 px #C9A46E bottom edge, 22 px corners")
+	check(Style.LIP == 7.0 and zu_art._sb_lip.bg_color.is_equal_approx(Color("b85a1b")) and zu_art._sb_primary.bg_color.is_equal_approx(Color("f0803c")), "the primary button is orange on a 7 px #B85A1B edge")
+	main.hud.show_menu("Grass Strip", 10, 3, 0, "", 2)
+	check(absf(rad_to_deg(deg_to_rad(2.0)) - 2.0) < 0.001 and zu_art.lockup and zu_art.lockup_airport == "Grass Strip", "the title sits at a 2 degree tilt over the live field")
+	main.hud.show_select(3, PackedByteArray([1, 0, 0, 0, 0, 0]), PackedInt32Array([2, 0, 0, 0, 0, 0]), PackedInt32Array([120, 0, 0, 0, 0, 0]), 0)
+	var zu_ids = []
+	for zu_k in zu_art.btn_count:
+		zu_ids.append(zu_art.btn_id[zu_k])
+	check(zu_ids.has("pick:0") and zu_ids.has("airport:0") and zu_ids.has("locked:1") and zu_art.btn_text[zu_art.btn_id.find("airport:0")] == "Fly here" and zu_art.btn_cost[zu_art.btn_id.find("pick:0")] == 120 and zu_art.btn_map[zu_art.btn_id.find("locked:1")] == 1, "airports: vignette cards, the selected one has Fly here, a locked one a dimmed vignette")
+	main._show_menu()
+	check(not FileAccess.file_exists("res://assets/fonts/Fredoka.ttf") and not FileAccess.file_exists("res://assets/fonts/Nunito.ttf"), "Fredoka and Nunito are gone")
 
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
