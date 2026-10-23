@@ -22,6 +22,18 @@ class AirportScene:
 	var ground_mat: StandardMaterial3D
 	var stripe_mat: StandardMaterial3D
 	var tufts: MultiMeshInstance3D
+	var beacons: Array = []                 # the tower's red beacon (it blinks)
+	var apron_c := Vector2.ZERO
+	var apron_s := 1.0
+	var scenery: Array[Vector2] = []        # where the big pieces of scenery stand (the tests check they are clear of the paths' strips)
+	var truck: Node3D                       # the fuel truck and its route (it drives from the fuel farm to a parked plane and back)
+	var truck_pts := PackedVector2Array()
+	var birds: Array = []                   # [{node, shadow, pos, vel, scatter}]
+	var balloon: Dictionary = {}            # {node, shadow, x, z}
+	var mower: Node3D
+	var mower_rows: Array = []              # the translucent stripes it leaves (pooled boxes, revealed over the shift)
+	var mower_span := Vector2.ZERO          # x range it works along, and
+	var mower_z0 := 0.0                     # the z of its first row
 	var leaf_mat: StandardMaterial3D
 	var leaf_mid: StandardMaterial3D        # the lighter crown layers (the highlight)
 	var leaf_hi: StandardMaterial3D
@@ -36,8 +48,11 @@ class AirportScene:
 	var veh_beacon: Array[StandardMaterial3D] = []
 	var lights: MultiMeshInstance3D
 
-var _hangar_at := Vector2(1000.0, 1000.0)   # where the hangar stands (kept clear of upgrade props)
+var _occupied: Array = []                 # [centre, radius] of what is built on the field (kept clear of upgrade props, tufts, ...)
 var wind: Wind                        # set by Main
+var traffic: Traffic                  # set by Main (the birds keep away from aircraft)
+var progress := -1.0                  # 0..1 through the shift (the mower works the field edge); -1 = the menu: a slow loop
+var _life_t := 0.0
 var variants: Array[AirportScene] = []
 var cur: AirportScene
 var selected := 0
@@ -104,9 +119,9 @@ func _build_airport() -> AirportScene:
 	_taxiways(v)
 	_lights(v)
 	_vehicles(v)
-	var tp := Airports.tower_pos()
-	_tower(root, Vector3(tp.x, 0.0, tp.y))
-	_apron(v)
+	_occupied = []
+	_ramp(v)
+	_life(v)
 	var sp := Airports.windsock_pos()
 	_windsock(v, Vector3(sp.x, 0.0, sp.y))
 	if not water:
@@ -359,6 +374,8 @@ func _runway(v: AirportScene, i: int) -> void:
 		lab.position = Vector3(0.0, 0.142, sg * (len * 0.5 - 1.55))
 		lab.render_priority = 4
 		root.add_child(lab)
+		var sdx := -1.0 if e == 0 else 1.0       # the PAPI lights stand on the pilot's left, beside the touchdown zone
+		Models.papi(root, Vector2(sdx * (w * 0.5 + 0.4), sg * (len * 0.5 - 2.7)), sdx)
 
 ## A parallel taxiway beside each runway that has room for one: asphalt strip, yellow centre dashes and two stubs to the
 ## runway. All of it lies on the ground, under everything that moves.
@@ -395,6 +412,26 @@ func _taxiways(v: AirportScene) -> void:
 				Prim.box(n, Vector3(stub + 0.3, 0.05, 0.6), Vector3(side * (w * 0.5 + stub * 0.5 - 0.15), 0.032, z), asphalt, false)
 			for k in int(half * 2.0 / 0.6):
 				Prim.box(n, Vector3(0.05, 0.06, 0.24), Vector3(side * off, 0.05, -half + 0.3 + k * 0.6), yellow, false)
+			# Hold-short lines where each stub meets the runway (two solid, two dashed) and a taxiway sign (black letter on yellow).
+			var hold := Prim.mat(Color("e6c35a"))
+			for z in [-half, half]:
+				for k in 2:
+					Prim.box(n, Vector3(0.025, 0.012, 0.6), Vector3(side * (w * 0.5 + 0.3 + k * 0.06), 0.063, z), hold, false)
+					for q in 4:
+						Prim.box(n, Vector3(0.025, 0.012, 0.1), Vector3(side * (w * 0.5 + 0.42 + k * 0.06), 0.063, z - 0.25 + q * 0.17), hold, false)
+			var sign_at := Vector3(side * (off + 0.5), 0.0, -half - 0.45)
+			Prim.box(n, Vector3(0.05, 0.1, 0.05), sign_at + Vector3(0, 0.05, 0), Prim.mat(Color("9aa0aa")), false)
+			Prim.box(n, Vector3(0.2, 0.05, 0.14), sign_at + Vector3(0, 0.12, 0), hold, false)
+			var tl := Label3D.new()
+			tl.text = char(65 + i)
+			tl.font_size = 64
+			tl.pixel_size = 0.0036
+			tl.modulate = Color(0.08, 0.08, 0.1)
+			tl.shaded = false
+			tl.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+			tl.position = sign_at + Vector3(0, 0.15, 0)
+			tl.render_priority = 4
+			n.add_child(tl)
 			v.strips.append([a, b])
 			break
 
@@ -551,39 +588,161 @@ func _cast(parent: Node3D, x: float, z: float, fw: float, fd: float, h: float, y
 	var d := (fd + len * k) / 0.62
 	_shadow(parent, x + len * k * 0.5, z + len * k * 0.5, w, d, alpha, y, Shadow.rect())
 
-## The tower: a pale base, a shaft and a blue octagonal cab with a white dot on its roof (and a soft shadow).
-func _tower(root: Node3D, at: Vector3) -> void:
-	_cast(root, at.x, at.z, 0.9, 0.7, 1.7, 0.05)
-	Prim.box(root, Vector3(1.0, 0.1, 0.8), at + Vector3(0, 0.05, 0), Prim.mat(Color("cfd5df")), false)     # the apron it stands on
-	Prim.box(root, Vector3(0.9, 0.5, 0.7), at + Vector3(0, 0.3, 0), Prim.mat(Color("e9edf4")), false)
-	Prim.box(root, Vector3(0.9, 0.04, 0.7), at + Vector3(0, 0.56, 0), Prim.mat(Color("f7f9fc")), false)
-	Prim.cyl(root, 0.14, 0.18, 0.8, 8, at + Vector3(0, 0.95, 0), Prim.mat(Color("d6dbe4")), false)
-	Prim.cyl(root, 0.34, 0.3, 0.26, 8, at + Vector3(0, 1.45, 0), Prim.mat(Color("5aa0ff")), false)
-	Prim.cyl(root, 0.4, 0.4, 0.06, 8, at + Vector3(0, 1.62, 0), Prim.mat(Color("d6dbe4")), false)
-	Prim.cyl(root, 0.26, 0.3, 0.06, 8, at + Vector3(0, 1.68, 0), Prim.mat(Color("7db6ff")), false)
-	Prim.cyl(root, 0.08, 0.08, 0.03, 8, at + Vector3(0, 1.72, 0), Prim.mat(Color.WHITE), false)
-
-## Hangar and apron: a pale hangar with a ridged roof on a concrete apron beside the tower, if there is room.
-func _apron(v: AirportScene) -> void:
-	_hangar_at = Vector2(1000.0, 1000.0)
+## The ramp: the apron with the tower, the hangar, the FBO, the picnic and the car park, the tie-downs with their parked planes (one
+## being washed), a fenced fuel farm with its truck, the glider on its trailer, and the landmark beyond the fence. Everything keeps
+## clear of the approach corridors and the strips where paths are drawn.
+func _ramp(v: AirportScene) -> void:
+	var root := v.root
+	var ap := Airports.apron()
 	var tp := Airports.tower_pos()
-	for off in [Vector2(-1.7, 0.6), Vector2(1.7, 0.6), Vector2(-1.7, -0.9), Vector2(1.7, -0.9), Vector2(0.0, 1.9), Vector2(0.0, -1.9)]:
-		var p: Vector2 = tp + off
-		if not _spot_free(p, 0.85):
-			continue
-		_hangar_at = p
-		var n := Node3D.new()
-		n.position = Vector3(p.x, 0.0, p.y)
-		v.root.add_child(n)
-		_cast(n, 0.0, 0.0, 1.1, 0.8, 0.45, 0.03)
-		Prim.box(n, Vector3(1.5, 0.05, 1.3), Vector3(0, 0.025, 0), Prim.mat(Color("cfd5df")), false)
-		Prim.box(n, Vector3(1.1, 0.4, 0.8), Vector3(0, 0.25, -0.1), Prim.mat(Color("e4e9f1")), false)
-		var ridge := Prim.mat(Color("c3cad6"))
-		for k in 5:
-			Prim.box(n, Vector3(1.1, 0.03, 0.05), Vector3(0, 0.46, -0.4 + k * 0.16), ridge, false)
-		Prim.box(n, Vector3(1.1, 0.04, 0.05), Vector3(0, 0.45, -0.5), Prim.mat(Color("f7f9fc")), false)
-		Prim.box(n, Vector3(0.7, 0.28, 0.04), Vector3(0, 0.2, 0.32), Prim.mat(Color("8d97aa")), false)       # the hangar door
-		break
+	var beacons: Array = []
+	if ap.is_empty():
+		Models.tower(root, tp, beacons)
+		v.beacons.append_array(beacons)
+		return
+	var c: Vector2 = ap["center"]
+	var s: float = ap["s"]
+	v.apron_c = c
+	v.apron_s = s
+	v.scenery.append(c)
+	_occupied.append([c, 2.1 * s])
+	var slab := Prim.box(root, Vector3(2.8 * s, 0.03, 3.2 * s), Vector3(c.x, 0.0, c.y), Prim.mat(Color("b6bbc2")), false)
+	var edge := Prim.box(root, Vector3(2.8 * s + 0.06, 0.028, 3.2 * s + 0.06), Vector3(c.x, -0.002, c.y), Prim.mat(Color("8c9199")), false)
+	edge.position.y = -0.002
+	Models.tower(root, tp, beacons)
+	v.beacons.append_array(beacons)
+	Models.hangar(root, c + Vector2(-0.7, -1.0) * s, s)
+	Models.fbo(root, c + Vector2(-0.65, 0.1) * s, s)
+	Models.picnic(root, c + Vector2(0.2, 0.25) * s)
+	Models.car_lot(root, c + Vector2(1.0, 0.18) * s, s)
+	# oil stains on the concrete
+	var oil := _overlay_mat(Color(0, 0, 0, 0.16))
+	for o in [Vector2(-0.35, 0.82), Vector2(0.95, 1.35)]:
+		var st := Prim.cyl(root, 0.1 * s, 0.1 * s, 0.006, 10, Vector3(c.x + o.x * s, 0.02, c.y + o.y * s), oil, false)
+		st.scale = Vector3(1.3, 1.0, 0.8)
+	# the tie-downs: three painted Ts, two parked planes (chocked) and one being washed
+	var accents := [Airports.ORANGE, Airports.BLUE, Airports.ORANGE]
+	var yaws := [-9.0, 4.0, 11.0]
+	for i in 3:
+		var tx := (-0.9 + 0.9 * i) * s
+		var tz := 1.18 * s
+		Models.tie_down(root, c + Vector2(tx, tz + 0.12 * s))
+		var at := c + Vector2(tx, tz + 0.1 * s)
+		if i == 1:
+			Models.washed_plane(root, at, yaws[i], accents[i], 0.74 * s)
+		else:
+			Models.parked_plane(root, at, yaws[i], accents[i], 0.74 * s)
+	# the fuel farm and its truck
+	var farm = _find_rect([c + Vector2(0.0, 1.6 * s + 1.3), c + Vector2(-1.4 * s - 1.25, 1.0 * s), c + Vector2(1.4 * s + 1.25, 1.0 * s), c + Vector2(0.0, -1.6 * s - 1.3), c + Vector2(-1.4 * s - 1.25, -1.0 * s)], 1.1, 1.1)
+	if farm != null:
+		_occupied.append([farm, 0.8])
+		v.scenery.append(farm)
+		Models.fuel_farm(root, farm, 1.0)
+		var truck := Models.fuel_truck(root)
+		var home: Vector2 = farm
+		var vert: bool = absf(farm.x - c.x) < 0.5
+		var dest := Vector2(c.x + 0.33 * s, c.y + 1.18 * s + 0.1 * s) + Vector2(0.0, 0.55 * s)
+		var pts := PackedVector2Array()
+		if vert:
+			var dir_z := -1.0 if farm.y > c.y else 1.0
+			pts.append(home + Vector2(0.0, 0.62 * dir_z))
+			pts.append(Vector2(home.x, dest.y))
+			pts.append(dest)
+		else:
+			var dir_x := -1.0 if farm.x > c.x else 1.0
+			pts.append(home + Vector2(0.62 * dir_x, 0.0))
+			pts.append(Vector2(dest.x, home.y))
+			pts.append(dest)
+		v.truck = truck
+		v.truck_pts = pts
+	# a glider on its trailer by the hangar
+	var gl = _find_rect([c + Vector2(-1.4 * s - 0.35, -0.7 * s), c + Vector2(1.4 * s + 0.35, -0.7 * s), c + Vector2(-1.4 * s - 0.35, 0.9 * s)], 0.6, 1.5)
+	if gl != null:
+		_occupied.append([gl, 0.7])
+		v.scenery.append(gl)
+		Models.glider_trailer(root, gl, 8.0)
+	# the landmark beyond the fence: a red barn and a white silo (the countryside; the others have their own)
+	if not v.water and Airports.current != 3:
+		var corners := [Vector2(-3.4, 7.9), Vector2(3.4, 7.9), Vector2(-3.4, -8.2), Vector2(3.4, -8.2)]
+		var bp = _find_rect(corners, 2.4, 1.4)
+		if bp != null:
+			_occupied.append([bp, 1.1])
+			v.scenery.append(bp)
+			Models.barn(root, bp)
+
+## The first of `cands` (centres) whose w x d rectangle lies in the field, clear of the paths' strips and of everything built.
+func _find_rect(cands: Array, w: float, d: float) -> Variant:
+	for p in cands:
+		if _rect_clear(p, w, d):
+			return p
+	return null
+
+func _rect_clear(c: Vector2, w: float, d: float) -> bool:
+	if absf(c.x) + w * 0.5 > 5.0 or absf(c.y) + d * 0.5 > 8.8:
+		return false
+	var nx := maxi(int(ceil(w / 0.4)), 1)
+	var nz := maxi(int(ceil(d / 0.4)), 1)
+	for i in nx + 1:
+		for j in nz + 1:
+			var p := c + Vector2(-w * 0.5 + w * i / nx, -d * 0.5 + d * j / nz)
+			if not _clear_of_paths(p, -0.1):
+				return false
+			for o in _occupied:
+				if p.distance_to(o[0]) < float(o[1]):
+					return false
+			for hz in Airports.hazards():
+				if p.distance_to(hz["center"]) < hz["radius"] + 0.3:
+					return false
+			var wm := Airports.windsock_pos()
+			if p.distance_to(wm) < 0.5:
+				return false
+	return true
+
+## The moving scenery, built once: two birds, the hot-air balloon with its far shadow, and the mower with the stripes it leaves.
+func _life(v: AirportScene) -> void:
+	var root := v.root
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5150 + Airports.current * 31
+	for k in 2:
+		var b := Models.bird(root)
+		b.position.y = 1.1
+		var sh := Models.blob(root, Vector2.ZERO, 0.3, 0.3, 0.02, 0.6)
+		var a := rng.randf() * TAU
+		v.birds.append({"node": b, "shadow": sh, "pos": Vector2(rng.randf_range(-4.0, 4.0), rng.randf_range(-6.0, 6.0)), "vel": Vector2.from_angle(a) * 0.2, "scatter": 0.0})
+	var bn := Models.balloon(root)
+	bn.position.y = 2.4
+	var bs := Models.blob(root, Vector2.ZERO, 1.7, 1.7, 0.02, 0.55)
+	v.balloon = {"node": bn, "shadow": bs, "x": rng.randf_range(-5.0, 3.0), "z": -7.0}
+	if v.water:
+		return
+	# the mower: along the far (top) edge of the field, over the longest stretch that is clear of the paths' strips
+	var z0 := -8.45
+	var best := Vector2.ZERO
+	var run_start := -999.0
+	var x := -4.9
+	while x <= 5.0:
+		var ok := _clear_of_paths(Vector2(x, z0), 0.1)
+		for o in _occupied:
+			if Vector2(x, z0).distance_to(o[0]) < float(o[1]):
+				ok = false
+		if ok and run_start < -900.0:
+			run_start = x
+		if (not ok or x > 4.85) and run_start > -900.0:
+			if x - run_start > best.y - best.x:
+				best = Vector2(run_start, x)
+			run_start = -999.0
+		x += 0.2
+	if best.y - best.x < 1.4:
+		return
+	v.mower_span = best
+	v.mower_z0 = z0
+	var stripe := _overlay_mat(Color(1, 1, 1, 0.14))
+	for k in 5:
+		var st := Prim.box(root, Vector3(best.y - best.x, 0.012, 0.22), Vector3((best.x + best.y) * 0.5, 0.012, z0 + 0.25 * k), stripe, false)
+		st.visible = false
+		v.mower_rows.append(st)
+	v.mower = Models.mower(root)
+	v.mower.visible = false
 
 ## A pole with a striped cone on top. The cone's pivot turns to point downwind.
 func _windsock(v: AirportScene, at: Vector3) -> void:
@@ -642,12 +801,111 @@ func _process(delta: float) -> void:
 		m.albedo_color = cur.thr_colors[k] if on else Color(0.38, 0.39, 0.42)
 		m.emission_energy_multiplier = (0.45 if on else 0.0) + flash
 	_animate_ground(delta, now)
+	if DebugFlags.life_enabled():
+		_animate_life(delta)
+	for bm in cur.beacons:
+		bm.emission_energy_multiplier = blink
+		bm.albedo_color = Color(0.95, 0.23, 0.19) if blink > 0.0 else Color(0.45, 0.14, 0.12)
 	if wind != null and cur.sock != null:
 		_sock_deg += wrapf(wind.toward_deg() - _sock_deg, -180.0, 180.0) * minf(delta * 2.5, 1.0)
-		var wiggle := sin(now / 260.0) * 6.0
+		var wiggle := sin(now / 260.0) * 6.0 if DebugFlags.life_enabled() else 0.0
 		cur.sock.rotation.y = -deg_to_rad(_sock_deg + wiggle)
 		cur.sock.rotation.x = deg_to_rad(sin(now / 190.0) * 4.0)
 
+
+## The moving scenery: the fuel truck (a slow loop from the fuel farm to a parked plane and back), birds (they scatter from aircraft),
+## the balloon drifting across the top, the mower and its stripes. ?nolife stops all of it.
+func _animate_life(delta: float) -> void:
+	_life_t += delta
+	var v := cur
+	if v.truck != null and v.truck_pts.size() >= 2:
+		var total := 0.0
+		for i in v.truck_pts.size() - 1:
+			total += v.truck_pts[i].distance_to(v.truck_pts[i + 1])
+		var speed := 0.22
+		var go := total / speed
+		var cycle := 2.0 * go + 14.0
+		var u := fposmod(_life_t + 3.0, cycle)
+		var d := 0.0
+		var fwd := true
+		if u < go:
+			d = u * speed
+		elif u < go + 5.0:
+			d = total
+		elif u < 2.0 * go + 5.0:
+			d = total - (u - go - 5.0) * speed
+			fwd = false
+		else:
+			d = 0.0
+		var pos := v.truck_pts[0]
+		var heading := Vector2.DOWN
+		var left := d
+		for i in v.truck_pts.size() - 1:
+			var seg := v.truck_pts[i].distance_to(v.truck_pts[i + 1])
+			heading = (v.truck_pts[i + 1] - v.truck_pts[i]).normalized() if seg > 0.0001 else heading
+			if left <= seg or i == v.truck_pts.size() - 2:
+				pos = v.truck_pts[i].lerp(v.truck_pts[i + 1], clampf(left / maxf(seg, 0.0001), 0.0, 1.0))
+				break
+			left -= seg
+		if not fwd:
+			heading = -heading
+		v.truck.position = Vector3(pos.x, 0.0, pos.y)
+		v.truck.rotation.y = -atan2(heading.x, -heading.y)
+	for b in v.birds:
+		var p: Vector2 = b["pos"]
+		var vel: Vector2 = b["vel"]
+		var scatter: float = b["scatter"]
+		if traffic != null:
+			for pl in traffic.planes:
+				if pl.active() and pl.entered and not pl.fogged and pl.pos.distance_to(p) < 1.7:
+					vel = (p - pl.pos).normalized() * 1.5
+					scatter = 1.6
+		scatter = maxf(scatter - delta, 0.0)
+		if scatter <= 0.0 and vel.length() > 0.24:
+			vel = vel.lerp(vel.normalized() * 0.2, minf(delta * 0.8, 1.0))
+		p += vel * delta
+		if absf(p.x) > 6.2:
+			p.x = -signf(p.x) * 6.0
+		if absf(p.y) > 10.5:
+			p.y = -signf(p.y) * 10.3
+		b["pos"] = p
+		b["vel"] = vel
+		b["scatter"] = scatter
+		var n: Node3D = b["node"]
+		n.position = Vector3(p.x, 1.1, p.y)
+		n.rotation.y = -atan2(vel.x, -vel.y)
+		n.get_child(0).rotation.y = deg_to_rad(-20.0 - 25.0 * sin(_life_t * 9.0 + p.x))
+		n.get_child(1).rotation.y = deg_to_rad(20.0 + 25.0 * sin(_life_t * 9.0 + p.x))
+		(b["shadow"] as Node3D).position = Vector3(p.x + 0.3, 0.02, p.y + 0.3)
+	if not v.balloon.is_empty():
+		var bx: float = v.balloon["x"] + delta * 0.11
+		if bx > 6.5:
+			bx = -6.5
+		v.balloon["x"] = bx
+		var bz: float = v.balloon["z"] + sin(_life_t * 0.15) * delta * 0.05
+		v.balloon["z"] = bz
+		(v.balloon["node"] as Node3D).position = Vector3(bx, 2.4, bz)
+		(v.balloon["shadow"] as Node3D).position = Vector3(bx + 1.0, 0.02, bz + 1.0)
+	if v.mower != null:
+		var prog := progress if progress >= 0.0 else fposmod(_life_t / 90.0, 1.0)
+		var rows := v.mower_rows.size()
+		var f := prog * rows
+		var row := mini(int(f), rows - 1)
+		var pass_t := f - float(row)
+		var fx := pass_t if row % 2 == 0 else 1.0 - pass_t
+		var mx := lerpf(v.mower_span.x, v.mower_span.y, fx)
+		v.mower.visible = true
+		v.mower.position = Vector3(mx, 0.0, v.mower_z0 + 0.25 * row)
+		v.mower.rotation.y = deg_to_rad(-90.0 if row % 2 == 0 else 90.0)
+		for k in rows:
+			var st: MeshInstance3D = v.mower_rows[k]
+			var reveal := 1.0 if k < row else (pass_t if k == row else 0.0)
+			st.visible = reveal > 0.01
+			if st.visible:
+				var span := v.mower_span.y - v.mower_span.x
+				st.scale = Vector3(reveal, 1.0, 1.0)
+				var start_left := k % 2 == 0
+				st.position.x = (v.mower_span.x + span * reveal * 0.5) if start_left else (v.mower_span.y - span * reveal * 0.5)
 
 # ---------- Upgrade scenery: each purchased upgrade can be seen on the airport ----------
 
@@ -674,11 +932,15 @@ func _spot_free(p: Vector2, r: float, bound: float = 6.0) -> bool:
 	for hz in Airports.hazards():
 		if p.distance_to(hz["center"]) < hz["radius"] + r:
 			return false
-	if p.distance_to(Airports.tower_pos()) < 0.8 + r or p.distance_to(Airports.windsock_pos()) < 0.5 + r or p.distance_to(_hangar_at) < 1.0 + r:
+	if p.distance_to(Airports.tower_pos()) < 0.8 + r or p.distance_to(Airports.windsock_pos()) < 0.5 + r:
 		return false
+	for o in _occupied:
+		if p.distance_to(o[0]) < float(o[1]) + r:
+			return false
 	return absf(p.x) < 4.6 and absf(p.y) < bound
 
-## Up to `n` free spots on rings around `c`, at least `spacing` apart.
+## Up to `n` free spots on rings around `c`, at least `spacing` apart (then, if the rings were not enough, anywhere on the field,
+## nearest first).
 func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> Array[Vector2]:
 	var out: Array[Vector2] = []
 	for ring in radii:
@@ -694,15 +956,36 @@ func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> 
 				out.append(p)
 				if out.size() >= n:
 					return out
+	var best: Array = []
+	var gx := -4.4
+	while gx <= 4.4:
+		var gz := -8.4
+		while gz <= 8.4:
+			var p2 := Vector2(gx, gz)
+			if _spot_free(p2, r) and _clear_of_paths(p2, -0.3):
+				best.append(p2)
+			gz += 0.5
+		gx += 0.5
+	best.sort_custom(func(a: Vector2, b: Vector2): return a.distance_to(c) < b.distance_to(c))
+	for p3 in best:
+		var ok2 := true
+		for q in out:
+			if q.distance_to(p3) < spacing:
+				ok2 = false
+		if ok2:
+			out.append(p3)
+			if out.size() >= n:
+				break
 	return out
 
 func _upgrade_props(v: AirportScene) -> void:
 	var root := v.root
-	var tower := Airports.tower_pos()
+	var tower: Vector2 = v.apron_c if v.apron_s > 0.0 and not v.apron_c.is_equal_approx(Vector2.ZERO) else Airports.tower_pos()
+	var ar := 2.1 * v.apron_s if not v.apron_c.is_equal_approx(Vector2.ZERO) else 0.0       # (the props stand around the apron, not on it)
 	var metal := Prim.mat(Color(0.78, 0.8, 0.84))
 	var dark := Prim.mat(Color(0.2, 0.22, 0.26))
 	# Radar: up to three turning dishes around the tower.
-	var spots := _find_spots(tower, 3, 0.35, 0.8, [1.2, 1.6, 2.1])
+	var spots := _find_spots(tower, 3, 0.35, 0.8, [ar + 0.5, ar + 0.9, ar + 1.3, 1.2, 1.6, 2.1])
 	for k in spots.size():
 		var holder := Node3D.new()
 		holder.position = Vector3(spots[k].x, 0.0, spots[k].y)
@@ -717,7 +1000,7 @@ func _upgrade_props(v: AirportScene) -> void:
 		v.dishes.append(turret)
 		v.ups.append([holder, "radar", k + 1])
 	# Better Comms: radio masts with blinking beacons.
-	spots = _find_spots(tower, 3, 0.3, 0.8, [2.4, 2.9, 3.4])
+	spots = _find_spots(tower, 3, 0.3, 0.8, [ar + 1.5, ar + 1.9, ar + 2.3, 2.4, 2.9, 3.4])
 	for k in spots.size():
 		var holder := Node3D.new()
 		holder.position = Vector3(spots[k].x, 0.0, spots[k].y)
@@ -733,7 +1016,7 @@ func _upgrade_props(v: AirportScene) -> void:
 		Prim.cyl(holder, 0.07, 0.07, 0.12, 6, Vector3(0, 1.64, 0), lm, false)
 		v.ups.append([holder, "comms", k + 1])
 	# Tower Staff: a terminal annex, then a bigger one, then a flag.
-	spots = _find_spots(tower, 3, 0.55, 1.0, [1.9, 2.4, 2.9])
+	spots = _find_spots(tower, 3, 0.55, 1.0, [ar + 0.9, ar + 1.3, ar + 1.7, 1.9, 2.4, 2.9])
 	for k in spots.size():
 		var holder := Node3D.new()
 		holder.position = Vector3(spots[k].x, 0.0, spots[k].y)

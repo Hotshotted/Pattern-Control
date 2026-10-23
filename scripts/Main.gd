@@ -103,6 +103,7 @@ func _ready() -> void:
 	overlay.wind = wind
 	traffic.wind = wind
 	airfield.wind = wind
+	airfield.traffic = traffic
 	wind.warned.connect(_on_wind_warned)
 	wind.shifted.connect(_on_wind_shifted)
 	traffic.inactive_end.connect(_on_inactive_end)
@@ -311,6 +312,7 @@ func _show_menu() -> void:
 	hud.daily_done = Save.daily_done_today()
 	hud.bad_streak = Save.daily_streak("bad")
 	hud.bad_done = Save.daily_done_today("bad")
+	airfield.progress = -1.0
 	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport), Save.stars_of(airport))
 
 # ---------- Frame time: the simulation can never run ahead of the clock ----------
@@ -548,6 +550,7 @@ func _timer_ticks(t: float, par: float) -> void:
 
 ## The music intensifies through the shift and towards the finale (there is no engine hum: the music is the only continuous sound).
 func _update_audio(frac: float) -> void:
+	airfield.progress = frac
 	sfx.set_music(true, frac, 1.0 if _finale > 0 else 0.0)
 	sfx.set_fog(traffic.fog_amount)
 

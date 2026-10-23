@@ -33,7 +33,7 @@ static func _build() -> void:
 			"name": "Grass Strip", "tag": "One runway, both directions",
 			"runways": [_rw(Vector2(0.0, 0.8), 0.0, 7.0, ORANGE, "ORANGE", 1.1)],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
-			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6),
+			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6), "apron": {"center": Vector2(3.4, -1.0), "s": 1.0},
 			"ground": Color("b9dc72"),
 			"mix": {S: 0.7, G: 0.3},
 			"unlock_stars": 0, "weather": [],
@@ -45,7 +45,7 @@ static func _build() -> void:
 			"decor": [{"shape": "box", "pos": Vector2(-3.3, -3.4), "size": Vector2(2.6, 3.4), "color": Color("d9c46a"), "y": 0.012},
 					{"shape": "box", "pos": Vector2(3.4, 4.0), "size": Vector2(2.4, 3.2), "color": Color("a8d070"), "y": 0.012},
 					{"shape": "box", "pos": Vector2(-3.5, 5.2), "size": Vector2(2.2, 2.4), "color": Color("e3cf7a"), "y": 0.012}],
-			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-3.3, 3.7),
+			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-3.3, 3.7), "apron": {"center": Vector2(-3.5, -5.7), "s": 1.0},
 			"ground": Color("c0dc6e"),
 			"mix": {S: 0.35, M: 0.45, G: 0.2},
 			"unlock_stars": 2, "weather": ["crosswind"],
@@ -56,7 +56,7 @@ static func _build() -> void:
 			"pads": [{"center": Vector2(3.5, 3.4), "radius": 0.85, "color": PAD_COLOR}], "lanes": [], "hazards": [],
 			"decor": [{"shape": "disc", "pos": Vector2(3.5, 3.4), "r": 1.45, "color": Color("d3d9e2"), "sides": 16, "y": 0.012},
 					{"shape": "box", "pos": Vector2(3.3, -2.4), "size": Vector2(2.4, 2.6), "color": Color("d3d9e2"), "y": 0.012}],
-			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.2, 0.8),
+			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.2, 0.8), "apron": {"center": Vector2(3.35, -1.9), "s": 1.0},
 			"ground": Color("b2db78"),
 			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2},
 			"unlock_stars": 5, "weather": ["crosswind", "fog"],
@@ -74,7 +74,7 @@ static func _build() -> void:
 					{"shape": "disc", "pos": Vector2(4.3, -5.6), "r": 2.0, "color": Color("a7a392"), "sides": 9, "y": 0.012},
 					{"shape": "disc", "pos": Vector2(-4.2, 5.6), "r": 1.9, "color": Color("a7a392"), "sides": 9, "y": 0.012},
 					{"shape": "disc", "pos": Vector2(4.3, 5.4), "r": 1.9, "color": Color("a7a392"), "sides": 9, "y": 0.012}],
-			"tower": Vector2(0.0, 3.2), "windsock": Vector2(0.0, -1.2),
+			"tower": Vector2(0.0, 3.2), "windsock": Vector2(0.0, -1.2), "apron": {"center": Vector2(3.75, 0.4), "s": 0.8},
 			"ground": Color("b0cf86"),
 			"mix": {S: 0.3, M: 0.35, G: 0.35},
 			"unlock_stars": 8, "weather": ["storm", "fog"],
@@ -87,7 +87,7 @@ static func _build() -> void:
 			"hazards": [],
 			"decor": [{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.4, "color": Color("84c26b"), "sides": 12, "y": 0.03},
 					{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.9, "color": Color("f1dfa0"), "sides": 12, "y": 0.01}],
-			"tower": Vector2(0.0, 0.3), "windsock": Vector2(0.0, -3.0),
+			"tower": Vector2(0.0, 0.3), "windsock": Vector2(0.0, -3.0), "apron": {"center": Vector2(3.3, -1.0), "s": 0.7},
 			"ground": Color("5db8e0"), "water": true,
 			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25},
 			"unlock_stars": 11, "weather": ["storm", "crosswind", "fog"],
@@ -102,7 +102,7 @@ static func _build() -> void:
 			"decor": [{"shape": "box", "pos": Vector2(3.2, -3.9), "size": Vector2(2.7, 4.6), "color": Color("c9cfda"), "y": 0.012},
 					{"shape": "box", "pos": Vector2(3.9, 1.8), "size": Vector2(1.5, 4.8), "color": Color("3fa2d6"), "y": 0.02},
 					{"shape": "box", "pos": Vector2(-0.4, 5.6), "size": Vector2(7.6, 1.8), "color": Color("3fa2d6"), "y": 0.02}],
-			"tower": Vector2(2.6, -2.6), "windsock": Vector2(2.6, 3.0),
+			"tower": Vector2(2.6, -2.6), "windsock": Vector2(2.6, 3.0), "apron": {"center": Vector2(3.2, -7.0), "s": 0.7},
 			"ground": Color("b6dc7a"),
 			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2},
 			"unlock_stars": 14, "weather": ["storm", "crosswind", "fog"],
@@ -213,7 +213,14 @@ static func end_far(i: int, e: int) -> Vector2:
 	return rw_center(i) + end_dir(i, e) * rw_length(i) * 0.5
 
 static func tower_pos() -> Vector2:
-	return def()["tower"]
+	var ap: Dictionary = def().get("apron", {})
+	if ap.is_empty():
+		return def()["tower"]
+	return (ap["center"] as Vector2) + Vector2(0.95, -1.0) * float(ap["s"])
+
+## The airport's apron (where the tower, hangar, FBO and the parked planes are): {"center": Vector2, "s": scale}, or {} if none.
+static func apron() -> Dictionary:
+	return def().get("apron", {})
 
 static func windsock_pos() -> Vector2:
 	return def()["windsock"]

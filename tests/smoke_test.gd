@@ -4064,6 +4064,81 @@ func _initialize() -> void:
 	var cz_tufts = main.airfield.variants[0].tufts
 	check(cz_tufts != null and cz_tufts.multimesh.instance_count >= 20 and cz_tufts.multimesh.instance_count <= 60, "sparse grass tufts are scattered (%d)" % cz_tufts.multimesh.instance_count)
 
+	print("9zv. Cozy Airfield: buildings, props and life")
+	var cl_af = main.airfield
+	var cl_keep = Airports.current
+	var cl_bad = []
+	var cl_apron = 0
+	for cl_i in Airports.COUNT:
+		Airports.current = cl_i
+		var cl_v = cl_af.variants[cl_i]
+		cl_apron += 1 if not cl_v.apron_c.is_equal_approx(Vector2.ZERO) else 0
+		for cl_p in cl_v.scenery:
+			if not cl_af._clear_of_paths(cl_p, -0.9):
+				cl_bad.append("%s %s" % [Airports.airport_name(cl_i), str(cl_p)])
+	Airports.current = cl_keep
+	check(cl_apron == Airports.COUNT and cl_bad.is_empty(), "every airport has a ramp, and the big scenery stands outside the paths' strips %s" % str(cl_bad))
+	var cl_v0 = cl_af.variants[0]
+	var cl_trucks = 0
+	for cl_i in Airports.COUNT:
+		cl_trucks += 1 if cl_af.variants[cl_i].truck != null else 0
+	check(cl_v0.beacons.size() == 1 and cl_v0.truck != null and cl_v0.truck_pts.size() == 3 and cl_v0.birds.size() == 2 and not cl_v0.balloon.is_empty() and cl_v0.tufts != null and cl_trucks >= 4, "the tower's beacon, the fuel truck and its route (%d airports), two birds and the balloon exist" % cl_trucks)
+	var cl_sig = []
+	for cl_c in cl_v0.root.get_children():
+		cl_sig.append(cl_c.get_class())
+	cl_af.select(0)
+	cl_af.traffic = main.traffic
+	var cl_tp = cl_v0.truck.position
+	for cl_k in 120:
+		cl_af._animate_life(0.1)
+	check(cl_v0.truck.position.distance_to(cl_tp) > 0.2 or cl_v0.truck_pts[0].distance_to(Vector2(cl_tp.x, cl_tp.z)) < 5.0, "the fuel truck drives its loop")
+	var cl_b0 = cl_v0.birds[0]["pos"]
+	cl_af._animate_life(0.5)
+	check(cl_v0.birds[0]["pos"] != cl_b0, "the birds drift")
+	var cl_bx = cl_v0.balloon["x"]
+	cl_af._animate_life(2.0)
+	check(cl_v0.balloon["x"] > cl_bx, "the balloon drifts across the top")
+	# a plane passing near scares a bird
+	var cl_plane = main.traffic.place(0, cl_v0.birds[0]["pos"] + Vector2(0.5, 0.0), 0.0, SMALL)
+	cl_af._animate_life(0.05)
+	check(cl_v0.birds[0]["scatter"] > 1.0 and cl_v0.birds[0]["vel"].length() > 1.0, "birds scatter when an aircraft passes close")
+	main.traffic.release_all()
+	if cl_v0.mower != null:
+		cl_af.progress = 0.05
+		cl_af._animate_life(0.01)
+		var cl_row0 = 0
+		for cl_r in cl_v0.mower_rows:
+			cl_row0 += 1 if cl_r.visible else 0
+		cl_af.progress = 0.8
+		cl_af._animate_life(0.01)
+		var cl_row1 = 0
+		for cl_r in cl_v0.mower_rows:
+			cl_row1 += 1 if cl_r.visible else 0
+		check(cl_row1 > cl_row0 and cl_v0.mower.visible, "the mower leaves more stripes as the shift goes on (%d -> %d)" % [cl_row0, cl_row1])
+		cl_af.progress = 0.0
+		cl_af._animate_life(0.01)
+		var cl_row2 = 0
+		for cl_r in cl_v0.mower_rows:
+			cl_row2 += 1 if cl_r.visible else 0
+		check(cl_row2 <= 1, "...and a restart clears them")
+	cl_af.progress = -1.0
+	DebugFlags.parse(["tune", "nolife"])
+	var cl_still = cl_v0.truck.position
+	var cl_balloon = cl_v0.balloon["x"]
+	if DebugFlags.life_enabled():
+		cl_af._animate_life(1.0)
+	check(not DebugFlags.life_enabled() and cl_v0.truck.position == cl_still and cl_v0.balloon["x"] == cl_balloon, "?nolife stops the moving pieces")
+	DebugFlags.parse(["tune"])
+	var cl_papi = 0
+	var cl_labels = 0
+	var cl_stack = [cl_v0.root]
+	while not cl_stack.is_empty():
+		var cl_n = cl_stack.pop_back()
+		if cl_n is Label3D:
+			cl_labels += 1
+		cl_stack.append_array(cl_n.get_children())
+	check(cl_labels >= 3, "runway numbers and the taxiway sign are on the field (%d labels)" % cl_labels)
+
 	print("10. restart in place, best score, nothing new over many runs")
 	main.restart()
 	tr.auto_spawn = true
