@@ -38,49 +38,148 @@ ground. Colour is never the only signal: fines and overtime also use a minus sig
 
 ## Cozy Airfield (the art direction)
 
-A top-down, warm, soft and lived-in toy diorama. Same game and layouts as ever; the mood comes from the light first, then from
-shaded surfaces, soft shadows and a little life. (It replaces the earlier "Sunny Airfield" look.)
+A top-down, warm, soft and lived-in toy diorama: the camera looks straight down at a sunlit field with a little life on it. Same
+game, same layouts and the same readability rules as ever; the mood comes from the light first, then from shaded surfaces, soft
+shadows and small moving things. This section describes what is in the build (it replaces the earlier "Sunny Airfield" look and the
+two polish passes); every number below is in the code or in `Tuning.gd`, and the other repos can copy it as written.
 
-**Light and shading**
-* The camera looks straight down. **One light overlay** (`LightOverlay`, a ColorRect with `shaders/light_overlay.gdshader`) sits over
-  the whole field, above the 3D scene and below the paths, rings and interface: a warm radial glow `#FFD68A` pinned to the
-  upper-left corner (35 % at its centre, fading to 0 by 90 % of the screen diagonal, added to the picture), a cool radial shade
-  `#2F4A7A` pinned to the lower-right (20 %, fading the same way), and **8 % static film grain** from a tiled 128 px noise texture
-  (made once, never per-frame). `?nolight` switches the overlay off for comparison.
+| Part | Where |
+|---|---|
+| Light overlay, grain, time of day | `scripts/LightOverlay.gd`, `shaders/light_overlay.gdshader` |
+| Shading baked into vertex colours | `scripts/Prim.gd` |
+| Soft shadows (baked textures, offsets that grow) | `scripts/Shadow.gd`, `shaders/shadow_blob.gdshader` |
+| The field, runways, ramp, landmarks, life, wind layer | `scripts/Airfield.gd`, `scripts/Models.gd` |
+| Airport layouts and their aprons | `scripts/Airports.gd` |
+| Hangar, ramp and taxi routes | `scripts/Ramp.gd` (pure logic), `Airfield.begin_taxi / step_taxi` |
+| Paths, snapping, halo | `scripts/Traffic.gd`, `scripts/PathRibbons.gd` |
+| Interface | `scripts/Hud.gd`, `scripts/Style.gd`, `scripts/ExtLabel.gd` |
+
+### Light, shading and shadows
+
+* **One light overlay** (a ColorRect with `light_overlay.gdshader`, layer 0) sits over the whole field, above the 3D scene and below
+  the paths, rings and interface: a warm radial glow `#FFD68A` pinned to the upper-left corner, a cool radial shade `#2F4A7A` pinned to
+  the lower-right (both fade to nothing by 90 % of the screen diagonal; the glow is added, the shade mixed over), and **8 % static film grain**
+  from a tiled 128 px noise texture (made once, never per frame). `?nolight` switches it off.
+* **Time passes over the shift, linearly:** the glow goes 35 % to 50 % and the shade 20 % to 30 %; every shadow offset grows to 130 %;
+  the grass gets a touch warmer (blue down 9 %, green down 2 %). A restart resets it; Bad Pilot Day starts 40 % in.
+  (`Main._set_day`, `LightOverlay.set_time`, `Airfield.set_time`, `Shadow.set_time`.)
 * Surfaces are softly shaded, not flat: every roof, wing, tree and tank runs from lighter at its upper-left to darker at its
-  lower-right, about 18 % in value (`Prim.SHADE`), baked into vertex colours at build time: no per-frame cost. The field itself is
-  a gradient mesh. **No outlines anywhere on the ground**; aircraft keep a thin, soft slate edge only.
-* **Shadows** are blue-grey `#3B4A6B` at 26 %, soft-edged with the softness baked into small textures once (`Shadow.gd`; nothing is
-  blurred at run time), cast toward the lower-right. A building's shadow is half as long as the building is high. A flying plane's
-  shadow slides further away as it climbs and fades a little; on the ground it hugs the wheels.
+  lower-right, about 18 % in value, baked into vertex colours at build time (no per-frame cost; ratios stay at or under 1 because vertex
+  colours clamp). The field is a gradient mesh from `#B9DC72` (upper-left) through `#8FC45C` to `#76AA4B`. **No outlines on the ground**;
+  aircraft keep a thin, soft slate edge only.
+* **Shadows** are blue-grey `#3B4A6B` at 26 %, soft-edged, the softness baked into small textures once; cast toward the lower-right; a
+  building's shadow is half as long as the building is high. A flying plane's shadow slides away as it climbs and fades a little. Each
+  shadow quad that has an offset from its caster is registered (`Shadow.register`) so the offsets can grow with the shift.
 
-**Palette (Countryside; one palette per airport, Coastal and Alpine are config variants with their own ground, walls and accent)**
-* Grass: a gradient across the field from `#B9DC72` (upper-left) through `#8FC45C` to `#76AA4B` (lower-right), lighter and darker
-  translucent patches, and small three-blade grass tufts scattered sparsely (never in the approach corridors).
-* Runway asphalt `#6A7079` to `#565B66`; markings cream `#F2EDE4` at 90 %, runway numbers at 80 %, rubber streaks on the touchdown
-  zones at 20 % black. Taxiway `#A3A8B0` with yellow `#E6C35A` centreline dashes. Apron `#B6BBC2` to `#9CA1A9`.
-* Accents: orange `#F0803C` (runway 1 livery, the primary button), blue `#4C8FD6` (runway 2), violet `#8E6BBE` (helipad), teal
-  `#2BA3A6` (seaplane lane). Airframes stay white with the livery on the nose, wingtips and fin and a soft gradient across the wings.
-* Trees: round canopies with a radial gradient from `#9AD46E` to `#3F7D3F`, each with a soft shadow.
-* Buildings: rust hangar roof `#E2654A` to `#B3452F`, teal FBO roof `#4FB8B2` to `#2F8D88`, cream tower `#FFF2DC` to `#E3D3B6` with
-  a navy cab and a red beacon; a 4 px darker side on the right and bottom.
+### Palettes (one per airport style)
 
-**Readability is unchanged:** paths are lines of round dots in the runway colour (final segment green / yellow / red), timer rings
-are thick on a dark track (green, yellow, red, red adds a halo), conflicts are a red dashed ring around the pair. Scenery, life and
-props are placed outside the approach corridors and the strips where paths get drawn, so nothing can block or confuse a path.
+| | Countryside (default) | Coastal (Island) | Alpine (Mountain Field) |
+|---|---|---|---|
+| Ground | `#B9DC72` gradient; water for the island | sand rim, blue sea | `#8FC45C` with snow patches |
+| Hangar roof | `#E2654A` | `#3F8FC2` | `#6B4A3A` |
+| FBO roof | `#4FB8B2` | `#EAA64A` | `#9A3B2E` |
+| Walls | `#E8E1D2` / `#EFE6D3` | `#F7F4EA` / `#FBF8EE` | `#B98757` / `#C7955F` |
+| Apron | `#B6BBC2` | `#D2CAB6` | `#9AA0A8` |
+| Landmark | red barn and white silo, a pond | lighthouse (its lamp pulses) and a pier with gulls | timber lodge with drifting chimney smoke, pines, a chairlift with two moving chairs |
+| Birds | dark | white gulls | dark |
 
-**The ground kit and the life** (pooled, pre-warmed; only the truck, birds, balloon, mower and windsock move; `?nolife` stops them):
-parked planes on tie-downs with wheel chocks, a plane being washed, a fuel farm and a fuel truck that drives to a parked plane and
-back, a picnic table with a dog, a small car park, PAPI lights, two birds, a mower leaving stripes, a hot-air balloon and a glider on
-a trailer (scenery only), and a landmark per airport (Countryside: red barn and silo; Coastal: lighthouse and pier with gulls;
-Alpine: timber lodge with chimney smoke, pines and a chairlift).
+Shared: runway asphalt `#6A7079` to `#565B66`, markings cream `#F2EDE4` at 90 % (numbers 80 %), rubber streaks 20 % black, taxiway `#A3A8B0`
+with yellow `#E6C35A` dashes; accents orange `#F0803C` (runway 1, the primary button), blue `#4C8FD6` (runway 2), violet `#8E6BBE`
+(helipad), teal `#2BA3A6` (seaplane lane). Airframes are white with the livery on the nose, wingtips and fin. Trees: round canopies
+(`#9AD46E` to `#3F7D3F`), pines in the mountains, each with a soft shadow. The tower is cream `#FFF2DC` with a navy cab and a red beacon.
+Buildings have a 4 px darker side on the right and bottom.
 
-**Interface:** cream surfaces (gradient `#FFF8EA` to `#F6E8CF`, a solid 4 px bottom edge `#C9A46E`, a soft drop shadow, text `#5A3A12`),
-pills fully rounded, cards 22 px radius. The primary button is orange (`#FF9D4F` to `#F0803C`, a 7 px bottom edge `#B85A1B`, inset
-top highlight, white text with a slight dark shadow); pressing it drops it onto its edge. The display face is **Bowlby One SC**
-(title, timer, score, headers) in cream `#FFF4DF` with a stacked warm extrusion (`#C9641F` to `#803D11`) and a soft shadow; the title
-sits at a 2 degree tilt. Body and labels are **Rubik** 800 and 500. The coin is a real gold coin (`#F2B233`, darker rim, a propeller
-mark); stars are gold with a dark outline, empty stars cream. HUD positions never move.
+### The ground kit and the life
+
+The ramp (an apron slab with the tower, hangar, FBO, picnic table and dog, car park, oil stains, painted tie-downs, a fenced fuel farm with a
+fuel truck that drives to the ramp and back, a glider on a trailer), PAPI lights, runway lights, two birds, a mower leaving stripes and a
+hot-air balloon. Everything is built once at start-up and pooled; `?nolife` stops the moving parts (and stills the sock, the
+beacons and the lights, which `?windtest` also does).
+
+**Placement rule (checked at every airport).** Nothing built, planted or parked may stand in something the player's eye follows:
+`Airfield.in_strip(p, r)` is true inside a runway and its lights (half width + 0.55), inside the approach funnel drawn behind each end
+(it widens from half width + 0.65 at the threshold to + 2.05 at 3.4 behind it, 3.6 long), inside a water lane's or a helipad's
+approach (1.0 / 0.9 beyond it), always with the object's own radius `r` added. Landmarks, props, trees, tufts, pines, the pond, the
+chairlift, parked planes, overflow spots and upgrade props are all placed with it, and so are the aprons and windsocks of the data in
+`Airports.gd`: the County, Mountain Field, Island and International aprons were moved (and shrunk where the field is crowded: the
+International's is 0.35 of the standard size) for it. The smoke test walks every placed thing at every airport
+(`airport=<name|index>` limits it) and the screenshot tool takes the same argument.
+
+### Aircraft on the ground: taxi, hangar and ramp
+
+* A landing ends in a puff of dust and a soft in-key tyre chirp (E5 to G5, on the next eighth of the music, far under it). The plane
+  rolls out, leaves the runway past its far end and **taxis at 1.05 units/s along a fixed route** to its place: the shortest route that keeps
+  0.5 clear of every runway box (`Ramp.route`, a small visibility graph around the runways), so it never crosses one. Taxiing aircraft
+  are scenery: no collisions, drawn on the ground under the paths and the flying traffic. At most **four** taxi at their own pace; older
+  ones hurry at 9x.
+* **It is the aircraft that landed:** the ramp uses 24 extra complete models of the traffic pool (`Traffic.ramp_claim / ramp_configure`),
+  dressed from the one that landed: its type and speed class, its runway's livery colour, the airline livery's tail and stripe, the
+  student badge. It shrinks from the size it had on the runway (0.9) to the parked size (0.42 x the apron's scale) over its first
+  3 units, and a parked one shows wheel chocks.
+* **Where it goes** (`Ramp.place`): a helicopter sits on its pad for 3 s, then air-taxis to a marked heli spot (airports with a pad); a
+  seaplane taxis to the island's dock; everything else goes to the **hangar** until it holds the **break-even landing count**: the
+  airport's one-star threshold divided by the average landing pay of its traffic mix, rounded up (Regional 4, Mountain Field 5, Island 7).
+  The hangar door shows "N / cap". When it is full: the next free tie-down on the apron (six, in two rows, the second on an extension of
+  the slab to the south or the west), then up to six overflow spots on the grass along the taxiway, then a "+N" tag by the apron.
+  Crashes park nothing and keep the coin penalty. The results card says "Hangar full · 9 on the ramp" or "Hangar 5 / 8".
+* Everything that can park is built once and hidden; a shift restart clears it in place.
+
+### The wind layer
+
+Twelve thin cream streaks (60 to 120 px long, about 10 % opacity) drift across the field the way the air is going, at 20 to 60 px/s by
+the wind's strength, above the ground props and below the paths (a pooled MultiMesh; each streak fades in and out and is reborn
+elsewhere). The grass tufts lean downwind, the trees rock about a lean, the pond ripples (three pooled rings drifting downwind) and the
+windsock points downwind. **When the wind shifts** the streaks swing round over about 1.2 s and briefly double in brightness, the trees
+sway three times harder for a second and a soft gust (low filtered air, on the beat of the music) plays; the wind card's arrow turns
+smoothly. `?nowind` switches all of this off. `?windtest` (CI only) hides the interface, clears the field of aircraft and stills
+everything but the wind; `tools/web_wind_check.js` loads the real web export twice and compares two frames a moment apart: about a
+thousand pixels move with the wind, none without it.
+
+### Paths, snapping and the go-around warning
+
+* **Path feel:** while drawing, the path follows the average of the finger's last four points. A finger within 0.45 of an open runway end's
+  extended centreline, between 0.5 and 3.6 behind its threshold and heading for it, snaps onto the centreline and locks (a soft click, a
+  pulse ring at the lock point, a short buzz: `navigator.vibrate` on the web, `Input.vibrate_handheld` elsewhere). Tapping a plane clears
+  its path, which fades out over 0.25 s.
+* **Path halo:** the coloured dots sit on a cream `#FFF4DF` halo at 55 %. The earlier dark halo is behind a `?tune` toggle
+  (`path_halo_dark`) for comparison.
+* **Go-around warning:** a go-around is signalled 1.0 s before it happens (`go_around_telegraph`, in `?tune`): the plane wobbles (4 degrees
+  of roll), a "?" tag shows and its engine note rises (a soft glide in the key). Redrawing a final whose go-around chance is under 60 %
+  of the one it was rolled at inside that second cancels it (so does holding the plane); otherwise the tag becomes "GOING AROUND" and the
+  climb-out proceeds. After every shift the console gets `[go-around] warnings: N, cancelled by the player: M (cancel rate X%, window 1.0 s)`
+  and the results details list it; the economy sim logs the bots' rate.
+
+### Juice
+
+Coins leave the wheels at touchdown and arc to the counter one after the other; each plinks (climbing the scale) and bumps the counter
+on arrival. Buttons squash to 94 % while pressed and spring back. A timer ring pulses once as it turns red. Score pops tilt a few degrees
+at random. Aircraft have no engine hum: gameplay sounds are on the music's grid (see Audio).
+
+### Interface
+
+Cream surfaces (gradient `#FFF8EA` to `#F6E8CF`, a solid 4 px bottom edge `#C9A46E`, a soft drop shadow, text `#5A3A12`), pills fully
+rounded, cards 22 px radius. The primary button is orange (`#FF9D4F` to `#F0803C`, a 7 px bottom edge `#B85A1B`, an inset top highlight,
+white text with a slight dark shadow); pressing it drops it onto its edge. The display face is **Bowlby One SC** (title, timer, score,
+headers) in cream `#FFF4DF` with a stacked warm extrusion (`#C9641F` to `#803D11`) and a soft shadow; the title sits at a 2 degree tilt.
+Body and labels are **Rubik** 800 and 500. The coin is a real gold coin (`#F2B233`, darker rim, a propeller mark); stars are gold with a
+dark outline, empty stars cream. HUD positions never move.
+
+### Flags, tuning and what guards it
+
+| Flag | Effect |
+|---|---|
+| `?nolight` | no light overlay or grain |
+| `?nolife` | no moving scenery (truck, birds, balloon, mower, vehicles, sock sway, beacons) |
+| `?nowind` | no visible wind (streaks, leaning grass, swaying trees, pond ripples) |
+| `?windtest` | CI: no interface, no aircraft, a still field but for the wind |
+| `?tune` | live sliders: snap radius / reach, smoothing, path fade, path halo toggle, go-around warning and cancel factor, plus every other feel value |
+
+The smoke test (`tests/smoke_test.gd`) covers the light and its time of day, the placement rule at every airport, the hangar
+capacity and ramp counts, taxi routes that never cross a runway, taxi identity, snapping, smoothing, the wind layer, the go-around warning
+and its cancel, the halo and the juice. CI also loads the exported game in headless Chrome twice: the web audio check (sound under CPU
+throttling, background audio held) and the wind motion check. Screenshots per airport: `xvfb-run -a godot --path . --rendering-driver
+opengl3 --script tools/screenshots.gd -- out=DIR only=cozy prefix=NAME airport=countryside,island,mountain` writes the menu, a mid-shift,
+the airports list and the results for each (`docs/screens/cozy_airport_*`).
 
 ## Typography
 
@@ -221,54 +320,3 @@ the loading pages it spins while the progress bar fills. No raw text ever shows 
 ## The build stamp
 
 The commit and build time are for debugging only: they show, small, in the bottom-left corner with `?debug`, `?tune` or `?perf`, and never otherwise.
-
-## Landing, taxi and the hangar (polish pass, item 1)
-
-A landing ends in a puff of dust and a tiny tyre chirp (a soft E5→G5 glide in the key, played on the next eighth of the music, far under it).
-The aircraft rolls out, leaves the runway past its far end and taxies at 1.05 units/s along a fixed route to its place. The route is
-the shortest one that keeps 0.5 clear of every runway box (`Ramp.route`), so it never crosses one. Taxiing aircraft are scenery: they
-have no collisions, sit on the ground under the paths and the flying traffic, and at most four taxi at their own pace (the older ones
-hurry at 9x). Where they go (`Ramp.place`): the **hangar** takes as many as break the shift even (the one-star threshold divided by
-the airport's average landing pay, rounded up; the door shows "N / cap"), then the six **tie-downs** on the apron (chocks appear), then up
-to six **overflow spots** on the grass along the taxiway, then only the "+N" tag by the apron. A helicopter sits on the pad for 3 s, then
-air-taxis to the marked heli spot; a seaplane taxies to the island's dock. Crashes park nothing. Everything that can park is built once, hidden;
-a shift restart clears it in place. The results card says "Hangar full · 9 on the ramp" or "Hangar 5 / 8".
-
-## Path feel (polish pass, item 2)
-
-While drawing, the path follows the average of the finger's last four points (`path_smooth_points`), so a shaky finger draws a smooth
-line; the coloured dots keep their halo. A finger within `snap_radius` (0.45) of an open runway end's extended centreline, between 0.5 and
-`snap_reach` (3.6) behind the threshold and heading for it, snaps onto the centreline and locks: a soft click, a pulse ring at the lock point
-and a short buzz (`navigator.vibrate` on the web, `Input.vibrate_handheld` elsewhere). Tapping a plane clears its path, which fades out over
-`path_fade_seconds`. The snap radius, reach, smoothing and fade are in `?tune`.
-
-## Time passing (polish pass, item 3)
-
-Over the shift the light moves on, linearly: the warm glow goes from 35% to 50% and the cool shade from 20% to 30%; every shadow
-offset (props, buildings, the aircraft's own) is up to 30% longer (`Shadow.set_time`, which moves the registered shadow quads out
-along their own offset); and the grass gradient gets a touch warmer (blue down 9%, green down 2%). A restart resets it all; Bad Pilot Day
-starts 40% of the way in.
-
-## Wind you can always see (polish pass, item 4)
-
-Twelve thin cream streaks (60-120 px, about 10% opacity) drift across the field the way the air is going, at 20-60 px/s by the wind's
-strength, above the ground props and below the paths and the aircraft (a pooled MultiMesh, each streak fades in and out and is reborn
-elsewhere). The grass tufts lean downwind, the trees rock about a lean, the pond ripples and the windsock points downwind. When the wind
-shifts the streaks swing round over about 1.2 s and briefly double in brightness, the trees sway three times harder for a second and a
-soft gust (a low swell of filtered air, quantised to the music) plays; the wind card's arrow turns smoothly. `?nowind` switches all of
-this off; `?windtest` (used by CI) clears the field of aircraft and lets only the wind move. CI loads the real web export twice
-(`tools/web_wind_check.js`) and compares two frames a moment apart on the open grass beside the runway: with the wind enough pixels
-move, with `?nowind` none do.
-
-## The go-around telegraph (polish pass, item 5)
-
-A go-around is signalled one second before it happens (`go_around_telegraph`): the aircraft wobbles (±4° of roll), a "?" tag shows over
-it and its engine note rises (a soft glide in the key). If the player redraws a final whose go-around chance is under 60% of the one it was
-rolled at before the second is up, the go-around is cancelled; holding the aircraft cancels it too. Otherwise the tag becomes "GOING AROUND"
-and the climb-out proceeds as before. `tools/economy_sim.gd` logs how many warnings were cancelled by the bots (the better the bot, the more).
-
-## Juice (polish pass, item 6)
-
-Coins leave the wheels at touchdown, not at the end of the roll, and arc to the counter one after the other; each plinks (climbing the
-scale) and bumps the counter on arrival. Buttons squash to 94% while pressed and spring back. A timer ring pulses once as it turns red.
-Score pops rotate a few degrees at random (Cozy phase 3).
