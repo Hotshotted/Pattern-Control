@@ -128,6 +128,8 @@ func _draw_all_inner() -> void:
 		for r in Airports.rw_count():
 			if wind.is_closed(r):
 				_tag(xf * Airports.rw_center(r) + Vector2(0, -90), "CLOSED %d" % ceili(wind.closed_left[r]), Color(1.0, 0.4, 0.3))
+			elif wind.is_closing(r):
+				_tag(xf * Airports.rw_center(r) + Vector2(0, -90), "CLOSING %d" % ceili(wind.closing_left), Color(1.0, 0.75, 0.3), 160.0)
 	_students_drawn = 0
 	_go_tags = 0
 	for p in traffic.planes:
@@ -198,13 +200,13 @@ func _draw_closures(t: float) -> void:
 	if wind == null:
 		return
 	for r in Airports.rw_count():
-		if not wind.is_closed(r):
+		if not wind.is_closed(r) and not wind.is_closing(r):
 			continue
 		var c := Airports.rw_center(r)
 		var dir := Airports.end_dir(r, 0)
 		var side := Vector2(-dir.y, dir.x)
 		var len := Airports.rw_length(r) * 0.3
-		var a := 0.65 + 0.3 * sin(t * 6.0)
+		var a := 0.65 + 0.3 * sin(t * 6.0) if wind.is_closed(r) else 0.45 + 0.2 * sin(t * 10.0)       # (a closing runway's X blinks faster and fainter)
 		for sgn in [-1.0, 1.0]:
 			var p0: Vector2 = c - dir * len + side * (sgn * 0.5)
 			var p1: Vector2 = c + dir * len - side * (sgn * 0.5)

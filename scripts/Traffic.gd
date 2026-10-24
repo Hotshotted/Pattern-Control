@@ -474,7 +474,7 @@ func _approach_line(runway: int, r_end: float, r_jitter: float) -> Array[Vector2
 	var ends := 0
 	var pick := -1
 	for e in 2:
-		if wind == null or wind.is_active(runway, e):
+		if wind == null or (wind.is_active(runway, e) and not wind.is_closing(runway)):
 			ends += 1
 			if pick < 0 or r_end < 0.5:
 				pick = e
@@ -693,12 +693,14 @@ func _check_refusals(p: Aircraft, last: Vector2, raw: Vector2) -> void:
 
 ## The wind shifted: aircraft cleared to land on an end that just closed lose that clearance. Their path
 ## stays (drawn dashed red) but no longer ends on the runway: the player has to draw a new one.
+## (A runway closing for a crosswind is not a reason: only the wind decides this, so an aircraft already on its locked final to a
+## runway that closes still lands there.)
 func reroute_closed_ends() -> int:
 	var n := 0
 	if wind == null:
 		return 0
 	for p in planes:
-		if p.state == Aircraft.State.FLY and p.cleared and p.tkind == Aircraft.Kind.RUNWAY and not wind.is_active(p.runway, p.land_end):
+		if p.state == Aircraft.State.FLY and p.cleared and p.tkind == Aircraft.Kind.RUNWAY and wind.active[p.runway * 2 + p.land_end] == 0:
 			p.count = maxi(p.count - 2, 0)   # drop the approach end and the far end
 			if p.count == 0:
 				p.head = 0

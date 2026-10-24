@@ -167,6 +167,11 @@ var fog_music_tension := 0.8            # the tense music layer at full fog (0..
 var fog_fade_seconds := 2.5
 ## Crosswind: how long the runway stays closed.
 var crosswind_seconds := 16.0
+## ...announced this long ahead (banner, a red X on the runway and a countdown; the runway stays open for landings meanwhile, and
+## nothing new is sent to it), never in the first closure_min_time seconds of a shift, and never on the first closure_min_airport airports.
+var closure_warning_seconds := 8.0
+var closure_min_time := 30.0
+var closure_min_airport := 2
 
 # ---------- Timed shifts, coins and fines ----------
 ## A shift lasts exactly this long (seconds), shown as a countdown. Aircraft keep arriving until it ends.

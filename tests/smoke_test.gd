@@ -1515,16 +1515,32 @@ func _initialize() -> void:
 	main.weather.start()
 	main.weather.kind = ""
 	var rw_close = [-1]
+	# the rules: never in the first 30 s of a shift, never on the first two airports (the scheduler's own call; the ?tune button forces one)
+	var wx_rules = main.weather.get_script().new()
+	wx_rules.start()
+	wx_rules.trigger("crosswind", tr.rng, main.wind)
+	check(wx_rules.phase == 0, "no closure in the first %.0f s of a shift" % tuning.closure_min_time)
+	wx_rules.elapsed = tuning.closure_min_time + 1.0
+	var wx_airport := Airports.current
+	Airports.current = 1
+	wx_rules.trigger("crosswind", tr.rng, main.wind)
+	check(wx_rules.phase == 0, "...nor on the first two airports")
+	Airports.current = wx_airport
+	wx_rules.trigger("crosswind", tr.rng, main.wind)
+	check(wx_rules.phase == 1 and is_equal_approx(wx_rules.left, tuning.closure_warning_seconds) and tuning.closure_warning_seconds == 8.0, "...and later on a later airport it is announced 8 s ahead")
 	main.trigger_weather("crosswind")
 	rw_close[0] = main.weather.runway
-	check(main.hud._event_banner.text.begins_with("Crosswind:") and rw_close[0] >= 0, "a crosswind is announced with a banner (%s)" % main.hud._event_banner.text)
+	check(main.hud._event_banner.text.contains("runway closing in 8 s") and rw_close[0] >= 0, "a closure is announced with a banner (%s)" % main.hud._event_banner.text)
 	main.weather.runway = 0
+	main.wind.closing = 0
 	rw_close[0] = 0
-	run_sec(main, tuning.weather_warning_seconds + 0.3)
+	run_sec(main, 3.0)
+	check(main.wind.is_closing(0) and main.wind.is_active(0, 0) and not main.wind.is_closed(0) and main.hud._event_banner.text.contains("closing in") and cw.cleared, "while it counts down the runway is still open and the aircraft on final keeps its clearance")
+	run_sec(main, tuning.closure_warning_seconds - 3.0 + 0.3)
 	check(main.wind.is_closed(0) and not main.wind.is_active(0, 0) and not main.wind.is_active(0, 1), "the runway closes at both ends")
 	check(main.wind.open_runways() == 1 and main.wind.is_active(1, 0), "the other runway stays open")
 	check(not main.airfield.cur.active[0] and not main.airfield.cur.active[1], "its thresholds are dimmed on the field")
-	check(not cw.cleared and cw.path_invalid, "an aircraft cleared to the closed runway has to be re-routed")
+	check(cw.cleared and not cw.path_invalid, "an aircraft already locked on final to the runway that closes still gets to land")
 	check(not main.weather.trigger("crosswind", tr.rng, main.wind) and main.weather.phase == 2, "a second closure is never started (the last runway stays open)") if false else null
 	check(not main.wind.close_runway(1, 10.0), "the last open runway can never be closed")
 	var cw_inactive = tr.place(0, Airports.end_threshold(0, 0) + Vector2(-1.8, 2.4), 0.0, MEDIUM)

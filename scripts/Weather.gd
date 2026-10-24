@@ -15,12 +15,14 @@ var phase := Phase.IDLE
 var kind := ""                  # the announced / running event
 var runway := -1                # crosswind: which runway is closing
 var countdown := 40.0           # IDLE: seconds until the next event is announced
+var elapsed := 0.0              # seconds into the shift (a closure never comes early)
 var left := 0.0                 # WARN: seconds until it starts; ACTIVE: seconds until it ends
 
 func start() -> void:
 	phase = Phase.IDLE
 	kind = ""
 	runway = -1
+	elapsed = 0.0
 	countdown = Tuning.weather_first_eff()
 
 ## Seconds between events at this point of the shift (progress 0..1) on this airport.
@@ -37,6 +39,7 @@ func duration(k: String) -> float:
 			return Tuning.crosswind_seconds
 
 func step(dt: float, progress: float, rng: RandomNumberGenerator, wind: Wind) -> void:
+	elapsed += dt
 	var kinds := Airports.weather_kinds()
 	if kinds.is_empty() or Tuning.weather_scale_eff() == INF:
 		return
@@ -61,8 +64,12 @@ func step(dt: float, progress: float, rng: RandomNumberGenerator, wind: Wind) ->
 				ended.emit(k)
 
 ## Announce an event of this kind now (the scheduler uses it; so does the ?tune debug button).
-func trigger(k: String, rng: RandomNumberGenerator, wind: Wind) -> void:
+func trigger(k: String, rng: RandomNumberGenerator, wind: Wind, force: bool = false) -> void:
 	if phase != Phase.IDLE:
+		return
+	# A runway never closes in the first seconds of a shift, nor on the first airports (`force` is the ?tune button)
+	if k == "crosswind" and not force and (Airports.current < Tuning.closure_min_airport or elapsed < Tuning.closure_min_time):
+		countdown = maxf(Tuning.closure_min_time - elapsed, 0.0) + 5.0
 		return
 	kind = k
 	var text := ""
@@ -82,17 +89,17 @@ func trigger(k: String, rng: RandomNumberGenerator, wind: Wind) -> void:
 				countdown = 15.0
 				return
 			runway = open_list[rng.randi() % open_list.size()]
-			text = "Gusty crosswind: %s runway closing" % Airports.rw_name(runway)
+			text = "%s runway closing in %d s" % [Airports.rw_name(runway).capitalize(), ceili(Tuning.closure_warning_seconds)]
 	phase = Phase.WARN
-	left = Tuning.weather_warning_seconds
+	left = Tuning.closure_warning_seconds if k == "crosswind" else Tuning.weather_warning_seconds
 	warned.emit(k, text)
 
 ## The banner line for the HUD ("" when nothing is going on).
 func banner() -> String:
 	match phase:
 		Phase.WARN:
-			var what := "Storm cell" if kind == "storm" else ("Fog" if kind == "fog" else "Crosswind: %s runway closes" % Airports.rw_name(runway))
-			return "%s in %ds" % [what, ceili(left)]
+			var what := "Storm cell" if kind == "storm" else ("Fog" if kind == "fog" else "%s runway closing" % Airports.rw_name(runway).capitalize())
+			return "%s in %d s" % [what, ceili(left)]
 		Phase.ACTIVE:
 			match kind:
 				"storm":
@@ -100,5 +107,5 @@ func banner() -> String:
 				"fog":
 					return "Fog: %ds" % ceili(left)
 				_:
-					return "%s runway closed: %ds" % [Airports.rw_name(runway), ceili(left)]
+					return "%s runway closed: %d s" % [Airports.rw_name(runway).capitalize(), ceili(left)]
 	return ""

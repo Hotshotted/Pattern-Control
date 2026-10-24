@@ -16,6 +16,8 @@ var warning := false            # a shift has been announced and is counting dow
 var countdown := 30.0           # seconds until the next shift
 var active := PackedByteArray() # runway * 2 + end -> 1 if landing there is allowed (by the wind alone)
 var closed_left := PackedFloat32Array()   # per runway: seconds it stays closed (a gusty crosswind), 0 = open
+var closing := -1               # the runway that is about to close (announced, still open), -1 = none
+var closing_left := 0.0         # ...and the seconds until it does
 
 func _init() -> void:
 	active.resize(32)
@@ -27,6 +29,7 @@ func start(rng: RandomNumberGenerator) -> void:
 	next_deg = from_deg
 	warning = false
 	closed_left.fill(0.0)
+	closing = -1
 	countdown = Tuning.wind_first_eff()
 	refresh()
 
@@ -40,6 +43,10 @@ func is_active(runway: int, end: int) -> bool:
 
 func is_closed(runway: int) -> bool:
 	return closed_left[runway] > 0.0
+
+## Announced but not closed yet: still open to the aircraft that are on their way, but no new arrival is sent to it.
+func is_closing(runway: int) -> bool:
+	return closing == runway
 
 ## How many runways can be landed on right now?
 func open_runways() -> int:

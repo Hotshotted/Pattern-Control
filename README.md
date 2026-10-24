@@ -47,7 +47,9 @@ You run an airport, one **shift** at a time.
   waves dim the ground and scenery, while aircraft, paths, timers, banners and runways stay on top and fully readable;
   the mood is muted colors, a soft ambience and tenser music, and poor approaches go around slightly more often
   (never on Grass Strip or County); and a *gusty crosswind* closes one runway for
-  a while (red X and a countdown; aircraft cleared to it are re-routed).
+  16 s: announced 8 s ahead ("Orange runway closing in 8 s", a red X and a countdown on the runway), never in the first 30 s of a
+  shift or on Grass Strip or County, never the last open runway; no new arrival is sent to a closing runway, and aircraft already
+  locked on final to it still land.
 - **Shop** (cosmetics only): airport *themes* (Autumn, Desert, Winter, Night: palette and scenery) and airline
   *liveries* with an animal pilot (Fox Air, Owl Express, Penguin Pacific, Bear Cargo, Cat Airways). The pilot's
   portrait sits in the corner of the HUD, hops on each landing and appears on the results screen.

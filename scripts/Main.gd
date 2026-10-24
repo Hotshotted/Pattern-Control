@@ -499,6 +499,8 @@ func step(delta: float) -> void:
 	hud.set_shift_fraction(frac)
 	if t < Tuning.spawn_stop_eff() or weather.phase != Weather.Phase.IDLE:
 		weather.step(delta, frac, rng_env, wind)
+		wind.closing = weather.runway if weather.phase == Weather.Phase.WARN and weather.kind == "crosswind" else -1
+		wind.closing_left = weather.left
 		var key := "%d:%d" % [weather.phase, ceili(weather.left)]
 		if key != _event_key:    # (the banner text is only rebuilt when the second changes)
 			_event_key = key
@@ -808,6 +810,7 @@ func _on_weather_started(kind: String) -> void:
 		"fog":
 			traffic.fog_target = 1.0
 		_:
+			wind.closing = -1
 			if wind.close_runway(weather.runway, Tuning.crosswind_seconds):
 				airfield.show_active(wind)
 				traffic.reroute_closed_ends()
@@ -847,7 +850,7 @@ func _on_runway_reopened(r: int) -> void:
 
 ## Debug (?tune): announce a weather event now.
 func trigger_weather(kind: String) -> void:
-	weather.trigger(kind, rng_env, wind)
+	weather.trigger(kind, rng_env, wind, true)
 
 func _on_rerouted(p: Aircraft) -> void:
 	hud.popup("Re-route!", Color(1, 0.35, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
