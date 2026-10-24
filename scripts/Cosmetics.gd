@@ -1,7 +1,7 @@
 class_name Cosmetics
 extends RefCounted
 ## Purely visual things bought with coins: airport THEMES (palette + scenery) and airline LIVERIES (tail and
-## stripe colours, with an animal pilot whose portrait shows up on the shop cards, the HUD and the results).
+## body and stripe colours (the fuselage and the stripe only: the nose, wingtips and fin always keep the runway's colour), with an animal pilot whose portrait shows up on the shop cards, the HUD and the results).
 ## Pure data: no Tuning / Save references.
 
 const THEME_COUNT := 5
@@ -21,12 +21,12 @@ const THEMES := [
 ]
 
 const LIVERIES := [
-	{"id": "standard", "name": "Pattern Air", "pilot": "Captain Duck", "animal": 0, "cost": 0, "tail": null, "stripe": null, "quote": "Quack. Smooth landings, please."},
-	{"id": "fox", "name": "Fox Air", "pilot": "Captain Fox", "animal": 1, "cost": 200, "tail": Color(0.97, 0.97, 0.95), "stripe": Color(0.75, 0.12, 0.12), "quote": "Sly approach, perfect flare."},
-	{"id": "owl", "name": "Owl Express", "pilot": "Captain Owl", "animal": 2, "cost": 300, "tail": Color(0.45, 0.3, 0.18), "stripe": Color(0.9, 0.78, 0.5), "quote": "Whoo's landing next?"},
-	{"id": "penguin", "name": "Penguin Pacific", "pilot": "Captain Penguin", "animal": 3, "cost": 400, "tail": Color(0.1, 0.1, 0.14), "stripe": Color(1.0, 1.0, 1.0), "quote": "Cool as ice on final."},
-	{"id": "bear", "name": "Bear Cargo", "pilot": "Captain Bear", "animal": 4, "cost": 500, "tail": Color(0.14, 0.4, 0.2), "stripe": Color(0.98, 0.85, 0.2), "quote": "Heavy loads, gentle touchdowns."},
-	{"id": "cat", "name": "Cat Airways", "pilot": "Captain Cat", "animal": 5, "cost": 600, "tail": Color(0.55, 0.3, 0.75), "stripe": Color(1.0, 0.6, 0.8), "quote": "Always lands on its feet."},
+	{"id": "standard", "name": "Pattern Air", "pilot": "Captain Duck", "animal": 0, "cost": 0, "body": null, "stripe": null, "quote": "Quack. Smooth landings, please."},
+	{"id": "fox", "name": "Fox Air", "pilot": "Captain Fox", "animal": 1, "cost": 200, "body": Color(0.97, 0.97, 0.95), "stripe": Color(0.75, 0.12, 0.12), "quote": "Sly approach, perfect flare."},
+	{"id": "owl", "name": "Owl Express", "pilot": "Captain Owl", "animal": 2, "cost": 300, "body": Color(0.45, 0.3, 0.18), "stripe": Color(0.9, 0.78, 0.5), "quote": "Whoo's landing next?"},
+	{"id": "penguin", "name": "Penguin Pacific", "pilot": "Captain Penguin", "animal": 3, "cost": 400, "body": Color(0.1, 0.1, 0.14), "stripe": Color(1.0, 1.0, 1.0), "quote": "Cool as ice on final."},
+	{"id": "bear", "name": "Bear Cargo", "pilot": "Captain Bear", "animal": 4, "cost": 500, "body": Color(0.14, 0.4, 0.2), "stripe": Color(0.95, 0.9, 0.3), "quote": "Heavy loads, gentle touchdowns."},
+	{"id": "cat", "name": "Cat Airways", "pilot": "Captain Cat", "animal": 5, "cost": 600, "body": Color(0.36, 0.33, 0.34), "stripe": Color(0.98, 0.94, 0.82), "quote": "Always lands on its feet."},
 ]
 
 static func theme_index(id: String) -> int:

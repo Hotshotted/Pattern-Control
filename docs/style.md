@@ -121,7 +121,7 @@ funnels, rings, lane ends and 250 spawns per airport against the interface, and 
   are scenery: no collisions, drawn on the ground under the paths and the flying traffic. At most **four** taxi at their own pace; older
   ones hurry at 9x.
 * **It is the aircraft that landed:** the ramp uses 24 extra complete models of the traffic pool (`Traffic.ramp_claim / ramp_configure`),
-  dressed from the one that landed: its type and speed class, its runway's livery colour, the airline livery's tail and stripe, the
+  dressed from the one that landed: its type and speed class, its runway's livery colour, the airline livery's body and stripe (the nose, wingtips and fin always keep the runway's colour), the
   student badge. It shrinks from the size it had on the runway (0.9) to the parked size (0.42 x the apron's scale) over its first
   3 units, and a parked one shows wheel chocks.
 * **Where it goes** (`Ramp.place`). **Every landing counts toward the hangar**, wherever the aircraft parks: the hangar holds the

@@ -1617,9 +1617,24 @@ func _initialize() -> void:
 	var fx_plane = tr.place(0, Vector2(0, 0), 0.0, MEDIUM)
 	tr._sync(fx_plane, tr.planes.find(fx_plane))
 	var fi = tr.planes.find(fx_plane)
-	check(tr._tail_mats[fi].albedo_color.is_equal_approx(Cosmetics.LIVERIES[1]["tail"]) and tr._stripes[fi][0].visible, "aircraft wear the livery's tail and stripe")
+	check(tr._fus_mats[fi].albedo_color.is_equal_approx(Cosmetics.LIVERIES[1]["body"]) and tr._stripe_mats[fi].albedo_color.is_equal_approx(Cosmetics.LIVERIES[1]["stripe"]) and tr._stripes[fi][0].visible, "aircraft wear the livery's body and stripe")
+	check(tr._body_mats[fi].albedo_color.is_equal_approx(Airports.land_color(tr.planes[fi].tkind, tr.planes[fi].runway)), "...while the nose, wingtips and fin keep the runway's colour")
 	main.shop_pick("livery", 0)
-	check(tr._stripes[fi][0].visible and tr._tail_mats[fi].albedo_color.is_equal_approx(tr._body_mats[fi].albedo_color) and tr._stripe_mats[fi].albedo_color.is_equal_approx(tr._body_mats[fi].albedo_color), "the standard livery wears the runway's colour on the stripe and the fin")
+	check(not tr._stripes[fi][0].visible and tr._fus_mats[fi].albedo_color.is_equal_approx(Color.WHITE), "the standard livery has a white fuselage and no coloured stripe")
+	# no livery colour (fuselage or stripe) is anywhere near a runway colour: the nose, wingtips and fin must stay the only thing that says "this runway"
+	var lv_clear := true
+	var lv_names := ""
+	for lv_i in Cosmetics.LIVERY_COUNT:
+		for lv_key in ["body", "stripe"]:
+			var lv_c = Cosmetics.LIVERIES[lv_i][lv_key]
+			if lv_c == null:
+				continue
+			for lv_rc in [Airports.ORANGE, Airports.BLUE, Airports.PINK, Airports.PAD_COLOR, Airports.LANE_COLOR]:
+				var lv_d := Vector3(lv_c.r - lv_rc.r, lv_c.g - lv_rc.g, lv_c.b - lv_rc.b).length()
+				if lv_d < 0.3:
+					lv_clear = false
+					lv_names += " %s/%s (%.2f)" % [Cosmetics.LIVERIES[lv_i]["id"], lv_key, lv_d]
+	check(lv_clear, "no livery colour is within 0.3 of a runway, pad or lane colour:" + lv_names)
 	main.shop_pick("livery", 1)
 	tr.release_all()
 	save.write_file()
@@ -4716,7 +4731,7 @@ func _initialize() -> void:
 	check(id_tr._body_mats[id_mi].albedo_color.is_equal_approx(Airports.land_color(Aircraft.Kind.RUNWAY, 1)) and id_tr._badges[id_mi].visible, "...in its runway's livery colour and with its student badge")
 	check(id_tr._fuselages[id_mi].scale.z == id_tr._fuselages[id_mi].scale.z and id_tr._jet_groups[id_mi].scale.is_equal_approx(Vector3(1.0, 1.0, 0.9 + 0.1 * 1.3)), "...at the speed class's length")
 	var id_lv = Cosmetics.LIVERIES[id_tr.livery]
-	check(id_tr._tail_mats[id_mi].albedo_color.is_equal_approx(id_lv["tail"] if id_lv["tail"] != null else Airports.land_color(Aircraft.Kind.RUNWAY, 1)), "...and its tail")
+	check(id_tr._fus_mats[id_mi].albedo_color.is_equal_approx(id_lv["body"] if id_lv["body"] != null else Color.WHITE), "...and its livery's fuselage")
 	for id_k in 600:
 		id_af.step_taxi(0.1)
 	check(id_af.taxis.is_empty(), "it gets there")
