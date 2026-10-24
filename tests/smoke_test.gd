@@ -4658,6 +4658,8 @@ func _initialize() -> void:
 						ly_only.append(4)
 					"mountain":
 						ly_only.append(3)
+					"international":
+						ly_only.append(5)
 					_:
 						ly_only.append(int(ly_n))
 	var ly_af = main.airfield

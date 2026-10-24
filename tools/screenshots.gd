@@ -303,6 +303,8 @@ func _airport_index(name: String) -> int:
 			return 4
 		"mountain", "alpine":
 			return 3
+		"international":
+			return 5
 	return clampi(int(name), 0, Airports.COUNT - 1)
 
 func _cozy_shots(save, ap: int, tag: String) -> void:

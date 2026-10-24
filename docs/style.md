@@ -101,8 +101,9 @@ beacons and the lights, which `?windtest` also does).
 (it widens from half width + 0.65 at the threshold to + 2.05 at 3.4 behind it, 3.6 long), inside a water lane's or a helipad's
 approach (1.0 / 0.9 beyond it), always with the object's own radius `r` added. Landmarks, props, trees, tufts, pines, the pond, the
 chairlift, parked planes, overflow spots and upgrade props are all placed with it, and so are the aprons and windsocks of the data in
-`Airports.gd`: the County, Mountain Field, Island and International aprons were moved (and shrunk where the field is crowded: the
-International's is 0.35 of the standard size) for it. The smoke test walks every placed thing at every airport
+`Airports.gd`: the County, Mountain Field and Island aprons were moved for it, and the International's layout was redrawn (the three
+runways shifted left, the helipads and the seaplane lane moved to the right-hand column's ends) so its full-size apron, with a terminal and
+six tie-downs, sits beside the third runway outside every strip. The smoke test walks every placed thing at every airport
 (`airport=<name|index>` limits it) and the screenshot tool takes the same argument.
 
 ### Aircraft on the ground: taxi, hangar and ramp
