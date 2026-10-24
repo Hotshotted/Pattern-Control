@@ -59,6 +59,7 @@ srv.listen(0, async () => {
         const da = get(ia), db = get(ib);
         // ?windtest hides the interface and the marks and stops everything else that moves, so the whole frame is compared
         const y0 = 0, y1 = h, x1 = w;
+        let changed = 0, peak = 0; const cells = {};
         for (let y = y0; y < y1; y++) {
           for (let x = 0; x < x1; x++) {
             const i = (y * w + x) * 4;

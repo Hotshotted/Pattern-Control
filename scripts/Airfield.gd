@@ -983,6 +983,8 @@ func _process(delta: float) -> void:
 		_animate_ground(delta, now)
 		_animate_life(delta)
 	_animate_wind(delta, now)
+	if cur.lights != null:
+		cur.lights.visible = not DebugFlags.windtest_enabled()       # (the lights shimmer by themselves: the web wind check wants a still field)
 	var pulse := 1.4 if int(now / 1400.0) % 2 == 0 and DebugFlags.life_enabled() else 0.2
 	for lm2 in cur.lamps:
 		lm2.emission_energy_multiplier = pulse
@@ -990,7 +992,7 @@ func _process(delta: float) -> void:
 		bm.emission_energy_multiplier = blink
 		bm.albedo_color = Color(0.95, 0.23, 0.19) if blink > 0.0 else Color(0.45, 0.14, 0.12)
 	if wind != null and cur.sock != null:
-		_sock_deg += wrapf(wind.toward_deg() - _sock_deg, -180.0, 180.0) * minf(delta * 2.5, 1.0)
+		_sock_deg += wrapf(wind.toward_deg() - _sock_deg, -180.0, 180.0) * (1.0 if DebugFlags.windtest_enabled() else minf(delta * 2.5, 1.0))
 		var wiggle := sin(now / 260.0) * 6.0 if DebugFlags.life_enabled() else 0.0
 		cur.sock.rotation.y = -deg_to_rad(_sock_deg + wiggle)
 		cur.sock.rotation.x = deg_to_rad(sin(now / 190.0) * 4.0) if DebugFlags.life_enabled() else 0.0
