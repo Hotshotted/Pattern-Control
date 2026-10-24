@@ -11,7 +11,7 @@ extends Node
 ## looping players. Buses come from default_bus_layout.tres and are never created at run time.
 
 const RATE := 44100
-const POOL := 8
+const POOL := 14
 const STEPS := 7               # landing chimes / coin plinks: this many steps up the scale
 const BEAT := 0.75             # music: seconds per beat, 8 beats per loop (6 s)
 const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "star", "slam", "back", "toggle", "buy", "error", "whoosh", "unlock", "touch", "chirp", "gust", "rev", "arrive"]
