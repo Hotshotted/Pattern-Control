@@ -4612,6 +4612,57 @@ func _initialize() -> void:
 		main.hud._process(0.05)
 	check(main.hud.coins_arrived - ju_arrived0 == 3, "...each arrives at the counter on its own (%d)" % (main.hud.coins_arrived - ju_arrived0))
 
+	print("19. Per-airport layout: nothing built, planted or parked in an approach corridor or a drawn-path strip")
+	var ly_only = []                  # (godot ... -- airport=3,4 limits this section to those airports)
+	for ly_a in OS.get_cmdline_user_args():
+		if ly_a.begins_with("airport="):
+			for ly_n in ly_a.substr(8).split(","):
+				match ly_n.to_lower():
+					"countryside":
+						ly_only.append(2)
+					"island":
+						ly_only.append(4)
+					"mountain":
+						ly_only.append(3)
+					_:
+						ly_only.append(int(ly_n))
+	var ly_af = main.airfield
+	for ly_i in Airports.COUNT:
+		if not ly_only.is_empty() and not ly_only.has(ly_i):
+			continue
+		Airports.current = ly_i
+		var ly_v = ly_af.variants[ly_i]
+		var ly_bad = []
+		var ly_pts = {}
+		for ly_p in ly_v.scenery:
+			ly_pts["scenery %s" % str(ly_p)] = [ly_p, 0.3]
+		for ly_k in ly_v.slots:
+			for ly_e in ly_v.slots[ly_k]:
+				ly_pts["%s slot %s" % [ly_k, str(ly_e["pos"])]] = [ly_e["pos"], 0.3]
+		if not ly_v.pond.is_empty():
+			ly_pts["pond"] = [ly_v.pond["center"], ly_v.pond["r"]]
+		for ly_st in 3:
+			for ly_h in ly_v.tree_styles[ly_st]:
+				ly_pts["tree %s" % str(ly_h.position)] = [Vector2(ly_h.position.x, ly_h.position.z), 0.4]
+		for ly_tb in ly_v.tuft_base:
+			ly_pts["tuft %s" % str(ly_tb.origin)] = [Vector2(ly_tb.origin.x, ly_tb.origin.z), 0.1]
+		if ly_v.chair_a != Vector2.ZERO:
+			for ly_q in 8:
+				ly_pts["chairlift %d" % ly_q] = [ly_v.chair_a.lerp(ly_v.chair_b, ly_q / 7.0), 0.3]
+		ly_pts["tower"] = [Airports.tower_pos(), 0.4]
+		ly_pts["windsock"] = [Airports.windsock_pos(), 0.3]
+		for ly_key in ly_pts:
+			if ly_af.in_strip(ly_pts[ly_key][0], ly_pts[ly_key][1]):
+				ly_bad.append(ly_key)
+		var ly_ap = Airports.apron()
+		var ly_c = ly_ap["center"]
+		var ly_s = ly_ap["s"]
+		if not ly_af.rect_out_of_strips(Rect2(ly_c.x - 1.4 * ly_s, ly_c.y - 1.6 * ly_s, 2.8 * ly_s, 3.2 * ly_s), 0.0):
+			ly_bad.append("apron")
+		check(ly_bad.is_empty(), "%s: all of its %d placed things are outside the strips %s" % [Airports.airport_name(ly_i), ly_pts.size(), str(ly_bad.slice(0, 6))])
+	Airports.current = rp_keep
+	main.airfield.select(rp_keep)
+
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
 	if failures.is_empty():

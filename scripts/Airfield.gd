@@ -275,6 +275,44 @@ func _clear_of_paths(p: Vector2, margin: float = 0.4) -> bool:
 			return false
 	return true
 
+## Is `p` (with `r` to spare) inside something the player's eye follows: a runway and its lights, the approach funnel drawn behind each
+## runway end (it widens from the threshold to 3.4 behind it), a water lane's or a helipad's approach? Nothing built, planted or parked goes there.
+static func in_strip(p: Vector2, r: float = 0.0) -> bool:
+	for i in Airports.rw_count():
+		var h := deg_to_rad(Airports.rw_heading_deg(i))
+		var dir := Vector2(sin(h), -cos(h))
+		var rel := p - Airports.rw_center(i)
+		var along := absf(rel.dot(dir))
+		var lat := absf(rel.dot(Vector2(-dir.y, dir.x)))
+		var half := Airports.rw_length(i) * 0.5
+		var w: float = Airports.rw_width(i)
+		if along < half + r and lat < w * 0.5 + 0.55 + r:
+			return true
+		if along >= half and along < half + 3.6 + r and lat < w * 0.5 + 0.65 + 1.4 * minf(along - half, 3.4) / 3.4 + r:
+			return true
+	for lane in Airports.lanes():
+		var lh := deg_to_rad(lane["heading"])
+		var ld := Vector2(sin(lh), -cos(lh))
+		var lrel: Vector2 = p - (lane["center"] as Vector2)
+		if absf(lrel.dot(Vector2(-ld.y, ld.x))) < lane["width"] * 0.5 + 1.0 + r and absf(lrel.dot(ld)) < lane["length"] * 0.5 + 1.0 + r:
+			return true
+	for pad in Airports.pads():
+		if p.distance_to(pad["center"]) < pad["radius"] + 0.9 + r:
+			return true
+	return false
+
+## Is the whole rectangle clear of those strips (checked on a grid)?
+static func rect_out_of_strips(rc: Rect2, r: float = 0.0) -> bool:
+	var y := rc.position.y
+	while y <= rc.end.y + 0.001:
+		var x := rc.position.x
+		while x <= rc.end.x + 0.001:
+			if in_strip(Vector2(x, y), r):
+				return false
+			x += 0.25
+		y += 0.25
+	return true
+
 ## Small three-blade grass tufts scattered sparsely over the grass (one MultiMesh per airport; nothing moves).
 func _tufts(v: AirportScene) -> void:
 	var blade := ArrayMesh.new()
@@ -303,7 +341,7 @@ func _tufts(v: AirportScene) -> void:
 	while spots.size() < 46 and tries < 500:
 		tries += 1
 		var p := Vector2(rng.randf_range(-4.8, 4.8), rng.randf_range(-8.6, 8.6))
-		if not _spot_free(p, 0.35, 9.0) or not _clear_of_paths(p):
+		if not _spot_free(p, 0.35, 9.0) or not _clear_of_paths(p) or in_strip(p, 0.1):
 			continue
 		var tr := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.7, 1.1)), Vector3(p.x, 0.012, p.y))
 		spots.append(tr)
@@ -328,7 +366,7 @@ func _trees(v: AirportScene) -> void:
 	v.leaf_hi = Prim.mat(v.leaf_mat.albedo_color.lightened(0.38))
 	v.trunk_mat = Prim.mat(Color(0.45, 0.3, 0.18))
 	for t in [Vector2(-4.4, 6.4), Vector2(-3.6, 7.6), Vector2(4.3, 6.9), Vector2(4.5, -6.5), Vector2(-4.4, -6.9), Vector2(3.7, -7.8), Vector2(-4.2, -3.9), Vector2(4.5, 4.4)]:
-		var blocked := false
+		var blocked := in_strip(t, 0.45)
 		for st in v.strips:
 			var sa: Vector2 = st[0]
 			var sab: Vector2 = (st[1] as Vector2) - sa
@@ -773,7 +811,7 @@ func _landmark(v: AirportScene) -> void:
 			while pine_n < 7 and tries < 200:
 				tries += 1
 				var pp := Vector2(rng.randf_range(-4.5, 4.5), rng.randf_range(-8.0, 8.0))
-				if _spot_free(pp, 0.3, 9.0) and _clear_of_paths(pp, 0.1):
+				if _spot_free(pp, 0.3, 9.0) and _clear_of_paths(pp, 0.1) and not in_strip(pp, 0.4):
 					_occupied.append([pp, 0.35])
 					Models.pine(root, pp, rng.randf_range(0.9, 1.3))
 					pine_n += 1
@@ -783,7 +821,7 @@ func _landmark(v: AirportScene) -> void:
 				var b := Vector2(x, 1.6)
 				var ok := true
 				for q in 8:
-					if not _clear_of_paths(a.lerp(b, q / 7.0), -0.2):
+					if not _clear_of_paths(a.lerp(b, q / 7.0), -0.2) or in_strip(a.lerp(b, q / 7.0), 0.3):
 						ok = false
 				if ok:
 					Models.chairlift(root, a, b, v.chairs)
@@ -823,7 +861,7 @@ func _rect_clear(c: Vector2, w: float, d: float) -> bool:
 	for i in nx + 1:
 		for j in nz + 1:
 			var p := c + Vector2(-w * 0.5 + w * i / nx, -d * 0.5 + d * j / nz)
-			if not _clear_of_paths(p, -0.1):
+			if not _clear_of_paths(p, -0.1) or in_strip(p, 0.05):
 				return false
 			for o in _occupied:
 				if p.distance_to(o[0]) < float(o[1]):
@@ -1108,7 +1146,7 @@ func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> 
 	for ring in radii:
 		for k in 12:
 			var p: Vector2 = c + Vector2(cos(k * TAU / 12.0 + 0.4), sin(k * TAU / 12.0 + 0.4)) * ring
-			if not _spot_free(p, r):
+			if not _spot_free(p, r, 8.6) or in_strip(p, r):
 				continue
 			var ok := true
 			for q in out:
@@ -1124,7 +1162,7 @@ func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> 
 		var gz := -8.4
 		while gz <= 8.4:
 			var p2 := Vector2(gx, gz)
-			if _spot_free(p2, r) and _clear_of_paths(p2, -0.3):
+			if _spot_free(p2, r, 8.6) and _clear_of_paths(p2, -0.9) and not in_strip(p2, r):
 				best.append(p2)
 			gz += 0.5
 		gx += 0.5
@@ -1194,12 +1232,12 @@ func _upgrade_props(v: AirportScene) -> void:
 	var cone_a := Prim.mat(Color(1.0, 0.5, 0.1))
 	var cone_b := Prim.mat(Color(0.97, 0.97, 0.95))
 	var fix_pos: Array[Vector2] = []
-	for z in [-1.5, 1.0, -3.2, 2.6, -4.6, 4.4, 0.0, -2.2, 3.4, -5.4, 5.4]:
-		for x in [-4.2, 4.2, -3.6, 3.6]:
+	for z in [-1.5, 1.0, -3.2, 2.6, -4.6, 4.4, 0.0, -2.2, 3.4, -5.4, 5.4, -6.4, 6.4, -7.4, 7.4, -8.2, 8.2]:
+		for x in [-4.2, 4.2, -3.6, 3.6, -4.6, 4.6, 0.0]:
 			fix_pos.append(Vector2(x, z))
 	var placed := 0
 	for p in fix_pos:
-		if placed >= 6 or not _spot_free(p, 0.5):
+		if placed >= 6 or not _spot_free(p, 0.3, 8.6) or in_strip(p, 0.25):
 			continue
 		var near_other := false
 		for u in v.ups:
@@ -1285,8 +1323,8 @@ func _ramp_slots(v: AirportScene) -> void:
 	var pal: Dictionary = PALETTE[v.style]
 	var accents := [Airports.ORANGE, Airports.BLUE]
 	v.ramp_ok = true
-	var south := _clear_of_paths(c + Vector2(0.0, 2.15 * s), -0.9)
-	var west := not south and _clear_of_paths(c + Vector2(-1.95 * s, 0.0), -0.9)
+	var south := absf(c.y + 2.7 * s) < 8.9 and rect_out_of_strips(Rect2(c.x - 1.4 * s, c.y + 1.6 * s, 2.8 * s, 1.1 * s), 0.1)
+	var west := not south and c.x - 2.5 * s > -5.0 and rect_out_of_strips(Rect2(c.x - 2.5 * s, c.y - 1.6 * s, 1.1 * s, 3.2 * s), 0.1)
 	var ex := c.x + 1.55 * s
 	var aisle1 := c.y + 0.82 * s
 	var aisle2 := c.y + 1.72 * s
@@ -1357,7 +1395,7 @@ func _ramp_slots(v: AirportScene) -> void:
 			var cp: Vector2 = wp + wn * sg * 0.72
 			if chosen.size() >= Ramp.OVERS:
 				break
-			if not _spot_free(cp, 0.4, 8.6) or not _clear_of_paths(cp, -0.3) or cp.distance_to(c) < 2.0 * s + 0.3:
+			if not _spot_free(cp, 0.4, 8.6) or not _clear_of_paths(cp, -0.3) or in_strip(cp, 0.35) or cp.distance_to(c) < 2.0 * s + 0.3:
 				continue
 			var near := false
 			for o in chosen:

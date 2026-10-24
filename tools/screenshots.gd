@@ -6,6 +6,7 @@ extends SceneTree
 var out := "/tmp/shots"
 var only := ""          # "types": just the aircraft line-up (a quick look while drawing them); "cozy": the four comparison screens
 var prefix := "cozy"    # file name prefix of the "cozy" shots (docs/screens/cozy_<phase>_<screen>.png)
+var airports_arg := ""   # airport=countryside,island,mountain (or indices): the "cozy" shots are taken once per airport, prefix_<name>_<screen>.png
 var main: Node
 
 func _initialize() -> void:
@@ -16,6 +17,8 @@ func _initialize() -> void:
 			only = a.substr(5)
 		if a.begins_with("prefix="):
 			prefix = a.substr(7)
+		if a.begins_with("airport="):
+			airports_arg = a.substr(8)
 	DirAccess.make_dir_recursive_absolute(out)
 	var save = root.get_node("Save")
 	save.path = "user://shots_save.json"
@@ -42,7 +45,12 @@ func _initialize() -> void:
 	if only == "types":
 		await _types_shots(save)
 	elif only == "cozy":
-		await _cozy_shots(save)
+		if airports_arg == "":
+			await _cozy_shots(save, 2, "")
+		else:
+			for name in airports_arg.split(","):
+				var idx := _airport_index(name)
+				await _cozy_shots(save, idx, "_" + name)
 	elif only == "polish":
 		await _game_feel_shots(save)
 	else:
@@ -286,43 +294,69 @@ func _types_shots(save) -> void:
 		await _shot("30_airport_%d" % a)
 
 ## The four screens to compare on a phone: the menu, mid-shift (several aircraft, some with paths), the airports list and the results.
-func _cozy_shots(save) -> void:
+## "countryside" is Regional (the field the cozy shots always used), "island" the Island, "mountain" the Mountain Field; or an index.
+func _airport_index(name: String) -> int:
+	match name.to_lower():
+		"countryside":
+			return 2
+		"island", "coastal":
+			return 4
+		"mountain", "alpine":
+			return 3
+	return clampi(int(name), 0, Airports.COUNT - 1)
+
+func _cozy_shots(save, ap: int, tag: String) -> void:
 	save.coins = 240
 	save.stars[0] = 3
 	save.stars[1] = 2
 	save.stars[2] = 1
 	save.best_coins[0] = 120
 	save.unlocks["all_airports"] = false
-	main.select_airport(0)
+	main.select_airport(ap)
 	main._show_menu()
 	for i in 240:                       # let the menu's living field run a few seconds
 		await process_frame
-	await _shot("%s_menu" % prefix)
-	main.select_airport(2)
+	await _shot("%s%s_menu" % [prefix, tag])
+	main.select_airport(ap)
 	main.restart()
 	var tr = main.traffic
 	tr.auto_spawn = false
 	tr.grace_until = 9999.0
+	for k in 5:                         # a few landed already: taxiing and parked on the ramp
+		main.airfield.begin_taxi([2, 3, 2, 4, 2][k], 0, k % Airports.rw_count(), k % 2)
+	var spots: Array[Vector2] = []
+	for gy in [-7.4, -4.6, 6.2, 7.8, 0.0, 3.0, -2.4]:         # six places clear of the mountains (and of each other)
+		for gx in [-3.6, -1.2, 1.4, 3.6]:
+			var q := Vector2(gx, gy)
+			var free := true
+			for hz in Airports.hazards():
+				if q.distance_to(hz["center"]) < float(hz["radius"]) + 1.8:
+					free = false
+			for o in spots:
+				if o.distance_to(q) < 2.4:
+					free = false
+			if free and spots.size() < 6:
+				spots.append(q)
 	for k in 6:
-		var p = tr.place(k % 2, Vector2(-3.4 + (k % 3) * 2.6, -6.2 + (k / 3) * 2.4), 0.5 * k - 0.4, [2, 3, 4, 1, 2, 0][k])
+		var p = tr.place(k % Airports.rw_count(), spots[k], 0.5 * k - 0.4, [2, 3, 4, 1, 2, 0][k])
 		p.timer_left = p.timer_max * (0.95 - 0.16 * k)
 		if k % 2 == 0:
-			var th: Vector2 = Airports.end_threshold(k % 2, 1)
+			var th: Vector2 = Airports.end_threshold(k % Airports.rw_count(), 1)
 			for j in 20:
-				p.push(p.pos.lerp(th, float(j + 1) / 20.0) + Vector2(sin(j * 0.3) * 0.3, 0.0))
+				p.push(p.pos.lerp(th, float(j + 1) / 20.0))
 			p.cleared = true
 			p.ga_band = k / 2
-	for i in 150:
+	for i in 40:
 		main.step(1.0 / 60.0)
 	main.shift.on_landed(3, 14, 0)
 	main.shift.on_landed(3, 14, 0)
 	main.shift.on_landed(3, 14, 4)
 	main.hud.set_shift(main.shift)
-	await _shot("%s_shift" % prefix)
+	await _shot("%s%s_shift" % [prefix, tag])
 	tr.release_all()
 	main._show_menu()
 	main._on_button("airports")
-	await _shot("%s_airports" % prefix)
+	await _shot("%s%s_airports" % [prefix, tag])
 	main._show_menu()
 	main.restart()
 	tr.auto_spawn = false
@@ -332,7 +366,7 @@ func _cozy_shots(save) -> void:
 	main.hud.set_shift(main.shift)
 	tr.run_time = main.get_node("/root/Tuning").par_eff() - 4.0
 	main.step(1.0 / 60.0)
-	await _shot("%s_results" % prefix)
+	await _shot("%s%s_results" % [prefix, tag])
 
 ## The game-feel polish: a mid-shift with aircraft taxiing and parked on the ramp, and the results card (docs/screens/polish_<n>_*.png).
 func _game_feel_shots(save) -> void:
