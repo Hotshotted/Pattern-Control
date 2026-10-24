@@ -45,6 +45,8 @@ var shift := Shift.new()
 var wind := Wind.new()
 var rng_env := RandomNumberGenerator.new()   # wind, weather and storms (seeded for the daily shift)
 var weather := Weather.new()
+var log_go_arounds := true               # print the go-around cancel rate after every shift (the sims switch it off)
+var last_go_around_log := ""
 var score := 0                        # aircraft landed this shift (the big number)
 var _event_key := ""
 var bad_mode := false                 # Bad Pilot Day (also a seeded daily-style shift: daily_mode is true too)
@@ -903,6 +905,7 @@ func _end_shift() -> void:
 	Save.ads["since"] = int(Save.ads.get("since", 0)) + 1
 	Save.write_file()
 	over_header = HEADER_DONE
+	_log_go_arounds()
 	new_best = gained["new_best"]
 	last_result = {"header": HEADER_DONE, "reason": _reason_text(), "coins": gained["coins"], "payout": shift.payout(), "stars": shift.stars(), "first_stars": gained["first_stars"], "new_best": new_best, "unlocked": gained["unlocked"]}
 	over_reason = last_result["reason"]
@@ -954,6 +957,15 @@ func _settle() -> Dictionary:
 			unlocked.append(i)
 	return {"coins": coins, "first_stars": first_stars, "new_best": is_best, "note": note, "unlocked": unlocked}
 
+## After a shift: how many go-arounds were signalled and how many the player cancelled by redrawing a cleaner final in time, printed to the
+## console (the browser's, on the web) so the window can be tuned: the share is the human cancel rate.
+func _log_go_arounds() -> void:
+	var warns := traffic.go_around_warns
+	var cancels := traffic.go_around_cancels
+	last_go_around_log = "go-around warnings: %d, cancelled by the player: %d (cancel rate %.0f%%, window %.1f s)" % [warns, cancels, 100.0 * cancels / maxf(warns, 1), Tuning.go_around_telegraph]
+	if log_go_arounds:
+		print("[go-around] %s  airport=%s" % [last_go_around_log, Airports.airport_name(airport)])
+
 ## The results breakdown, one "label|value" line each (the "Details" panel draws them as two columns).
 func _reason_text() -> String:
 	var lines: Array[String] = [
@@ -963,6 +975,7 @@ func _reason_text() -> String:
 		"Fines|-%d" % shift.fines,
 		"Overtime|-%d (%d s)" % [shift.overtime_penalty, shift.overtime_seconds],
 		"Ramp|%s" % airfield.ramp.summary(),
+		"Go-arounds|%d warned · %d cancelled" % [traffic.go_around_warns, traffic.go_around_cancels],
 		"Net total (stars)|%d" % shift.balance(),
 		"Guaranteed kept|%d" % shift.kept(),
 	]

@@ -4727,6 +4727,22 @@ func _initialize() -> void:
 	check(tp._sliders.has("path_halo_dark"), "?tune has the toggle")
 	ha_tr.release_all()
 
+	print("22. The go-around window in ?tune and the cancel rate in the console")
+	check(tp._sliders.has("go_around_telegraph") and is_equal_approx(tuning.go_around_telegraph, 1.0), "?tune has the go-around window; it defaults to 1.0 s")
+	var gl_slider = tp._sliders["go_around_telegraph"]
+	gl_slider.value = 1.8
+	check(is_equal_approx(tuning.go_around_telegraph, 1.8), "...and a slider moves it")
+	gl_slider.value = 1.0
+	main.restart()
+	main.traffic.go_around_warns = 4
+	main.traffic.go_around_cancels = 1
+	main.log_go_arounds = false
+	main._log_go_arounds()
+	check(main.last_go_around_log.contains("warnings: 4") and main.last_go_around_log.contains("cancelled by the player: 1") and main.last_go_around_log.contains("25%") and main.last_go_around_log.contains("1.0 s"), "the shift's go-around cancel rate is logged (%s)" % main.last_go_around_log)
+	check(main._reason_text().contains("Go-arounds|4 warned"), "...and shown with the results details")
+	main.log_go_arounds = true
+	main.traffic.release_all()
+
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
 	if failures.is_empty():

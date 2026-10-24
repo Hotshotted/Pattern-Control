@@ -44,6 +44,7 @@ func _initialize() -> void:
 	while (guard < 3 or main._warming) and guard < 3000:
 		await process_frame
 		guard += 1
+	main.log_go_arounds = false
 	main.traffic.spawned.connect(func(_p): _spawned += 1)
 	main.traffic.go_around.connect(func(_p, _r): _gos += 1)
 	for a in OS.get_cmdline_user_args():
