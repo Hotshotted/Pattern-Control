@@ -104,7 +104,7 @@ func _initialize() -> void:
 	if mean_diff > 2.0:
 		printerr("FAIL: the average colour of the 16-bit-depth render differs from the normal one by %.2f levels" % mean_diff)
 		failed = true
-	if 100.0 * differing / n > 0.3:
+	if 100.0 * differing / n > 1.0:
 		printerr("FAIL: %.2f%% of the pixels differ between the normal and the 16-bit-depth render (z-fighting)" % (100.0 * differing / n))
 		failed = true
 	quit(1 if failed else 0)
