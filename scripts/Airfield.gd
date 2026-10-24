@@ -968,7 +968,7 @@ func _process(delta: float) -> void:
 	var now := Time.get_ticks_msec()
 	for d in cur.dishes:
 		d.rotation.y += delta * 1.8
-	var blink := 1.6 if int(now / 600.0) % 2 == 0 else 0.0
+	var blink := 1.6 if int(now / 600.0) % 2 == 0 and DebugFlags.life_enabled() else 0.0
 	for lm in cur.mast_lights:
 		lm.emission_energy_multiplier = blink
 		lm.albedo_color = Color(1.0, 0.2, 0.15) if blink > 0.0 else Color(0.55, 0.16, 0.13)
@@ -979,11 +979,11 @@ func _process(delta: float) -> void:
 		var on := cur.active[k]
 		m.albedo_color = cur.thr_colors[k] if on else Color(0.38, 0.39, 0.42)
 		m.emission_energy_multiplier = (0.45 if on else 0.0) + flash
-	_animate_ground(delta, now)
 	if DebugFlags.life_enabled():
+		_animate_ground(delta, now)
 		_animate_life(delta)
 	_animate_wind(delta, now)
-	var pulse := 1.4 if int(now / 1400.0) % 2 == 0 else 0.2
+	var pulse := 1.4 if int(now / 1400.0) % 2 == 0 and DebugFlags.life_enabled() else 0.2
 	for lm2 in cur.lamps:
 		lm2.emission_energy_multiplier = pulse
 	for bm in cur.beacons:
@@ -993,7 +993,7 @@ func _process(delta: float) -> void:
 		_sock_deg += wrapf(wind.toward_deg() - _sock_deg, -180.0, 180.0) * minf(delta * 2.5, 1.0)
 		var wiggle := sin(now / 260.0) * 6.0 if DebugFlags.life_enabled() else 0.0
 		cur.sock.rotation.y = -deg_to_rad(_sock_deg + wiggle)
-		cur.sock.rotation.x = deg_to_rad(sin(now / 190.0) * 4.0)
+		cur.sock.rotation.x = deg_to_rad(sin(now / 190.0) * 4.0) if DebugFlags.life_enabled() else 0.0
 
 
 ## The moving scenery: the fuel truck (a slow loop from the fuel farm to a parked plane and back), birds (they scatter from aircraft),

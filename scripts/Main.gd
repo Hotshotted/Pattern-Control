@@ -272,6 +272,9 @@ func restart() -> void:
 	_doubled = false
 	traffic.all_students = bad_mode
 	traffic.auto_spawn = not DebugFlags.windtest_enabled()
+	if DebugFlags.windtest_enabled():       # (the web check's field: just the ground, the light and the wind; no interface, no marks)
+		hud.visible = false
+		overlay.visible = false
 	if daily_mode:
 		var seed_v := (Save.today() * 2654435761) & 0x7fffffff
 		if bad_mode:

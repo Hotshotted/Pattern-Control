@@ -1,6 +1,6 @@
 // Plays the exported web build in headless Chromium and proves the wind is visible: on an empty field (?windtest: no aircraft,
 // nothing else moving) two screenshots a moment apart must differ where the cream wind streaks drift, while the same field with
-// ?nowind must not change at all. (Compared on the open grass left of the runway, where nothing else moves.)
+// ?nowind must not change at all. (?windtest hides the interface and stops everything else that moves.)
 //   node tools/web_wind_check.js build/web [path-to-chrome]      env: THROTTLE=4 (CPU slowdown)
 // Exits non-zero on any failure.
 const path = require('path');
@@ -57,20 +57,20 @@ srv.listen(0, async () => {
         const w = ia.width, h = ia.height;
         const get = (img) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.drawImage(img, 0, 0); return x.getImageData(0, 0, w, h).data; };
         const da = get(ia), db = get(ib);
-        // the open grass on the left of the runway: nothing else moves there (the runway lights, the chevrons, the vehicles and the clock are elsewhere)
-        const y0 = Math.floor(h * 0.14), y1 = Math.floor(h * 0.95), x1 = Math.floor(w * 0.36);
-        let changed = 0, peak = 0;
+        // ?windtest hides the interface and the marks and stops everything else that moves, so the whole frame is compared
+        const y0 = 0, y1 = h, x1 = w;
         for (let y = y0; y < y1; y++) {
           for (let x = 0; x < x1; x++) {
-            if (x > w * 0.10 && x < w * 0.36 && y > h * 0.56 && y < h * 0.68) continue;       // (the windsock)
             const i = (y * w + x) * 4;
             const d = Math.max(Math.abs(da[i] - db[i]), Math.abs(da[i + 1] - db[i + 1]), Math.abs(da[i + 2] - db[i + 2]));
-            if (d >= 5) changed++;
+            if (d >= 5) { changed++; const key = Math.floor(x / 30) * 30 + ',' + Math.floor(y / 30) * 30; cells[key] = (cells[key] || 0) + 1; }
             if (d > peak) peak = d;
           }
         }
-        return { changed, peak, w, h };
+        const top = Object.entries(cells).sort((p, q) => q[1] - p[1]).slice(0, 5);
+        return { changed, peak, w, h, top };
       }, [a, b]);
+      // where the changes are (so a failure says what moved)
       results[mode] = { ...diff, errors };
       if (errors.length) fail(mode + ': page errors: ' + errors.join(' | '));
       await context.close();
