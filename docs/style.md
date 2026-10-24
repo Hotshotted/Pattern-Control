@@ -270,7 +270,7 @@ game from this studio should sound like it belongs to the same room.
   natural exponential decay, and a smooth release. Nothing starts or stops hard; there are no clicks.
 * **Space:** a short shared "room" (four damped combs) is baked into every chime, plink and fanfare, and into the music's
   arpeggio, so sounds sit in the same space instead of floating on top.
-* **One key:** C major pentatonic (C D E G A), the key of the music (chords C, Am, F, G). All pitched sounds are drawn from it
+* **One key:** D major pentatonic (D E F# A B), the key of the music (chords D, A, Bm, G). All pitched sounds are drawn from it
   (`Sfx.note_hz(degree)`), so anything that overlaps harmonises. The music is never pitch-shifted, because that would leave
   the key.
 * **Variation:** every repeated sound gets about +-3% random pitch and a hair of random level, so it never feels robotic.
@@ -306,16 +306,23 @@ game from this studio should sound like it belongs to the same room.
 
 There is **no engine hum**: the music is the only continuous sound (plus the soft fog ambience). Gameplay sounds are part of the
 music: arrivals, landings, coins, go-arounds, conflicts, fines, ticks and the stingers wait for the **next eighth-note** of the
-music's tempo (0.375 s of the 6 s loop; the page reports the loop's phase on the web) so they land on the beat; at most one of
+music's tempo (0.268 s of the 17.14 s loop; the page reports the loop's phase on the web) so they land on the beat; at most one of
 each per beat. Taps, the touchdown tap and the results stingers play at once. Pitch variation is only about 1 % so everything
 stays in key.
 
-**Mix.** The music is the reference: heard at its peak (the calm layer, 0.35 played at -4 dB) it peaks at 0.22. Gameplay sounds
+**Mix.** The music is the reference: heard at its peak (layer 1, 0.35 played at -4 dB) it peaks at 0.22. Gameplay sounds
 peak at or below 0.8 of that (landing chime 0.13, big moments 0.16), UI sounds at or below 0.5 (0.09), the touchdown tap 0.03.
 The smoke test checks these peaks, and CI records the page's output and fails if any gameplay sound peaks above the music.
-Music: a warm pad with a soft bass, then a plucked pentatonic arpeggio with a very soft pulse that fades in smoothly through the
-second half of a shift and to the top in the finale; fog adds a low drone and an airy bed. All layers are the same length (6 s)
-and every loop is seamless. Level changes always glide (at most 60 dB a second), never cut. The pause menu has three saved
+Music: a sunny airfield on a busy afternoon, **112 BPM in D major**, eight bars (D | A | Bm | G | D | A | G | A, 17.14 s, a beat is exactly
+23 625 samples) with no pads: plucks, a mallet, a clean guitar, soft keys, a simple bass and soft percussion. Three layers of exactly
+the same length loop together (native and gapless from the loading page) and crossfade with the traffic (`Sfx.set_music`):
+**layer 1** (`music1`: bass, a light kick on 1 and 3, a rim click on 2 and 4, a shaker on every eighth) always plays; **layer 2**
+(`music2`: the rhythm guitar strum and keys stabs) comes in when **3 or more aircraft are inbound**; **layer 3** (`music3`: the lead,
+a plucked mallet melody with a dotted-eighth echo) when **5 or more are**, or in the **last 20 s** of the shift. A layer is held 2.5 s
+after the traffic drops, so it does not flicker; layers 2 and 3 glide at 22 dB a second, layer 1 at 40. The menu plays layers 1 and 2,
+quieter. Fog adds a low drone (`tense`: D and its tritone) and an airy bed. The landing chimes and coin plinks are the same notes of
+the key. Every loop is seamless and the web check (`tools/web_audio_check.js`) tests each loop on its own (silence, clicks, dropouts,
+peaks, the loop point, equal lengths) as well as the recording of the game. Level changes always glide on the wall clock, never cut. The pause menu has three saved
 sliders: **Music**, **Effects** (the SFX bus) and **Ambience** (the fog).
 
 ## App icon and splash

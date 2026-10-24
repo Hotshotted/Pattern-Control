@@ -624,11 +624,13 @@ func _set_day(t: float) -> void:
 	airfield.set_time(t)
 	traffic.shadow_scale = Shadow.offset_scale(t)
 
-## The music intensifies through the shift and towards the finale (there is no engine hum: the music is the only continuous sound).
+## The music's layers follow the traffic and the clock (there is no engine hum: the music is the only continuous sound).
 func _update_audio(frac: float) -> void:
 	airfield.progress = frac
 	_set_day(0.4 + 0.6 * frac if bad_mode else frac)
-	sfx.set_music(true, frac, 1.0 if _finale > 0 else 0.0)
+	# the music follows the traffic: the rhythm guitar joins at 3 aircraft inbound, the lead at 5 or in the last 20 s (see Sfx.set_music)
+	var last := _finale > 0 or Tuning.spawn_stop_eff() - traffic.run_time <= Sfx.LAST_SECS
+	sfx.set_music(true, traffic.inbound_count(), last)
 	sfx.set_fog(traffic.fog_amount)
 
 # ---------- Game events ----------

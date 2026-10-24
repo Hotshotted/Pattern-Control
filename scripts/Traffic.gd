@@ -1268,6 +1268,14 @@ func ramp_free_all() -> void:
 		_ramp_used[k] = 0
 		_nodes[_ramp_first + k].visible = false
 
+## Aircraft on their way in: in the air, on the screen, and not yet landed or lost (the music's layers follow this).
+func inbound_count() -> int:
+	var n := 0
+	for p in planes:
+		if p.active() and p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD):
+			n += 1
+	return n
+
 func ramp_in_use() -> int:
 	var n := 0
 	for k in _ramp_used.size():

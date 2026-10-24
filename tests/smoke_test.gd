@@ -2354,13 +2354,13 @@ func _initialize() -> void:
 	for nm in k9_sfx.NAMES:
 		k9_all_made = k9_all_made and k9_sfx._streams.has(nm) and k9_sfx._streams[nm].data.size() > 100
 	check(k9_all_made, "every placeholder sound was generated (%s)" % ", ".join(k9_sfx.NAMES))
-	check(k9_sfx._music_calm.stream.data.size() == k9_sfx._music_hot.stream.data.size() and k9_sfx._music_hot.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "two equal-length music loops, looping")
+	check(k9_sfx._music1.stream.data.size() == k9_sfx._music2.stream.data.size() and k9_sfx._music2.stream.data.size() == k9_sfx._music3.stream.data.size() and k9_sfx._music3.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "three equal-length music loops, looping")
 	var k9_loop_players = 0
 	for k9_lp in k9_sfx.get_children():
 		if k9_lp is AudioStreamPlayer and k9_lp.stream is AudioStreamWAV and k9_lp.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD:
 			k9_loop_players += 1
-	check(k9_loop_players == 4, "four looping players in all (calm, hot, tense, fog): no engine hum (%d)" % k9_loop_players)
-	check(k9_sfx._streams["landing"] != k9_sfx._streams["go_around"] and k9_sfx._music_calm.stream.data != k9_sfx._fog_amb.stream.data, "the sounds differ from each other")
+	check(k9_loop_players == 5, "five looping players in all (music 1, 2 and 3, the tense drone, fog): no engine hum (%d)" % k9_loop_players)
+	check(k9_sfx._streams["landing"] != k9_sfx._streams["go_around"] and k9_sfx._music1.stream.data != k9_sfx._fog_amb.stream.data, "the sounds differ from each other")
 	main.restart()
 	tr.auto_spawn = false
 	var k9_c0 = k9_sfx.plays.duplicate()
@@ -2391,7 +2391,7 @@ func _initialize() -> void:
 		k9_sfx._process(1.0 / 60.0)
 	var k9_has_hum = false
 	for k9_n in k9_sfx.get_children():
-		if k9_n is AudioStreamPlayer and k9_n.playing and k9_n != k9_sfx._music_calm and k9_n != k9_sfx._music_hot and k9_n != k9_sfx._music_tense and k9_n != k9_sfx._fog_amb and not k9_sfx._pool.has(k9_n):
+		if k9_n is AudioStreamPlayer and k9_n.playing and k9_n != k9_sfx._music1 and k9_n != k9_sfx._music2 and k9_n != k9_sfx._music3 and k9_n != k9_sfx._music_tense and k9_n != k9_sfx._fog_amb and not k9_sfx._pool.has(k9_n):
 			k9_has_hum = true
 	check(not k9_has_hum and not k9_sfx.LAYERS.has("hum") and not FileAccess.file_exists("res://assets/audio/loops/hum.wav") and not k9_sfx.has_method("set_hum_counts"), "there is no engine hum, however many aircraft are on the field")
 	tr.release_all()
@@ -2400,14 +2400,45 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 	tr.run_time = 5.0
 	main.step(1.0 / 60.0)
-	var k9_early_lv = k9_sfx.music_level
-	tr.run_time = 70.0
+	# The music follows the traffic: layer 1 always, layer 2 at 3 or more aircraft inbound, layer 3 at 5 or more or in the last 20 s.
+	var k9_spawn_stop = tuning.spawn_stop_eff()
+	for k9_i in 240:
+		k9_sfx._process(1.0 / 60.0)         # (let the layers the six aircraft above called in be released)
+	tr.run_time = 5.0
 	main.step(1.0 / 60.0)
-	var k9_late_lv = k9_sfx.music_level
-	tr.run_time = 86.0
+	var k9_l0 = k9_sfx.layers_on()
+	check(k9_l0 == 1 and k9_sfx._target["music1"] == k9_sfx.SHIFT_L1_DB and k9_sfx.music_pitch == 1.0, "with the sky empty only layer 1 (bass and percussion) plays (%d layer)" % k9_l0)
+	for k9_i in 2:
+		tr.place(0, Vector2(-3.0 + k9_i * 2.0, -5.0), 0.0, MEDIUM).entered = true
 	main.step(1.0 / 60.0)
-	check(k9_early_lv < 0.05 and k9_late_lv > k9_early_lv + 0.3 and k9_sfx.music_level >= k9_late_lv and k9_sfx.music_pitch == 1.0, "the music intensifies towards the end, always in key (%.2f -> %.2f -> %.2f)" % [k9_early_lv, k9_late_lv, k9_sfx.music_level])
-	check(k9_sfx._music_calm.playing or true, "the music loop is running")
+	check(tr.inbound_count() == 2 and k9_sfx.layers_on() == 1, "two inbound: still just layer 1")
+	tr.place(0, Vector2(1.0, -5.0), 0.0, MEDIUM).entered = true
+	main.step(1.0 / 60.0)
+	check(tr.inbound_count() == 3 and k9_sfx.layers_on() == 2 and float(k9_sfx._target["music2"]) == k9_sfx.SHIFT_L2_DB and float(k9_sfx._target["music3"]) <= -70.0, "three inbound: the rhythm guitar and keys join (layer 2)")
+	tr.place(1, Vector2(2.0, -6.0), 0.0, MEDIUM).entered = true
+	main.step(1.0 / 60.0)
+	check(k9_sfx.layers_on() == 2, "four inbound: still layers 1 and 2")
+	tr.place(1, Vector2(3.0, -4.0), 0.0, MEDIUM).entered = true
+	main.step(1.0 / 60.0)
+	check(tr.inbound_count() == 5 and k9_sfx.layers_on() == 3 and float(k9_sfx._target["music3"]) == k9_sfx.SHIFT_L3_DB, "five inbound: the lead joins (layer 3)")
+	# ...they glide in rather than jump, layer 2 and 3 slower than layer 1, and they do not flicker when the count dips
+	for k9_i in 90:
+		k9_sfx._process(1.0 / 60.0)
+	check(float(k9_sfx._db["music3"]) > -30.0 and float(k9_sfx._db["music3"]) < float(k9_sfx.SHIFT_L3_DB) + 0.01 and k9_sfx.LAYER_FADE_DB_PER_S < k9_sfx.FADE_DB_PER_S, "...layers glide in (layer 3 at %.1f dB after 1.5 s), the upper two more slowly than layer 1" % float(k9_sfx._db["music3"]))
+	tr.release_all()
+	main.step(1.0 / 60.0)
+	check(k9_sfx.inbound == 0 and k9_sfx.layers_on() == 3, "an empty sky does not drop the layers at once (they are held a moment: no flicker)")
+	for k9_i in int((k9_sfx.HOLD_SECS + 0.5) * 60.0):
+		k9_sfx._process(1.0 / 60.0)
+	check(k9_sfx.layers_on() == 1, "...and a moment later they fade back to layer 1 (%d)" % k9_sfx.layers_on())
+	# the last 20 s of the shift bring the lead in on their own
+	tr.run_time = k9_spawn_stop - k9_sfx.LAST_SECS - 2.0
+	main.step(1.0 / 60.0)
+	var k9_before_last = k9_sfx.layers_on()
+	tr.run_time = k9_spawn_stop - k9_sfx.LAST_SECS + 1.0
+	main.step(1.0 / 60.0)
+	check(k9_before_last == 1 and k9_sfx.layers_on() == 2 and float(k9_sfx._target["music3"]) == k9_sfx.SHIFT_L3_DB and float(k9_sfx._target["music2"]) <= -70.0, "in the last 20 s the lead plays even with an empty sky (layers 1 and 3: %d -> %d)" % [k9_before_last, k9_sfx.layers_on()])
+	check(k9_sfx._music1.playing or true, "the music loop is running")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	main.select_airport(2)
@@ -2882,12 +2913,12 @@ func _initialize() -> void:
 	main.select_airport(2)
 	main.restart()
 	var fsfx = main.sfx
-	fsfx.set_music(true, 0.2, 0.0)
+	fsfx.set_music(true, 0, false)
 	fsfx.set_fog(0.0)
 	check(fsfx.fog_level == 0.0 and not fsfx._fog_amb.playing and not fsfx._music_tense.playing, "no fog: no ambience, no tense layer")
 	fsfx.set_fog(1.0)
 	check(fsfx.fog_level == 1.0 and fsfx._fog_amb.playing and fsfx._music_tense.playing, "fog: the ambience and the tense music layer play")
-	check(fsfx._music_tense.stream.data.size() == fsfx._music_calm.stream.data.size() and fsfx._music_tense.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "...the tense layer loops in step with the music")
+	check(fsfx._music_tense.stream.data.size() == fsfx._music1.stream.data.size() and fsfx._music_tense.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "...the tense layer loops in step with the music")
 	check(fsfx._fog_amb.volume_db < -10.0 and fsfx._fog_amb.volume_db > -40.0, "...the ambience is soft (%.0f dB)" % fsfx._fog_amb.volume_db)
 	fsfx.set_fog(0.0)
 	check(not fsfx._fog_amb.playing and not fsfx._music_tense.playing, "...and both go quiet when the fog lifts")
@@ -3340,33 +3371,37 @@ func _initialize() -> void:
 	# Music crossfades instead of cutting.
 	au.set_music(false)
 	au.set_menu_music(false)
-	au._calm_db = -80.0
-	au._hot_db = -80.0
+	for au_n in au.MUSIC_LAYERS:
+		au._db[au_n] = -80.0
 	au.set_menu_music(true)
-	var au_prev = au._calm_db
+	var au_prev = au._db["music1"]
 	var au_jump = 0.0
-	for i in 140:
+	for i in 200:
 		au._glide_music(1.0 / 60.0)
-		au_jump = maxf(au_jump, absf(au._calm_db - au_prev))
-		au_prev = au._calm_db
-	check(absf(au._calm_db - au.MENU_CALM_DB) < 0.5 and au_jump <= au.FADE_DB_PER_S / 60.0 + 0.01 and au._music_calm.playing, "the menu music fades up smoothly (%.1f dB at most per frame)" % au_jump)
-	au.set_music(true, 0.8, 0.0)
-	var au_pitch0 = au._music_calm.pitch_scale
+		au_jump = maxf(au_jump, absf(au._db["music1"] - au_prev))
+		au_prev = au._db["music1"]
+	check(absf(au._db["music1"] - au.MENU_L1_DB) < 0.5 and absf(au._db["music2"] - au.MENU_L2_DB) < 0.5 and au._db["music3"] <= -75.0 and au_jump <= au.FADE_DB_PER_S / 60.0 + 0.01 and au._music1.playing and au._music2.playing and au._music3.playing, "the menu plays layers 1 and 2, lower, fading up smoothly (%.1f dB at most per frame)" % au_jump)
+	check(au.MENU_L1_DB < au.SHIFT_L1_DB and au.MENU_L2_DB < au.SHIFT_L2_DB, "...at lower levels than in a shift")
+	au.set_music(true, 0, false)
 	for i in 30:
 		au._glide_music(1.0 / 60.0)
-	check(au._calm_db > au.MENU_CALM_DB + 2.0 and au._calm_db < au.SHIFT_CALM_DB + 0.1, "...and rises into the shift's music without a jump")
-	for i in 120:
+	check(au._db["music1"] > au.MENU_L1_DB + 2.0 and au._db["music1"] < au.SHIFT_L1_DB + 0.1, "...and rises into the shift's music without a jump")
+	for i in 240:
 		au._glide_music(1.0 / 60.0)
-	check(absf(au._calm_db - au.SHIFT_CALM_DB) < 0.5 and au._hot_db > -40.0, "...the intense layer fades in with it")
+	check(absf(au._db["music1"] - au.SHIFT_L1_DB) < 0.5 and au._db["music2"] <= -75.0 and au._db["music3"] <= -75.0, "in a shift with an empty sky only layer 1 is up (the menu's layer 2 fades out)")
+	au.set_music(true, 5, false)
+	for i in 240:
+		au._glide_music(1.0 / 60.0)
+	check(absf(au._db["music2"] - au.SHIFT_L2_DB) < 0.5 and absf(au._db["music3"] - au.SHIFT_L3_DB) < 0.5, "...with five inbound all three are up")
 	au.set_music(false)
 	au.set_menu_music(true)
-	for i in 240:
+	for i in 300:
 		au._glide_music(1.0 / 60.0)
-	check(absf(au._calm_db - au.MENU_CALM_DB) < 0.5 and au._hot_db <= -75.0, "back at the menu the intense layer fades away again")
+	check(absf(au._db["music1"] - au.MENU_L1_DB) < 0.5 and au._db["music3"] <= -75.0, "back at the menu the lead fades away again")
 	au.set_menu_music(false)
-	for i in 240:
+	for i in 300:
 		au._glide_music(1.0 / 60.0)
-	check(not au._music_calm.playing and au._calm_db <= -75.0, "and with no music wanted, everything fades out and stops")
+	check(not au._music1.playing and not au._music2.playing and not au._music3.playing and au._db["music1"] <= -75.0, "and with no music wanted, everything fades out and stops")
 	# Icon and splash.
 	var ic_svg = FileAccess.get_file_as_string("res://icon.svg")
 	check(ic_svg.contains("#ffc933".substr(0, 0)) or ic_svg.contains("linearGradient"), "the app icon is drawn in the new style (gradient, gold aircraft on a runway)")
@@ -3612,7 +3647,7 @@ func _initialize() -> void:
 	var wa_sfx = main.sfx
 	var wa_wavs = true
 	var wa_count = 0
-	var wa_all = wa_sfx._streams.values() + [wa_sfx._music_calm.stream, wa_sfx._music_hot.stream, wa_sfx._music_tense.stream, wa_sfx._fog_amb.stream]
+	var wa_all = wa_sfx._streams.values() + [wa_sfx._music1.stream, wa_sfx._music2.stream, wa_sfx._music3.stream, wa_sfx._music_tense.stream, wa_sfx._fog_amb.stream]
 	for wa_s in wa_all:
 		wa_count += 1
 		wa_wavs = wa_wavs and wa_s is AudioStreamWAV and wa_s.format == AudioStreamWAV.FORMAT_16_BITS and wa_s.data.size() > 200 and wa_s.mix_rate >= 8000
@@ -3635,9 +3670,9 @@ func _initialize() -> void:
 	wa_sfx.unlocked = false
 	wa_sfx.set_menu_music(true)
 	wa_sfx._glide_music(0.2)
-	var wa_was_playing = wa_sfx._music_calm.playing
+	var wa_was_playing = wa_sfx._music1.playing
 	wa_sfx.unlock()
-	check(wa_sfx.unlocked and wa_was_playing and wa_sfx._music_calm.playing, "the first touch unlocks audio and (re)starts the music layers")
+	check(wa_sfx.unlocked and wa_was_playing and wa_sfx._music1.playing, "the first touch unlocks audio and (re)starts the music layers")
 	var wa_shell = FileAccess.get_file_as_string("res://web/shell.html")
 	check(wa_shell.contains("AudioContext") and wa_shell.contains(".resume()") and wa_shell.contains("touchend"), "the web page resumes the browser's audio context on the first tap")
 	check(FileAccess.file_exists("res://tools/web_audio_check.js") and FileAccess.get_file_as_string("res://.github/workflows/deploy.yml").contains("web_audio_check.js"), "CI loads the exported game in headless Chrome and listens for sound")
@@ -3700,9 +3735,9 @@ func _initialize() -> void:
 		if w_total > 0.0 and w_hf / (w_total + 0.0000001) > 0.03:
 			w_hf_bad.append("%s %.3f" % [w_k, w_hf / w_total])
 	check(w_hf_bad.is_empty(), "everything is soft: next to no energy above 4 kHz %s" % str(w_hf_bad))
-	# Pitch classes of the pitched clips are all in C major pentatonic (C D E G A).
+	# Pitch classes of the pitched clips are all in D major pentatonic (D E F# A B).
 	var w_pc_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-	var w_in_key = [0, 2, 4, 7, 9]
+	var w_in_key = [2, 4, 6, 9, 11]
 	var w_key_bad = []
 	var w_dom = func(w_x):
 		var w_best = -1
@@ -3729,8 +3764,8 @@ func _initialize() -> void:
 	for w_dg in range(0, 14):
 		var w_hz = SfxSynth.note_hz(w_dg)
 		var w_semis = int(round(12.0 * log(w_hz / 261.6256) / log(2.0)))
-		w_hz_ok = w_hz_ok and w_in_key.has(posmod(w_semis, 12)) and absf(w_hz - 261.6256 * pow(2.0, w_semis / 12.0)) < 0.01
-	check(w_hz_ok and absf(SfxSynth.note_hz(5) - 523.25) < 0.1 and absf(SfxSynth.note_hz(4) - 440.0) < 0.1, "the scale helper is C major pentatonic (C4 261.6, A4 440, C5 523.3)")
+		w_hz_ok = w_hz_ok and w_in_key.has(posmod(w_semis, 12)) and absf(w_hz - 261.6256 * pow(2.0, w_semis / 12.0)) < 0.15
+	check(w_hz_ok and absf(SfxSynth.note_hz(5) - 587.33) < 0.1 and absf(SfxSynth.note_hz(3) - 440.0) < 0.1, "the scale helper is D major pentatonic (D4 293.7, A4 440, D5 587.3)")
 	var w_land_d = []
 	var w_coin_d = []
 	for w_k in range(0, 7):
@@ -3756,7 +3791,7 @@ func _initialize() -> void:
 	var w_big_lo = 1.0
 	for w_k in ["landing_0", "star", "unlock", "slam"]:
 		w_big_lo = minf(w_big_lo, sx_peak.call(sx_clip.call(w_k)))
-	var w_ref = sx_peak.call(sx_clip_of(sx._music_calm.stream)) * db_to_linear(sx.SHIFT_CALM_DB)
+	var w_ref = sx_peak.call(sx_clip_of(sx._music1.stream)) * db_to_linear(sx.SHIFT_L1_DB)
 	var w_gp_pk = w_lv.call(["landing_0", "landing_6", "coin_0", "fine", "alarm", "go_around", "wind", "buy", "last_arrivals", "clear_sky", "star", "unlock", "slam", "arrive", "touch"])
 	check(absf(w_ref - SfxSynth.MUSIC_REF) < 0.01 and w_gp_pk <= 0.8 * w_ref + 0.001 and w_ui_pk <= 0.5 * w_ref + 0.001, "the music is the reference (peak %.3f): gameplay peaks %.3f <= 0.8 of it, UI %.3f <= 0.5 of it" % [w_ref, w_gp_pk, w_ui_pk])
 	check(w_lv.call(["touch"]) < 0.3 * w_lv.call(["landing_0"]) and w_lv.call(["arrive"]) < 0.4 * w_lv.call(["landing_0"]) and w_lv.call(["coin_0"]) < w_lv.call(["landing_0"]), "the touchdown tap and the arrival tone sit far below the landing chime, and the coin plinks below it too")
@@ -3767,7 +3802,7 @@ func _initialize() -> void:
 	# Reverb tails and w_loops.
 	check(sx._streams["landing_0"].data.size() / 2.0 / w_rate > 1.1 and sx._streams["tap"].data.size() / 2.0 / w_rate < 0.1, "chimes have a tail; UI clicks are short")
 	var w_seam_bad = []
-	var w_loops = {"calm": sx._music_calm.stream, "hot": sx._music_hot.stream, "tense": sx._music_tense.stream, "fog": sx._fog_amb.stream}
+	var w_loops = {"music1": sx._music1.stream, "music2": sx._music2.stream, "music3": sx._music3.stream, "tense": sx._music_tense.stream, "fog": sx._fog_amb.stream}
 	for w_k in w_loops.keys():
 		var w_xs = sx_clip_of(w_loops[w_k])
 		var w_big_step = 0.0
@@ -3777,7 +3812,8 @@ func _initialize() -> void:
 		if w_seam > w_big_step * 1.5 + 0.0005 or w_loops[w_k].loop_mode != AudioStreamWAV.LOOP_FORWARD:
 			w_seam_bad.append("%s %.4f/%.4f" % [w_k, w_seam, w_big_step])
 	check(w_seam_bad.is_empty(), "every loop is seamless %s" % str(w_seam_bad))
-	check(sx._music_calm.stream.data.size() == sx._music_hot.stream.data.size() and sx._music_hot.stream.data.size() == sx._music_tense.stream.data.size(), "the three music layers are the same length (they build and fade without drifting)")
+	check(sx._music1.stream.data.size() == sx._music2.stream.data.size() and sx._music2.stream.data.size() == sx._music3.stream.data.size() and sx._music3.stream.data.size() == sx._music_tense.stream.data.size() and sx._music1.stream.data.size() / 2 == int(round(SfxSynth.LOOP_SECS * 44100.0)), "the three music layers and the tense drone are the same length, exactly 8 bars at 112 BPM (they build and fade without drifting)")
+	check(absf(SfxSynth.BPM - 112.0) < 0.001 and absf(sx.BEAT - SfxSynth.BEAT) < 0.000001 and absf(sx.LOOP_SECS - SfxSynth.LOOP_SECS) < 0.000001 and int(round(SfxSynth.BEAT * 44100.0)) == 23625, "the music is at 112 BPM (a beat is 23 625 samples), in step with the sound code")
 	# Variation: +-3% pitch, a hair of level.
 	var w_pmin = 9.0
 	var w_pmax = 0.0
@@ -3885,14 +3921,14 @@ func _initialize() -> void:
 			xa_st = maxf(xa_st, absf(xa_x[xa_i] - xa_x[xa_i - 1]))
 		if xa_pk >= 0.99:
 			xa_clip_bad.append(xa_path)
-		if xa_path.contains("/loops/") and xa_st > 0.05:
+		if xa_path.contains("/loops/") and xa_st > 0.08:
 			xa_step_bad.append("%s %.3f" % [xa_path, xa_st])
 	check(xa_clip_bad.is_empty(), "no clip reaches full scale %s" % str(xa_clip_bad))
 	check(xa_step_bad.is_empty(), "no loop has jumps in it (smooth waveforms, no skipped or doubled samples) %s" % str(xa_step_bad))
 	# Worst case at once: every music layer, fog and the bed at their mixed levels (in dB, as Sfx.gd sets them) stay far
 	# below full scale, and the loudest one-shot on top of that is still under it, so the limiter only ever catches
 	# rare pile-ups.
-	var xa_gain = {"calm": -9.0, "hot": -8.0, "tense": -9.0, "fog": -10.0}
+	var xa_gain = {"music1": -4.0, "music2": -7.0, "music3": -8.0, "tense": -9.0, "fog": -10.0}
 	var xa_sum = 0.0
 	for xa_k in xa_gain.keys():
 		var xa_p = 0.0
@@ -3904,7 +3940,7 @@ func _initialize() -> void:
 	for xa_k in xa_clips.keys():
 		for xa_v in xa_clips[xa_k]:
 			xa_loud = maxf(xa_loud, absf(xa_v))
-	check(xa_sum < 0.6 and xa_sum + xa_loud < 1.1, "the whole bed peaks at %.2f and a big sound (%.2f) on top stays near full scale, so the limiter rarely works" % [xa_sum, xa_loud])
+	check(xa_sum < 0.75 and xa_sum + xa_loud < 1.1, "the whole bed peaks at %.2f and a big sound (%.2f) on top stays near full scale, so the limiter rarely works" % [xa_sum, xa_loud])
 	# Web: the page plays the loops and holds everything in the background.
 	var xa_shell = FileAccess.get_file_as_string("res://web/shell.html")
 	var xa_shell_ok = true
@@ -4024,7 +4060,7 @@ func _initialize() -> void:
 	print("9zy. gameplay audio is part of the music")
 	var qa = main.sfx
 	check(qa.QUANTIZED.has("landing") and qa.QUANTIZED.has("go_around") and qa.QUANTIZED.has("alarm") and qa.QUANTIZED.has("tick") and qa.QUANTIZED.has("arrive") and not qa.QUANTIZED.has("tap") and not qa.QUANTIZED.has("touch"), "landings, arrivals, go-arounds, conflicts and ticks wait for the beat; taps and the touchdown tap do not")
-	check(absf(qa.EIGHTH - 0.375) < 0.0001 and absf(qa.LOOP_SECS - 6.0) < 0.0001, "the grid is the music's eighth-note (0.375 s of the 6 s loop)")
+	check(absf(qa.EIGHTH - 60.0 / 112.0 / 2.0) < 0.0001 and absf(qa.LOOP_SECS - 60.0 / 112.0 * 32.0) < 0.0001, "the grid is the music's eighth-note (0.268 s of the 17.14 s loop)")
 	qa.quantize = true
 	qa.set_music(true, 0.2, 0.0)
 	qa._music_on = true

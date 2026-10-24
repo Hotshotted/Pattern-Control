@@ -2,13 +2,17 @@ class_name SfxSynth
 extends RefCounted
 ## Renders every sound of the game (see docs/style.md, "Audio") as float samples. Run offline by tools/render_audio.gd, which
 ## writes the 44.1 kHz 16-bit WAV files in assets/audio/ that the game loads; the game itself never synthesises anything.
-## Soft sines and filtered noise, raised-cosine envelopes, a baked-in room, everything in C major pentatonic.
+## Soft sines and filtered noise, raised-cosine envelopes, a baked-in room, everything in D major pentatonic.
 ## (No autoload references: the smoke test re-renders everything and compares it with the committed files.)
 
 const STEPS := 7               # landing chimes / coin plinks: this many steps up the scale
-const BEAT := 0.75             # music: seconds per beat, 8 beats per loop (6 s)
-const C4 := 261.6256
-const PENTA := [0, 2, 4, 7, 9]  # C D E G A
+## The music: 112 BPM, D major, eight bars (32 beats, 17.14 s) in three layers that loop together. A beat is exactly 23 625 samples.
+const BPM := 112.0
+const BEAT := 60.0 / BPM       # seconds per beat
+const BEATS := 32              # beats per loop
+const LOOP_SECS := BEAT * BEATS
+const D4 := 293.6648           # the key's tonic (every pitched sound is in D major pentatonic: D E F# A B)
+const PENTA := [0, 2, 4, 7, 9]  # D E F# A B
 
 # Loudness by role (peak, linear), with the MUSIC as the reference: the music as it is heard (the calm layer's peak 0.35 played at
 # MUSIC_DB in Sfx.gd) peaks at MUSIC_REF; gameplay sounds sit at or below 0.8 of it, UI sounds at or below 0.5 of it.
@@ -25,25 +29,26 @@ func clips() -> Dictionary:
 	_build_effects_into(out)
 	return out
 
-## Every loop: name -> samples (calm, hot, tense, fog). There is no engine hum: the music is the only continuous sound.
+## Every loop: name -> samples. music1 (bass and percussion), music2 (rhythm guitar and keys) and music3 (the lead) are the same length
+## and play together; tense is the fog's low drone, fog its breath of air. There is no engine hum: the music is the only continuous sound.
 func loops() -> Dictionary:
-	return {"calm": _music(false), "hot": _music(true), "tense": _music_tense_loop(), "fog": _fog_ambience()}
+	return {"music1": _layer_rhythm(), "music2": _layer_chords(), "music3": _layer_lead(), "tense": _music_tense_loop(), "fog": _fog_ambience()}
 
 # ---------- The key ----------
 
-## Frequency of scale degree `deg` of C major pentatonic: 0 = C4, 1 = D4, 2 = E4, 3 = G4, 4 = A4, 5 = C5, ...
+## Frequency of scale degree `deg` of D major pentatonic: 0 = D4, 1 = E4, 2 = F#4, 3 = A4, 4 = B4, 5 = D5, ...
 static func note_hz(deg: int) -> float:
 	var oct := floori(float(deg) / 5.0)
-	return C4 * pow(2.0, float(PENTA[posmod(deg, 5)] + 12 * oct) / 12.0)
+	return D4 * pow(2.0, float(PENTA[posmod(deg, 5)] + 12 * oct) / 12.0)
 
 # ---------- The clips ----------
 
 func _build_effects_into(clips: Dictionary) -> void:
 	# Touchdown: a very soft, low-passed tap, far below the chime (no squeal).
 	clips["touch"] = _norm(_lp(_lp(_thud(0.16), 220.0), 220.0), 0.03)
-	# Tyre chirp: a tiny, soft upward blip in the key (E5 gliding to G5), far below the chime; the game plays it on the beat.
+	# Tyre chirp: a tiny, soft upward blip in the key (A5 gliding to B5), far below the chime; the game plays it on the beat.
 	clips["chirp"] = _norm(_lp(_chirp(note_hz(7), note_hz(8), 0.09), 1500.0), LVL_UI * 0.35)
-	# Arrival: a very soft, short tone (G4); the game plays it on the beat.
+	# Arrival: a very soft, short tone (A4); the game plays it on the beat.
 	clips["arrive"] = _norm(_soft(note_hz(3), 0.2, 1.0), LVL_UI * 0.3)
 	# Landing: ONE soft chime in the key, each landing in quick succession one step higher up the scale (the game plays it
 	# on the next eighth-note of the music, softer when many land close together).
@@ -55,20 +60,20 @@ func _build_effects_into(clips: Dictionary) -> void:
 		clips["coin_%d" % k] = _norm(_reverb(c, 0.25, 0.35), LVL_GAME * 0.4)
 	# Fine: a low, muted thud. Conflict: the thud with a soft descending two-tone over it.
 	clips["fine"] = _norm(_reverb(_thud(0.5), 0.15, 0.3), LVL_GAME * 0.8)
-	var tone1 := _soft(note_hz(4) * 0.5, 0.22, 0.8)       # A3
-	var tone2 := _soft(note_hz(2) * 0.5, 0.34, 0.8)       # E3
+	var tone1 := _soft(note_hz(4) * 0.5, 0.22, 0.8)       # B3
+	var tone2 := _soft(note_hz(2) * 0.5, 0.34, 0.8)       # F#3
 	var alarm := _mix_at(_mix_at(_thud(0.5), tone1, int(0.02 * rate)), tone2, int(0.2 * rate))
 	clips["alarm"] = _norm(_reverb(alarm, 0.2, 0.4), LVL_GAME * 0.9)
 	# Go-around: two soft rising tones (E, A) in the key, no noise.
 	clips["go_around"] = _norm(_reverb(_mix_at(_soft(note_hz(2) * 0.5, 0.5, 1.0), _soft(note_hz(4) * 0.5, 0.7, 0.9), int(0.2 * rate)), 0.25, 0.4), LVL_GAME * 0.9)
-	# Wind shift: three slow, low bell notes (E, D, A).
+	# Wind shift: three slow bell notes stepping down the scale.
 	var w := _mix_at(_mix_at(_bell(note_hz(7), 0.9, 1.0, 0.6), _bell(note_hz(6), 0.9, 0.9, 0.6), int(0.22 * rate)), _bell(note_hz(4), 1.2, 0.9, 0.6), int(0.44 * rate))
 	clips["wind"] = _norm(_reverb(w, 0.35, 0.6), LVL_GAME * 0.8)
-	# The engine note rising before a go-around: a soft glide from A3 up to E4 (in the key) over most of a second.
+	# The engine note rising before a go-around: a soft glide from B3 up to F#4 (in the key) over most of a second.
 	clips["rev"] = _norm(_lp(_chirp(note_hz(4) * 0.5, note_hz(2), 0.9), 1100.0), LVL_UI * 0.6)
 	# Gust: a soft swell of low, filtered air under the music when the wind shifts (no pitch, far below the bells).
 	clips["gust"] = _norm(_lp(_whoosh(1.0, 260.0, 620.0), 900.0), LVL_UI * 0.7)
-	# Last arrivals: a gentle rising figure (G A C E). Clear sky: a warm major chord, slowly blooming.
+	# Last arrivals: a gentle rising figure up the scale. Clear sky: a warm major chord, slowly blooming.
 	var la := PackedFloat32Array()
 	for k in 4:
 		la = _mix_at(la, _bell(note_hz(3 + k + (1 if k > 1 else 0)), 0.8, 1.0 - 0.1 * k, 0.7), int(k * 0.16 * rate))
@@ -77,10 +82,10 @@ func _build_effects_into(clips: Dictionary) -> void:
 	# Timer tick: a tiny soft knock. (The game plays it faster and slightly higher as time runs short.)
 	clips["tick"] = _norm(_knock(note_hz(3), 0.05), LVL_UI * 0.9)
 	# UI: very quiet, very short, soft clicks.
-	clips["tap"] = _norm(_knock(520.0, 0.06), LVL_UI)
-	clips["press"] = _norm(_knock(330.0, 0.05), LVL_UI * 0.7)
-	clips["back"] = _norm(_mix_at(_knock(440.0, 0.05), _knock(330.0, 0.07), int(0.05 * rate)), LVL_UI)
-	clips["toggle"] = _norm(_knock(720.0, 0.04), LVL_UI * 0.8)
+	clips["tap"] = _norm(_knock(note_hz(5), 0.06), LVL_UI)
+	clips["press"] = _norm(_knock(note_hz(1), 0.05), LVL_UI * 0.7)
+	clips["back"] = _norm(_mix_at(_knock(note_hz(3), 0.05), _knock(note_hz(1), 0.07), int(0.05 * rate)), LVL_UI)
+	clips["toggle"] = _norm(_knock(note_hz(7), 0.04), LVL_UI * 0.8)
 	clips["error"] = _norm(_soft(note_hz(2) * 0.5, 0.16, 0.9), LVL_UI * 1.2)
 	clips["whoosh"] = _norm(_whoosh(0.25, 500.0, 1100.0), LVL_UI * 1.1)
 	# A purchase: three soft plinks up the scale. A star: a rising four-note bell figure. A new airport: a little melody.
@@ -97,43 +102,227 @@ func _build_effects_into(clips: Dictionary) -> void:
 	# A results star slamming in: a warm thud with a bell on top.
 	clips["slam"] = _norm(_reverb(_mix_at(_thud(0.45), _bell(note_hz(10), 0.8, 0.7, 0.8), int(0.03 * rate)), 0.3, 0.5), LVL_BIG)
 
-## An 8-beat loop (6 s) in C major: C, Am, F, G, two beats each. The calm layer is a warm pad with a soft bass; the intense
-## layer is a plucked pentatonic arpeggio with a very soft pulse underneath. Both loops are seamless, and equally long.
-func _music(hot: bool) -> PackedFloat32Array:
-	var n := int(BEAT * 8.0 * rate)
+# ---------- The music ----------
+# D major, 112 BPM: D | A | Bm | G | D | A | G | A, one bar each, eight bars. Three layers, each a loop of exactly the same length, so they
+# can be faded in and out over each other without ever drifting: 1 = bass and soft percussion, 2 = rhythm guitar and keys,
+# 3 = the lead (a plucked mallet). No pads, no wash: every sound is a short pluck, and the only "room" is a tape-style echo on the lead.
+
+const CHORD_ROOT := [0, 7, 9, 5, 0, 7, 5, 7]       # semitones above D: D A B G D A G A (the Bm bar's root is B)
+# Guitar voicings, semitones above D3 (146.83 Hz), low string first.
+const VOICING := {0: [0, 7, 12, 16], 7: [-5, 2, 7, 11, 14], 9: [-3, 4, 9, 12, 16], 5: [-7, 0, 5, 9, 12]}
+# The lead, in eighth-notes from the start of the loop: [eighth, semitones above D4, length in eighths].
+const LEAD := [
+	[0, 7, 2], [2, 9, 1], [3, 7, 1], [4, 4, 2], [6, 7, 2],                       # D:  A B A F# A
+	[8, 14, 3], [11, 12, 1], [12, 11, 2], [14, 7, 1], [15, 11, 1],               # A:  E D C# A C#
+	[16, 12, 2], [18, 9, 1], [19, 12, 1], [20, 16, 2], [22, 14, 1], [23, 12, 1], # Bm: D B D F# E D
+	[24, 9, 3], [27, 12, 1], [28, 9, 1], [29, 7, 1], [30, 5, 2],                 # G:  B D B A G
+	[32, 7, 2], [34, 9, 1], [35, 7, 1], [36, 12, 2], [38, 16, 2],                # D:  A B A D F#
+	[40, 14, 2], [42, 11, 1], [43, 14, 1], [44, 19, 3], [47, 14, 1],             # A:  E C# E A E
+	[48, 12, 2], [50, 9, 1], [51, 12, 1], [52, 17, 2], [54, 16, 1], [55, 14, 1], # G:  D B D G F# E
+	[56, 11, 2], [58, 14, 2], [60, 7, 2], [62, 11, 1], [63, 7, 1],               # A:  C# E A C# A (back to the top)
+]
+
+func _eighth_at(e: float) -> int:
+	return int(round(e * BEAT * 0.5 * rate))
+
+func _loop_len() -> int:
+	return int(round(LOOP_SECS * rate))
+
+## Add `src` (times `gain`) into the loop `dst` at sample `at`; what runs past the end wraps round to the start, so the loop is seamless.
+func _add_wrap(dst: PackedFloat32Array, src: PackedFloat32Array, at: int, gain: float = 1.0) -> void:
+	var n := dst.size()
+	var j := posmod(at, n)
+	for i in src.size():
+		dst[j] += src[i] * gain
+		j += 1
+		if j == n:
+			j = 0
+
+## A soft electric-bass pluck: a round tone with a little second and third harmonic (so a phone's speaker still shows it).
+func _bass(f: float, dur: float) -> PackedFloat32Array:
+	var n := int(dur * rate)
 	var out := PackedFloat32Array()
 	out.resize(n)
-	if not hot:
-		var chords := [[130.81, 261.63, 329.63, 392.0], [110.0, 220.0, 261.63, 329.63], [87.31, 174.61, 220.0, 261.63], [98.0, 196.0, 246.94, 293.66]]
-		var seg := 2.0 * BEAT
-		for c in 4:
-			var start := c * seg - 0.25
-			var length := seg + 0.5
-			var start_i := int(round(start * rate))
-			for f_v in chords[c]:
-				var f: float = f_v
-				for i in int(length * rate):
-					var t := float(i) / rate
-					var w := minf(smoothstep(0.0, 0.45, t), smoothstep(0.0, 0.45, length - t))
-					var idx := posmod(start_i + i, n)
-					var ph: float = TAU * f * (start + t)
-					out[idx] += (sin(ph) + 0.25 * sin(2.0 * ph)) * w * (0.28 if f > 150.0 else 0.4)
-		return _norm(out, 0.35)
-	var arps := [[5, 7, 8, 7], [4, 5, 7, 5], [4, 5, 6, 5], [3, 6, 8, 6]]
-	var eighth := BEAT * 0.5
-	for c in 4:
-		for k in 4:
-			var at := int((c * 4 + k) * eighth * rate)
-			var note := _bell(note_hz(arps[c][k]), 0.9, 0.55 if k > 0 else 0.7, 0.5)
-			for i in note.size():
-				out[posmod(at + i, n)] += note[i]
-	for b in 8:
-		var at2 := int(b * BEAT * rate)
-		for i in int(0.22 * rate):
-			var t2 := float(i) / rate
-			out[posmod(at2 + i, n)] += 0.22 * sin(TAU * lerpf(80.0, 50.0, minf(t2 * 6.0, 1.0)) * t2) * exp(-t2 * 14.0) * smoothstep(0.0, 0.012, t2)
-	out = _reverb_loop(out, 0.3)
+	var a_n := int(0.006 * rate)
+	var r_n := int(0.03 * rate)
+	for i in n:
+		var t := float(i) / rate
+		var ph := TAU * f * t
+		out[i] = (sin(ph) + 0.8 * sin(2.0 * ph) * exp(-t * 3.0) + 0.35 * sin(3.0 * ph) * exp(-t * 5.0)) * exp(-t * 2.0) * _win(i, n, a_n, r_n)
+	return _lp(out, 1500.0)
+
+## A light kick: a sine falling from 130 to 50 Hz, a soft attack and a quick decay.
+func _kick() -> PackedFloat32Array:
+	var n := int(0.17 * rate)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / rate
+		ph += TAU * (58.0 + 85.0 * exp(-t * 30.0)) / rate
+		out[i] = sin(ph) * exp(-t * 17.0) * _win(i, n, int(0.004 * rate), int(0.05 * rate))
+	return out
+
+## A rim click: a short, high, rounded tick (a sine and a breath of noise).
+func _rim() -> PackedFloat32Array:
+	var n := int(0.06 * rate)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var seed_v := 91
+	for i in n:
+		var t := float(i) / rate
+		seed_v = (seed_v * 1103515245 + 12345) & 0x7fffffff
+		var noise := float(seed_v) / 1073741823.5 - 1.0
+		out[i] = (sin(TAU * 1650.0 * t) * exp(-t * 85.0) + 0.35 * noise * exp(-t * 160.0)) * _win(i, n, int(0.001 * rate), int(0.02 * rate))
+	return _lp(out, 4200.0)
+
+## A shaker: a short puff of high-passed noise.
+func _shaker() -> PackedFloat32Array:
+	var n := int(0.07 * rate)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var seed_v := 5309
+	var lp := 0.0
+	var a := 1.0 - exp(-TAU * 2800.0 / rate)
+	for i in n:
+		var t := float(i) / rate
+		seed_v = (seed_v * 1103515245 + 12345) & 0x7fffffff
+		var noise := float(seed_v) / 1073741823.5 - 1.0
+		lp += (noise - lp) * a
+		out[i] = (noise - lp) * exp(-t * 55.0) * _win(i, n, int(0.006 * rate), int(0.03 * rate))
+	return _lp(out, 7000.0)
+
+## Layer 1: the bass (roots and fifths, one note per beat or so) and the soft percussion (kick on 1 and 3, rim on 2 and 4, a shaker
+## on every eighth with the off-beats leaning in; a little 16th-note fill at the end of the eighth bar).
+func _layer_rhythm() -> PackedFloat32Array:
+	var n := _loop_len()
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var kick := _kick()
+	var rim := _rim()
+	var shk := _shaker()
+	var accents := [0.5, 0.85, 0.6, 0.9, 0.5, 0.85, 0.6, 0.9]
+	for bar in 8:
+		var e0 := bar * 8
+		var root: int = CHORD_ROOT[bar]
+		var rf := 73.416 * pow(2.0, float(root) / 12.0)       # D2 and up
+		var ff := rf * pow(2.0, 7.0 / 12.0)
+		# bass: root (long), root, fifth, root
+		# (each note runs a little into the next: the bass never lets go, so there is no gap of silence in the loop)
+		_add_wrap(out, _bass(rf, BEAT * 1.6), _eighth_at(e0), 0.5)
+		_add_wrap(out, _bass(rf, BEAT * 0.7), _eighth_at(e0 + 3), 0.38)
+		_add_wrap(out, _bass(ff, BEAT * 1.1), _eighth_at(e0 + 4), 0.42)
+		_add_wrap(out, _bass(rf, BEAT * 1.1), _eighth_at(e0 + 6), 0.42)
+		# kick and rim
+		_add_wrap(out, kick, _eighth_at(e0), 0.46)
+		_add_wrap(out, kick, _eighth_at(e0 + 4), 0.38)
+		if bar % 2 == 1:
+			_add_wrap(out, kick, _eighth_at(e0 + 5), 0.2)
+		_add_wrap(out, rim, _eighth_at(e0 + 2), 0.34)
+		_add_wrap(out, rim, _eighth_at(e0 + 6), 0.38)
+		for k in 8:
+			_add_wrap(out, shk, _eighth_at(e0 + k), 0.4 * accents[k])
+		if bar == 7:
+			_add_wrap(out, shk, _eighth_at(e0 + 6.5), 0.3)
+			_add_wrap(out, shk, _eighth_at(e0 + 7.5), 0.38)
+			_add_wrap(out, rim, _eighth_at(e0 + 7.5), 0.2)
 	return _norm(out, 0.35)
+
+## One guitar string plucked: a handful of harmonics, the higher ones dying quicker (a bright start, a warm tail), a rounded attack.
+func _pluck(f: float, dur: float) -> PackedFloat32Array:
+	var n := int(dur * rate)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var amps := [1.0, 0.55, 0.32, 0.2, 0.1]
+	var a_n := int(0.003 * rate)
+	var r_n := int(0.05 * rate)
+	for i in n:
+		var t := float(i) / rate
+		var v := 0.0
+		for k in 5:
+			if f * (k + 1) < 6000.0:
+				v += float(amps[k]) * sin(TAU * f * (k + 1) * t) * exp(-t * (3.0 + 2.2 * k))
+		out[i] = v * _win(i, n, a_n, r_n)
+	return _lp(out, 5200.0)
+
+## A soft electric-piano note (the "keys"): a sine, a quick second harmonic and a hint of a third.
+func _keys(f: float, dur: float) -> PackedFloat32Array:
+	var n := int(dur * rate)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var a_n := int(0.006 * rate)
+	var r_n := int(0.05 * rate)
+	for i in n:
+		var t := float(i) / rate
+		var ph := TAU * f * t
+		out[i] = (sin(ph) * exp(-t * 3.2) + 0.4 * sin(2.0 * ph) * exp(-t * 6.0) + 0.1 * sin(3.0 * ph) * exp(-t * 9.0)) * _win(i, n, a_n, r_n)
+	return out
+
+## Layer 2: the rhythm guitar (a down-down-up-up-down-up strum on each bar, the strings spread over a few milliseconds) and, on the
+## off-beats, a light stab of keys.
+func _layer_chords() -> PackedFloat32Array:
+	var n := _loop_len()
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var plucks := {}                 # (frequency) -> its pluck, rendered once
+	var keys := {}
+	var strum := [[0, 1.0, true], [2, 0.7, true], [3, 0.5, false], [5, 0.55, false], [6, 0.8, true], [7, 0.45, false]]
+	for bar in 8:
+		var e0 := bar * 8
+		var root: int = CHORD_ROOT[bar]
+		var voices: Array = VOICING[root]
+		for st in strum:
+			var down: bool = st[2]
+			var amp: float = st[1]
+			var count := voices.size()
+			for k in count:
+				var idx := k if down else count - 1 - k
+				var f := 146.8324 * pow(2.0, float(voices[idx]) / 12.0)
+				if not plucks.has(f):
+					plucks[f] = _pluck(f, BEAT * 1.1)
+				_add_wrap(out, plucks[f], _eighth_at(e0 + st[0]) + int(float(k) * 0.011 * rate), 0.2 * amp * (0.8 if not down else 1.0))
+		# keys: the chord's upper notes (an octave up) on the "and" of 2 and of 4
+		for kk in [3, 7]:
+			for v in [voices[voices.size() - 3], voices[voices.size() - 2], voices[voices.size() - 1]]:
+				var fk := 146.8324 * 2.0 * pow(2.0, float(v) / 12.0)
+				if not keys.has(fk):
+					keys[fk] = _keys(fk, BEAT * 0.5)
+				_add_wrap(out, keys[fk], _eighth_at(e0 + kk), 0.07)
+	return _norm(out, 0.35)
+
+## A marimba-like mallet: a sine and a bright fourth-partial that dies at once, a soft attack, a short ring.
+func _mallet(f: float, dur: float) -> PackedFloat32Array:
+	var n := int(dur * rate)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var a_n := int(0.004 * rate)
+	var r_n := int(0.06 * rate)
+	for i in n:
+		var t := float(i) / rate
+		var ph := TAU * f * t
+		out[i] = (sin(ph) * exp(-t * 4.2) + 0.3 * sin(4.0 * ph) * exp(-t * 20.0) + 0.1 * sin(2.0 * ph) * exp(-t * 9.0)) * _win(i, n, a_n, r_n)
+	return out
+
+## Layer 3: the lead, a plucked mallet melody over the eight bars, with a dotted-eighth echo (three eighths later, a third as loud, a
+## soft repeat that wraps round the loop).
+func _layer_lead() -> PackedFloat32Array:
+	var n := _loop_len()
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var mallets := {}
+	for nt in LEAD:
+		var semis: int = nt[1]
+		var f := D4 * pow(2.0, float(semis) / 12.0)
+		var len_e: int = nt[2]
+		var key := "%d:%d" % [semis, len_e]
+		if not mallets.has(key):
+			mallets[key] = _mallet(f, BEAT * 0.5 * float(len_e) + 0.35)
+		_add_wrap(out, mallets[key], _eighth_at(nt[0]), 0.5)
+	var dry := out.duplicate()
+	var delay := _eighth_at(3)
+	for i in n:
+		out[(i + delay) % n] += dry[i] * 0.3
+	return _norm(_lp(out, 6500.0), 0.35)
 
 ## Fog ambience: a soft, slow breath of low filtered air (a two-second loop; its ends are crossfaded so it is seamless).
 func _fog_ambience() -> PackedFloat32Array:
@@ -162,14 +351,14 @@ func _fog_ambience() -> PackedFloat32Array:
 			out[i] = raw[i]
 	return _norm(out, 0.25)
 
-## A low, tense but soft drone for fog: a tritone pair that slowly shivers, in the same 6 s length as the music.
+## A low, tense but soft drone for fog: D and the tritone above it (A-flat) that slowly shiver, in the same length as the music.
 func _music_tense_loop() -> PackedFloat32Array:
-	var secs := BEAT * 8.0
+	var secs := LOOP_SECS
 	var n := int(secs * rate)
 	var out := PackedFloat32Array()
 	out.resize(n)
-	var f1 := roundf(55.0 * secs) / secs          # whole cycles per loop: no click at the seam
-	var f2 := roundf(77.8 * secs) / secs
+	var f1 := roundf(73.42 * secs) / secs          # whole cycles per loop: no click at the seam
+	var f2 := roundf(103.83 * secs) / secs
 	var ft := roundf(2.0 * secs) / secs
 	for i in n:
 		var t := float(i) / rate

@@ -13,19 +13,21 @@ extends Node
 const RATE := 44100
 const POOL := 14
 const STEPS := 7               # landing chimes / coin plinks: this many steps up the scale
-const BEAT := 0.75             # music: seconds per beat, 8 beats per loop (6 s)
+const BEAT := 60.0 / 112.0     # music: 112 BPM; 32 beats (8 bars of 4) per loop, 17.14 s
 const NAMES := ["landing", "coin", "go_around", "alarm", "fine", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "star", "slam", "back", "toggle", "buy", "error", "whoosh", "unlock", "touch", "chirp", "gust", "rev", "arrive"]
 ## Gameplay sounds that wait for the next eighth-note of the music so they land on the beat (taps and results stingers do not).
 const QUANTIZED := ["landing", "chirp", "gust", "coin", "arrive", "go_around", "alarm", "fine", "tick", "wind", "last_arrivals", "clear_sky"]
-const EIGHTH := BEAT * 0.5           # the music's grid: 16 eighths per 6 s loop
-const LOOP_SECS := BEAT * 8.0
+const EIGHTH := BEAT * 0.5           # the music's grid: 64 eighths per loop
+const LOOP_SECS := BEAT * 32.0
 const MAX_PENDING := 12
 const FILES := ["touch", "chirp", "gust", "rev", "arrive", "fine", "alarm", "go_around", "wind", "last_arrivals", "clear_sky", "tick", "tap", "press", "back", "toggle", "error", "whoosh", "buy", "star", "unlock", "slam"]
-const LAYERS := ["calm", "hot", "tense", "fog"]
+const LAYERS := ["music1", "music2", "music3", "tense", "fog"]
+const MUSIC_LAYERS := ["music1", "music2", "music3"]      # 1: bass and percussion, 2: rhythm guitar and keys, 3: the lead (all one length, always started together)
 
 var enabled := true
 var plays := {}                # sound name -> how many times it was triggered
-var music_level := 0.0         # the intense layer's volume 0..1
+var inbound := 0               # aircraft inbound right now (the music's layers follow it)
+var last_secs := false         # the last 20 s of the shift (or the finale)
 var music_pitch := 1.0         # (always 1: shifting the music would take it out of key)
 var fog_level := 0.0           # 0..1: the fog ambience and the tense music layer follow it
 var held := false              # audio is held (the page went to the background): the Master bus is muted
@@ -39,22 +41,35 @@ var unlocked := false          # the first user gesture has happened (browsers k
 var _streams := {}
 var _pool: Array[AudioStreamPlayer] = []
 var _next := 0
-var _music_calm: AudioStreamPlayer
-var _music_hot: AudioStreamPlayer
+var _music1: AudioStreamPlayer
+var _music2: AudioStreamPlayer
+var _music3: AudioStreamPlayer
 var _music_tense: AudioStreamPlayer
 var _fog_amb: AudioStreamPlayer
 var _players := {}             # layer name -> its looping player (not on the web)
-var _layer_db := {"calm": -80.0, "hot": -80.0, "tense": -80.0, "fog": -80.0}
+var _layer_db := {"music1": -80.0, "music2": -80.0, "music3": -80.0, "tense": -80.0, "fog": -80.0}
 var _js_sent := {}             # layer -> the level last sent to the page
 var _music_on := false
 var _menu_on := false
-var _calm_db := -80.0          # what the music layers are at now; the targets come from the mode (a smooth crossfade)
-var _hot_db := -80.0
-var _calm_target := -80.0
-var _hot_target := -80.0
-const FADE_DB_PER_S := 60.0
-const MENU_CALM_DB := -8.0
-const SHIFT_CALM_DB := -4.0
+## Where each music layer sits, in dB, and how fast it glides there (a smooth crossfade, never a jump). In a shift layer 1 is always
+## there, layer 2 comes in when 3 or more aircraft are inbound, layer 3 when 5 or more are or in the last 20 s; the menu plays layers 1
+## and 2, lower.
+var _db := {"music1": -80.0, "music2": -80.0, "music3": -80.0}          # what the layers are at now
+var _target := {"music1": -80.0, "music2": -80.0, "music3": -80.0}      # ...and where they are headed
+var _last_us := 0
+var _t2 := 0.0                 # seconds layer 2 is still held after traffic drops below its threshold (it does not flicker)
+var _t3 := 0.0
+const FADE_DB_PER_S := 40.0            # layer 1 (the menu <-> shift crossfade)
+const LAYER_FADE_DB_PER_S := 22.0      # layers 2 and 3 (about a second and a half to come in)
+const MENU_L1_DB := -10.0
+const MENU_L2_DB := -12.0
+const SHIFT_L1_DB := -4.0
+const SHIFT_L2_DB := -7.0
+const SHIFT_L3_DB := -8.0
+const L2_INBOUND := 3
+const L3_INBOUND := 5
+const LAST_SECS := 20.0
+const HOLD_SECS := 2.5
 var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -75,8 +90,9 @@ func _ready() -> void:
 	for i in POOL:
 		_pool.append(_player("SFX"))
 	if not web_loops:
-		_music_calm = _loop_player("calm", "Music")
-		_music_hot = _loop_player("hot", "Music")
+		_music1 = _loop_player("music1", "Music")
+		_music2 = _loop_player("music2", "Music")
+		_music3 = _loop_player("music3", "Music")
 		_music_tense = _loop_player("tense", "Music")
 		_fog_amb = _loop_player("fog", "Ambience")
 
@@ -206,36 +222,60 @@ func release() -> void:
 	if web_loops:
 		JavaScriptBridge.eval("window.PWAudio && PWAudio.setHeld(false)")
 
-## Start / stop the music. `progress` 0..1 through the shift: the intense layer fades in from 55%; `urgency` (the
-## finale / overtime) pushes it to the top. The key never changes.
-func set_music(on: bool, progress: float = 0.0, urgency: float = 0.0) -> void:
+## Start / stop the shift's music. `inbound` is how many aircraft are on their way in right now and `last` the last 20 s of the shift
+## (or its finale): layer 1 (bass and percussion) plays throughout, layer 2 (rhythm guitar and keys) joins at 3 or more inbound, layer 3
+## (the lead) at 5 or more or in the last 20 s. They crossfade, and the key never changes.
+func set_music(on: bool, inbound_now: int = 0, last: bool = false) -> void:
 	_music_on = on
-	var hot := clampf(maxf(smoothstep(0.55, 1.0, progress), urgency), 0.0, 1.0)
-	music_level = hot if on else 0.0
-	_retarget(hot)
+	inbound = inbound_now if on else 0
+	last_secs = last and on
+	_retarget()
 
-## The menu's music: the calm layer alone, quieter. It crossfades with the shift's music.
+## The menu's music: layers 1 and 2, quieter. It crossfades with the shift's music.
 func set_menu_music(on: bool) -> void:
 	if on != _menu_on:
 		_menu_on = on
-		_retarget(music_level)
+		_retarget()
 
 ## Work out where each layer should be; they glide there in _process (no jumps, no clicks).
-func _retarget(hot: float) -> void:
-	_calm_target = SHIFT_CALM_DB if _music_on else (MENU_CALM_DB if _menu_on else -80.0)
-	_hot_target = linear_to_db(maxf(hot * 0.8, 0.0001)) - 6.0 if _music_on else -80.0
+func _retarget() -> void:
+	var want2 := _music_on and (inbound >= L2_INBOUND or _t2 > 0.0)
+	var want3 := _music_on and (inbound >= L3_INBOUND or last_secs or _t3 > 0.0)
+	_target["music1"] = SHIFT_L1_DB if _music_on else (MENU_L1_DB if _menu_on else -80.0)
+	_target["music2"] = SHIFT_L2_DB if want2 else (MENU_L2_DB if (_menu_on and not _music_on) else -80.0)
+	_target["music3"] = SHIFT_L3_DB if want3 else -80.0
 	if not enabled:
 		return
-	if (_calm_target > -70.0 or _hot_target > -70.0):
-		_start_layers(["calm", "hot"])
+	for n in MUSIC_LAYERS:
+		if _target[n] > -70.0:
+			_start_layers(MUSIC_LAYERS)       # (always together: they are one piece of music and must stay in step)
+			return
+
+## The layers that are in at the moment (1 to 3; 0 when there is no music).
+func layers_on() -> int:
+	var k := 0
+	for n in MUSIC_LAYERS:
+		if float(_target[n]) > -70.0:
+			k += 1
+	return k
 
 func _glide_music(delta: float) -> void:
-	_calm_db = move_toward(_calm_db, _calm_target, FADE_DB_PER_S * delta)
-	_hot_db = move_toward(_hot_db, _hot_target, FADE_DB_PER_S * delta)
-	_set_layer("calm", _calm_db)
-	_set_layer("hot", _hot_db)
-	if _calm_db <= -75.0 and _hot_db <= -75.0 and _calm_target <= -70.0:
-		_stop_layers(["calm", "hot"])
+	if _music_on:
+		_t2 = HOLD_SECS if inbound >= L2_INBOUND else maxf(_t2 - delta, 0.0)
+		_t3 = HOLD_SECS if inbound >= L3_INBOUND else maxf(_t3 - delta, 0.0)
+	else:
+		_t2 = 0.0
+		_t3 = 0.0
+	_retarget()
+	var quiet := true
+	for n in MUSIC_LAYERS:
+		var rate := FADE_DB_PER_S if n == "music1" else LAYER_FADE_DB_PER_S
+		_db[n] = move_toward(_db[n], _target[n], rate * delta)
+		_set_layer(n, _db[n])
+		if _db[n] > -75.0 or _target[n] > -70.0:
+			quiet = false
+	if quiet:
+		_stop_layers(MUSIC_LAYERS)
 
 ## Fog: a soft ambient bed, and a tense (but still soft) music layer on top of the music while it is around.
 func set_fog(level: float) -> void:
@@ -259,7 +299,12 @@ func set_fog(level: float) -> void:
 func _process(delta: float) -> void:
 	if not enabled:
 		return
-	_glide_music(delta)
+	# The layers glide on the wall clock: the engine's frame delta is held to 1/60 s when frames are slower, which on a slow phone
+	# would stretch a 1.5 s fade over many seconds.
+	var now_us := Time.get_ticks_usec()
+	var wall := minf(float(now_us - _last_us) / 1000000.0, 0.25) if _last_us > 0 else 0.0
+	_last_us = now_us
+	_glide_music(maxf(delta, wall))
 	if not _pending.is_empty():
 		var now_ms := Time.get_ticks_msec()
 		var k := 0
@@ -297,7 +342,7 @@ func _set_layer(name: String, db: float) -> void:
 
 ## The bus a layer sits on: Music for the music, Ambience for the fog (their volume sliders and mutes apply).
 func _bus_db(layer: String) -> float:
-	var idx := AudioServer.get_bus_index("Music" if layer == "calm" or layer == "hot" or layer == "tense" else "Ambience")
+	var idx := AudioServer.get_bus_index("Ambience" if layer == "fog" else "Music")
 	if idx < 0:
 		return 0.0
 	return -80.0 if AudioServer.is_bus_mute(idx) else AudioServer.get_bus_volume_db(idx)

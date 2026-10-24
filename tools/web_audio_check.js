@@ -4,6 +4,9 @@
 // * sound really comes out (menu music after the first tap, the shift music after PLAY),
 // * no discontinuities (clicks / pops), no dropouts (runs of exact silence in the middle of the music),
 //   no repeated buffers (an underrun replaying the last block), no clipping,
+// * every looping layer on its own (the three music layers, the fog drone and the fog air), as the page decodes and plays it: not
+//   silent, no clicks, no dropouts, no clipping, a seamless loop point, the music layers exactly the same length, and in the
+//   game the menu plays layers 1 and 2 (layer 3 off) while a shift plays layer 1,
 // * background audio: when the page is hidden / blurred every AudioContext is suspended, the output goes silent and the
 //   game pauses; it stays silent after the page is visible again until the player taps Resume.
 // Exits non-zero on any failure.
@@ -22,13 +25,13 @@ const mime = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'applica
 // ---- analysis of a recording (mono Float32Array at `rate`) ----
 function analyse(x, rate, from, to) {
   const a = Math.max(0, Math.floor(from * rate)), b = Math.min(x.length, Math.floor(to * rate));
-  let clicks = 0, clipped = 0, repeated = 0, dropouts = 0, peak = 0, maxClick = 0;
+  let clicks = 0, clipped = 0, repeated = 0, dropouts = 0, peak = 0, maxClick = 0; const clickAt = [];
   // clicks: a step far bigger than the recent steps (the signal is soft: everything is low-passed)
   const hist = new Float32Array(32); let hp = 0;
   for (let i = a + 1; i < b; i++) {
     const d = Math.abs(x[i] - x[i - 1]);
     let m = 0; for (let k = 0; k < 32; k++) m = Math.max(m, hist[k]);
-    if (d > 4 * m + 0.03 && i - a > 64) { clicks++; maxClick = Math.max(maxClick, d); }
+    if (d > 4 * m + 0.03 && i - a > 64) { clicks++; maxClick = Math.max(maxClick, d); if (clickAt.length < 6) clickAt.push(+(i / rate).toFixed(3)); }
     hist[hp] = d; hp = (hp + 1) & 31;
     const v = Math.abs(x[i]); peak = Math.max(peak, v); if (v >= 0.999) clipped++;
   }
@@ -44,7 +47,7 @@ function analyse(x, rate, from, to) {
   let run = 0; const min = Math.floor(0.02 * rate);
   for (let i = a; i < b; i++) { if (x[i] === 0) { run++; } else { if (run >= min) dropouts++; run = 0; } }
   if (run >= min) dropouts++;
-  return { clicks, maxClick: +maxClick.toFixed(3), clipped, repeated, dropouts, peak: +peak.toFixed(3) };
+  return { clicks, maxClick: +maxClick.toFixed(3), clipped, repeated, dropouts, peak: +peak.toFixed(3), clickAt };
 }
 
 const srv = http.createServer((q, r) => {
@@ -103,6 +106,24 @@ srv.listen(0, async () => {
     await page.waitForFunction(() => { const l = document.getElementById('loader'); return !l || l.style.display === 'none'; }, null, { timeout: 180000 });
     await page.waitForTimeout(3000);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });   // a phone is several times slower than this machine
+    // 0. the loops on their own, decoded the way the page decodes them
+    const loopNames = ['music1', 'music2', 'music3', 'tense', 'fog'];
+    const loopReport = await page.evaluate(async ([names, src]) => {
+      const analyseIn = eval('(' + src + ')');
+      const ctx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
+      const out = {};
+      for (const n of names) {
+        const buf = await ctx.decodeAudioData(await (await fetch('audio/' + n + '.wav')).arrayBuffer());
+        const x = buf.getChannelData(0), rate = buf.sampleRate;
+        let sumSq = 0, big = 0, silentWin = 0, wins = 0;
+        for (let i = 1; i < x.length; i++) { sumSq += x[i] * x[i]; big = Math.max(big, Math.abs(x[i] - x[i - 1])); }
+        const w = Math.floor(0.05 * rate);
+        for (let a = 0; a + w <= x.length; a += w) { let e = 0; for (let k = 0; k < w; k++) e += x[a + k] * x[a + k]; wins++; if (Math.sqrt(e / w) < 0.002) silentWin++; }
+        const r = analyseIn(x, rate, 0, x.length / rate);
+        out[n] = { samples: x.length, seconds: +(x.length / rate).toFixed(3), rms: +Math.sqrt(sumSq / x.length).toFixed(4), peak: r.peak, clicks: r.clicks, dropouts: r.dropouts, clipped: r.clipped, silentFraction: +(silentWin / wins).toFixed(3), biggestStep: +big.toFixed(4), seam: +Math.abs(x[0] - x[x.length - 1]).toFixed(4) };
+      }
+      return out;
+    }, [loopNames, analyse.toString()]);
     const marks = {};
     const nowSec = async () => page.evaluate(() => Math.max(window.__rec.music.length, window.__rec.sfx.length) * 4096 / (window.__rec.rate || 44100));
     const state = async () => page.evaluate(() => ({ ctx: (window.__ctxs || []).map(c => c.state), game: window.__pw || null }));
@@ -111,6 +132,7 @@ srv.listen(0, async () => {
     await page.touchscreen.tap(195, 420);
     await page.waitForTimeout(9000);
     marks.menuEnd = await nowSec();
+    const menuLevels = await page.evaluate(() => window.PWAudio && PWAudio.levels ? PWAudio.levels() : null);
     // 2. a few UI sounds in the menu (taps on the round buttons and back)
     await page.touchscreen.tap(60, 700); await page.waitForTimeout(900);
     await page.touchscreen.tap(30, 40); await page.waitForTimeout(900);
@@ -119,6 +141,7 @@ srv.listen(0, async () => {
     await page.touchscreen.tap(195, 430);
     await page.waitForTimeout(14000);
     marks.shiftEnd = await nowSec();
+    const shiftLevels = await page.evaluate(() => window.PWAudio && PWAudio.levels ? PWAudio.levels() : null);
     // 4. background audio: hide the page
     const before = await state();
     marks.hide = await nowSec();
@@ -152,6 +175,7 @@ srv.listen(0, async () => {
     marks.resume = await nowSec();
     await page.waitForTimeout(7000);
     marks.end = await nowSec();
+    const afterLevels = await page.evaluate(() => window.PWAudio && PWAudio.levels ? PWAudio.levels() : null);
     const after = await state();
     await page.screenshot({ path: path.join(process.env.TMPDIR || '/tmp', 'web_audio_check.png') });
 
@@ -176,10 +200,26 @@ srv.listen(0, async () => {
     const afterPeak = both(marks.resume + 1.5, marks.end);
     const menuAll = Math.max(peakIn(xm, marks.tap + 3, marks.menuEnd), peakIn(xs, marks.tap, marks.menuEnd));
     const shiftAll = Math.max(peakIn(xm, marks.play + 2, marks.shiftEnd), peakIn(xs, marks.play, marks.shiftEnd));
-    const out = { rate, seconds: +secs.toFixed(1), throttle: THROTTLE, menu, shift, shots, musicStream: xm.length > 0, peaks: { hidden: +hiddenPeak.toFixed(4), visibleBeforeResume: +visiblePeak.toFixed(4), afterResume: +afterPeak.toFixed(4) }, game: { before: before.game, hidden: during.game, visible: visibleState.game, after: after.game }, ctx: { before: before.ctx, hidden: during.ctx, visible: visibleState.ctx, after: after.ctx }, errors };
+    const out = { marks, loops: loopReport, levels: { menu: menuLevels, shift: shiftLevels, afterResume: afterLevels }, rate, seconds: +secs.toFixed(1), throttle: THROTTLE, menu, shift, shots, musicStream: xm.length > 0, peaks: { hidden: +hiddenPeak.toFixed(4), visibleBeforeResume: +visiblePeak.toFixed(4), afterResume: +afterPeak.toFixed(4) }, game: { before: before.game, hidden: during.game, visible: visibleState.game, after: after.game }, ctx: { before: before.ctx, hidden: during.ctx, visible: visibleState.ctx, after: after.ctx }, errors };
     console.log(JSON.stringify(out));
+    if (process.env.SAVE_SHOTS) { fs.writeFileSync(process.env.SAVE_SHOTS, Buffer.from(xs.buffer, xs.byteOffset, xs.byteLength)); }
     if (process.env.SAVE_WAV) { fs.writeFileSync(process.env.SAVE_WAV, Buffer.from(xm.buffer, xm.byteOffset, xm.byteLength)); }
     // ---- verdicts ----
+    for (const n of loopNames) {
+      const r = loopReport[n];
+      if (!r) { fail(n + ': the loop did not load'); continue; }
+      if (r.rms < 0.01 || r.silentFraction > 0.2) fail(n + ': the loop is silent or mostly silent (rms ' + r.rms + ', ' + r.silentFraction + ' of it silent)');
+      if (r.clicks > 0) fail(n + ': ' + r.clicks + ' clicks inside the loop');
+      if (r.dropouts > 0) fail(n + ': ' + r.dropouts + ' dropouts (runs of exact silence) inside the loop');
+      if (r.clipped > 0 || r.peak > 0.9) fail(n + ': peak ' + r.peak + ' (clipping)');
+      if (r.seam > r.biggestStep * 1.5 + 0.0005) fail(n + ': the loop point jumps by ' + r.seam + ' (the loop\'s own biggest step is ' + r.biggestStep + ')');
+    }
+    for (const n of ['music2', 'music3', 'tense']) {
+      if (loopReport[n] && loopReport.music1 && loopReport[n].samples !== loopReport.music1.samples) fail(n + ' is ' + loopReport[n].samples + ' samples, not the music\'s ' + loopReport.music1.samples + ' (the layers would drift)');
+    }
+    if (loopReport.music1 && Math.abs(loopReport.music1.seconds - 8 * 4 * 60 / 112) > 0.002) fail('the music is ' + loopReport.music1.seconds + ' s, not 8 bars at 112 BPM');
+    if (menuLevels && !(menuLevels.music1 > -30 && menuLevels.music2 > -30 && menuLevels.music3 < -60)) fail('the menu should play layers 1 and 2 and not 3: ' + JSON.stringify(menuLevels));
+    if (shiftLevels && !(shiftLevels.music1 > -30)) fail('a shift should play layer 1: ' + JSON.stringify(shiftLevels));
     if (menuAll < 0.0015) fail('the menu is silent (peak ' + menuAll + ')');
     if (shiftAll < 0.0015) fail('the shift is silent (peak ' + shiftAll + ')');
     if (shots.clicks > 0) fail('one-shots: ' + shots.clicks + ' discontinuities (largest step ' + shots.maxClick + ')');
