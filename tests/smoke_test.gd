@@ -1485,7 +1485,6 @@ func _initialize() -> void:
 	near_a.speed = 0.0
 	far_a.push(far_a.pos + Vector2(0.3, 0.3))
 	await process_frame
-	check(not main.fog_layer.visible, "no fog layer is drawn while the weather is clear")
 	main.trigger_weather("fog")
 	check(main.hud._event_banner.text.begins_with("Fog in"), "fog is announced (%s)" % main.hud._event_banner.text)
 	check(main.hud.banner_text() == "FOG ROLLING IN", "...with a FOG ROLLING IN banner (%s)" % main.hud.banner_text())
@@ -1493,7 +1492,11 @@ func _initialize() -> void:
 	check(tr.fog_amount >= 0.99 and main.weather.phase == 2, "the fog rolls in")
 	await process_frame
 	await process_frame
-	check(main.fog_layer.visible and absf(float(main.fog_layer.shader_material().get_shader_parameter("amount")) - tr.fog_amount) < 0.01, "a translucent fog layer is drawn, as thick as the fog (%.2f)" % tr.fog_amount)
+	var fog_veil := false
+	for fg_n in main.get_children():
+		if fg_n is MeshInstance3D and (fg_n as MeshInstance3D).mesh is PlaneMesh and ((fg_n as MeshInstance3D).mesh as PlaneMesh).size.x > 20.0:
+			fog_veil = true
+	check(not fog_veil and tr.fog_amount > 0.5, "fog is weather, not a veil: nothing is drawn over the whole field (%.2f)" % tr.fog_amount)
 	check(not far_a.fogged and not near_a.fogged and tr._nodes[tr.planes.find(far_a)].visible, "the fog hides nothing: a far aircraft is still there, model and all")
 	check(tr.pick(far_a.pos) == far_a, "...and can still be grabbed")
 	check(main.ribbons._nodes[tr.planes.find(far_a)].visible, "...and its path is still drawn")
@@ -1504,7 +1507,7 @@ func _initialize() -> void:
 	check(tr.fog_target == 0.0 and main.weather.phase == 0, "the fog lifts when the event ends")
 	run_sec(main, tuning.fog_fade_seconds + 0.3)
 	await process_frame
-	check(tr.fog_amount < 0.01 and not main.fog_layer.visible and not main.hud._event_banner.visible, "...the layer goes away and the chip is gone")
+	check(tr.fog_amount < 0.01 and not main.hud._event_banner.visible, "...and the chip is gone")
 	tr.release_all()
 	# Crosswind (Regional: two runways).
 	main.restart()
@@ -2770,45 +2773,54 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 
-	print("9o. atmospheric fog")
+	print("9o. no haze: three small cloud shadows, and the draw order that keeps the interface and the aircraft clear of them")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	main.select_airport(2)
 	main.restart()
 	tr.auto_spawn = false
 	set_wind(main, 0.0)
-	var fogl = main.fog_layer
-	var fsm = fogl.shader_material()
-	check(fsm.shader.code.contains("depth_test_disabled") and fsm.shader.code.contains("blend_mix") and fsm.shader.code.contains("TIME"), "the fog is a cheap one-quad shader with drifting noise (%d characters)" % fsm.shader.code.length())
-	check(fogl.mesh is PlaneMesh and main.get_children().filter(func(n): return n.get_script() == fogl.get_script()).size() == 1, "one fog quad, created once")
-	# Draw order: ground and scenery (opaque) -> fog -> path ribbons -> aircraft, runways and pads.
+	var cls = main.clouds
+	check(cls.count() >= 1 and cls.count() <= 3 and main.get_children().filter(func(n): return n.get_script() == cls.get_script()).size() == 1, "at most three cloud shadows, created once (%d)" % cls.count())
+	var cs_code: String = cls.material(0).shader.code
+	check(cs_code.contains("depth_test_disabled") and cs_code.contains("blend_mix") and not cs_code.contains("TIME"), "...each a flat soft-edged shape (%d characters of shader)" % cs_code.length())
+	var cs_ok := true
+	for cs_i in cls.count():
+		var cs_tint: Color = cls.material(cs_i).get_shader_parameter("tint")
+		var cs_a: float = cls.material(cs_i).get_shader_parameter("alpha")
+		var cs_size: Vector2 = (cls.shadow(cs_i).mesh as PlaneMesh).size
+		cs_ok = cs_ok and cs_a >= 0.08 and cs_a <= 0.15 and cs_tint.is_equal_approx(Shadow.COLOR) and cs_tint.get_luminance() < 0.4 and cs_size.x <= 4.0 and cs_size.y <= 2.5
+	check(cs_ok, "...dark (the shadow colour) at about 12%, small (under 4 x 2.5 units of a 10-unit-wide view), with no white anywhere")
+	var cs_x0 = cls.shadow(0).position
+	cls._process(1.0)
+	check(cls.shadow(0).visible and cls.shadow(0).position != cs_x0 and cls.shadow(0).position.distance_to(cs_x0) < 0.3, "...drifting slowly (%.2f units in a second)" % cls.shadow(0).position.distance_to(cs_x0))
+	main.begin_shift()
+	main._process(0.016)
+	cls._process(0.016)
+	check(cls.shadow(0).visible, "...in a shift too")
+	DebugFlags.parse(["tune", "nolife"])
+	cls._process(0.016)
+	check(not cls.shadow(0).visible, "?nolife takes them away")
+	DebugFlags.parse(["tune"])
+	cls._process(0.016)
 	var plane_mat = tr._body_mats[0]
 	var rw_mat = main.airfield.cur.thr_mats[0]
-	check(fsm.render_priority < -1 and plane_mat.render_priority > fsm.render_priority and rw_mat.render_priority > fsm.render_priority, "draw order: the fog comes before the ribbons, aircraft and runways")
-	check(plane_mat.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS and rw_mat.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS and plane_mat.albedo_color.a == 1.0, "aircraft and runways sit in the pass after the fog but stay fully opaque")
-	check(main.airfield.cur.ground_mat.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED and main.airfield.cur.ground_mat.render_priority == 0, "the ground and scenery stay in the opaque pass: only they are dimmed")
+	check(cls.material(0).render_priority < -1 and plane_mat.render_priority > cls.material(0).render_priority and rw_mat.render_priority > cls.material(0).render_priority, "draw order: the shadows come before the ribbons, aircraft and runways")
+	check(main.hud.layer > main.get_viewport().get_visible_rect().size.x * 0.0 and cls is Node3D, "...and the interface is a canvas layer above the 3D scene, so nothing is ever drawn over it")
+	check(plane_mat.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS and rw_mat.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS and plane_mat.albedo_color.a == 1.0, "aircraft and runways sit in the pass after the shadows but stay fully opaque")
+	check(main.airfield.cur.ground_mat.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED and main.airfield.cur.ground_mat.render_priority == 0, "the ground and scenery stay in the opaque pass")
 	var pad_lifted = false
-	var lane_lifted = true
 	for av in main.airfield.variants:
 		for mi in av.root.find_children("*", "MeshInstance3D", true, false):
 			var bm = mi.material_override as BaseMaterial3D
 			if bm != null and bm.render_priority == 2:
 				pad_lifted = true
-	check(pad_lifted, "runways, pads and lanes are lifted above the fog")
+	check(pad_lifted, "runways, pads and lanes are lifted above them")
 	var outl_ok = true
 	for mi in tr._nodes[0].find_children("*", "MeshInstance3D", true, false):
 		if mi.material_overlay != null:
 			outl_ok = outl_ok and mi.material_overlay.render_priority == 2
-	check(outl_ok, "aircraft outlines are drawn above the fog with them")
-	# The fog layer follows the fog and costs nothing without it.
-	tr.fog_amount = 0.0
-	tr.fog_target = 0.0
-	await process_frame
-	check(not fogl.visible, "no fog, no layer")
-	tr.fog_amount = 0.6
-	tr.fog_target = 0.6
-	await process_frame
-	check(fogl.visible and absf(float(fsm.get_shader_parameter("amount")) - 0.6) < 0.01 and float(fsm.get_shader_parameter("max_alpha")) == tuning.fog_max_alpha and tuning.fog_max_alpha < 0.7, "fog layer on, translucent (never above %.2f alpha)" % tuning.fog_max_alpha)
+	check(outl_ok, "aircraft outlines are drawn above them with the aircraft")
 	# Go-arounds: poor approaches a little riskier in fog, clean ones untouched.
 	tuning.go_around_max = 0.98
 	var thr_f = Airports.end_threshold(0, 0)
@@ -3060,17 +3072,10 @@ func _initialize() -> void:
 	check(q_landed_seen, "...touches down and rolls out")
 	check(q_peak_air >= 2 and q_peak_air <= 3, "...and another taxis off the runway (peak %d)" % q_peak_air)
 	check(tr.active_count() == 0 and main.score == 0 and main.shift.earned == 0, "the scenery scores nothing and adds no aircraft to the game")
-	var q_cloud_vis = 0
-	for q_cl in q_dio._clouds:
-		if q_cl.visible:
-			q_cloud_vis += 1
-	var q_x0 = q_dio._clouds[0].position
-	q_dio.tick(1.0)
-	check(q_cloud_vis == q_dio.CLOUDS and q_dio._clouds[0].position != q_x0 and float(q_dio._cloud_mats[0].get_shader_parameter("alpha")) > 0.0, "clouds drift across (%d of them)" % q_cloud_vis)
 	main.begin_shift()
 	main._process(0.016)
 	q_dio.tick(0.7)
-	check(not q_dio.active and q_dio.traffic.active_count() == 0 and not q_dio._clouds[0].visible, "during a shift the diorama is gone: no aircraft, no clouds")
+	check(not q_dio.active and q_dio.traffic.active_count() == 0, "during a shift the diorama is gone: no aircraft")
 	main.restart()
 	tr.auto_spawn = false
 

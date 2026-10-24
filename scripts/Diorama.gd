@@ -1,20 +1,14 @@
 class_name Diorama
 extends Node3D
 ## The menu's living backdrop: the current airport with a small aircraft landing and rolling out, another taxiing off the
-## runway, the windsock swinging (the airfield already does that) and clouds drifting over. It has its own small pool of
-## aircraft (a second, scenic Traffic with no timers, conflicts or scoring) and a few cloud quads. Built once and
-## pre-warmed; during a shift it is hidden and does nothing.
-
-const CLOUDS := 5
-const MAX_ALPHA := 0.5
+## runway and the windsock swinging (the airfield already does that). It has its own small pool of aircraft (a second, scenic
+## Traffic with no timers, conflicts or scoring). Built once and pre-warmed; during a shift it is hidden and does nothing.
+## (The cloud shadows drifting over the ground belong to the field itself: see CloudShadows.)
 
 var traffic: Traffic
 var wind: Wind
 var active := false
-var _clouds: Array[MeshInstance3D] = []
-var _cloud_mats: Array[ShaderMaterial] = []
 var _fade := 0.0
-var _fade_written := -1.0         # the clouds' opacity as last written (it is only written when it changes)
 var _next := 1.0
 var _airport := -1
 var _taxi: Aircraft
@@ -31,24 +25,6 @@ func _ready() -> void:
 	traffic.auto_spawn = false
 	add_child(traffic)
 	traffic.landed.connect(_on_landed)
-	var sh := preload("res://shaders/cloud.gdshader")
-	for i in CLOUDS:
-		var mi := MeshInstance3D.new()
-		var pm := PlaneMesh.new()
-		pm.size = Vector2(5.0 + 1.2 * (i % 3), 2.6 + 0.5 * (i % 2))
-		mi.mesh = pm
-		var m := ShaderMaterial.new()
-		m.shader = sh
-		m.render_priority = -10
-		m.set_shader_parameter("seed", float(i) * 1.7)
-		m.set_shader_parameter("alpha", 0.0)
-		mi.material_override = m
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.visible = false
-		add_child(mi)
-		_clouds.append(mi)
-		_cloud_mats.append(m)
-		mi.position = Vector3(-7.0 + i * 3.6, 2.6, -9.0 + i * 4.3)
 	visible = true
 
 func _process(delta: float) -> void:
@@ -65,24 +41,7 @@ func tick(delta: float) -> void:
 	if _fade <= 0.0 and not active:
 		if traffic.active_count() > 0:
 			reset()
-		for c in _clouds:
-			c.visible = false
 		return
-	var drift := Vector3(0.28, 0.0, 0.1)
-	if wind != null:
-		var tw := deg_to_rad(wind.toward_deg())
-		drift = Vector3(sin(tw), 0.0, -cos(tw)) * 0.3
-	for i in CLOUDS:
-		var c := _clouds[i]
-		c.visible = true
-		c.position += drift * delta * (0.7 + 0.15 * i)
-		if absf(c.position.x) > 9.0:
-			c.position.x = -signf(c.position.x) * 8.5
-		if absf(c.position.z) > 13.0:
-			c.position.z = -signf(c.position.z) * 12.5
-		if _fade != _fade_written:
-			_cloud_mats[i].set_shader_parameter("alpha", MAX_ALPHA * _fade)
-	_fade_written = _fade
 	if not active:
 		return
 	traffic.step(delta)
@@ -149,6 +108,3 @@ func prewarm(on: bool) -> void:
 		traffic.prewarm_show()
 	else:
 		traffic.prewarm_hide()
-	for i in CLOUDS:
-		_clouds[i].visible = on
-		_cloud_mats[i].set_shader_parameter("alpha", MAX_ALPHA if on else 0.0)

@@ -32,7 +32,7 @@ var _shake_dur := 0.3
 var _shake_mag := 0.0
 var shake_offset := Vector2.ZERO          # the camera's current shake (world units)
 @onready var ribbons: PathRibbons = $Ribbons
-var fog_layer: FogLayer
+var clouds: CloudShadows
 @onready var fx: Fx = $Fx
 @onready var overlay: Overlay = $Overlay
 @onready var hud: Hud = $Hud
@@ -137,11 +137,10 @@ func _ready() -> void:
 	weather.ended.connect(_on_weather_ended)
 	traffic.appeared.connect(_on_appeared)
 	ribbons.traffic = traffic
-	fog_layer = FogLayer.new()
-	fog_layer.traffic = traffic
-	fog_layer.wind = wind
-	add_child(fog_layer)
-	Boot.mark("main: wiring, fog layer")
+	clouds = CloudShadows.new()
+	clouds.wind = wind
+	add_child(clouds)
+	Boot.mark("main: wiring, cloud shadows")
 	diorama = Diorama.new()
 	diorama.wind = wind
 	add_child(diorama)

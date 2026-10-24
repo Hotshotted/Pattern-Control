@@ -43,10 +43,10 @@ You run an airport, one **shift** at a time.
   thinner traffic), *Better Comms* (longer timers), *Holding Fixes* (holding burns timers slower, tighter
   circles), *Fast Turnoffs* (runways clear faster).
 - **Weather** (later airports, later in a shift; each event is announced ~6 s ahead with a banner):
-  *storm cells* drift across the field (flying into one is a fine), *fog* ("FOG ROLLING IN") is atmospheric: drifting translucent
-  waves dim the ground and scenery, while aircraft, paths, timers, banners and runways stay on top and fully readable;
-  the mood is muted colors, a soft ambience and tenser music, and poor approaches go around slightly more often
-  (never on Grass Strip or County); and a *gusty crosswind* closes one runway for
+  *storm cells* drift across the field (flying into one is a fine), *fog* ("FOG ROLLING IN") is weather, not a veil: a banner and a
+  chip with the time left, a soft ambience and tenser music, and poor approaches go around slightly more often (never on Grass Strip
+  or County); nothing is drawn over the field (there is no haze: only three small cloud shadows, about 12%, drift slowly across the
+  ground, in the menu and in a shift); and a *gusty crosswind* closes one runway for
   16 s: announced 8 s ahead ("Orange runway closing in 8 s", a red X and a countdown on the runway), never in the first 30 s of a
   shift or on Grass Strip or County, never the last open runway; no new arrival is sent to a closing runway, and aircraft already
   locked on final to it still land.

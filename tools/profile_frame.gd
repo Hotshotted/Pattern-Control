@@ -32,7 +32,7 @@ func _initialize() -> void:
 	for i in 120:
 		await process_frame
 	var all := {"warmup": null, "everything": null, "Main": main, "Traffic": main.traffic, "Airfield": main.airfield, "Overlay": main.overlay, "Hud": main.hud,
-		"Fx": main.fx, "Ribbons": main.ribbons, "Diorama": main.diorama, "FogLayer": main.fog_layer, "LightOverlay": main.light, "Sfx": main.sfx}
+		"Fx": main.fx, "Ribbons": main.ribbons, "Diorama": main.diorama, "CloudShadows": main.clouds, "LightOverlay": main.light, "Sfx": main.sfx}
 	var base := 0.0
 	for name in all:
 		var node = all[name]
