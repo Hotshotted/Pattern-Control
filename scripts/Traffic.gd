@@ -355,6 +355,12 @@ func place(target: int, pos: Vector2, heading: float, type: int, entered: bool =
 	_sync(p, i)
 	return p
 
+## Set a material's colour only when it changes: writing a material parameter every frame re-uploads it, and with a dozen aircraft
+## times three colours that is churn a phone's browser does not need.
+func _paint(m: StandardMaterial3D, c: Color) -> void:
+	if m.albedo_color != c:
+		m.albedo_color = c
+
 ## Paint every aircraft in an airline livery (tail + stripe colours; the standard one has none).
 func set_livery(index: int) -> void:
 	livery = index
@@ -1143,10 +1149,10 @@ func _sync(p: Aircraft, i: int) -> void:
 	var base := Airports.land_color(p.tkind, p.runway)
 	if p.emergency and p.state != Aircraft.State.LANDING and sin(TAU * 3.0 * p.age) > 0.0:
 		base = Color(1.0, 0.12, 0.1)
-	_body_mats[i].albedo_color = base
+	_paint(_body_mats[i], base)
 	var lv: Dictionary = Cosmetics.LIVERIES[livery]
-	_tail_mats[i].albedo_color = lv["tail"] if lv["tail"] != null else base
-	_stripe_mats[i].albedo_color = lv["stripe"] if lv["stripe"] != null else base
+	_paint(_tail_mats[i], lv["tail"] if lv["tail"] != null else base)
+	_paint(_stripe_mats[i], lv["stripe"] if lv["stripe"] != null else base)
 	_badges[i].visible = p.student
 	if p.type == Aircraft.Type.HELI:
 		_rotors[i].rotation.y = p.age * 22.0
@@ -1257,10 +1263,10 @@ func ramp_node(i: int) -> Node3D:
 func ramp_configure(i: int, type: int, cls: int, kind: int, runway: int, student: bool) -> void:
 	_set_model(i, type, cls)
 	var base := Airports.land_color(kind, runway)
-	_body_mats[i].albedo_color = base
+	_paint(_body_mats[i], base)
 	var lv: Dictionary = Cosmetics.LIVERIES[livery]
-	_tail_mats[i].albedo_color = lv["tail"] if lv["tail"] != null else base
-	_stripe_mats[i].albedo_color = lv["stripe"] if lv["stripe"] != null else base
+	_paint(_tail_mats[i], lv["tail"] if lv["tail"] != null else base)
+	_paint(_stripe_mats[i], lv["stripe"] if lv["stripe"] != null else base)
 	_badges[i].visible = student
 	var long: float = [0.85, 1.0, 1.3][cls]
 	var span: float = [1.2, 1.0, 0.78][cls]

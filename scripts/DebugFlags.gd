@@ -7,9 +7,10 @@ extends RefCounted
 ##   ?perf                                       show a worst-frame-time readout
 ##   ?tune                                       show the on-screen tuning panel (TUNE button, top-right)
 ##   ?god                                        planes never collide or run dry (to look at the traffic)
-##   ?nolight                                    switch off the warm / cool light overlay and the film grain (to compare)
+##   ?nolight                                    switch off the warm / cool light overlay (to compare)
 ##   ?nolife                                     switch off the moving scenery (truck, birds, balloon, mower, windsock sway)
 ##   ?nowind                                     switch off the visible wind (drifting streaks, leaning grass, swaying trees, pond ripples)
+##   ?lowz                                       emulate a phone's 16-bit depth buffer (the depth range x256): z-fighting shows as it would there
 ##   ?debug                                      show the build stamp (it also shows with ?tune and ?perf)
 ## Combine with "&", e.g.  ?perf&tune. The active flags are printed under the build stamp.
 
@@ -26,6 +27,7 @@ static var nolight := false
 static var nolife := false
 static var nowind := false
 static var windtest := false
+static var lowz := false
 static var debug := false
 
 ## True if the named effect has been switched off.
@@ -57,6 +59,11 @@ static func light_enabled() -> bool:
 static func life_enabled() -> bool:
 	_load()
 	return not nolife and not windtest
+
+## ?lowz: widen the camera's depth range 256 times, which costs the depth buffer 8 bits: what a phone with a 16-bit one does to the picture.
+static func lowz_enabled() -> bool:
+	_load()
+	return lowz
 
 ## ?windtest (the web check's field): no aircraft arrive and nothing but the wind moves.
 static func windtest_enabled() -> bool:
@@ -95,6 +102,8 @@ static func summary() -> String:
 		parts.append("nowind")
 	if windtest:
 		parts.append("windtest")
+	if lowz:
+		parts.append("lowz")
 	if god:
 		parts.append("god")
 	if debug:
@@ -129,6 +138,7 @@ static func parse(args: Array[String]) -> void:
 	nolife = false
 	nowind = false
 	windtest = false
+	lowz = false
 	debug = false
 	for a in args:
 		var kv := a.split("=", true, 1)
@@ -160,6 +170,8 @@ static func parse(args: Array[String]) -> void:
 				nowind = true
 			"windtest":
 				windtest = true
+			"lowz":
+				lowz = true
 			"debug":
 				debug = true
 			"v":

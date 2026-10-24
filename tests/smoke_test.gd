@@ -3975,7 +3975,7 @@ func _initialize() -> void:
 	check(sc_art.pause_card.size.x > 600.0 and sc_art.btn_kind[sc_art.btn_id.find("restart")] == 3, "the pause menu sits on a sheet with colour tiles")
 	main.resume_game()
 	var sc_doc = FileAccess.get_file_as_string("res://docs/style.md")
-	check(sc_doc.contains("## Cozy Airfield") and sc_doc.contains("#FFD68A") and sc_doc.contains("film grain") and sc_doc.contains("#3B4A6B"), "docs/style.md documents the Cozy Airfield art direction")
+	check(sc_doc.contains("## Cozy Airfield") and sc_doc.contains("#FFD68A") and sc_doc.contains("#3B4A6B"), "docs/style.md documents the Cozy Airfield art direction")
 	check(sc_art._sb_hdr != null and sc_art._sb_card != null and sc_art._sb_dock != null, "the pills, card and dock styles exist")
 	main._show_menu()
 
@@ -4043,10 +4043,8 @@ func _initialize() -> void:
 	var cz_light = main.light
 	check(cz_light != null and cz_light.rect != null and cz_light.rect.material is ShaderMaterial and (cz_light.rect.material as ShaderMaterial).shader.code.contains("blend_premul_alpha"), "one light overlay (a ColorRect with a shader) covers the field")
 	var cz_m = cz_light.material
-	check(absf(float(cz_m.get_shader_parameter("warm_amount")) - 0.35) < 0.001 and absf(float(cz_m.get_shader_parameter("cool_amount")) - 0.2) < 0.001 and absf(float(cz_m.get_shader_parameter("grain_amount")) - 0.08) < 0.001 and (cz_m.get_shader_parameter("warm") as Color).is_equal_approx(Color("ffd68a")) and (cz_m.get_shader_parameter("cool") as Color).is_equal_approx(Color("2f4a7a")), "warm #FFD68A 35%, cool #2F4A7A 20%, grain 8%")
-	var cz_g1 = LightOverlay.grain_texture().get_image().get_pixel(3, 5)
-	var cz_g2 = LightOverlay.grain_texture().get_image().get_pixel(3, 5)
-	check(cz_g1 == cz_g2 and LightOverlay.grain_texture().get_width() == 128 and cz_light.rect.visible == DebugFlags.light_enabled(), "the film grain is a tiled static texture")
+	check(absf(float(cz_m.get_shader_parameter("warm_amount")) - 0.35) < 0.001 and absf(float(cz_m.get_shader_parameter("cool_amount")) - 0.2) < 0.001 and (cz_m.get_shader_parameter("warm") as Color).is_equal_approx(Color("ffd68a")) and (cz_m.get_shader_parameter("cool") as Color).is_equal_approx(Color("2f4a7a")), "warm #FFD68A 35%, cool #2F4A7A 20%")
+	check(cz_m.get_shader_parameter("grain") == null and cz_light.rect.visible == DebugFlags.light_enabled(), "the overlay has no grain and no texture")
 	DebugFlags.parse(["nolight", "nolife"])
 	check(not DebugFlags.light_enabled() and not DebugFlags.life_enabled() and DebugFlags.summary().contains("nolight") and DebugFlags.summary().contains("nolife"), "?nolight and ?nolife parse")
 	DebugFlags.parse(["tune"])

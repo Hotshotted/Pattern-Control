@@ -45,7 +45,7 @@ two polish passes); every number below is in the code or in `Tuning.gd`, and the
 
 | Part | Where |
 |---|---|
-| Light overlay, grain, time of day | `scripts/LightOverlay.gd`, `shaders/light_overlay.gdshader` |
+| Light overlay, time of day | `scripts/LightOverlay.gd`, `shaders/light_overlay.gdshader` |
 | Shading baked into vertex colours | `scripts/Prim.gd` |
 | Soft shadows (baked textures, offsets that grow) | `scripts/Shadow.gd`, `shaders/shadow_blob.gdshader` |
 | The field, runways, ramp, landmarks, life, wind layer | `scripts/Airfield.gd`, `scripts/Models.gd` |
@@ -58,8 +58,9 @@ two polish passes); every number below is in the code or in `Tuning.gd`, and the
 
 * **One light overlay** (a ColorRect with `light_overlay.gdshader`, layer 0) sits over the whole field, above the 3D scene and below
   the paths, rings and interface: a warm radial glow `#FFD68A` pinned to the upper-left corner, a cool radial shade `#2F4A7A` pinned to
-  the lower-right (both fade to nothing by 90 % of the screen diagonal; the glow is added, the shade mixed over), and **8 % static film grain**
-  from a tiled 128 px noise texture (made once, never per frame). `?nolight` switches it off.
+  the lower-right (both fade to nothing by 90 % of the screen diagonal; the glow is added, the shade mixed over). **No grain, no texture
+  over the screen**: the shader is plain arithmetic in units of the screen width (no value above about 2), so it is exact in a phone's
+  half-precision fragment shaders. `?nolight` switches it off.
 * **Time passes over the shift, linearly:** the glow goes 35 % to 50 % and the shade 20 % to 30 %; every shadow offset grows to 130 %;
   the grass gets a touch warmer (blue down 9 %, green down 2 %). A restart resets it; Bad Pilot Day starts 40 % in.
   (`Main._set_day`, `LightOverlay.set_time`, `Airfield.set_time`, `Shadow.set_time`.)
@@ -178,7 +179,7 @@ dark outline, empty stars cream. HUD positions never move.
 
 | Flag | Effect |
 |---|---|
-| `?nolight` | no light overlay or grain |
+| `?nolight` | no light overlay |
 | `?nolife` | no moving scenery (truck, birds, balloon, mower, vehicles, sock sway, beacons) |
 | `?nowind` | no visible wind (streaks, leaning grass, swaying trees, pond ripples) |
 | `?windtest` | CI: no interface, no aircraft, a still field but for the wind |

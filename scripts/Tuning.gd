@@ -16,6 +16,9 @@ var resume_skip_frames := 2
 # ---------- Camera / screen ----------
 ## Camera tilt away from straight-down, in degrees, so the sides of the low-poly shapes show.
 var camera_tilt_deg := 10.0
+var camera_near := 20.0             # the camera's depth range (see Main._update_camera): the camera is 30 away and everything is within a few units of that, so
+# a tight range keeps even a 16-bit depth buffer (some phones) fine enough to tell a stripe from the wing it lies on
+var camera_far := 42.0
 ## World units visible across the screen WIDTH (orthographic camera size, width locked).
 var ortho_size := 10.0
 

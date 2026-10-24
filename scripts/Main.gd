@@ -1500,6 +1500,8 @@ func _update_camera() -> void:
 	camera.v_offset = shake_offset.y
 	var tilt := deg_to_rad(Tuning.camera_tilt_deg)
 	camera.size = view_size
+	camera.near = Tuning.camera_near
+	camera.far = Tuning.camera_near + (Tuning.camera_far - Tuning.camera_near) * (256.0 if DebugFlags.lowz_enabled() else 1.0)
 	camera.position = Vector3(0, cos(tilt), sin(tilt)) * 30.0
 	camera.rotation = Vector3(-(PI / 2 - tilt), 0, 0)
 

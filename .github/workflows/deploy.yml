@@ -70,6 +70,16 @@ jobs:
           timeout 180 godot --headless --path . --script res://tests/smoke_test.gd 2>&1 | tee smoke.log
           ! grep -q "SCRIPT ERROR" smoke.log
 
+      # The phone check: a mid-shift drawn normally and as a phone with a 16-bit depth buffer would draw it (the same picture, no
+      # magenta-ish pixel anywhere: a missing texture or a bad shader input), on a software GL under a virtual display.
+      - name: Phone check
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglx-mesa0 > /dev/null
+          xvfb-run -a godot --path . --rendering-driver opengl3 --script tools/mobile_check.gd -- out="$RUNNER_TEMP/phone" 2>&1 | grep -v "^ALSA\|^WARNING\|^   at:" | tee phone.log
+          grep -q "^mobile check:" phone.log
+          ! grep -q "^FAIL" phone.log
+
       # Cache-busting: export under a name containing the commit hash (so .js/.wasm/.pck are new
       # files every deploy), then make that page index.html and add a small stale-page check.
       - name: Export Web

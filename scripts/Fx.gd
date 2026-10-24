@@ -16,17 +16,15 @@ var _next_sparkle := 0
 
 ## A round dot texture (a soft rim when `soft`, else a crisp edge): the particles are dots, never squares.
 func _dot_texture(soft: bool) -> Texture2D:
-	var g := Gradient.new()
-	g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 0)])
-	g.offsets = PackedFloat32Array([0.0, 0.3 if soft else 0.85, 1.0])
-	var t := GradientTexture2D.new()
-	t.gradient = g
-	t.fill = GradientTexture2D.FILL_RADIAL
-	t.fill_from = Vector2(0.5, 0.5)
-	t.fill_to = Vector2(1.0, 0.5)
-	t.width = 48
-	t.height = 48
-	return t
+	# (a plain RGBA8 image made once: a GradientTexture2D is filled in lazily, which some phones' browsers draw as a missing texture)
+	var img := Image.create(48, 48, false, Image.FORMAT_RGBA8)
+	var edge := 0.3 if soft else 0.85
+	for y in 48:
+		for x in 48:
+			var d := Vector2((x + 0.5) / 24.0 - 1.0, (y + 0.5) / 24.0 - 1.0).length()
+			var al := 1.0 if d <= edge else clampf(1.0 - (d - edge) / (1.0 - edge), 0.0, 1.0)
+			img.set_pixel(x, y, Color(1, 1, 1, al))
+	return ImageTexture.create_from_image(img)
 
 ## A four-pointed sparkle: the gold celebration stars.
 func _star_texture() -> Texture2D:

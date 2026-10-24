@@ -37,6 +37,18 @@ srv.listen(0, async () => {
       const page = await context.newPage();
       const errors = [];
       page.on('pageerror', e => errors.push(String(e)));
+      // WebGL complaints (a shader that did not compile, an invalid operation, a missing texture) count as page errors
+      page.on('console', m => { const t = m.text(); if (/GL_INVALID|INVALID_OPERATION|INVALID_VALUE|shader.*(error|fail)|failed to compile|texture.*(incomplete|unbound)|precision/i.test(t)) errors.push('console: ' + t.slice(0, 200)); });
+      // ...and the page is given a phone's limits: a small texture size, few uniforms and varyings, and no high precision in fragment shaders
+      await page.addInitScript(() => {
+        const P = WebGL2RenderingContext.prototype;
+        const gp = P.getParameter;
+        P.getParameter = function (p) { if (p === this.MAX_TEXTURE_SIZE || p === this.MAX_RENDERBUFFER_SIZE) return 2048; if (p === this.MAX_FRAGMENT_UNIFORM_VECTORS) return 224; if (p === this.MAX_VERTEX_UNIFORM_VECTORS) return 256; if (p === this.MAX_VARYING_VECTORS) return 15; return gp.call(this, p); };
+        const sp = P.getShaderPrecisionFormat;
+        P.getShaderPrecisionFormat = function (t, pr) { if (t === this.FRAGMENT_SHADER && (pr === this.HIGH_FLOAT || pr === this.HIGH_INT)) return { rangeMin: 0, rangeMax: 0, precision: 0 }; return sp.call(this, t, pr); };
+        const ss = P.shaderSource;
+        P.shaderSource = function (s, src) { return ss.call(this, s, src.replace(/precision highp float;/g, 'precision mediump float;').replace(/precision highp int;/g, 'precision mediump int;')); };
+      });
       await page.goto(`http://localhost:${port}/index.html?debug&windtest${mode === 'nowind' ? '&nowind' : ''}`);
       await page.waitForFunction(() => { const l = document.getElementById('loader'); return !l || l.style.display === 'none'; }, null, { timeout: 180000 });
       await page.waitForTimeout(3000);

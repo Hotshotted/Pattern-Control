@@ -8,9 +8,7 @@ uniform vec4 outline_color : source_color = vec4(0.0, 0.0, 0.0, 1.0);  // white 
 uniform float thickness = 0.07;
 
 void vertex() {
-	vec3 v = VERTEX + sign(VERTEX) * thickness;
-	vec3 world = (MODEL_MATRIX * vec4(v, 1.0)).xyz;
-	POSITION = PROJECTION_MATRIX * VIEW_MATRIX * vec4(world, 1.0);
+	VERTEX += sign(VERTEX) * thickness;       // (the ordinary way: the engine does the rest, as for every other mesh)
 }
 
 void fragment() {
