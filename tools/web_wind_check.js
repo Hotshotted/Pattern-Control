@@ -44,8 +44,14 @@ srv.listen(0, async () => {
       await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });
       await page.touchscreen.tap(195, 420);            // (the first tap wakes the audio)
       await page.waitForTimeout(2500);
-      await page.touchscreen.tap(195, 715);            // START SHIFT
-      await page.waitForTimeout(4000);
+      // START SHIFT, again until the shift is under way (a tap during loading is lost on a slow machine), then 5 s of the game's own time
+      for (let tries = 0; tries < 40; tries++) {
+        if (await page.evaluate(() => !!(window.__wt && window.__wt.t > 5))) break;
+        if (!(await page.evaluate(() => !!window.__wt))) await page.touchscreen.tap(195, 715);
+        await page.waitForTimeout(3000);
+      }
+      await page.waitForFunction(() => window.__wt && window.__wt.t > 5, null, { timeout: 60000 });
+      await page.waitForTimeout(1000);
       const a = (await page.screenshot()).toString('base64');
       await page.waitForTimeout(1500);
       const b = (await page.screenshot()).toString('base64');

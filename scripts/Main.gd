@@ -453,6 +453,8 @@ func _publish_state() -> void:
 
 func _process(raw_delta: float) -> void:
 	_poll_page(raw_delta)
+	if DebugFlags.windtest_enabled() and OS.has_feature("web") and screen == SCREEN_PLAY and alive:
+		JavaScriptBridge.eval("window.__wt = {t: %.2f}" % traffic.run_time)       # (the web wind check waits for the shift to be under way)
 	_tick_shake(raw_delta)
 	# Music: the shift's own while playing; the calm menu bed everywhere else; the two crossfade.
 	if screen != SCREEN_PLAY and screen != SCREEN_PAUSE:
