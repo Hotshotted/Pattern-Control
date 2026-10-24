@@ -437,7 +437,7 @@ func spawn(force_type: int = -1) -> Aircraft:
 				entry = Vector2(-half_w, clampf(-half_h + e - 4.0 * half_w, -cz, cz))
 			else:
 				entry = Vector2(half_w, clampf(-half_h + e - 4.0 * half_w - 2.0 * half_h, -cz, cz))
-		if _crowded(entry):
+		if _crowded(entry) or Airfield.in_hud(entry):       # (not under the interface: the pause button, the pill, the wind card)
 			continue
 		var aim := Vector2(lerpf(-2.5, 2.5, _draws[6 + attempt * 3]), lerpf(-4.0, 4.0, _draws[7 + attempt * 3]))
 		if aim_override != Vector2.INF:

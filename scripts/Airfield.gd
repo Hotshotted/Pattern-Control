@@ -253,7 +253,7 @@ func _overlay_mat(c: Color) -> StandardMaterial3D:
 
 ## Is `p` clear of the strips where paths get drawn: the approach corridors beyond every runway end, the runways themselves and the
 ## water lanes? Everything that is scenery (tufts, parked planes, cars, the picnic...) keeps to such places.
-func _clear_of_paths(p: Vector2, margin: float = 0.4) -> bool:
+func _clear_of_paths(p: Vector2, margin: float = 0.4, pads: bool = true) -> bool:
 	for i in Airports.rw_count():
 		var h := deg_to_rad(Airports.rw_heading_deg(i))
 		var dir := Vector2(sin(h), -cos(h))
@@ -269,14 +269,15 @@ func _clear_of_paths(p: Vector2, margin: float = 0.4) -> bool:
 		var lrel: Vector2 = p - (lane["center"] as Vector2)
 		if absf(lrel.dot(Vector2(-ld.y, ld.x))) < lane["width"] * 0.5 + 1.2 and absf(lrel.dot(ld)) < lane["length"] * 0.5 + 1.2:
 			return false
-	for pad in Airports.pads():
-		if p.distance_to(pad["center"]) < pad["radius"] + 1.4:
-			return false
+	if pads:
+		for pad in Airports.pads():
+			if p.distance_to(pad["center"]) < pad["radius"] + 1.4:
+				return false
 	return true
 
 ## Is `p` (with `r` to spare) inside something the player's eye follows: a runway and its lights, the approach funnel drawn behind each
 ## runway end (it widens from the threshold to 3.4 behind it), a water lane's or a helipad's approach? Nothing built, planted or parked goes there.
-static func in_strip(p: Vector2, r: float = 0.0) -> bool:
+static func in_strip(p: Vector2, r: float = 0.0, pads: bool = true, hud: bool = true) -> bool:
 	for i in Airports.rw_count():
 		var h := deg_to_rad(Airports.rw_heading_deg(i))
 		var dir := Vector2(sin(h), -cos(h))
@@ -295,8 +296,50 @@ static func in_strip(p: Vector2, r: float = 0.0) -> bool:
 		var lrel: Vector2 = p - (lane["center"] as Vector2)
 		if absf(lrel.dot(Vector2(-ld.y, ld.x))) < lane["width"] * 0.5 + 1.0 + r and absf(lrel.dot(ld)) < lane["length"] * 0.5 + 1.0 + r:
 			return true
-	for pad in Airports.pads():
-		if p.distance_to(pad["center"]) < pad["radius"] + 0.9 + r:
+	if pads:
+		for pad in Airports.pads():
+			if p.distance_to(pad["center"]) < pad["radius"] + 0.9 + r:
+				return true
+	return hud and in_hud(p, r)
+
+## The interface's footprint on the field: pause, the timer / coins pill with the star bar, the wind card and the wind-shift banner,
+## each with a 12 px margin, as world rectangles (the 1080 x 1920 layout at the closest view, `Tuning.ortho_size`, so a radar upgrade
+## only makes it smaller). Nothing the player must see or aim at (a lane's ends, an approach funnel, a spawn point) goes under it.
+const HUD_MARGIN_PX := 12.0
+const HUD_RECTS_PX := [
+	Rect2(20.0, 10.0, 80.0, 80.0),          # pause
+	Rect2(255.0, 0.0, 570.0, 245.0),        # the timer / coins pill and the star bar
+	Rect2(924.0, 20.0, 132.0, 150.0),       # the wind card
+	Rect2(100.0, 262.0, 880.0, 90.0),       # the wind-shift banner (the widest it gets), just under the star bar
+]
+
+static func hud_world_rects(extra_px: float = 0.0) -> Array[Rect2]:
+	var k := Tuning.ortho_size / 1080.0
+	var kz := k / cos(deg_to_rad(Tuning.camera_tilt_deg))
+	var out: Array[Rect2] = []
+	for r in HUD_RECTS_PX:
+		var g: Rect2 = (r as Rect2).grow(HUD_MARGIN_PX + extra_px)
+		out.append(Rect2((g.position.x - 540.0) * k, (g.position.y - 960.0) * kz, g.size.x * k, g.size.y * kz))
+	return out
+
+## How far behind a threshold its approach funnel may be drawn (up to 3.4): it stops where the next step would put its centre or either
+## side line under the interface. (The overlay draws exactly this, and the tests check it.)
+static func funnel_length(thr: Vector2, dir: Vector2) -> float:
+	var side := Vector2(-dir.y, dir.x)
+	var d := 0.0
+	while d < 3.4:
+		var nd := minf(d + 0.1, 3.4)
+		var lat := 0.35 + 1.4 * nd / 3.4
+		for sg in [-1.0, 0.0, 1.0]:
+			if in_hud(thr - dir * nd + side * lat * sg):
+				return d
+		d = nd
+	return 3.4
+
+## Is `p` (with `r` world units to spare) under the interface?
+static func in_hud(p: Vector2, r: float = 0.0) -> bool:
+	for rc in hud_world_rects():
+		if rc.grow(r).has_point(p):
 			return true
 	return false
 
@@ -846,13 +889,13 @@ func _landmark(v: AirportScene) -> void:
 					Models.barn(root, bp)
 
 ## The first of `cands` (centres) whose w x d rectangle lies in the field, clear of the paths' strips and of everything built.
-func _find_rect(cands: Array, w: float, d: float) -> Variant:
+func _find_rect(cands: Array, w: float, d: float, pads: bool = true) -> Variant:
 	for p in cands:
-		if _rect_clear(p, w, d):
+		if _rect_clear(p, w, d, pads):
 			return p
 	return null
 
-func _rect_clear(c: Vector2, w: float, d: float) -> bool:
+func _rect_clear(c: Vector2, w: float, d: float, pads: bool = true) -> bool:
 	if absf(c.x) + w * 0.5 > 5.0 or absf(c.y) + d * 0.5 > 8.8:
 		return false
 	var nx := maxi(int(ceil(w / 0.4)), 1)
@@ -860,7 +903,7 @@ func _rect_clear(c: Vector2, w: float, d: float) -> bool:
 	for i in nx + 1:
 		for j in nz + 1:
 			var p := c + Vector2(-w * 0.5 + w * i / nx, -d * 0.5 + d * j / nz)
-			if not _clear_of_paths(p, -0.1) or in_strip(p, 0.05):
+			if not _clear_of_paths(p, -0.1, pads) or in_strip(p, 0.05, pads):
 				return false
 			for o in _occupied:
 				if p.distance_to(o[0]) < float(o[1]):
@@ -1158,16 +1201,22 @@ func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> 
 				if out.size() >= n:
 					return out
 	var best: Array = []
+	var relaxed: Array = []        # (only where the field is too crowded: under the interface, but still outside every strip)
 	var gx := -4.4
 	while gx <= 4.4:
 		var gz := -8.4
 		while gz <= 8.4:
 			var p2 := Vector2(gx, gz)
-			if _spot_free(p2, r, 8.6) and _clear_of_paths(p2, -0.9) and not in_strip(p2, r):
-				best.append(p2)
+			if _spot_free(p2, r, 8.6) and _clear_of_paths(p2, -0.9):
+				if not in_strip(p2, r):
+					best.append(p2)
+				elif not in_strip(p2, r, true, false):
+					relaxed.append(p2)
 			gz += 0.5
 		gx += 0.5
 	best.sort_custom(func(a: Vector2, b: Vector2): return a.distance_to(c) < b.distance_to(c))
+	relaxed.sort_custom(func(a: Vector2, b: Vector2): return a.distance_to(c) < b.distance_to(c))
+	best.append_array(relaxed)
 	for p3 in best:
 		var ok2 := true
 		for q in out:
@@ -1410,10 +1459,14 @@ func _ramp_slots(v: AirportScene) -> void:
 	v.slots["heli"] = []
 	if not Airports.pads().is_empty():
 		var cands: Array[Vector2] = []
-		for ring in [1.9 * s + 0.6, 2.4 * s + 1.0, 3.0 * s + 1.4, 4.0 * s + 1.8]:
+		for ring in [1.9 * s + 0.6, 2.2 * s + 0.7, 2.4 * s + 1.0, 2.7 * s + 1.2, 3.0 * s + 1.4, 3.5 * s + 1.6, 4.0 * s + 1.8]:
 			for k in 16:
 				cands.append(c + Vector2(cos(k * TAU / 16.0), sin(k * TAU / 16.0)) * ring)
-		var hs = _find_rect(cands, 0.9, 0.9)
+		var pc: Vector2 = Airports.pads()[0]["center"]       # (also beside the pad itself: the helicopter has only a short hop)
+		for ring in [1.6, 2.0, 2.4, 2.9]:
+			for k in 16:
+				cands.append(pc + Vector2(cos(k * TAU / 16.0 + 0.2), sin(k * TAU / 16.0 + 0.2)) * ring)
+		var hs = _find_rect(cands, 0.9, 0.9, false)       # (it may stand beside its own pad, inside the pad's ring)
 		if hs != null:
 			_occupied.append([hs, 0.5])
 			Prim.cyl(root, 0.4, 0.4, 0.012, 16, Vector3(hs.x, 0.02, hs.y), Prim.mat(Airports.PAD_COLOR.lightened(0.15)), false)

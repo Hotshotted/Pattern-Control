@@ -229,6 +229,15 @@ func _draw_place_markers(t: float) -> void:
 				_c.draw_arc(thr, r, 0.0, TAU, 32, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.18), 0.14)
 				_c.draw_arc(thr, r, 0.0, TAU, 32, Color(col.r, col.g, col.b, 0.95 if hot else 0.7), 0.08)
 
+var _funnel_cache := {}
+
+## The drawn length of the funnel behind a threshold (see Airfield.funnel_length), worked out once per airport.
+func _funnel_len(i: int, e: int, thr: Vector2, dir: Vector2) -> float:
+	var key := "%d:%d:%d" % [Airports.current, i, e]
+	if not _funnel_cache.has(key):
+		_funnel_cache[key] = Airfield.funnel_length(thr, dir)
+	return _funnel_cache[key]
+
 func _draw_runway_markers(t: float) -> void:
 	for i in Airports.rw_count():
 		for e in 2:
@@ -253,11 +262,15 @@ func _draw_runway_markers(t: float) -> void:
 				var r := Tuning.approach_radius * (1.0 + 0.08 * pulse if hot else 1.0)
 				_c.draw_arc(thr, r, 0.0, TAU, 40, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.18), 0.14)
 				_c.draw_arc(thr, r, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.95 if hot else 0.7), 0.08)
-				# Approach funnel: two dashed lines opening out behind the threshold, with chevrons.
-				var far := thr - dir * 3.4
+				# Approach funnel: two dashed lines opening out behind the threshold, with chevrons (it stops short of the interface).
+				var fl := _funnel_len(i, e, thr, dir)
+				var far := thr - dir * fl
+				var spread := 0.35 + 1.4 * fl / 3.4
 				for s in [-1.0, 1.0]:
-					_c.draw_dashed_line(thr + side * s * 0.35, far + side * s * 1.4, Color(col.r, col.g, col.b, 0.55), 0.07, 0.25)
+					_c.draw_dashed_line(thr + side * s * 0.35, far + side * s * spread, Color(col.r, col.g, col.b, 0.55), 0.07, 0.25)
 				for k in 3:
+					if 1.5 + k * 0.7 > fl + 0.05:
+						continue
 					var c := thr - dir * (1.5 + k * 0.7)
 					var a := 0.25 + 0.55 * clampf(1.0 - absf(fmod(t * 1.5, 3.0) - k), 0.0, 1.0)
 					_c.draw_line(c - side * 0.3, c + dir * 0.3, Color(col.r, col.g, col.b, a), 0.09)

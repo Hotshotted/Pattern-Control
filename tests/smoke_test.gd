@@ -4674,7 +4674,7 @@ func _initialize() -> void:
 			ly_pts["scenery %s" % str(ly_p)] = [ly_p, 0.3]
 		for ly_k in ly_v.slots:
 			for ly_e in ly_v.slots[ly_k]:
-				ly_pts["%s slot %s" % [ly_k, str(ly_e["pos"])]] = [ly_e["pos"], 0.3]
+				ly_pts["%s slot %s" % [ly_k, str(ly_e["pos"])]] = [ly_e["pos"], 0.3, ly_k != "heli"]
 		if not ly_v.pond.is_empty():
 			ly_pts["pond"] = [ly_v.pond["center"], ly_v.pond["r"]]
 		for ly_st in 3:
@@ -4688,7 +4688,7 @@ func _initialize() -> void:
 		ly_pts["tower"] = [Airports.tower_pos(), 0.4]
 		ly_pts["windsock"] = [Airports.windsock_pos(), 0.3]
 		for ly_key in ly_pts:
-			if ly_af.in_strip(ly_pts[ly_key][0], ly_pts[ly_key][1]):
+			if ly_af.in_strip(ly_pts[ly_key][0], ly_pts[ly_key][1], ly_pts[ly_key][2] if ly_pts[ly_key].size() > 2 else true):
 				ly_bad.append(ly_key)
 		var ly_ap = Airports.apron()
 		var ly_c = ly_ap["center"]
@@ -4778,6 +4778,57 @@ func _initialize() -> void:
 	check(main._reason_text().contains("Go-arounds|4 warned"), "...and shown with the results details")
 	main.log_go_arounds = true
 	main.traffic.release_all()
+
+	print("23. The interface's footprint is a no-go zone: no funnel, lane end or spawn point under it")
+	var hu_af = main.airfield
+	check(hu_af.hud_world_rects().size() == 4 and hu_af.in_hud(Vector2(0, -7.5)) and hu_af.in_hud(Vector2(4.3, -8.0)) and hu_af.in_hud(Vector2(-4.5, -8.4)) and hu_af.in_hud(Vector2(0, -6.0)) and not hu_af.in_hud(Vector2(0, 0)), "pause, the timer pill, the wind card and the banner are in the zone, the open field is not")
+	var hu_bad = []
+	for hu_i in Airports.COUNT:
+		Airports.current = hu_i
+		for hu_r in Airports.rw_count():
+			for hu_e in 2:
+				var hu_thr = Airports.end_threshold(hu_r, hu_e)
+				var hu_dir = Airports.end_dir(hu_r, hu_e)
+				var hu_side = Vector2(-hu_dir.y, hu_dir.x)
+				for hu_k in 8:
+					if hu_af.in_hud(hu_thr + Vector2.from_angle(hu_k * TAU / 8.0) * tuning.approach_radius):
+						hu_bad.append("%s ring %d/%d" % [Airports.airport_name(hu_i), hu_r, hu_e])
+				var hu_fl = hu_af.funnel_length(hu_thr, hu_dir)
+				if hu_fl < 1.4:
+					hu_bad.append("%s funnel %d/%d is only %.1f long" % [Airports.airport_name(hu_i), hu_r, hu_e, hu_fl])
+				for hu_d in [0.0, hu_fl * 0.5, hu_fl]:
+					for hu_sg in [-1.0, 0.0, 1.0]:
+						if hu_af.in_hud(hu_thr - hu_dir * hu_d + hu_side * (0.35 + 1.4 * hu_d / 3.4) * hu_sg):
+							hu_bad.append("%s funnel %d/%d d%.1f" % [Airports.airport_name(hu_i), hu_r, hu_e, hu_d])
+		for hu_l in Airports.lanes().size():
+			for hu_e in 2:
+				if hu_af.in_hud(Airports.land_threshold(Aircraft.Kind.LANE, hu_l, hu_e), 0.3) or hu_af.in_hud(Airports.land_far(Aircraft.Kind.LANE, hu_l, hu_e), 0.3):
+					hu_bad.append("%s lane %d end %d" % [Airports.airport_name(hu_i), hu_l, hu_e])
+		for hu_p in Airports.pads():
+			if hu_af.in_hud(hu_p["center"], hu_p["radius"]):
+				hu_bad.append("%s pad" % Airports.airport_name(hu_i))
+	check(hu_bad.is_empty(), "no approach funnel, threshold ring, lane end or pad sits under the interface at any airport %s" % str(hu_bad.slice(0, 5)))
+	# spawn points: 250 arrivals at every airport, none enters under the pause button, the pill or the wind card
+	var hu_spawn_bad = []
+	var hu_tr = main.traffic
+	for hu_i in Airports.COUNT:
+		main.select_airport(hu_i)
+		main.restart()
+		hu_tr.auto_spawn = false
+		hu_tr.rng.seed = 11 + hu_i
+		var hu_n = 0
+		for hu_k in 250:
+			hu_tr.release_all()
+			var hu_p = hu_tr.spawn()
+			if hu_p != null:
+				hu_n += 1
+				if hu_af.in_hud(hu_p.entry):
+					hu_spawn_bad.append("%s %s" % [Airports.airport_name(hu_i), str(hu_p.entry)])
+		check(hu_n > 200, "%s: arrivals still find a way in (%d of 250)" % [Airports.airport_name(hu_i), hu_n])
+	check(hu_spawn_bad.is_empty(), "no spawn point is under the interface %s" % str(hu_spawn_bad.slice(0, 4)))
+	main.select_airport(rp_keep)
+	main.restart()
+	Airports.current = rp_keep
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")

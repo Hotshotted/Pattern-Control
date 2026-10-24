@@ -1302,7 +1302,7 @@ func _ready() -> void:
 	_wind_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_wind_banner.offset_left = -440
 	_wind_banner.offset_right = 440
-	_wind_banner.offset_top = 470
+	_wind_banner.offset_top = 262
 	_wind_banner.visible = false
 	_wind_banner.modulate.a = 0.0         # (the banner is drawn by the art, on its pill; the label holds the text)
 	_finale = _label(SZ_M, HORIZONTAL_ALIGNMENT_CENTER)
@@ -1658,7 +1658,7 @@ func apply_safe() -> void:
 	_art.pause_rect = Rect2(Style.GUTTER * 0.5 + Style.safe_left, 10.0 + t, 80.0, 80.0)
 	_score.offset_top = 56 + t
 	_best.offset_top = 6 + t
-	_wind_banner.offset_top = 470 + t
+	_wind_banner.offset_top = 262 + t
 	_select_title.offset_top = 40 + t
 	_tip.offset_top = -270 - Style.safe_bottom
 	_tip.offset_bottom = -190 - Style.safe_bottom
@@ -2365,7 +2365,7 @@ func _start_banner(text: String, color: Color, glyph: String, secs: float) -> vo
 	var vp := get_viewport().get_visible_rect().size
 	var font := _wind_banner.get_theme_font("font")
 	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, SZ_M).x
-	_art.banner_rect = Rect2(vp.x * 0.5 - (tw + 84.0 + 80.0) * 0.5, 470.0 + Style.safe_top, tw + 84.0 + 80.0, 90.0)
+	_art.banner_rect = Rect2(vp.x * 0.5 - (tw + 84.0 + 80.0) * 0.5, 262.0 + Style.safe_top, tw + 84.0 + 80.0, 90.0)
 	_art.banner_alpha = 0.0
 
 func banner_text() -> String:

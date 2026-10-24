@@ -99,12 +99,18 @@ beacons and the lights, which `?windtest` also does).
 **Placement rule (checked at every airport).** Nothing built, planted or parked may stand in something the player's eye follows:
 `Airfield.in_strip(p, r)` is true inside a runway and its lights (half width + 0.55), inside the approach funnel drawn behind each end
 (it widens from half width + 0.65 at the threshold to + 2.05 at 3.4 behind it, 3.6 long), inside a water lane's or a helipad's
-approach (1.0 / 0.9 beyond it), always with the object's own radius `r` added. Landmarks, props, trees, tufts, pines, the pond, the
-chairlift, parked planes, overflow spots and upgrade props are all placed with it, and so are the aprons and windsocks of the data in
-`Airports.gd`: the County, Mountain Field and Island aprons were moved for it, and the International's layout was redrawn (the three
-runways shifted left, the helipads and the seaplane lane moved to the right-hand column's ends) so its full-size apron, with a terminal and
-six tie-downs, sits beside the third runway outside every strip. The smoke test walks every placed thing at every airport
-(`airport=<name|index>` limits it) and the screenshot tool takes the same argument.
+approach (1.0 / 0.9 beyond it), and **under the interface**: `Airfield.in_hud` is the footprint of the pause button, the timer / coins
+pill with its star bar, the wind card and the wind-shift banner (just under the star bar, the widest it gets), each with a 12 px margin,
+taken from the 1080 x 1920 layout at the closest view (a radar upgrade only shrinks it). Always with the object's own radius `r` added.
+Landmarks, props, trees, tufts, pines, the pond, the chairlift, parked planes, overflow spots and upgrade props are placed with it (an
+upgrade prop may stand under the interface only where the field has no other room), and so are the aprons and windsocks in `Airports.gd`.
+Lane ends, threshold rings and helipads must not be under the interface at any airport, **an approach funnel is drawn only as far as it
+stays clear of it** (`Airfield.funnel_length`, 1.4 to 3.4 behind its threshold, so a tall layout shows fewer chevrons at its north ends),
+and **no arrival spawns under it** (`Traffic.spawn` skips an entry point under the pause button, the pill or the wind card). The
+County, Mountain Field and Island aprons were moved for the strips; the International's layout was redrawn (the three runways stay,
+the helipads, a shorter seaplane lane and its full-size apron with terminal and six tie-downs sit in the right-hand column between the
+banner and the horizontal lane). The smoke test walks every placed thing at every airport (`airport=<name|index>` limits it), checks the
+funnels, rings, lane ends and 250 spawns per airport against the interface, and the screenshot tool takes the same argument.
 
 ### Aircraft on the ground: taxi, hangar and ramp
 
