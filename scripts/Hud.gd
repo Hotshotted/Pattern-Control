@@ -1737,6 +1737,7 @@ func _build_pause() -> void:
 	var title := _label(SZ_XL, HORIZONTAL_ALIGNMENT_CENTER, _pause)
 	title.text = "PAUSED"
 	_centered(title, -600, -450)
+	_version_tag(_pause)
 	_pause.visible = false
 
 func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
@@ -1795,6 +1796,19 @@ func slider_set(i: int, x: float) -> float:
 
 # ---------- Menu ----------
 
+## "build 90bbdd5": small muted text in the bottom-right corner of the menu and the pause screen, so a tester can say which build they run.
+func _version_tag(parent: Control) -> Label:
+	var l := _label(30, HORIZONTAL_ALIGNMENT_RIGHT, parent)
+	l.name = "VersionTag"
+	l.text = "build " + BuildInfo.COMMIT
+	l.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	l.offset_left = -300
+	l.offset_right = -14
+	l.offset_top = -52 - Style.safe_bottom
+	l.offset_bottom = -10 - Style.safe_bottom
+	l.modulate = Color(1, 1, 1, 0.5)
+	return l
+
 func _build_menu() -> void:
 	_menu = Control.new()
 	_menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1805,6 +1819,7 @@ func _build_menu() -> void:
 	_menu_title.text = "PATTERN WORK"
 	_menu_title.visible = false         # (the lockup is drawn by the art; this label holds the name)
 	_centered(_menu_title, -560, -420)
+	_version_tag(_menu)
 	_menu.visible = false
 
 func _build_select() -> void:

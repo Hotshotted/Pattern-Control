@@ -3556,6 +3556,9 @@ func _initialize() -> void:
 	check(not main.hud._stamp.visible, "other flags alone do not show it")
 	DebugFlags.parse(["tune"])
 	main.hud.refresh_stamp()
+	for vt_parent in [main.hud._menu, main.hud._pause]:
+		var vt: Label = vt_parent.get_node_or_null("VersionTag")
+		check(vt != null and vt.text == "build " + BuildInfo.COMMIT and vt.get_theme_font_size("font_size") <= 30 and vt.modulate.a < 0.8 and vt.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT and vt.anchor_left == 1.0 and vt.anchor_top == 1.0, "the menu and the pause screen show a small muted 'build <commit>' bottom-right")
 
 	print("9v. web audio: sample-based streams, buses from the layout, volumes, the first-gesture unlock")
 	var wa_scripts = ""
