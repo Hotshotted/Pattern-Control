@@ -23,7 +23,7 @@ signal snapped(plane: Aircraft, at: Vector2)   # a path locked onto a runway's e
 signal touchdown(plane: Aircraft)      # the wheels just touched the runway (dust puff, a little pop)
 
 const MAX_POOL := 16
-const RAMP_MODELS := 24                # extra, complete aircraft models for the ramp: the ones that landed, taxiing and parked (see ramp_claim)
+const RAMP_MODELS := 14                # extra, complete aircraft models for the ramp: the ones that landed, taxiing and parked (see ramp_claim). The most any airport shows at once is 8 parked (tie-downs, overflow spots, heli spot, docks) and 4 taxiing, plus a spare or two
 var pool_n := MAX_POOL                  # (the menu's scenic traffic keeps a small pool)
 var go_around_warns := 0                # (statistics for the sims) warned / cancelled go-arounds this shift
 var go_around_cancels := 0
@@ -73,6 +73,7 @@ var _rotors: Array[Node3D] = []
 var _fus_mats: Array[StandardMaterial3D] = []       # per aircraft: the fuselage (white, or the livery's body colour)
 var _heli_mats: Array[StandardMaterial3D] = []      # per aircraft: the helicopter's body (the runway's colour, or the livery's body colour)
 var _stripe_mats: Array[StandardMaterial3D] = []
+var _shadow_alpha := PackedFloat32Array()      # per aircraft: the shadow's opacity as last written
 var _stripes: Array = []                  # per aircraft: the stripe boxes (shown for a custom livery)
 var livery := 0                          # index into Cosmetics.LIVERIES
 var _cand := PackedInt32Array()
@@ -122,7 +123,11 @@ func _ready() -> void:
 		_build_node()
 	for n in _nodes:
 		Prim.lift(n)          # (aircraft are drawn above the fog)
+	if not scenic:
+		Boot.mark("traffic: %d aircraft models" % pool_n)
 	_build_extras()
+	if not scenic:
+		Boot.mark("traffic: shadows and trails")
 	_ramp_first = _nodes.size()
 	if not scenic:
 		_ramp_used.resize(RAMP_MODELS)
@@ -136,6 +141,7 @@ func _ready() -> void:
 			sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			_nodes[_ramp_first + k].add_child(sh)
 			_ramp_shadows.append(sh)
+		Boot.mark("traffic: %d ramp models" % RAMP_MODELS)
 
 ## Soft drop shadows (one quad each) and the contrails (one MultiMesh of round puffs for the whole pool).
 func _build_extras() -> void:
@@ -156,6 +162,7 @@ func _build_extras() -> void:
 		add_child(mi)
 		_shadows.append(mi)
 		_shadow_mats.append(m)
+		_shadow_alpha.append(-1.0)
 		_shadow_size.append(Vector2(1.5, 1.5))
 	_trail_mm = MultiMesh.new()
 	_trail_mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -1153,7 +1160,10 @@ func _sync(p: Aircraft, i: int) -> void:
 	sh.position = Vector3(p.pos.x + (0.03 + 0.4 * up) * shadow_scale, 0.14, p.pos.y + (0.02 + 0.3 * up) * shadow_scale)       # (hugging the wheels on the ground, further away the higher it flies)
 	sh.rotation.y = -p.vis_heading
 	sh.scale = Vector3(_shadow_size[i].x, 1.0, _shadow_size[i].y) * (0.9 + 0.1 * alt)
-	_shadow_mats[i].set_shader_parameter("alpha", Shadow.ALPHA - 0.08 * clampf(up, 0.0, 1.5))       # blue-grey at 26%: fainter the higher it flies
+	var sh_alpha := snappedf(Shadow.ALPHA - 0.08 * clampf(up, 0.0, 1.5), 0.005)       # blue-grey at 26%: fainter the higher it flies (written only when it changes)
+	if sh_alpha != _shadow_alpha[i]:
+		_shadow_alpha[i] = sh_alpha
+		_shadow_mats[i].set_shader_parameter("alpha", sh_alpha)
 	var base := Airports.land_color(p.tkind, p.runway)
 	if p.emergency and p.state != Aircraft.State.LANDING and sin(TAU * 3.0 * p.age) > 0.0:
 		base = Color(1.0, 0.12, 0.1)

@@ -23,6 +23,10 @@ func _ready() -> void:
 	material_override = _mat
 	visible = false
 
+var _amount := -1.0                  # what the shader has now (it is only written when it changes)
+var _max_alpha := -1.0
+var _drift := Vector2.INF
+
 func _process(_delta: float) -> void:
 	if traffic == null:
 		return
@@ -30,11 +34,17 @@ func _process(_delta: float) -> void:
 	visible = a > 0.002
 	if not visible:
 		return
-	_mat.set_shader_parameter("amount", a)
-	_mat.set_shader_parameter("max_alpha", Tuning.fog_max_alpha)
+	if a != _amount:
+		_amount = a
+		_mat.set_shader_parameter("amount", a)
+	if Tuning.fog_max_alpha != _max_alpha:
+		_max_alpha = Tuning.fog_max_alpha
+		_mat.set_shader_parameter("max_alpha", _max_alpha)
 	if wind != null:
-		var d := Vector2(sin(deg_to_rad(wind.toward_deg())), -cos(deg_to_rad(wind.toward_deg())))
-		_mat.set_shader_parameter("drift", d * 0.6)
+		var d := Vector2(sin(deg_to_rad(wind.toward_deg())), -cos(deg_to_rad(wind.toward_deg()))) * 0.6
+		if d != _drift:
+			_drift = d
+			_mat.set_shader_parameter("drift", d)
 
 func shader_material() -> ShaderMaterial:
 	return _mat

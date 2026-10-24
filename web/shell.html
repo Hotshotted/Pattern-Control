@@ -167,16 +167,24 @@ const engine = new Engine(GODOT_CONFIG);
     fail("This browser can't run the game. Please try the latest Chrome, Safari or Firefox.");
     return;
   }
+  window.__pwT = { shell: performance.now() };
+  // The download is the first 40% of the bar; the game reports the rest as it builds itself (Boot.progress)
+  window.__pwProgress = function (f) {
+    bar.classList.remove('indeterminate');
+    fill.style.width = Math.round(40 + 60 * f) + '%';
+  };
   engine.startGame({
     onProgress: function (current, total) {
+      if (total > 0 && current >= total && !window.__pwT.downloaded) { window.__pwT.downloaded = performance.now(); }
       if (total > 0) {
         bar.classList.remove('indeterminate');
-        fill.style.width = Math.min(100, Math.round(current / total * 100)) + '%';
+        fill.style.width = Math.min(40, Math.round(current / total * 40)) + '%';
       } else {
         bar.classList.add('indeterminate');
       }
     },
   }).then(function () {
+    window.__pwT.started = performance.now();
     canvas.classList.add('on');
     loader.classList.add('gone');
     setTimeout(function () { loader.style.display = 'none'; }, 450);

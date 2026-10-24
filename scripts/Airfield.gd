@@ -1,7 +1,9 @@
 class_name Airfield
 extends Node3D
-## The static scenery of every airport. All six are built ONCE at start-up (hidden), and select() just
-## switches which one is shown, so starting a shift anywhere creates nothing. An airport has: ground, water /
+## The static scenery of every airport. Each is built ONCE (hidden) and select() just switches which one is shown, so starting
+## a shift creates nothing. The real game builds only the airport it opens on before the menu appears, and the others a phase at a
+## time while the menu is idle (the unlocked ones first; `select` builds one that is still missing); `boot_lazy = false` (the tests)
+## builds all six up front. An airport has: ground, water /
 ## island decor, runways (each in its colour, with a threshold block at BOTH approach ends: bright when that
 ## end is active in the current wind, dull when not), helipads, seaplane lanes, mountains, a control tower,
 ## a windsock that swings with the wind, and trees. A landing makes that end flash (glow()).
@@ -16,6 +18,9 @@ const PALETTE := {
 ## One airport's nodes and the little state it animates.
 class AirportScene:
 	var root: Node3D
+	var airport := 0                    # which airport this is
+	var phase := 0                      # build phases done (BUILD_PHASES = finished)
+	var occupied: Array = []            # [centre, radius] of what is built on the field (kept clear of upgrade props, tufts, ...)
 	var thr_mats: Array[StandardMaterial3D] = []   # runway * 2 + end
 	var thr_colors: Array[Color] = []
 	var glow_born: Array[int] = []
@@ -80,7 +85,11 @@ var wind: Wind                        # set by Main
 var traffic: Traffic                  # set by Main (the birds keep away from aircraft)
 var progress := -1.0                  # 0..1 through the shift (the mower works the field edge); -1 = the menu: a slow loop
 var _life_t := 0.0
-var variants: Array[AirportScene] = []
+var variants: Array[AirportScene] = []     # indexed by airport; null until built
+var _pending := {}                        # airport -> its scene, part-built
+var _theme := 0
+const BUILD_PHASES := 7
+static var boot_lazy := true
 var cur: AirportScene
 var selected := 0
 var _sock_deg := 0.0
@@ -107,7 +116,8 @@ func set_time(t: float) -> void:
 	_day = clampf(t, 0.0, 1.0)
 	Shadow.set_time(_day)
 	for v in variants:
-		v.ground_mat.albedo_color = _warmed(v.ground_now, _day)
+		if v != null:
+			v.ground_mat.albedo_color = _warmed(v.ground_now, _day)
 
 static func _warmed(c: Color, t: float) -> Color:
 	return Color(c.r, c.g * (1.0 - 0.02 * t), c.b * (1.0 - 0.09 * t), c.a)
@@ -126,81 +136,163 @@ var hangar_shown := 0                     # how many have rolled into the hangar
 var extra_shown := 0
 
 func _ready() -> void:
+	Boot.mark("engine up, scene loaded")
+	variants.resize(Airports.COUNT)
 	var keep := Airports.current
-	Prim.outlines = false        # Sunny Airfield: the ground and its props have soft shadows and highlights, never outlines
-	for a in Airports.COUNT:
-		Airports.current = a
-		variants.append(_build_airport())
-	Prim.outlines = true
-	Airports.current = keep
+	if boot_lazy:
+		keep = Save.selected_airport if Save.airport_open(Save.selected_airport) else 0
+		ensure(keep)
+		Boot.mark("airfield %d built" % keep)
+	else:
+		for a in Airports.COUNT:
+			ensure(a)
+			Boot.mark("airfield %d built" % a)
 	_build_streaks()
 	select(keep)
+	Boot.mark("airfield ready")
 
-## Show airport `a` (Airports.current should already be `a`).
+## Show airport `a` (building it first if it is still missing).
 func select(a: int) -> void:
+	ensure(a)
 	selected = a
 	for i in variants.size():
-		variants[i].root.visible = i == a
+		if variants[i] != null:
+			variants[i].root.visible = i == a
 	cur = variants[a]
 
-func _build_airport() -> AirportScene:
+## Build airport `a` now, whatever is left of it.
+func ensure(a: int) -> void:
+	if variants[a] != null:
+		return
+	var v: AirportScene = _pending.get(a)
+	if v == null:
+		v = _begin_airport(a)
+		_pending[a] = v
+	while not _build_phase(v):
+		pass
+
+func build_all() -> void:
+	for a in Airports.COUNT:
+		ensure(a)
+
+## The next airport worth building in the idle time: the one shown, then the unlocked ones (-1 when those are all there).
+func _next_wanted(include_locked: bool) -> int:
+	if variants[selected] == null:
+		return selected
+	for a in Airports.COUNT:
+		if variants[a] == null and (include_locked or Save.airport_open(a)):
+			return a
+	return -1
+
+## One phase of the next wanted airport (the menu's idle time calls this every few frames). Returns false when nothing is left to build.
+func build_step(include_locked: bool = false) -> bool:
+	var a := _next_wanted(include_locked)
+	if a < 0:
+		return false
+	var v: AirportScene = _pending.get(a)
+	if v == null:
+		v = _begin_airport(a)
+		_pending[a] = v
+	_build_phase(v)
+	return _next_wanted(include_locked) >= 0
+
+func is_built(a: int) -> bool:
+	return variants[a] != null
+
+func _begin_airport(a: int) -> AirportScene:
 	var v := AirportScene.new()
+	v.airport = a
 	var root := Node3D.new()
+	root.visible = false
 	add_child(root)
 	v.root = root
-	var ground := Airports.ground_color()
-	v.base_ground = ground
-	v.ground_now = ground
-	v.ground_mat = Prim.mat(ground)
-	_ground(root, v.ground_mat, bool(Airports.def().get("water", false)))
-	var stripe := _overlay_mat(Color(1, 1, 1, 0.12))        # lighter and darker patches are translucent, so they follow the field's own light
-	v.stripe_mat = stripe
-	var patch := _overlay_mat(Color(0, 0, 0, 0.07))
-	v.patch_mat = patch
-	var water: bool = Airports.def().get("water", false)
-	v.water = water
-	if not water:
-		# Mown patches in slightly different greens: long diagonal bands, light and dark, the same on every visit.
-		var rngp := RandomNumberGenerator.new()
-		rngp.seed = 31 + Airports.current * 17
-		for i in 9:
-			var bandp := Prim.box(root, Vector3(rngp.randf_range(7.0, 15.0), 0.02, rngp.randf_range(1.6, 3.4)), Vector3(rngp.randf_range(-6.0, 6.0), 0.005 + 0.001 * i, rngp.randf_range(-9.0, 9.0)), stripe if i % 2 == 0 else patch, false)
-			bandp.rotation.y = deg_to_rad(rngp.randf_range(-24.0, 24.0))
-	else:
-		var wave := _overlay_mat(Color(1, 1, 1, 0.16))
-		v.stripe_mat = wave
-		for i in 5:
-			Prim.box(root, Vector3(9.0 + 2.0 * (i % 3), 0.02, 0.5), Vector3(-5.0 + 2.5 * i, 0.005, -8.0 + 4.1 * i), wave, false)
-	for d in Airports.decor():
-		var m := Prim.mat(d["color"])
-		if d["shape"] == "disc":
-			Prim.cyl(root, d["r"], d["r"], 0.06, d["sides"], Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
-		else:
-			Prim.box(root, Vector3(d["size"].x, 0.04, d["size"].y), Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
-	for i in Airports.rw_count():
-		_runway(v, i)
-	for pad in Airports.pads():
-		_pad(root, pad)
-	for lane in Airports.lanes():
-		_lane(root, lane)
-	for h in Airports.hazards():
-		_mountain(root, h["center"], h["radius"])
-	_taxiways(v)
-	_lights(v)
-	_vehicles(v)
-	_occupied = []
-	v.style = Airports.style()
-	_ramp(v)
-	_landmark(v)
-	_ramp_slots(v)
-	_life(v)
-	var sp := Airports.windsock_pos()
-	_windsock(v, Vector3(sp.x, 0.0, sp.y))
-	if not water:
-		_trees(v)
-		_tufts(v)
-	_upgrade_props(v)
 	return v
+
+## One phase of an airport's build (0..BUILD_PHASES-1). Returns true when the airport is finished (and then it joins `variants`).
+func _build_phase(v: AirportScene) -> bool:
+	var keep_current := Airports.current
+	var keep_outlines := Prim.outlines
+	Airports.current = v.airport
+	Prim.outlines = false        # Sunny Airfield: the ground and its props have soft shadows and highlights, never outlines
+	_occupied = v.occupied
+	var root := v.root
+	match v.phase:
+		0:
+			var ground := Airports.ground_color()
+			v.base_ground = ground
+			v.ground_now = ground
+			v.ground_mat = Prim.mat(ground)
+			_ground(root, v.ground_mat, bool(Airports.def().get("water", false)))
+			var stripe := _overlay_mat(Color(1, 1, 1, 0.12))        # lighter and darker patches are translucent, so they follow the field's own light
+			v.stripe_mat = stripe
+			var patch := _overlay_mat(Color(0, 0, 0, 0.07))
+			v.patch_mat = patch
+			var water: bool = Airports.def().get("water", false)
+			v.water = water
+			if not water:
+				# Mown patches in slightly different greens: long diagonal bands, light and dark, the same on every visit.
+				var rngp := RandomNumberGenerator.new()
+				rngp.seed = 31 + Airports.current * 17
+				for i in 9:
+					var bandp := Prim.box(root, Vector3(rngp.randf_range(7.0, 15.0), 0.02, rngp.randf_range(1.6, 3.4)), Vector3(rngp.randf_range(-6.0, 6.0), 0.005 + 0.001 * i, rngp.randf_range(-9.0, 9.0)), stripe if i % 2 == 0 else patch, false)
+					bandp.rotation.y = deg_to_rad(rngp.randf_range(-24.0, 24.0))
+			else:
+				var wave := _overlay_mat(Color(1, 1, 1, 0.16))
+				v.stripe_mat = wave
+				for i in 5:
+					Prim.box(root, Vector3(9.0 + 2.0 * (i % 3), 0.02, 0.5), Vector3(-5.0 + 2.5 * i, 0.005, -8.0 + 4.1 * i), wave, false)
+			for d in Airports.decor():
+				var m := Prim.mat(d["color"])
+				if d["shape"] == "disc":
+					Prim.cyl(root, d["r"], d["r"], 0.06, d["sides"], Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
+				else:
+					Prim.box(root, Vector3(d["size"].x, 0.04, d["size"].y), Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
+		1:
+			for i in Airports.rw_count():
+				_runway(v, i)
+			for pad in Airports.pads():
+				_pad(root, pad)
+			for lane in Airports.lanes():
+				_lane(root, lane)
+			for h in Airports.hazards():
+				_mountain(root, h["center"], h["radius"])
+		2:
+			_taxiways(v)
+			_lights(v)
+			_vehicles(v)
+		3:
+			v.occupied = []
+			_occupied = v.occupied
+			v.style = Airports.style()
+			_ramp(v)
+			_landmark(v)
+			_ramp_slots(v)
+		4:
+			_life(v)
+			var sp := Airports.windsock_pos()
+			_windsock(v, Vector3(sp.x, 0.0, sp.y))
+		5:
+			if not v.water:
+				_trees(v)
+				_tufts(v)
+		6:
+			_upgrade_props(v)
+	v.phase += 1
+	Airports.current = keep_current
+	Prim.outlines = keep_outlines
+	if v.phase < BUILD_PHASES:
+		return false
+	_pending.erase(v.airport)
+	variants[v.airport] = v
+	v.root.visible = v.airport == selected and cur != null
+	_dress(v)
+	return true
+
+## A scene that has just been finished takes the look the others already have: the equipped theme, the bought upgrades, the time of day.
+func _dress(v: AirportScene) -> void:
+	_apply_theme_to(v, Cosmetics.THEMES[_theme])
+	for u in v.ups:
+		u[0].visible = Save.upgrade_level(u[1]) >= u[2]
 
 ## The field: a grid with vertex colours that run from the lit upper-left (#B9DC72) through #8FC45C to the shaded lower-right (#76AA4B),
 ## as ratios of the material's own colour (so a theme or an airport's own ground keeps the same light). Water gets a gentler version.
@@ -449,26 +541,31 @@ func _trees(v: AirportScene) -> void:
 
 ## Dress every airport in a theme: ground, scenery style and colours (no new nodes).
 func apply_theme(index: int) -> void:
+	_theme = index
 	var t: Dictionary = Cosmetics.THEMES[index]
 	for v in variants:
-		var ground: Color = v.base_ground
-		if t["ground"] != null and not v.water:
-			ground = t["ground"]
-		elif v.water:
-			ground = v.base_ground * (t["tint"] as Color)
-		v.ground_now = ground
-		v.ground_mat.albedo_color = _warmed(ground, _day)
-		if v.leaf_mat != null:
-			v.leaf_mat.albedo_color = t["leaf"]
-			v.leaf_mid.albedo_color = t.get("leaf_mid", (t["leaf"] as Color).lightened(0.18))
-			v.leaf_hi.albedo_color = t.get("leaf_hi", (t["leaf"] as Color).lightened(0.38))
-			v.trunk_mat.albedo_color = t["trunk"]
-		var want: int = t["style"]
-		if v.style == "alpine" and want == 0:
-			want = 1         # (the mountains have pines)
-		for st in 3:
-			for holder in v.tree_styles[st]:
-				holder.visible = st == want
+		if v != null:
+			_apply_theme_to(v, t)
+
+func _apply_theme_to(v: AirportScene, t: Dictionary) -> void:
+	var ground: Color = v.base_ground
+	if t["ground"] != null and not v.water:
+		ground = t["ground"]
+	elif v.water:
+		ground = v.base_ground * (t["tint"] as Color)
+	v.ground_now = ground
+	v.ground_mat.albedo_color = _warmed(ground, _day)
+	if v.leaf_mat != null:
+		v.leaf_mat.albedo_color = t["leaf"]
+		v.leaf_mid.albedo_color = t.get("leaf_mid", (t["leaf"] as Color).lightened(0.18))
+		v.leaf_hi.albedo_color = t.get("leaf_hi", (t["leaf"] as Color).lightened(0.38))
+		v.trunk_mat.albedo_color = t["trunk"]
+	var want: int = t["style"]
+	if v.style == "alpine" and want == 0:
+		want = 1         # (the mountains have pines)
+	for st in 3:
+		for holder in v.tree_styles[st]:
+			holder.visible = st == want
 
 func _runway(v: AirportScene, i: int) -> void:
 	var col := Airports.rw_color(i)
@@ -676,7 +773,7 @@ func _animate_ground(delta: float, now: int) -> void:
 	var on := int(now / 350.0) % 2 == 0
 	for k in cur.veh.size():
 		cur.veh_t[k] = fposmod(cur.veh_t[k] + cur.veh_speed[k] * delta, 2.0)
-		cur.veh_beacon[k].albedo_color = Color(1.0, 0.25, 0.2) if on else Color(0.3, 0.08, 0.06)
+		Prim.paint(cur.veh_beacon[k], Color(1.0, 0.25, 0.2) if on else Color(0.3, 0.08, 0.06))
 	if not cur.veh.is_empty():
 		_place_vehicles(cur)
 
@@ -993,13 +1090,16 @@ func show_active(w: Wind) -> void:
 ## The pre-warm draws every airport at once; afterwards only the current one stays visible.
 func show_all(on: bool) -> void:
 	for i in variants.size():
+		if variants[i] == null:
+			continue
 		variants[i].root.visible = on or i == selected
 		for u in variants[i].ups:      # (every upgrade's scenery is drawn too, so none of it is first seen mid-game)
 			u[0].visible = true if on else Save.upgrade_level(u[1]) >= u[2]
 
 func reset() -> void:
 	for v in variants:
-		v.glow_born.fill(0)
+		if v != null:
+			v.glow_born.fill(0)
 	_ramp_clear()
 	_last_from = -1.0
 	_gust_t = 0.0
@@ -1013,15 +1113,15 @@ func _process(delta: float) -> void:
 		d.rotation.y += delta * 1.8
 	var blink := 1.6 if int(now / 600.0) % 2 == 0 and DebugFlags.life_enabled() else 0.0
 	for lm in cur.mast_lights:
-		lm.emission_energy_multiplier = blink
-		lm.albedo_color = Color(1.0, 0.2, 0.15) if blink > 0.0 else Color(0.55, 0.16, 0.13)
+		Prim.glow(lm, blink)
+		Prim.paint(lm, Color(1.0, 0.2, 0.15) if blink > 0.0 else Color(0.55, 0.16, 0.13))
 	for k in cur.thr_mats.size():
 		var age := (now - cur.glow_born[k]) / 600.0
 		var flash := 0.0 if cur.glow_born[k] == 0 or age >= 1.0 else 2.5 * (1.0 - age)
 		var m := cur.thr_mats[k]
 		var on := cur.active[k]
-		m.albedo_color = cur.thr_colors[k] if on else Color(0.38, 0.39, 0.42)
-		m.emission_energy_multiplier = (0.45 if on else 0.0) + flash
+		Prim.paint(m, cur.thr_colors[k] if on else Color(0.38, 0.39, 0.42))
+		Prim.glow(m, (0.45 if on else 0.0) + flash)
 	if DebugFlags.life_enabled():
 		_animate_ground(delta, now)
 		_animate_life(delta)
@@ -1030,10 +1130,10 @@ func _process(delta: float) -> void:
 		cur.lights.visible = not DebugFlags.windtest_enabled()       # (the lights shimmer by themselves: the web wind check wants a still field)
 	var pulse := 1.4 if int(now / 1400.0) % 2 == 0 and DebugFlags.life_enabled() else 0.2
 	for lm2 in cur.lamps:
-		lm2.emission_energy_multiplier = pulse
+		Prim.glow(lm2, pulse)
 	for bm in cur.beacons:
-		bm.emission_energy_multiplier = blink
-		bm.albedo_color = Color(0.95, 0.23, 0.19) if blink > 0.0 else Color(0.45, 0.14, 0.12)
+		Prim.glow(bm, blink)
+		Prim.paint(bm, Color(0.95, 0.23, 0.19) if blink > 0.0 else Color(0.45, 0.14, 0.12))
 	if wind != null and cur.sock != null:
 		_sock_deg += wrapf(wind.toward_deg() - _sock_deg, -180.0, 180.0) * (1.0 if DebugFlags.windtest_enabled() else minf(delta * 2.5, 1.0))
 		var wiggle := sin(now / 260.0) * 6.0 if DebugFlags.life_enabled() else 0.0
@@ -1116,7 +1216,7 @@ func _animate_life(delta: float) -> void:
 		puff.visible = true
 		puff.position = Vector3(v.smoke_at.x + dir.x * u * 0.9, v.smoke_at.y, v.smoke_at.z + dir.y * u * 0.9)
 		puff.scale = Vector3.ONE * lerpf(0.6, 2.0, u)
-		(sm["mat"] as StandardMaterial3D).albedo_color = Color(0.93, 0.92, 0.9, 0.55 * (1.0 - u) * minf(u * 8.0, 1.0))
+		Prim.paint(sm["mat"] as StandardMaterial3D, Color(0.93, 0.92, 0.9, snappedf(0.55 * (1.0 - u) * minf(u * 8.0, 1.0), 0.02)))
 	for ci in v.chairs.size():
 		var cu := fposmod(_life_t * 0.035 + ci * 0.5, 1.0)
 		var cp := v.chair_a.lerp(v.chair_b, cu)
@@ -1335,6 +1435,8 @@ func _upgrade_props(v: AirportScene) -> void:
 ## Show each upgrade's scenery that has been bought (called at start-up and after a purchase).
 func show_upgrades() -> void:
 	for v in variants:
+		if v == null:
+			continue
 		for u in v.ups:
 			u[0].visible = Save.upgrade_level(u[1]) >= u[2]
 
@@ -1530,7 +1632,7 @@ func _ramp_clear() -> void:
 	if traffic != null:
 		traffic.ramp_free_all()
 	for v in variants:
-		if not v.ramp_ok:
+		if v == null or not v.ramp_ok:
 			continue
 		for kind in v.slots:
 			for e in v.slots[kind]:
@@ -1799,4 +1901,4 @@ func _animate_wind(delta: float, now: int) -> void:
 			var pp := c + off + dir * t * 0.25 * r
 			mi.position = Vector3(pp.x, 0.04, pp.y)
 			mi.scale = Vector3(r * 0.9 * t + 0.02, 0.1, r * 0.55 * t + 0.02)
-			(rp["mat"] as StandardMaterial3D).albedo_color = Color(1, 1, 1, 0.5 * (1.0 - t) * minf(t * 6.0, 1.0))
+			Prim.paint(rp["mat"] as StandardMaterial3D, Color(1, 1, 1, snappedf(0.5 * (1.0 - t) * minf(t * 6.0, 1.0), 0.02)))

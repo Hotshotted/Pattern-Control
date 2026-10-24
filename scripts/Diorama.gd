@@ -14,6 +14,7 @@ var active := false
 var _clouds: Array[MeshInstance3D] = []
 var _cloud_mats: Array[ShaderMaterial] = []
 var _fade := 0.0
+var _fade_written := -1.0         # the clouds' opacity as last written (it is only written when it changes)
 var _next := 1.0
 var _airport := -1
 var _taxi: Aircraft
@@ -79,7 +80,9 @@ func tick(delta: float) -> void:
 			c.position.x = -signf(c.position.x) * 8.5
 		if absf(c.position.z) > 13.0:
 			c.position.z = -signf(c.position.z) * 12.5
-		_cloud_mats[i].set_shader_parameter("alpha", MAX_ALPHA * _fade)
+		if _fade != _fade_written:
+			_cloud_mats[i].set_shader_parameter("alpha", MAX_ALPHA * _fade)
+	_fade_written = _fade
 	if not active:
 		return
 	traffic.step(delta)

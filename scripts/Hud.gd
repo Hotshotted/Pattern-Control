@@ -1274,6 +1274,7 @@ var mode := ""                 # "", "daily" or "bad": a small badge on the HUD
 
 func _ready() -> void:
 	layer = 2
+	Boot.mark("overlay built")
 	_flash = ColorRect.new()
 	_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1348,6 +1349,7 @@ func _ready() -> void:
 	set_landed(0)
 	Style.detect_safe(get_viewport().get_visible_rect().size)
 	apply_safe()
+	Boot.mark("hud built")
 
 # ---------- Header numbers (they roll) ----------
 
@@ -1620,11 +1622,13 @@ func hide_unlock() -> void:
 
 ## The title intro: studio mark, then the game's logo (about 2.4 s, any tap skips). `logo_finished` fires when the menu should appear.
 func show_logo() -> void:
+	Boot.mark("logo started (frame %d)" % Engine.get_process_frames())
 	_hide_all_screens()
 	_art.clear_buttons()
 	_logo_bg.visible = true
 	_logo_bg.color.a = 1.0
 	_logo_sent = false
+	_logo_wall_ms = 0
 	_art.logo_t = 0.0
 	_art.queue_redraw()
 
@@ -1635,12 +1639,19 @@ func skip_logo() -> void:
 	if _art.logo_t >= 0.0 and _art.logo_t < LOGO_END:
 		_art.logo_t = LOGO_END
 
+var _logo_wall_ms := 0
 func _tick_logo(delta: float) -> void:
 	if _art.logo_t < 0.0:
 		return
-	_art.logo_t += delta
+	# The intro runs on the wall clock: the engine's frame delta is held to one physics tick (1/60 s) when frames are slower than that,
+	# which on a slow phone made a 2.4 s intro last ten seconds.
+	var now := Time.get_ticks_msec()
+	var wall := minf((now - _logo_wall_ms) / 1000.0, 0.25) if _logo_wall_ms > 0 else 0.0
+	_logo_wall_ms = now
+	_art.logo_t += maxf(delta, wall)
 	if _art.logo_t >= LOGO_END and not _logo_sent:
 		_logo_sent = true
+		Boot.mark("logo finished (%d fps, %d frames)" % [Engine.get_frames_per_second(), Engine.get_process_frames()])
 		logo_finished.emit()
 	_logo_bg.color.a = clampf(1.0 - (_art.logo_t - LOGO_END) / LOGO_FADE, 0.0, 1.0)
 	if _art.logo_t >= LOGO_END + LOGO_FADE:

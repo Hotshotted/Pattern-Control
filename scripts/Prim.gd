@@ -52,6 +52,16 @@ static func lift(node: Node) -> void:
 ## is) to 1 - SHADE at its lower-right (about 15-20% darker), multiplied into the material's colour: no per-frame cost.
 const SHADE := 0.18
 
+## Per-frame colour and glow writes go through these: setting a material's property marks it changed and uploads it again, even to
+## the value it already has, so a material that is the same as last frame is left alone (most of them are, most of the time).
+static func paint(m: StandardMaterial3D, c: Color) -> void:
+	if m.albedo_color != c:
+		m.albedo_color = c
+
+static func glow(m: StandardMaterial3D, e: float) -> void:
+	if m.emission_energy_multiplier != e:
+		m.emission_energy_multiplier = e
+
 static func mat(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color
@@ -85,18 +95,32 @@ static func _finish(parent: Node3D, mesh: Mesh, m: Material, pos: Vector3, outli
 	parent.add_child(mi)
 	return mi
 
+## Meshes are built once per shape and shared by every model and every airport that uses the shape (the 40 aircraft models are the
+## same few dozen boxes): building a mesh is the slow part of the start-up on a phone, and a shared mesh is one GPU buffer, not forty.
+static var _meshes := {}
+
 static func box(parent: Node3D, size: Vector3, pos: Vector3, m: Material, outlined: bool = true) -> MeshInstance3D:
-	var b := BoxMesh.new()
-	b.size = size
-	return _finish(parent, _shaded(b, Vector2(size.x, size.z)), m, pos, outlined)
+	var key := "b%s" % size
+	var mesh: Mesh = _meshes.get(key)
+	if mesh == null:
+		var b := BoxMesh.new()
+		b.size = size
+		mesh = _shaded(b, Vector2(size.x, size.z))
+		_meshes[key] = mesh
+	return _finish(parent, mesh, m, pos, outlined)
 
 ## A low-poly cylinder / cone (top_r = 0): `sides` radial segments, axis = local y.
 static func cyl(parent: Node3D, top_r: float, bottom_r: float, height: float, sides: int, pos: Vector3, m: Material, outlined: bool = true) -> MeshInstance3D:
-	var c := CylinderMesh.new()
-	c.top_radius = top_r
-	c.bottom_radius = bottom_r
-	c.height = height
-	c.radial_segments = sides
-	c.rings = 1
-	var r := maxf(maxf(top_r, bottom_r) * 2.0, 0.01)
-	return _finish(parent, _shaded(c, Vector2(r, r)), m, pos, outlined)
+	var key := "c%s,%s,%s,%d" % [top_r, bottom_r, height, sides]
+	var mesh: Mesh = _meshes.get(key)
+	if mesh == null:
+		var c := CylinderMesh.new()
+		c.top_radius = top_r
+		c.bottom_radius = bottom_r
+		c.height = height
+		c.radial_segments = sides
+		c.rings = 1
+		var r := maxf(maxf(top_r, bottom_r) * 2.0, 0.01)
+		mesh = _shaded(c, Vector2(r, r))
+		_meshes[key] = mesh
+	return _finish(parent, mesh, m, pos, outlined)

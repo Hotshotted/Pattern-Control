@@ -27,6 +27,7 @@ var _rip_scale := PackedFloat32Array()
 var _next_rip := 0
 
 func _ready() -> void:
+	Boot.mark("fx built")
 	layer = 1
 	_font = Style.text()
 	_c = Control.new()

@@ -93,6 +93,14 @@ var _last_world := Vector2.ZERO
 
 
 func _ready() -> void:
+	Boot.mark("main: children ready")
+	if DebugFlags.perf_enabled() and OS.has_feature("web"):
+		process_priority = -1000                  # (first of the frame's _process calls, and the probe last: the game's own code, timed)
+		var probe := Node.new()
+		probe.process_priority = 1000
+		probe.set_script(load("res://scripts/FrameProbe.gd"))
+		probe.main = self
+		add_child(probe)
 	Engine.max_physics_steps_per_frame = 1   # no physics here: a stall can never trigger catch-up steps
 	view_size = Tuning.view_size()
 	_setup_environment()
@@ -133,9 +141,11 @@ func _ready() -> void:
 	fog_layer.traffic = traffic
 	fog_layer.wind = wind
 	add_child(fog_layer)
+	Boot.mark("main: wiring, fog layer")
 	diorama = Diorama.new()
 	diorama.wind = wind
 	add_child(diorama)
+	Boot.mark("main: diorama")
 	overlay.camera = camera
 	light = LightOverlay.new()
 	add_child(light)
@@ -151,6 +161,7 @@ func _ready() -> void:
 	Airports.current = airport
 	airfield.select(airport)
 	traffic.load_terrain()
+	Boot.mark("main: select airport, terrain")
 	shift.reset(Tuning.star_thresholds(), Tuning.landing_keep_fraction)
 	wind.start(rng_env)
 	airfield.show_active(wind)
@@ -158,8 +169,10 @@ func _ready() -> void:
 	airfield.show_upgrades()
 	apply_cosmetics()
 	_apply_volumes()
+	Boot.mark("main: shift, wind, upgrades, cosmetics")
 	sfx = Sfx.new()
 	add_child(sfx)
+	Boot.mark("main: sounds loaded")
 	rng_env.randomize()
 	hud.set_best(Save.best_for(airport))
 	if DebugFlags.tune_enabled():
@@ -175,6 +188,16 @@ func _ready() -> void:
 		_boot_to_menu()
 	if not _warming and tune_panel:
 		tune_panel.set_available(true)
+
+## While the menu (or any screen but a shift) is up, the airports that are not built yet are built a phase at a time, one phase
+## every few frames: the unlocked ones, the one on show first. (A shift never starts a build.)
+var _idle_frames := 0
+func _idle_build() -> void:
+	if _warming or screen == SCREEN_PLAY or screen == SCREEN_PAUSE or hud.logo_active():
+		return
+	_idle_frames += 1
+	if _idle_frames % Tuning.idle_build_every == 0:
+		airfield.build_step()
 
 ## First-use stutter fix: GL shaders / particle buffers / font glyphs set themselves up the first time
 ## they are used. So at boot, behind a splash, draw EVERYTHING for real (every plane, flashing; paths,
@@ -193,6 +216,7 @@ func _prewarm() -> void:
 	overlay.prewarm()
 	if tune_panel:
 		tune_panel.prewarm_show(true)
+	Boot.mark("prewarm: everything shown")
 	var t_start := Time.get_ticks_msec()
 	var t_last := t_start
 	var t_refresh := -100000
@@ -212,6 +236,7 @@ func _prewarm() -> void:
 		calm_frames = calm_frames + 1 if (t - t_last) < Tuning.prewarm_stable_ms else 0
 		t_last = t
 		var elapsed_s := (t - t_start) / 1000.0
+		Boot.progress(0.70 + 0.26 * minf(elapsed_s / maxf(Tuning.prewarm_max_seconds * 0.6, 0.1), 1.0))
 		if elapsed_s >= Tuning.prewarm_max_seconds:
 			break
 		if elapsed_s >= Tuning.prewarm_min_seconds and calm_frames >= Tuning.prewarm_stable_frames:
@@ -231,6 +256,7 @@ func _prewarm() -> void:
 		tune_panel.prewarm_show(false)
 		tune_panel.set_available(true)
 	_warming = false
+	Boot.mark("prewarm: finished")
 	_boot_to_menu()
 
 ## After boot: the animated logo intro (skippable), then the menu. The intro is a setting so the tests can skip it.
@@ -246,6 +272,7 @@ func _boot_to_menu() -> void:
 
 ## Start a fresh shift IN PLACE.
 func restart() -> void:
+	Boot.mark("shift started")
 	screen = SCREEN_PLAY
 	_tick_next = 0.0
 	alive = true
@@ -315,6 +342,7 @@ func restart() -> void:
 	hud.set_shift(shift)
 
 func _show_menu() -> void:
+	Boot.mark("menu shown")
 	screen = SCREEN_MENU
 	alive = false
 	daily_mode = false
@@ -453,11 +481,34 @@ func _publish_state() -> void:
 			ry = c.y * sc
 	JavaScriptBridge.eval("window.__pw = {paused: %s, muted: %s, held: %s, resume: [%.1f, %.1f]}" % [str(screen == SCREEN_PAUSE).to_lower(), str(AudioServer.is_bus_mute(0)).to_lower(), str(_audio_hold).to_lower(), rx, ry])
 
+## ?perf on the web: how long the game's own code (every _process, no rendering) took per frame, in blocks of 30 frames
+## (`window.__procs` = [[mean ms, worst ms, frames over 33 ms], ...]): the web check reads it, since the frame times of a headless
+## browser are those of its software renderer, not of the game.
+var _proc_n := 0
+var _proc_sum := 0.0
+var _proc_max := 0.0
+var _proc_over := 0
+var _probe_t0 := 0
+func _log_process_time(ms: float) -> void:
+	_proc_n += 1
+	_proc_sum += ms
+	_proc_max = maxf(_proc_max, ms)
+	if ms > 33.0:
+		_proc_over += 1
+	if _proc_n >= 30:
+		JavaScriptBridge.eval("(window.__procs = window.__procs || []).push([%.2f, %.2f, %d])" % [_proc_sum / _proc_n, _proc_max, _proc_over])
+		_proc_n = 0
+		_proc_sum = 0.0
+		_proc_max = 0.0
+		_proc_over = 0
+
 func _process(raw_delta: float) -> void:
+	_probe_t0 = Time.get_ticks_usec()
 	_poll_page(raw_delta)
 	if DebugFlags.windtest_enabled() and OS.has_feature("web") and screen == SCREEN_PLAY and alive:
 		JavaScriptBridge.eval("window.__wt = {t: %.2f}" % traffic.run_time)       # (the web wind check waits for the shift to be under way)
 	_tick_shake(raw_delta)
+	_idle_build()
 	# Music: the shift's own while playing; the calm menu bed everywhere else; the two crossfade.
 	if screen != SCREEN_PLAY and screen != SCREEN_PAUSE:
 		sfx.set_music(false)

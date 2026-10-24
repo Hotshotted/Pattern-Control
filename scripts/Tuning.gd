@@ -267,10 +267,11 @@ var haptic_ms := 25
 var score_punch := 0.35
 
 # ---------- Start-up pre-warm ----------
-var prewarm_min_seconds := 1.5
-var prewarm_stable_frames := 10
+var idle_build_every := 4            # the menu's idle time builds one phase of a missing airport every this many frames
+var prewarm_min_seconds := 0.6
+var prewarm_stable_frames := 6
 var prewarm_stable_ms := 45.0
-var prewarm_max_seconds := 6.0
+var prewarm_max_seconds := 2.5
 
 # ---------- Look ----------
 var intro_logo := true                # the animated studio / game logo at boot (skippable)

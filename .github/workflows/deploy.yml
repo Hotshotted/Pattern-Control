@@ -115,6 +115,15 @@ jobs:
           CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
           NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_wind_check.js build/web "$CHROME"
 
+      # Start-up and frame cost, at a 4x CPU slowdown: every start-up step is logged (the numbers are in the job log), the game's own
+      # build must stay short and no frame of a shift may spend over 33 ms in the game's own code (rendering is the browser's: this
+      # runner draws in software, so only the game's share is judged).
+      - name: Start-up and frame check
+        timeout-minutes: 10
+        run: |
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
+          QUERY=perf THROTTLE=4 LIMIT_BUILD_MS=9000 LIMIT_FRAME_MS=33 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_boot_check.js build/web "$CHROME"
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/web

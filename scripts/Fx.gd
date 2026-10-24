@@ -16,7 +16,12 @@ var _next_sparkle := 0
 
 ## A round dot texture (a soft rim when `soft`, else a crisp edge): the particles are dots, never squares.
 func _dot_texture(soft: bool) -> Texture2D:
-	# (a plain RGBA8 image made once: a GradientTexture2D is filled in lazily, which some phones' browsers draw as a missing texture)
+	# (a plain RGBA8 picture, baked to assets/textures by tools/bake_textures.gd: a GradientTexture2D is filled in lazily, which some
+	# phones' browsers draw as a missing texture, and nothing here is computed on the phone)
+	var path := "res://assets/textures/dot_%s.png" % ("soft" if soft else "hard")
+	return load(path) if ResourceLoader.exists(path) else ImageTexture.create_from_image(dot_image(soft))
+
+static func dot_image(soft: bool) -> Image:
 	var img := Image.create(48, 48, false, Image.FORMAT_RGBA8)
 	var edge := 0.3 if soft else 0.85
 	for y in 48:
@@ -24,10 +29,13 @@ func _dot_texture(soft: bool) -> Texture2D:
 			var d := Vector2((x + 0.5) / 24.0 - 1.0, (y + 0.5) / 24.0 - 1.0).length()
 			var al := 1.0 if d <= edge else clampf(1.0 - (d - edge) / (1.0 - edge), 0.0, 1.0)
 			img.set_pixel(x, y, Color(1, 1, 1, al))
-	return ImageTexture.create_from_image(img)
+	return img
 
 ## A four-pointed sparkle: the gold celebration stars.
 func _star_texture() -> Texture2D:
+	return load("res://assets/textures/star.png") if ResourceLoader.exists("res://assets/textures/star.png") else ImageTexture.create_from_image(star_image())
+
+static func star_image() -> Image:
 	var img := Image.create(48, 48, false, Image.FORMAT_RGBA8)
 	for y in 48:
 		for x in 48:
@@ -35,9 +43,10 @@ func _star_texture() -> Texture2D:
 			var v := absf((y + 0.5) / 24.0 - 1.0)
 			var d := pow(u, 0.55) + pow(v, 0.55)
 			img.set_pixel(x, y, Color(1, 1, 1, clampf((1.0 - d) * 6.0, 0.0, 1.0)))
-	return ImageTexture.create_from_image(img)
+	return img
 
 func _ready() -> void:
+	Boot.mark("ribbons built")
 	var quad := QuadMesh.new()
 	quad.size = Vector2(0.26, 0.26)
 	var mat := StandardMaterial3D.new()

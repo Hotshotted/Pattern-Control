@@ -34,6 +34,7 @@ var _tint_col := Color.WHITE
 const TINTS := [Color("35c98a"), Color("ffc933"), Color("ff5c4d")]
 
 func _ready() -> void:
+	Boot.mark("traffic ready")
 	# Two materials with different render priorities: the soft shadow dots are always drawn before the colour dots.
 	var shader := preload("res://shaders/path_dots.gdshader")
 	var mat_outline := ShaderMaterial.new()
