@@ -30,11 +30,11 @@ static func outline_top() -> ShaderMaterial:
 		_outline_top.render_priority = ABOVE_FOG
 	return _outline_top
 
-## Render priority of everything that sits above the fog (the fog layer draws at FogLayer.PRIORITY, far below).
+## Render priority of everything that sits above the cloud shadows (CloudShadows.PRIORITY, far below).
 const ABOVE_FOG := 2
 
 ## Move a node's meshes into the transparent pass, after the fog: their materials become "alpha with depth
-## pre-pass" (they still look opaque and depth-sort correctly) at a priority above the fog layer, and the
+## pre-pass" (they still look opaque and depth-sort correctly) at a priority above the cloud shadows, and the
 ## outlines switch to the transparent-pass outline. The ground and scenery are left alone, so only they are dimmed.
 static func lift(node: Node) -> void:
 	if node is MeshInstance3D:

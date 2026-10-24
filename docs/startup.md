@@ -60,7 +60,7 @@ Setting a material property marks it changed and uploads it again, even to the v
   beacons, the chimney smoke and the pond ripples (`Airfield._process` / `_animate_*`) -> `Prim.paint` / `Prim.glow` write only when
   the value differs (smoke and ripple opacities are also stepped to 1/50);
 - each aircraft's shadow opacity (16 shader-parameter writes a frame) -> written when it changes (steps of 0.005);
-- the fog layer's three shader parameters (every frame while visible) and the diorama clouds' opacity (every frame) -> only on change;
+- the fog layer's three shader parameters and the diorama clouds' opacity (every frame; both layers are gone now, see the cloud shadows) -> only on change;
 - the aircraft livery colours -> `Traffic._paint` (earlier).
 
 No tween is created anywhere (there is no `create_tween` in the scripts), and the life props are few: 2 birds, a balloon, a mower, a fuel truck, a few vehicles and chairs per airport.

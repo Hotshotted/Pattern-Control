@@ -1,5 +1,5 @@
 extends SceneTree
-## Bakes the small soft-edged textures (the shadow shapes, the particle dots and the sparkle) to assets/textures/*.png, so the game
+## Bakes the small textures (the shadow shapes, the particle dots, the sparkle and the faint grass noise) to assets/textures/*.png, so the game
 ## loads them instead of computing them at start-up (a few thousand set_pixel calls cost seconds on a phone).
 ## Run after changing a formula in Shadow.gd / Fx.gd, then commit the PNGs:
 ##   godot --headless --path . --script tools/bake_textures.gd
@@ -15,6 +15,7 @@ func _initialize() -> void:
 	images["dot_soft"] = fx.dot_image(true)
 	images["dot_hard"] = fx.dot_image(false)
 	images["star"] = fx.star_image()
+	images["grass"] = load("res://scripts/Airfield.gd").grass_image()
 	for name in images:
 		var path := "res://assets/textures/%s.png" % name
 		(images[name] as Image).save_png(path)

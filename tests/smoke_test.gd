@@ -4940,6 +4940,36 @@ func _initialize() -> void:
 			bk_ok = false
 			bk_names += " %s(%.3f)" % [bk_n, bk_worst]
 	check(bk_ok, "the shadow and dot textures load from baked PNGs that match their formulas:" + bk_names)
+	bk_want["grass"] = load("res://scripts/Airfield.gd").grass_image()
+	# the grass texture: faint (at most 3% darker), seamless, on the grass only
+	var gr_tex = load("res://assets/textures/grass.png")
+	var gr_img: Image = gr_tex.get_image()
+	gr_img.convert(Image.FORMAT_RGBA8)
+	var gr_min := 1.0
+	var gr_edge := 0.0
+	for gr_y in gr_img.get_height():
+		for gr_x in gr_img.get_width():
+			gr_min = minf(gr_min, gr_img.get_pixel(gr_x, gr_y).r)
+		gr_edge = maxf(gr_edge, absf(gr_img.get_pixel(0, gr_y).r - gr_img.get_pixel(gr_img.get_width() - 1, gr_y).r))
+	check(gr_min >= 0.97 and gr_min < 0.995 and gr_edge < 0.01, "the grass texture is a faint noise (darkest %.3f, so at most %.1f%%) that tiles (seam %.4f)" % [gr_min, (1.0 - gr_min) * 100.0, gr_edge])
+	var gr_on := 0
+	var gr_water_on := 0
+	for gr_v in main.airfield.variants:
+		var gr_n := 0
+		for gr_mi in gr_v.root.find_children("*", "MeshInstance3D", true, false):
+			var gr_m = gr_mi.material_override as BaseMaterial3D
+			if gr_m != null and gr_m.albedo_texture == gr_tex:
+				gr_n += 1
+		if gr_v.water:
+			gr_water_on += gr_n
+		else:
+			gr_on += gr_n
+	var gr_grass_airports := 0
+	for gr_v in main.airfield.variants:
+		if not gr_v.water:
+			gr_grass_airports += 1
+	check(gr_on == gr_grass_airports and gr_water_on == 0, "...on the ground mesh of each grass airport and on nothing else: no runway, apron, building or water (%d meshes, %d airports)" % [gr_on, gr_grass_airports])
+	check(main.light.material.get_shader_parameter("grain") == null and main.light.rect.material == main.light.material and not main.light.material.shader.code.contains("sampler2D"), "...and the screen overlay has no texture at all")
 	check(Shadow.rect() is CompressedTexture2D and Shadow.plane() is CompressedTexture2D, "...and the game really loads them (no start-up computing)")
 	var lz_most := 0
 	for lz_v in main.airfield.variants:

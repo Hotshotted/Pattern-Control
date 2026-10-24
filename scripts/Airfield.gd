@@ -294,14 +294,65 @@ func _dress(v: AirportScene) -> void:
 	for u in v.ups:
 		u[0].visible = Save.upgrade_level(u[1]) >= u[2]
 
+## A very faint static texture on the grass, and only on the grass (the ground mesh: runways, taxiways, aprons, buildings and water are
+## separate meshes with none): a tileable blotchy noise that darkens the colour by 0-3%, baked to assets/textures/grass.png (see
+## tools/bake_textures.gd). It does not move, and there is no overlay or grain on the screen.
+const GRASS_TILE := 4.0               # world units one repeat of the texture covers
+const GRASS_SIZE := 128
+const GRASS_STRENGTH := 0.025
+
+static var _grass: Texture2D
+
+static func grass_texture() -> Texture2D:
+	if _grass == null:
+		_grass = load("res://assets/textures/grass.png") if ResourceLoader.exists("res://assets/textures/grass.png") else ImageTexture.create_from_image(grass_image())
+	return _grass
+
+## The noise: three octaves of smooth value noise on a torus (it tiles), scaled to white at its lightest and (1 - 3%) grey at its darkest.
+static func grass_image() -> Image:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2024
+	var img := Image.create(GRASS_SIZE, GRASS_SIZE, false, Image.FORMAT_RGBA8)
+	var grids: Array = []
+	for cells in [6, 12, 24]:
+		var g := PackedFloat32Array()
+		g.resize(cells * cells)
+		for i in g.size():
+			g[i] = rng.randf()
+		grids.append([cells, g])
+	var weights := [0.5, 0.33, 0.17]
+	for y in GRASS_SIZE:
+		for x in GRASS_SIZE:
+			var n := 0.0
+			for k in 3:
+				var cells: int = grids[k][0]
+				var g: PackedFloat32Array = grids[k][1]
+				var fx := float(x) / GRASS_SIZE * cells
+				var fy := float(y) / GRASS_SIZE * cells
+				var x0 := int(floor(fx))
+				var y0 := int(floor(fy))
+				var tx := smoothstep(0.0, 1.0, fx - x0)
+				var ty := smoothstep(0.0, 1.0, fy - y0)
+				var a := lerpf(g[(y0 % cells) * cells + (x0 % cells)], g[(y0 % cells) * cells + ((x0 + 1) % cells)], tx)
+				var b := lerpf(g[((y0 + 1) % cells) * cells + (x0 % cells)], g[((y0 + 1) % cells) * cells + ((x0 + 1) % cells)], tx)
+				n += lerpf(a, b, ty) * weights[k]
+			var v := 1.0 - GRASS_STRENGTH * clampf((n - 0.2) / 0.6, 0.0, 1.0)
+			img.set_pixel(x, y, Color(v, v, v, 1.0))
+	return img
+
 ## The field: a grid with vertex colours that run from the lit upper-left (#B9DC72) through #8FC45C to the shaded lower-right (#76AA4B),
 ## as ratios of the material's own colour (so a theme or an airport's own ground keeps the same light). Water gets a gentler version.
 func _ground(root: Node3D, m: Material, water: bool) -> void:
+	var tex: Texture2D = null
+	if not water:
+		tex = grass_texture()
+		(m as StandardMaterial3D).albedo_texture = tex
 	var cols_n := 10
 	var rows_n := 14
 	var verts := PackedVector3Array()
 	var cols := PackedColorArray()
 	var norms := PackedVector3Array()
+	var uvs := PackedVector2Array()
 	var idx := PackedInt32Array()
 	var mid := Color(0.774, 0.891, 0.807)
 	var low := Color(0.639, 0.773, 0.658)
@@ -311,6 +362,7 @@ func _ground(root: Node3D, m: Material, water: bool) -> void:
 			var z := -35.0 + 70.0 * j / rows_n
 			verts.append(Vector3(x, 0.0, z))
 			norms.append(Vector3.UP)
+			uvs.append(Vector2(x, z) / GRASS_TILE)
 			var t := ((x + 20.0) / 40.0 + (z + 35.0) / 70.0) * 0.5
 			var c := Color.WHITE.lerp(mid, t * 2.0) if t < 0.5 else mid.lerp(low, (t - 0.5) * 2.0)
 			cols.append(Color.WHITE.lerp(c, 0.4) if water else c)
@@ -326,6 +378,7 @@ func _ground(root: Node3D, m: Material, water: bool) -> void:
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = norms
 	arrays[Mesh.ARRAY_COLOR] = cols
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var am := ArrayMesh.new()
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

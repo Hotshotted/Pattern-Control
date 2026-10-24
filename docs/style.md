@@ -61,6 +61,10 @@ two polish passes); every number below is in the code or in `Tuning.gd`, and the
   the lower-right (both fade to nothing by 90 % of the screen diagonal; the glow is added, the shade mixed over). **No grain, no texture
   over the screen**: the shader is plain arithmetic in units of the screen width (no value above about 2), so it is exact in a phone's
   half-precision fragment shaders. `?nolight` switches it off.
+* **The grass has a very faint static texture** (the only texture on the field): `assets/textures/grass.png`, a tileable blotchy noise
+  that darkens the colour by 0-2.5 % (4 world units to a repeat), on the ground mesh of the grass airports only: not the runways,
+  taxiways, aprons or buildings (separate meshes), not the water. It is baked (`tools/bake_textures.gd`), never animated, and nothing
+  of it is drawn over the screen.
 * **Time passes over the shift, linearly:** the glow goes 35 % to 50 % and the shade 20 % to 30 %; every shadow offset grows to 130 %;
   the grass gets a touch warmer (blue down 9 %, green down 2 %). A restart resets it; Bad Pilot Day starts 40 % in.
   (`Main._set_day`, `LightOverlay.set_time`, `Airfield.set_time`, `Shadow.set_time`.)
