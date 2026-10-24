@@ -3923,6 +3923,12 @@ func _initialize() -> void:
 			xa_clip_bad.append(xa_path)
 		if xa_path.contains("/loops/") and xa_st > 0.08:
 			xa_step_bad.append("%s %.3f" % [xa_path, xa_st])
+	var xa_edge_bad = []
+	for xa_path in xa_all.keys():
+		var xa_e: PackedFloat32Array = xa_all[xa_path]
+		if not xa_path.contains("/loops/") and (absf(xa_e[0]) > 0.0005 or absf(xa_e[xa_e.size() - 1]) > 0.0005):
+			xa_edge_bad.append(xa_path)
+	check(xa_edge_bad.is_empty(), "every one-shot starts and ends at zero (no click when it starts or stops) %s" % str(xa_edge_bad))
 	check(xa_clip_bad.is_empty(), "no clip reaches full scale %s" % str(xa_clip_bad))
 	check(xa_step_bad.is_empty(), "no loop has jumps in it (smooth waveforms, no skipped or doubled samples) %s" % str(xa_step_bad))
 	# Worst case at once: every music layer, fog and the bed at their mixed levels (in dB, as Sfx.gd sets them) stay far

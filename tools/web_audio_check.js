@@ -31,7 +31,10 @@ function analyse(x, rate, from, to) {
   for (let i = a + 1; i < b; i++) {
     const d = Math.abs(x[i] - x[i - 1]);
     let m = 0; for (let k = 0; k < 32; k++) m = Math.max(m, hist[k]);
-    if (d > 4 * m + 0.03 && i - a > 64) { clicks++; maxClick = Math.max(maxClick, d); if (clickAt.length < 6) clickAt.push(+(i / rate).toFixed(3)); }
+    // (a step out of exact digital silence is the start of a sound the browser's audio buffer was too late for - the clip itself starts
+    // at zero, which the smoke test checks - so it is a dropout, reported as one, not a click in the waveform)
+    let quiet = true; for (let k = 1; k <= 64 && quiet; k++) { if (x[i - 1 - k] !== 0 && i - 1 - k >= 0) quiet = false; }
+    if (d > 4 * m + 0.03 && i - a > 64 && !quiet) { clicks++; maxClick = Math.max(maxClick, d); if (clickAt.length < 6) clickAt.push(+(i / rate).toFixed(3)); }
     hist[hp] = d; hp = (hp + 1) & 31;
     const v = Math.abs(x[i]); peak = Math.max(peak, v); if (v >= 0.999) clipped++;
   }
@@ -102,7 +105,9 @@ srv.listen(0, async () => {
       };
     });
     const cdp = await context.newCDPSession(page);
-    await page.goto(`http://localhost:${port}/index.html?debug`);
+    const t00 = Date.now(); const hitches = [];
+    page.on('console', m => { const t = m.text(); const k = t.match(/^\[hitch\] #\d+ (\d+) ms/); if (k && +k[1] >= 250) hitches.push(((Date.now() - t00) / 1000).toFixed(1) + 's ' + t.slice(0, 110)); });
+    await page.goto(`http://localhost:${port}/index.html?${process.env.QUERY || 'debug'}`);
     await page.waitForFunction(() => { const l = document.getElementById('loader'); return !l || l.style.display === 'none'; }, null, { timeout: 180000 });
     await page.waitForTimeout(3000);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });   // a phone is several times slower than this machine
@@ -137,7 +142,7 @@ srv.listen(0, async () => {
     await page.touchscreen.tap(60, 700); await page.waitForTimeout(900);
     await page.touchscreen.tap(30, 40); await page.waitForTimeout(900);
     // 3. a shift
-    marks.play = await nowSec();
+    marks.play = await nowSec(); const playWall = (Date.now() - t00) / 1000;
     await page.touchscreen.tap(195, 430);
     await page.waitForTimeout(14000);
     marks.shiftEnd = await nowSec();
@@ -202,6 +207,7 @@ srv.listen(0, async () => {
     const shiftAll = Math.max(peakIn(xm, marks.play + 2, marks.shiftEnd), peakIn(xs, marks.play, marks.shiftEnd));
     const out = { marks, loops: loopReport, levels: { menu: menuLevels, shift: shiftLevels, afterResume: afterLevels }, rate, seconds: +secs.toFixed(1), throttle: THROTTLE, menu, shift, shots, musicStream: xm.length > 0, peaks: { hidden: +hiddenPeak.toFixed(4), visibleBeforeResume: +visiblePeak.toFixed(4), afterResume: +afterPeak.toFixed(4) }, game: { before: before.game, hidden: during.game, visible: visibleState.game, after: after.game }, ctx: { before: before.ctx, hidden: during.ctx, visible: visibleState.ctx, after: after.ctx }, errors };
     console.log(JSON.stringify(out));
+    if (process.env.QUERY) console.log('PLAY AT WALL ' + playWall.toFixed(1) + 's; long frames:\n' + hitches.join('\n'));
     if (process.env.SAVE_SHOTS) { fs.writeFileSync(process.env.SAVE_SHOTS, Buffer.from(xs.buffer, xs.byteOffset, xs.byteLength)); }
     if (process.env.SAVE_WAV) { fs.writeFileSync(process.env.SAVE_WAV, Buffer.from(xm.buffer, xm.byteOffset, xm.byteLength)); }
     // ---- verdicts ----
