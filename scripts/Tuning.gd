@@ -244,6 +244,7 @@ var entry_pulse_fast := 4.0
 # ---------- Flight paths ----------
 ## The drawn path starts at the plane's nose, runs under the plane, and is faded to path_fade_min opacity
 ## at the nose, reaching full opacity path_fade_distance further along.
+var path_halo_dark := 0.0          # 0 = the cream #FFF4DF halo at 55% under the path dots (the style sheet's); 1 = the earlier dark shadow (?tune: to compare)
 var path_fade_distance := 1.6
 var path_fade_min := 0.25
 var path_width := 0.1

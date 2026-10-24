@@ -90,6 +90,7 @@ const ENTRIES := [
 	["conflict_distance", "Conflict distance", 0.4, 2.0, 0.05],
 	["warn_distance", "Warning distance", 0.8, 4.0, 0.1],
 	["approach_radius", "Landing capture radius", 0.4, 2.0, 0.05],
+	["path_halo_dark", "Path halo: 0 cream, 1 dark shadow", 0.0, 1.0, 1.0],
 	["snap_radius", "Path: snap radius to the centreline", 0.0, 1.2, 0.05],
 	["snap_reach", "Path: snap reach behind the threshold", 1.0, 6.0, 0.1],
 	["path_smooth_points", "Path: smoothing (points averaged)", 1.0, 8.0, 1.0],

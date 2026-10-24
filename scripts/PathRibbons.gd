@@ -10,9 +10,12 @@ const NOSE := [0.8, 0.95, 1.2]       # nose distance from the plane's centre, by
 const HALF := 0.1                    # Sunny Airfield: a path is a line of round dots in the runway's colour
 const PERIOD := 0.3                  # ...this far apart
 const DOT_R := 0.075                 # ...of this radius
-const SHADOW := Color(0.04, 0.06, 0.13)
+const SHADOW := Color(0.04, 0.06, 0.13)     # the dark halo (behind the ?tune toggle)
+const HALO := Color("fff4df")                 # Cozy Airfield: a cream halo under the coloured dots...
+const HALO_ALPHA := 0.55                      # ...at about 55%
 
 var traffic: Traffic
+var last_halo := Color(0, 0, 0, 0)    # the halo colour (with its opacity) of the latest ribbon, for the tests
 var last_start: Array[Vector2] = []  # per pooled plane: where its ribbon starts (the nose)
 var last_alpha_near := PackedFloat32Array()   # opacity at the nose / at the far end, for the tests
 var last_alpha_far := PackedFloat32Array()
@@ -118,6 +121,7 @@ func _build(p: Aircraft, i: int, ghost: bool = false) -> void:
 		col = Color(1.0, 0.35, 0.3)
 	if p.cleared:
 		col = col.lerp(Color.WHITE, 0.25)
+	last_halo = Color(_halo_col(), _halo_a())
 	var om := _outlines[i]
 	om.clear_surfaces()
 	var im := _meshes[i]
@@ -125,13 +129,13 @@ func _build(p: Aircraft, i: int, ghost: bool = false) -> void:
 	if p.path_invalid:
 		# The wind shifted and this path no longer ends on an open runway end: red dots.
 		_tint_from = -1
-		_strip(om, m, HALF, OUTLINE_Y, SHADOW, 0.28)
+		_strip(om, m, HALF, OUTLINE_Y, _halo_col(), _halo_a())
 		_strip(im, m, HALF, COLOR_Y, Color(1.0, 0.36, 0.3), 1.0)
 	else:
 		_tint_from = _tint_start(p, m)
 		_tint_col = TINTS[p.ga_band]
-		_strip(om, m, HALF, OUTLINE_Y, SHADOW, 0.28)
-		_dot(om, _pts[m - 1], DOT_R * 2.2, OUTLINE_Y, SHADOW, _alpha[m - 1] * 0.28)
+		_strip(om, m, HALF, OUTLINE_Y, _halo_col(), _halo_a())
+		_dot(om, _pts[m - 1], DOT_R * 2.2, OUTLINE_Y, _halo_col(), _alpha[m - 1] * _halo_a())
 		_strip(im, m, HALF, COLOR_Y, col, 1.0)
 		_dot(im, _pts[m - 1], DOT_R * 1.7, COLOR_Y, _tint_col if _tint_from >= 0 else col, _alpha[m - 1])
 	_nodes[i].visible = true
@@ -149,10 +153,17 @@ func _tint_start(p: Aircraft, m: int) -> int:
 		k -= 1
 	return k
 
+## The halo under the dots: cream at 55% (the style sheet's), or the earlier dark shadow at 28% when ?tune's toggle says so.
+func _halo_col() -> Color:
+	return SHADOW if Tuning.path_halo_dark > 0.5 else HALO
+
+func _halo_a() -> float:
+	return 0.28 if Tuning.path_halo_dark > 0.5 else HALO_ALPHA
+
 func _strip(im: ImmediateMesh, m: int, half: float, y: float, col: Color, a_mul: float) -> void:
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	for k in m:
-		var c := _tint_col if (_tint_from >= 0 and k >= _tint_from and col != SHADOW) else col
+		var c := _tint_col if (_tint_from >= 0 and k >= _tint_from and col != SHADOW and col != HALO) else col
 		im.surface_set_color(Color(c.r, c.g, c.b, _alpha[k] * a_mul))
 		var p := _pts[k]
 		var nrm := _nrm[k] * half

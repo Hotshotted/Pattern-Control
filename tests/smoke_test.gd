@@ -4709,6 +4709,24 @@ func _initialize() -> void:
 	main.restart()
 	check(id_tr.ramp_in_use() == 0, "a restart frees every ramp aircraft in place")
 
+	print("21. Path halo: cream under the coloured dots, the dark one behind a toggle")
+	main.restart()
+	var ha_tr = main.traffic
+	ha_tr.auto_spawn = false
+	var ha_p = ha_tr.place(0, Vector2(-2.0, -4.0), 0.0, 2)
+	ha_tr.begin_path(ha_p)
+	for ha_k in 5:
+		ha_p.push(Vector2(-2.0 + ha_k * 0.3, -3.0 + ha_k * 0.3))
+	var ha_pr = main.ribbons
+	ha_pr._process(0.016)
+	check(ha_pr.last_halo.is_equal_approx(Color("fff4df", 0.55)), "the path halo is cream #FFF4DF at 55%% (%s)" % str(ha_pr.last_halo))
+	tuning.path_halo_dark = 1.0
+	ha_pr._process(0.016)
+	check(ha_pr.last_halo.r < 0.1 and ha_pr.last_halo.a < 0.35, "...and the dark shadow is still there behind the ?tune toggle (%s)" % str(ha_pr.last_halo))
+	tuning.path_halo_dark = 0.0
+	check(tp._sliders.has("path_halo_dark"), "?tune has the toggle")
+	ha_tr.release_all()
+
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
 	if failures.is_empty():
