@@ -1563,11 +1563,10 @@ func _slot_entry(v: AirportScene, slot: Dictionary) -> Dictionary:
 			return {"goals": e["goals"], "tail": e["tail"]}
 
 func _count_arrival(slot: Dictionary) -> void:
-	match slot["kind"]:
-		"hangar":
-			hangar_shown += 1
-		"extra":
-			extra_shown += 1
+	if slot.get("counted", false):         # (a landing that counts toward the hangar, wherever it parked)
+		hangar_shown += 1
+	if slot["kind"] == "extra":
+		extra_shown += 1
 	_ramp_labels()
 
 func _finish_taxi(t: Dictionary) -> void:

@@ -116,11 +116,14 @@ International's is 0.35 of the standard size) for it. The smoke test walks every
   dressed from the one that landed: its type and speed class, its runway's livery colour, the airline livery's tail and stripe, the
   student badge. It shrinks from the size it had on the runway (0.9) to the parked size (0.42 x the apron's scale) over its first
   3 units, and a parked one shows wheel chocks.
-* **Where it goes** (`Ramp.place`): a helicopter sits on its pad for 3 s, then air-taxis to a marked heli spot (airports with a pad); a
-  seaplane taxis to the island's dock; everything else goes to the **hangar** until it holds the **break-even landing count**: the
-  airport's one-star threshold divided by the average landing pay of its traffic mix, rounded up (Regional 4, Mountain Field 5, Island 7).
-  The hangar door shows "N / cap". When it is full: the next free tie-down on the apron (six, in two rows, the second on an extension of
-  the slab to the south or the west), then up to six overflow spots on the grass along the taxiway, then a "+N" tag by the apron.
+* **Where it goes** (`Ramp.place`). **Every landing counts toward the hangar**, wherever the aircraft parks: the hangar holds the
+  **break-even landing count**, the airport's one-star threshold divided by the average landing pay across all its traffic types, rounded
+  up (Regional 4, Mountain Field 5, Island 7), so "Hangar full" happens exactly when the shift breaks even. A helicopter sits on its pad
+  for 3 s, then air-taxis to a marked heli spot (airports with a pad) and a seaplane taxis to the island's dock, but both still take one
+  of the hangar's places and bump its "N / cap" (and the results line); the rest go into the hangar itself. The landings after it is full
+  are "on the ramp": the next free tie-down on the apron (six, in two rows, the second on an extension of the slab to the south or the
+  west), then up to six overflow spots on the grass along the taxiway, then a "+N" tag by the apron (a helicopter or seaplane still uses
+  its spot or dock first).
   Crashes park nothing and keep the coin penalty. The results card says "Hangar full · 9 on the ramp" or "Hangar 5 / 8".
 * Everything that can park is built once and hidden; a shift restart clears it in place.
 

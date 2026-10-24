@@ -60,28 +60,32 @@ func reset(cap_: int, over_slots_: int, dock_slots_: int, heli_slots_: int, tie_
 ## Where the next landed aircraft of `type` parks: {"kind": "hangar" | "tie" | "over" | "heli" | "dock" | "extra", "idx": slot}.
 func place(type: int) -> Dictionary:
 	landed += 1
-	# A helicopter air-taxis to a marked heli spot and a seaplane to the dock, whenever there is room there.
+	# EVERY landing counts toward the hangar until it is full, wherever the aircraft actually parks: a helicopter air-taxis to a marked
+	# heli spot and a seaplane to the dock (whenever there is room there) but still takes one of the hangar's places, so "Hangar full"
+	# is exactly the shift breaking even. "counted" says the landing was one of those.
+	var counted := hangar < cap
+	if counted:
+		hangar += 1
 	if type == Aircraft.Type.HELI and heli_n < heli_slots:
 		heli_n += 1
-		return {"kind": "heli", "idx": heli_n - 1}
+		return {"kind": "heli", "idx": heli_n - 1, "counted": counted}
 	if type == Aircraft.Type.SEAPLANE and dock_n < dock_slots:
 		dock_n += 1
-		return {"kind": "dock", "idx": dock_n - 1}
-	if hangar < cap:
-		hangar += 1
-		return {"kind": "hangar", "idx": hangar - 1}
+		return {"kind": "dock", "idx": dock_n - 1, "counted": counted}
+	if counted:
+		return {"kind": "hangar", "idx": hangar - 1, "counted": true}
 	if ties < tie_slots:
 		ties += 1
-		return {"kind": "tie", "idx": ties - 1}
+		return {"kind": "tie", "idx": ties - 1, "counted": false}
 	if overs < over_slots:
 		overs += 1
-		return {"kind": "over", "idx": overs - 1}
+		return {"kind": "over", "idx": overs - 1, "counted": false}
 	extra += 1
-	return {"kind": "extra", "idx": extra - 1}
+	return {"kind": "extra", "idx": extra - 1, "counted": false}
 
-## Aircraft parked outside the hangar (tie-downs, grass, heli spot, dock and the "+N").
+## The landings beyond the hangar's capacity (they are on the ramp: tie-downs, grass, heli spot, dock or the "+N").
 func on_ramp() -> int:
-	return ties + overs + heli_n + dock_n + extra
+	return maxi(landed - hangar, 0)
 
 func hangar_full() -> bool:
 	return hangar >= cap

@@ -4285,9 +4285,43 @@ func _initialize() -> void:
 	for rp_k in 5:
 		rp.place(Aircraft.Type.SMALL)
 	check(rp.summary() == "Hangar 5 / 8" and rp.on_ramp() == 0, "...and 'Hangar 5 / 8' when not full (%s)" % rp.summary())
-	rp.reset(1, 6, 1, 1, 6)
-	check(rp.place(Aircraft.Type.HELI)["kind"] == "heli" and rp.place(Aircraft.Type.SMALL)["kind"] == "hangar" and rp.place(Aircraft.Type.HELI)["kind"] == "tie", "a helicopter air-taxis to the heli spot (not into the hangar); a second one parks like a plane")
-	check(rp.place(Aircraft.Type.SEAPLANE)["kind"] == "dock" and rp.on_ramp() == 3 and rp.summary() == "Hangar full · 3 on the ramp", "a seaplane goes to the dock")
+	# Every landing counts toward the hangar, wherever it parks: mixed traffic, a helicopter and a seaplane among the planes
+	var rp_mix = [Aircraft.Type.SMALL, Aircraft.Type.HELI, Aircraft.Type.SEAPLANE, Aircraft.Type.MEDIUM, Aircraft.Type.JET, Aircraft.Type.GLIDER, Aircraft.Type.HELI, Aircraft.Type.SEAPLANE, Aircraft.Type.SMALL, Aircraft.Type.HELI]
+	var rp_mix_ok = true
+	var rp_mix_kinds = []
+	rp.reset(6, 6, 2, 1, 6)
+	for rp_k in 10:
+		var rp_slot = rp.place(rp_mix[rp_k])
+		rp_mix_kinds.append(rp_slot["kind"])
+		var rp_expect_full = rp_k + 1 >= 6
+		rp_mix_ok = rp_mix_ok and rp.hangar == mini(rp_k + 1, 6) and rp.hangar_full() == rp_expect_full and rp.on_ramp() == maxi(rp_k + 1 - 6, 0) and rp.summary().begins_with("Hangar full") == rp_expect_full and bool(rp_slot["counted"]) == (rp_k < 6)
+	check(rp_mix_ok, "with mixed traffic every landing counts: 'Hangar full' comes exactly at the sixth landing, and the ramp is the landings after it %s" % str(rp_mix_kinds))
+	check(rp_mix_kinds[1] == "heli" and rp_mix_kinds[2] == "dock" and rp_mix_kinds[7] == "dock" and rp.summary() == "Hangar full · 4 on the ramp", "...helicopters and seaplanes still park on the pad and the dock (%s)" % rp.summary())
+	rp.reset(6, 6, 2, 1, 6)
+	for rp_k in 3:
+		rp.place(Aircraft.Type.HELI)
+	check(rp.summary() == "Hangar 3 / 6" and rp.on_ramp() == 0, "...so a helicopter on its spot is one of the hangar's 'Hangar 3 / 6'")
+	# and in the game, at every airport, with the real traffic mix: the hangar is full exactly when the shift breaks even
+	var rp_be = []
+	for rp_i in Airports.COUNT:
+		Airports.current = rp_i
+		var rp_cap2 = RampC.capacity(rp_i)
+		var rp_mix_d = Airports.mix(rp_i)
+		var rp_types = []
+		for rp_t in rp_mix_d:
+			rp_types.append(rp_t)
+		var rp_r2 = RampC.new()
+		rp_r2.reset(rp_cap2, 6, 2 if rp_i == 4 else 0, 1 if Airports.pads().size() > 0 else 0, 6)
+		var rp_full_at = -1
+		for rp_k in rp_cap2 + 12:
+			var rp_ty = rp_types[rp_k % rp_types.size()]
+			rp_r2.place(rp_ty)
+			if rp_full_at < 0 and rp_r2.hangar_full():
+				rp_full_at = rp_k + 1
+		if rp_full_at != rp_cap2 or rp_r2.on_ramp() != 12:
+			rp_be.append("%s full at %d (cap %d) ramp %d" % [Airports.airport_name(rp_i), rp_full_at, rp_cap2, rp_r2.on_ramp()])
+	check(rp_be.is_empty(), "at every airport the hangar fills at exactly its capacity, whatever lands %s" % str(rp_be))
+	Airports.current = rp_keep
 	var rp_cross = []
 	var rp_slots = 0
 	for rp_i in Airports.COUNT:
