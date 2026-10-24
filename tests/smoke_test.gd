@@ -4285,9 +4285,9 @@ func _initialize() -> void:
 	for rp_k in 5:
 		rp.place(Aircraft.Type.SMALL)
 	check(rp.summary() == "Hangar 5 / 8" and rp.on_ramp() == 0, "...and 'Hangar 5 / 8' when not full (%s)" % rp.summary())
-	rp.reset(1, 6, 0, 1, 6)
-	rp.place(Aircraft.Type.SMALL)
-	check(rp.place(Aircraft.Type.HELI)["kind"] == "heli" and rp.place(Aircraft.Type.HELI)["kind"] == "tie", "a helicopter goes to the heli spot first")
+	rp.reset(1, 6, 1, 1, 6)
+	check(rp.place(Aircraft.Type.HELI)["kind"] == "heli" and rp.place(Aircraft.Type.SMALL)["kind"] == "hangar" and rp.place(Aircraft.Type.HELI)["kind"] == "tie", "a helicopter air-taxis to the heli spot (not into the hangar); a second one parks like a plane")
+	check(rp.place(Aircraft.Type.SEAPLANE)["kind"] == "dock" and rp.on_ramp() == 3 and rp.summary() == "Hangar full · 3 on the ramp", "a seaplane goes to the dock")
 	var rp_cross = []
 	var rp_slots = 0
 	for rp_i in Airports.COUNT:
@@ -4344,7 +4344,7 @@ func _initialize() -> void:
 	var rp_parked = 0
 	for rp_rk in ["tie", "over"]:
 		for rp_e in rp_rv0.slots[rp_rk]:
-			if rp_e["node"].visible and rp_e["chocks"].visible:
+			if rp_e["mi"] >= 0 and main.traffic.ramp_node(rp_e["mi"]).visible and rp_e["chocks"].visible:
 				rp_parked += 1
 	check(rp_parked == mini(9, 6 + (rp_rv0.slots["over"] as Array).size()), "the parked planes show their chocks (%d)" % rp_parked)
 	check(rp_rv0.root.get_child_count() == rp_children, "nothing was allocated by parking")
@@ -4353,9 +4353,9 @@ func _initialize() -> void:
 	var rp_vis = 0
 	for rp_rk in rp_rv0.slots:
 		for rp_e in rp_rv0.slots[rp_rk]:
-			if rp_e["node"].visible:
+			if rp_e["mi"] >= 0:
 				rp_vis += 1
-	check(rp_vis == 0 and rp_rv0.root.get_child_count() == rp_children, "...in place (nothing left parked, nothing new built)")
+	check(rp_vis == 0 and main.traffic.ramp_in_use() == 0 and rp_rv0.root.get_child_count() == rp_children, "...in place (nothing left parked, nothing new built)")
 
 	print("14. Polish 2: path feel")
 	main.restart()
@@ -4408,7 +4408,7 @@ func _initialize() -> void:
 	check(is_equal_approx(main.light.material.get_shader_parameter("warm_amount"), 0.50) and is_equal_approx(main.light.material.get_shader_parameter("cool_amount"), 0.30), "at the end: 50% and 30%")
 	check(is_equal_approx(main.traffic.shadow_scale, 1.3), "the aircraft's shadow offsets are 30% longer")
 	var ti_c = ti_shadow._casters[0]
-	check(ti_shadow._casters.size() > 50 and ti_c[0].position.is_equal_approx(ti_c[1] + Vector3(ti_c[2].x, 0.0, ti_c[2].y) * 0.3), "every prop shadow offset is 30%% longer (%d shadows)" % ti_shadow._casters.size())
+	check(ti_shadow._casters.size() > 20 and ti_c[0].position.is_equal_approx(ti_c[1] + Vector3(ti_c[2].x, 0.0, ti_c[2].y) * 0.3), "every prop shadow offset is 30%% longer (%d shadows)" % ti_shadow._casters.size())
 	var ti_g0 = main.airfield.cur.ground_mat.albedo_color
 	main._set_day(0.0)
 	var ti_g1 = main.airfield.cur.ground_mat.albedo_color
@@ -4662,6 +4662,52 @@ func _initialize() -> void:
 		check(ly_bad.is_empty(), "%s: all of its %d placed things are outside the strips %s" % [Airports.airport_name(ly_i), ly_pts.size(), str(ly_bad.slice(0, 6))])
 	Airports.current = rp_keep
 	main.airfield.select(rp_keep)
+
+	print("20. Taxi identity: the aircraft on the ramp is the one that landed")
+	Airports.current = 2
+	main.select_airport(2)
+	main.restart()
+	var id_af = main.airfield
+	var id_tr = main.traffic
+	id_tr.auto_spawn = false
+	var id_free0 = id_tr.ramp_in_use()
+	# a student's jet from the blue runway, landed: same model (the jet's), the blue livery colour, the student badge
+	var id_slot = id_af.begin_taxi(Aircraft.Type.JET, Aircraft.Kind.RUNWAY, 1, 0, true, 2)
+	var id_item = id_af.taxis[id_af.taxis.size() - 1]
+	var id_mi = id_item["mi"]
+	check(id_tr.ramp_in_use() == id_free0 + 1 and id_tr._jet_groups[id_mi].visible and not id_tr._plane_groups[id_mi].visible, "the jet that landed is the jet that taxis")
+	check(id_tr._body_mats[id_mi].albedo_color.is_equal_approx(Airports.land_color(Aircraft.Kind.RUNWAY, 1)) and id_tr._badges[id_mi].visible, "...in its runway's livery colour and with its student badge")
+	check(id_tr._fuselages[id_mi].scale.z == id_tr._fuselages[id_mi].scale.z and id_tr._jet_groups[id_mi].scale.is_equal_approx(Vector3(1.0, 1.0, 0.9 + 0.1 * 1.3)), "...at the speed class's length")
+	var id_lv = Cosmetics.LIVERIES[id_tr.livery]
+	check(id_tr._tail_mats[id_mi].albedo_color.is_equal_approx(id_lv["tail"] if id_lv["tail"] != null else Airports.land_color(Aircraft.Kind.RUNWAY, 1)), "...and its tail")
+	for id_k in 600:
+		id_af.step_taxi(0.1)
+	check(id_af.taxis.is_empty(), "it gets there")
+	if id_slot["kind"] != "hangar":
+		var id_e = (id_af.cur.slots[id_slot["kind"]] as Array)[id_slot["idx"]]
+		check(id_e["mi"] == id_mi and id_tr.ramp_node(id_mi).visible and id_tr._jet_groups[id_mi].visible, "...and is what shows parked on the ramp")
+	else:
+		check(id_tr.ramp_in_use() == id_free0, "...into the hangar and out of sight")
+	# a helicopter: sits on the pad 3 s, then air-taxis to the heli spot
+	main.restart()
+	id_tr.auto_spawn = false
+	id_slot = id_af.begin_taxi(Aircraft.Type.HELI, Aircraft.Kind.PAD, 0, 0, false, 1)
+	id_item = id_af.taxis[id_af.taxis.size() - 1]
+	id_mi = id_item["mi"]
+	check(id_slot["kind"] == "heli" and id_tr._heli_groups[id_mi].visible and not id_tr._plane_groups[id_mi].visible, "the helicopter that landed is the one that air-taxis, to the heli spot")
+	var id_pad = Airports.land_far(Aircraft.Kind.PAD, 0, 0)
+	id_af.step_taxi(2.9)
+	var id_still = Vector2(id_tr.ramp_node(id_mi).position.x, id_tr.ramp_node(id_mi).position.z).distance_to(id_pad)
+	check(id_still < 0.05, "it sits on the pad for 3 s (%.2f from it after 2.9 s)" % id_still)
+	id_af.step_taxi(1.5)
+	var id_moved = Vector2(id_tr.ramp_node(id_mi).position.x, id_tr.ramp_node(id_mi).position.z).distance_to(id_pad)
+	check(id_moved > 0.3 and id_tr.ramp_node(id_mi).position.y > 0.1, "...then air-taxis away, a little above the ground (%.2f)" % id_moved)
+	for id_k in 600:
+		id_af.step_taxi(0.1)
+	var id_spot = (id_af.cur.slots["heli"] as Array)[0]
+	check(id_af.taxis.is_empty() and id_spot["mi"] == id_mi and Vector2(id_tr.ramp_node(id_mi).position.x, id_tr.ramp_node(id_mi).position.z).distance_to(id_spot["pos"]) < 0.05, "and lands on its marked spot")
+	main.restart()
+	check(id_tr.ramp_in_use() == 0, "a restart frees every ramp aircraft in place")
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")

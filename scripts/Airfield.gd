@@ -44,7 +44,6 @@ class AirportScene:
 	var docks_at: Array[Vector2] = []        # where seaplanes tie up (the pier)
 	var ramp_ok := false                    # this airport has a ramp (hangar, tie-downs, ...)
 	var slots := {}                         # slot kind -> Array of {node, chocks, pos, yaw, goals, tail, heli}
-	var spares: Array = []                  # nodes that taxi to the hangar and vanish: {node, busy}
 	var hangar_goals: Array[Vector2] = []
 	var hangar_tail := PackedVector2Array()
 	var extra_goals: Array[Vector2] = []
@@ -118,8 +117,8 @@ const TAXI_SPEED := 1.05                  # units / second
 const TAXI_FAST := 9.0                    # (times that) for an older one that has to hurry up
 const TAXI_MAX := 4                       # at most this many taxi at their own pace
 const HELI_SIT := 3.0                     # a helicopter sits on the pad this long, then air-taxis away
-const SPARES := 6
-const HELI_SPARES := 2
+const PARK_SCALE := 0.42                  # a parked aircraft is this x the ramp's scale (the taxiing one shrinks to it)
+const LAND_SCALE := 0.9                   # ...from this, the size it had on the runway
 var ramp := Ramp.new()
 var taxis: Array = []                     # the aircraft taxiing now: {node, chocks, route, len, d, wait, ff, slot, hdg, spare}
 var ramp_active := false
@@ -1298,18 +1297,13 @@ func upgrade_nodes_visible(id: String) -> int:
 
 # ---------- The ramp: hangar, tie-downs, overflow spots, heli spot, dock ----------
 
-func _slot_node(v: AirportScene, root: Node3D, pos: Vector2, yaw: float, accent: Color, heli: bool) -> Dictionary:
-	var k := 0.5 * v.apron_s
-	var n: Node3D
-	var ch: Node3D = null
-	if heli:
-		n = Models.parked_heli(root, pos, accent, k * 0.9)
-	else:
-		n = Models.parked_plane(root, pos, 0.0, accent, k, false)
-		ch = Models.chocks(n, k)
-	n.rotation.y = -yaw
-	n.visible = false
-	return {"node": n, "chocks": ch, "pos": pos, "yaw": yaw, "heli": heli}
+func _slot_node(v: AirportScene, root: Node3D, pos: Vector2, yaw: float, heli: bool) -> Dictionary:
+	var holder := Node3D.new()
+	holder.position = Vector3(pos.x, 0.0, pos.y)
+	holder.rotation.y = -yaw
+	root.add_child(holder)
+	var ch: Node3D = null if heli else Models.chocks(holder, PARK_SCALE * v.apron_s * 2.0)
+	return {"chocks": ch, "pos": pos, "yaw": yaw, "heli": heli, "mi": -1}
 
 ## The apron's six tie-downs (the second row on an extension of the slab, to the south or else the west), the hangar's door, the "+N"
 ## tag, the overflow spots on the grass along the taxiway, the heli spot (airports with a pad) and the dock (the island's pier).
@@ -1321,7 +1315,6 @@ func _ramp_slots(v: AirportScene) -> void:
 	var c := v.apron_c
 	var s := v.apron_s
 	var pal: Dictionary = PALETTE[v.style]
-	var accents := [Airports.ORANGE, Airports.BLUE]
 	v.ramp_ok = true
 	var south := absf(c.y + 2.7 * s) < 8.9 and rect_out_of_strips(Rect2(c.x - 1.4 * s, c.y + 1.6 * s, 2.8 * s, 1.1 * s), 0.1)
 	var west := not south and c.x - 2.5 * s > -5.0 and rect_out_of_strips(Rect2(c.x - 2.5 * s, c.y - 1.6 * s, 1.1 * s, 3.2 * s), 0.1)
@@ -1356,7 +1349,7 @@ func _ramp_slots(v: AirportScene) -> void:
 	v.slots["tie"] = []
 	for i in ties.size():
 		var t: Dictionary = ties[i]
-		var e := _slot_node(v, root, t["pos"], t["yaw"], accents[i % 2], false)
+		var e := _slot_node(v, root, t["pos"], t["yaw"], false)
 		e["goals"] = t["goals"]
 		e["tail"] = t["tail"]
 		(v.slots["tie"] as Array).append(e)
@@ -1406,7 +1399,7 @@ func _ramp_slots(v: AirportScene) -> void:
 			chosen.append(cp)
 			_occupied.append([cp, 0.42])
 			var ye := atan2(wt.x, -wt.y)
-			var e2 := _slot_node(v, root, cp, ye, accents[chosen.size() % 2], false)
+			var e2 := _slot_node(v, root, cp, ye, false)
 			e2["goals"] = [cp]
 			e2["tail"] = PackedVector2Array()
 			(v.slots["over"] as Array).append(e2)
@@ -1414,30 +1407,28 @@ func _ramp_slots(v: AirportScene) -> void:
 	# a marked heli spot (airports with a pad)
 	v.slots["heli"] = []
 	if not Airports.pads().is_empty():
-		var hs = _find_rect([c + Vector2(-1.4 * s - 1.0, 1.0 * s), c + Vector2(1.4 * s + 1.0, 1.0 * s), c + Vector2(-1.4 * s - 1.0, -1.2 * s), c + Vector2(1.4 * s + 1.0, -1.2 * s), c + Vector2(0.0, 1.6 * s + 1.6)], 0.9, 0.9)
+		var cands: Array[Vector2] = []
+		for ring in [1.9 * s + 0.6, 2.4 * s + 1.0, 3.0 * s + 1.4, 4.0 * s + 1.8]:
+			for k in 16:
+				cands.append(c + Vector2(cos(k * TAU / 16.0), sin(k * TAU / 16.0)) * ring)
+		var hs = _find_rect(cands, 0.9, 0.9)
 		if hs != null:
 			_occupied.append([hs, 0.5])
 			Prim.cyl(root, 0.4, 0.4, 0.012, 16, Vector3(hs.x, 0.02, hs.y), Prim.mat(Airports.PAD_COLOR.lightened(0.15)), false)
 			Prim.cyl(root, 0.34, 0.34, 0.012, 16, Vector3(hs.x, 0.026, hs.y), Prim.mat(Color("f2ede4")), false)
 			var hl := _ramp_label(root, Vector3(hs.x, 0.034, hs.y), 0.0035, Airports.PAD_COLOR)
 			hl.text = "H"
-			var he := _slot_node(v, root, hs, 0.0, Airports.PAD_COLOR, true)
+			var he := _slot_node(v, root, hs, 0.0, true)
 			he["goals"] = [hs]
 			he["tail"] = PackedVector2Array()
 			(v.slots["heli"] as Array).append(he)
 	# the dock (the pier's two berths)
 	v.slots["dock"] = []
 	for dk in v.docks_at:
-		var de := _slot_node(v, root, dk, PI * 0.5, accents[(v.slots["dock"] as Array).size() % 2], false)
+		var de := _slot_node(v, root, dk, PI * 0.5, false)
 		de["goals"] = [dk]
 		de["tail"] = PackedVector2Array()
 		(v.slots["dock"] as Array).append(de)
-	# the aircraft that taxi to the hangar (and to the "+N") and vanish
-	for i in SPARES + HELI_SPARES:
-		var heli := i >= SPARES
-		var sp := _slot_node(v, root, Vector2.ZERO, 0.0, accents[i % 2] if not heli else Airports.PAD_COLOR, heli)
-		sp["busy"] = false
-		v.spares.append(sp)
 
 func _ramp_label(root: Node3D, at: Vector3, px: float, col: Color) -> Label3D:
 	var lab := Label3D.new()
@@ -1481,17 +1472,16 @@ func _ramp_clear() -> void:
 	taxis.clear()
 	hangar_shown = 0
 	extra_shown = 0
+	if traffic != null:
+		traffic.ramp_free_all()
 	for v in variants:
 		if not v.ramp_ok:
 			continue
 		for kind in v.slots:
 			for e in v.slots[kind]:
-				(e["node"] as Node3D).visible = false
+				e["mi"] = -1
 				if e["chocks"] != null:
 					(e["chocks"] as Node3D).visible = false
-		for e in v.spares:
-			(e["node"] as Node3D).visible = false
-			e["busy"] = false
 		v.hangar_label.visible = false
 		v.extra_tag.visible = false
 
@@ -1505,9 +1495,10 @@ func _ramp_labels() -> void:
 	v.extra_tag.visible = ramp_active and extra_shown > 0
 	v.extra_tag.text = "+%d" % extra_shown
 
-## An aircraft has landed: it taxis along its airport's fixed route to its place (see Ramp.place). Returns that place.
-func begin_taxi(type: int, kind: int, idx: int, end: int) -> Dictionary:
-	if not ramp_active:
+## An aircraft has landed: it taxis along its airport's fixed route to its place (see Ramp.place), as the very same model, livery and
+## student badge that landed. Returns that place.
+func begin_taxi(type: int, kind: int, idx: int, end: int, student: bool = false, cls: int = -1) -> Dictionary:
+	if not ramp_active or traffic == null:
 		return {}
 	var v := cur
 	var slot := ramp.place(type)
@@ -1537,22 +1528,26 @@ func begin_taxi(type: int, kind: int, idx: int, end: int) -> Dictionary:
 			taxis[ti]["ff"] = true
 			moving -= 1
 		ti += 1
-	var entry_node := _taxi_node(v, slot, type)
-	if entry_node.is_empty() and not taxis.is_empty():
+	var mi := traffic.ramp_claim()
+	if mi < 0 and not taxis.is_empty():
 		var old: Dictionary = taxis.pop_front()
 		_finish_taxi(old)
-		entry_node = _taxi_node(v, slot, type)
-	if entry_node.is_empty():
+		mi = traffic.ramp_claim()
+	if mi < 0:
 		_count_arrival(slot)
 		return slot
-	var node: Node3D = entry_node["node"]
-	node.visible = true
-	node.position = Vector3(route[0].x, 0.0, route[0].y)
+	var c := cls if cls >= 0 else Tuning.type_speed_class(type)
+	traffic.ramp_configure(mi, type, c, kind, idx, student)
 	var h0 := atan2(dir.x, -dir.y)
-	node.rotation.y = -h0
-	if entry_node["chocks"] != null:
-		(entry_node["chocks"] as Node3D).visible = false
-	taxis.append({"node": node, "entry": entry_node, "route": route, "len": Ramp.route_length(route), "d": 0.0, "wait": HELI_SIT if type == Aircraft.Type.HELI else 0.0, "ff": false, "slot": slot, "hdg": h0})
+	var scale0 := LAND_SCALE
+	traffic.ramp_place(mi, route[0], h0, scale0, 0.0, false, 0.0, type)
+	var entry_slot: Dictionary = {} if sk == "hangar" or sk == "extra" else (v.slots[sk] as Array)[slot["idx"]]
+	if not entry_slot.is_empty():
+		entry_slot["mi"] = mi
+		if entry_slot["chocks"] != null:
+			(entry_slot["chocks"] as Node3D).visible = false
+	var sit := HELI_SIT if type == Aircraft.Type.HELI else 0.0
+	taxis.append({"mi": mi, "type": type, "entry": entry_slot, "route": route, "len": Ramp.route_length(route), "d": 0.0, "wait": sit, "ff": false, "slot": slot, "hdg": h0, "clock": 0.0, "scale": scale0})
 	return slot
 
 func _slot_entry(v: AirportScene, slot: Dictionary) -> Dictionary:
@@ -1565,18 +1560,6 @@ func _slot_entry(v: AirportScene, slot: Dictionary) -> Dictionary:
 			var e: Dictionary = (v.slots[slot["kind"]] as Array)[slot["idx"]]
 			return {"goals": e["goals"], "tail": e["tail"]}
 
-## The node that taxis for `slot`: the parking place's own plane, or a spare one that vanishes into the hangar / the "+N".
-func _taxi_node(v: AirportScene, slot: Dictionary, type: int) -> Dictionary:
-	var k: String = slot["kind"]
-	if k != "hangar" and k != "extra":
-		return (v.slots[k] as Array)[slot["idx"]]
-	for i in v.spares.size():
-		var sp: Dictionary = v.spares[i]
-		if not sp["busy"] and bool(sp["heli"]) == (type == Aircraft.Type.HELI):
-			sp["busy"] = true
-			return sp
-	return {}
-
 func _count_arrival(slot: Dictionary) -> void:
 	match slot["kind"]:
 		"hangar":
@@ -1587,31 +1570,35 @@ func _count_arrival(slot: Dictionary) -> void:
 
 func _finish_taxi(t: Dictionary) -> void:
 	var slot: Dictionary = t["slot"]
-	var e: Dictionary = t["entry"]
-	var node: Node3D = t["node"]
+	var mi: int = t["mi"]
 	match slot["kind"]:
 		"hangar", "extra":
-			node.visible = false
-			e["busy"] = false
+			traffic.ramp_release(mi)
 		_:
-			var p: Vector2 = e["pos"]
-			node.position = Vector3(p.x, 0.0, p.y)
-			node.rotation.y = -float(e["yaw"])
+			var e: Dictionary = t["entry"]
+			var scale := PARK_SCALE * cur.apron_s
+			traffic.ramp_place(mi, e["pos"], float(e["yaw"]), scale, 0.0, false, 0.0, int(t["type"]))
 			if e["chocks"] != null:
 				(e["chocks"] as Node3D).visible = true
 	_count_arrival(slot)
 
-## Move the taxiing aircraft along their routes (the shift's own clock: a paused shift stands still).
+## Move the taxiing aircraft along their routes (the shift's own clock: a paused shift stands still). A helicopter sits on its pad for
+## HELI_SIT seconds first, then air-taxis (a little above the ground) to its heli spot.
 func step_taxi(delta: float) -> void:
 	var i := 0
 	while i < taxis.size():
 		var t: Dictionary = taxis[i]
+		var type: int = t["type"]
+		var dt := delta
 		if t["wait"] > 0.0:
-			t["wait"] = float(t["wait"]) - delta
-			i += 1
-			continue
+			dt = delta - float(t["wait"])           # (what is left of the step once the wait is over)
+			t["wait"] = maxf(float(t["wait"]) - delta, 0.0)
+			if dt <= 0.0:
+				i += 1
+				continue
 		var fast: bool = t["ff"]
-		t["d"] = float(t["d"]) + TAXI_SPEED * (TAXI_FAST if fast else 1.0) * delta
+		t["d"] = float(t["d"]) + TAXI_SPEED * (TAXI_FAST if fast else 1.0) * dt
+		t["clock"] = float(t["clock"]) + dt
 		if float(t["d"]) >= float(t["len"]):
 			_finish_taxi(t)
 			taxis.remove_at(i)
@@ -1619,15 +1606,16 @@ func step_taxi(delta: float) -> void:
 		var at := _route_at(t["route"], float(t["d"]))
 		var p: Vector2 = at[0]
 		var tan: Vector2 = at[1]
-		var node: Node3D = t["node"]
-		node.position = Vector3(p.x, 0.0, p.y)
 		var want := atan2(tan.x, -tan.y)
 		var diff := wrapf(want - float(t["hdg"]), -PI, PI)
-		var turn := 4.0 * delta * (TAXI_FAST * 0.5 if fast else 1.0)
+		var turn := 4.0 * dt * (TAXI_FAST * 0.5 if fast else 1.0)
 		t["hdg"] = float(t["hdg"]) + clampf(diff, -turn, turn)
-		node.rotation.y = -float(t["hdg"])
+		# it shrinks from the size it landed at to the ramp's, over its first stretch
+		var park := PARK_SCALE * cur.apron_s
+		var scale := lerpf(LAND_SCALE, park, smoothstep(0.0, 3.0, float(t["d"])))
+		var hover := 0.12 if type == Aircraft.Type.HELI else 0.0
+		traffic.ramp_place(int(t["mi"]), p, float(t["hdg"]), scale, hover, true, float(t["clock"]), type)
 		i += 1
-
 
 # ---------- The wind you can always see ----------
 

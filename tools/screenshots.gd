@@ -390,6 +390,10 @@ func _game_feel_shots(save) -> void:
 		main.airfield.begin_taxi(pays[k], 0, k % 2, k % 2)
 		for j in 100:
 			main.step(1.0 / 60.0)
+	main.airfield.begin_taxi(1, Aircraft.Kind.PAD, 0, 0, false, 1)
+	main.airfield.begin_taxi(4, 0, 1, 1, true, 2)
+	for j in 150:
+		main.step(1.0 / 60.0)
 	main.hud.set_shift(main.shift)
 	await _shot("%s_shift" % prefix)
 	main._show_menu()

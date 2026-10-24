@@ -23,6 +23,7 @@ signal snapped(plane: Aircraft, at: Vector2)   # a path locked onto a runway's e
 signal touchdown(plane: Aircraft)      # the wheels just touched the runway (dust puff, a little pop)
 
 const MAX_POOL := 16
+const RAMP_MODELS := 24                # extra, complete aircraft models for the ramp: the ones that landed, taxiing and parked (see ramp_claim)
 var pool_n := MAX_POOL                  # (the menu's scenic traffic keeps a small pool)
 var go_around_warns := 0                # (statistics for the sims) warned / cancelled go-arounds this shift
 var go_around_cancels := 0
@@ -96,6 +97,9 @@ var _trail_age := PackedFloat32Array()
 var _trail_peak := PackedFloat32Array()   # opacity a puff starts at (0 = unused)
 var _trail_head := PackedInt32Array()
 var _trail_clock := PackedFloat32Array()
+var _ramp_first := 0                  # index of the first ramp model in the model arrays (_nodes, _body_mats...)
+var _ramp_used := PackedByteArray()
+var _ramp_shadows: Array[MeshInstance3D] = []
 
 func _ready() -> void:
 	rng.randomize()
@@ -118,6 +122,19 @@ func _ready() -> void:
 	for n in _nodes:
 		Prim.lift(n)          # (aircraft are drawn above the fog)
 	_build_extras()
+	_ramp_first = _nodes.size()
+	if not scenic:
+		_ramp_used.resize(RAMP_MODELS)
+		for k in RAMP_MODELS:
+			_build_node()
+			var sh := MeshInstance3D.new()
+			var pm := PlaneMesh.new()
+			pm.size = Vector2(1.0, 1.0)
+			sh.mesh = pm
+			sh.material_override = Shadow.material(Shadow.plane(), 0.9)
+			sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_nodes[_ramp_first + k].add_child(sh)
+			_ramp_shadows.append(sh)
 
 ## Soft drop shadows (one quad each) and the contrails (one MultiMesh of round puffs for the whole pool).
 func _build_extras() -> void:
@@ -341,6 +358,9 @@ func place(target: int, pos: Vector2, heading: float, type: int, entered: bool =
 ## Paint every aircraft in an airline livery (tail + stripe colours; the standard one has none).
 func set_livery(index: int) -> void:
 	livery = index
+	for i in range(_ramp_first, _nodes.size()):
+		for box in _stripes[i]:
+			box.visible = true
 	for i in pool_n:
 		for box in _stripes[i]:
 			box.visible = true          # (the stripe is part of the look: the livery's colour, else the runway's)
@@ -1201,3 +1221,69 @@ func prewarm_show() -> void:
 
 func prewarm_hide() -> void:
 	release_all()
+
+
+# ---------- The ramp's aircraft: the very models that landed ----------
+
+## A model of the ramp pool for an aircraft that has just landed (its index in the model arrays), or -1 if all are in use.
+func ramp_claim() -> int:
+	for k in _ramp_used.size():
+		if _ramp_used[k] == 0:
+			_ramp_used[k] = 1
+			return _ramp_first + k
+	return -1
+
+func ramp_release(i: int) -> void:
+	if i >= _ramp_first and i < _ramp_first + _ramp_used.size():
+		_ramp_used[i - _ramp_first] = 0
+		_nodes[i].visible = false
+
+func ramp_free_all() -> void:
+	for k in _ramp_used.size():
+		_ramp_used[k] = 0
+		_nodes[_ramp_first + k].visible = false
+
+func ramp_in_use() -> int:
+	var n := 0
+	for k in _ramp_used.size():
+		n += _ramp_used[k]
+	return n
+
+func ramp_node(i: int) -> Node3D:
+	return _nodes[i]
+
+## Dress model `i` as the aircraft that landed: the same model for its type and speed class, its runway's livery colour, the airline
+## livery's tail and stripe, the student badge.
+func ramp_configure(i: int, type: int, cls: int, kind: int, runway: int, student: bool) -> void:
+	_set_model(i, type, cls)
+	var base := Airports.land_color(kind, runway)
+	_body_mats[i].albedo_color = base
+	var lv: Dictionary = Cosmetics.LIVERIES[livery]
+	_tail_mats[i].albedo_color = lv["tail"] if lv["tail"] != null else base
+	_stripe_mats[i].albedo_color = lv["stripe"] if lv["stripe"] != null else base
+	_badges[i].visible = student
+	var long: float = [0.85, 1.0, 1.3][cls]
+	var span: float = [1.2, 1.0, 0.78][cls]
+	var sh := _ramp_shadows[i - _ramp_first]
+	match type:
+		Aircraft.Type.GLIDER:
+			sh.scale = Vector3(2.7, 1.0, 1.5)
+		Aircraft.Type.HELI:
+			sh.scale = Vector3(1.5, 1.0, 1.5)
+		_:
+			sh.scale = Vector3(1.5 * span, 1.0, 1.35 * long)
+	_nodes[i].visible = true
+
+## Put model `i` on the ground at `pos`, nose along `heading`, at `scale` (a hovering helicopter is a little higher); `moving` shows
+## the prop and rotor blur and turns the rotor.
+func ramp_place(i: int, pos: Vector2, heading: float, scale: float, hover: float, moving: bool, clock: float, type: int) -> void:
+	var n := _nodes[i]
+	n.position = Vector3(pos.x, 0.16 * scale + 0.02 + hover, pos.y)
+	n.rotation = Vector3(0.0, -heading, 0.0)
+	n.scale = Vector3.ONE * scale
+	var sh := _ramp_shadows[i - _ramp_first]
+	sh.position = Vector3(0.1, -(n.position.y - 0.026) / maxf(scale, 0.01) - hover * 0.0, 0.08)
+	_prop_discs[i].visible = moving and (type == Aircraft.Type.SMALL or type == Aircraft.Type.MEDIUM or type == Aircraft.Type.SEAPLANE)
+	_rotor_discs[i].visible = moving and type == Aircraft.Type.HELI
+	if type == Aircraft.Type.HELI and moving:
+		_rotors[i].rotation.y = clock * 22.0

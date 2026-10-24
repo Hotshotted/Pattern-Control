@@ -605,7 +605,7 @@ func _on_landed(p: Aircraft) -> void:
 	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
 	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
-	airfield.begin_taxi(p.type, p.tkind, p.runway, p.land_end)
+	airfield.begin_taxi(p.type, p.tkind, p.runway, p.land_end, p.student, p.speed_class)
 	sfx.play_step("landing", mini(streak - 1, Sfx.STEPS - 1))      # (landings in quick succession climb the scale)
 	hud.set_landed(score, true)
 	hud.set_shift(shift)

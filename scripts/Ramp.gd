@@ -60,15 +60,16 @@ func reset(cap_: int, over_slots_: int, dock_slots_: int, heli_slots_: int, tie_
 ## Where the next landed aircraft of `type` parks: {"kind": "hangar" | "tie" | "over" | "heli" | "dock" | "extra", "idx": slot}.
 func place(type: int) -> Dictionary:
 	landed += 1
-	if hangar < cap:
-		hangar += 1
-		return {"kind": "hangar", "idx": hangar - 1}
+	# A helicopter air-taxis to a marked heli spot and a seaplane to the dock, whenever there is room there.
 	if type == Aircraft.Type.HELI and heli_n < heli_slots:
 		heli_n += 1
 		return {"kind": "heli", "idx": heli_n - 1}
 	if type == Aircraft.Type.SEAPLANE and dock_n < dock_slots:
 		dock_n += 1
 		return {"kind": "dock", "idx": dock_n - 1}
+	if hangar < cap:
+		hangar += 1
+		return {"kind": "hangar", "idx": hangar - 1}
 	if ties < tie_slots:
 		ties += 1
 		return {"kind": "tie", "idx": ties - 1}
@@ -78,7 +79,7 @@ func place(type: int) -> Dictionary:
 	extra += 1
 	return {"kind": "extra", "idx": extra - 1}
 
-## Aircraft parked outside the hangar (all of it: tie-downs, grass, heli spot, dock and the "+N").
+## Aircraft parked outside the hangar (tie-downs, grass, heli spot, dock and the "+N").
 func on_ramp() -> int:
 	return ties + overs + heli_n + dock_n + extra
 
@@ -87,9 +88,10 @@ func hangar_full() -> bool:
 
 ## The results card's line about it.
 func summary() -> String:
+	var tail := " · %d on the ramp" % on_ramp() if on_ramp() > 0 else ""
 	if hangar_full():
-		return "Hangar full" + (" · %d on the ramp" % on_ramp() if on_ramp() > 0 else "")
-	return "Hangar %d / %d" % [hangar, cap]
+		return "Hangar full" + tail
+	return "Hangar %d / %d" % [hangar, cap] + tail
 
 # ---------- Taxi routes ----------
 
