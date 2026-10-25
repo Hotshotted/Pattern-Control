@@ -273,6 +273,8 @@ func _boot_to_menu() -> void:
 		_show_menu()
 
 ## Start a fresh shift IN PLACE.
+var fixed_seed := -1                # >= 0: restart() seeds every random stream from it (tools/economy_sim.gd)
+
 func restart() -> void:
 	Boot.mark("shift started")
 	screen = SCREEN_PLAY
@@ -312,6 +314,10 @@ func restart() -> void:
 			seed_v = (seed_v ^ 0x2f1d9a7) & 0x7fffffff
 		traffic.rng.seed = seed_v
 		rng_env.seed = seed_v ^ 0x5bd1e995
+	elif fixed_seed >= 0:           # (the simulations: the same shift every time, whatever the step size)
+		traffic.rng.seed = fixed_seed
+		traffic.go_rng.seed = fixed_seed ^ 0x3c6ef372
+		rng_env.seed = fixed_seed ^ 0x5bd1e995
 	else:
 		traffic.rng.randomize()
 		rng_env.randomize()

@@ -128,6 +128,7 @@ func _play_shift(skill: Dictionary, ap: int, n: int, who: String) -> Dictionary:
 	main.daily_mode = false
 	main.bad_mode = false
 	main.select_airport(ap)
+	main.fixed_seed = 1000 * (n + 1) + hash(who) % 1000 + ap * 7
 	main.restart()
 	main.traffic.rng.seed = 1000 * (n + 1) + hash(who) % 1000 + ap * 7
 	main.traffic.go_rng.seed = 77 * (n + 1) + ap
@@ -161,6 +162,7 @@ func _run_player(who: String, mode: String) -> Dictionary:
 		main.daily_mode = false
 		main.bad_mode = false
 		main.select_airport(ap)
+		main.fixed_seed = 1000 * (n + 1) + hash(who) % 1000
 		main.restart()
 		main.traffic.rng.seed = 1000 * (n + 1) + hash(who) % 1000
 		main.traffic.go_rng.seed = 77 * (n + 1)

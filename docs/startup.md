@@ -74,7 +74,9 @@ slower below that (a tab-switch spike is still never simulated). Checked on the 
 Because a step can now be 50 ms, `tools/step_micro.gd` runs each system on its own at 60, 30 and 20 steps a second (path following, a
 landing, circling, the aircraft timer, the go-around warning, taxiing, the wind clock, a conflict pass, a flight past a storm's edge)
 and `tools/step_compare.py` compares the whole economy / fairness survey (`economy_sim.gd survey totals fps=N`, all bots and airports,
-10 shifts each) at the three step sizes: landings, crashes and gross coins must agree within 5%. Both run in the CI job `frame-rate`.
+10 shifts each) at the three step sizes: landings, crashes and gross coins must agree within 5%, or within 2.5 standard errors of the sampling noise: each run is exactly
+repeatable (`Main.fixed_seed`), but a different step size is a different sample of a chaotic game, so two runs of 130 crashes differ by
+~12% with no bias at all. The per-system checks above are the exact ones. Both run in the CI job `frame-rate`.
 
 Only the two detections that compare positions at the end of a step needed sub-stepping, and both now test the whole step instead of
 its end point (a swept test, `Aircraft.step_from`): **aircraft-aircraft conflicts** (the nearest approach of the two straight lines flown
