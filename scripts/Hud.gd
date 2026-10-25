@@ -1985,6 +1985,11 @@ func _build_over() -> void:
 func show_results(header: String, reason: String, shift: Shift, coins_earned: int, coins_total: int, best: int, new_best: bool, _animal: int = -1, _quote: String = "", doubled: bool = false) -> void:
 	_go("results")
 	_hide_all_screens()
+	var ra := _panel_art("results")           # (its own layer: the card is not drawn together with the shift's interface)
+	_art = ra
+	_main_art.visible = false
+	ra.position = Vector2.ZERO
+	ra.btn_age = 99.0
 	_over_head.text = header
 	var total_line := "Total paid|+%d%s" % [coins_earned, " (doubled)" if doubled else ""]
 	_over_body.text = (reason + "\n" + total_line + "\nBank|%d" % coins_total).replace("|", " ")
@@ -2108,6 +2113,15 @@ func _use_main() -> void:
 	_main_art.visible = true
 	for a in _panel_arts.values():
 		a.position = PARK
+	var ra: Art = _panel_arts.get("results")
+	if ra != null:                 # (the next results card starts from nothing: no stars, no reveal, no unlock card)
+		ra.show_result = false
+		ra.res_unlock = ""
+		ra.details_open = false
+		ra.details_rect = Rect2()
+		ra.unlock_t = -1.0
+		ra.cf_on.fill(0)
+		ra.clear_buttons()
 
 ## Make `kind` the panel being drawn: `layout` fills its Art (only if `sig`, the data, is not what it was laid out with). Returns the Art.
 func _use_panel(kind: String, sig: String, layout: Callable) -> void:

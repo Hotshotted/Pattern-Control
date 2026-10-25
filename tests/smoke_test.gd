@@ -2788,6 +2788,8 @@ func _initialize() -> void:
 	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	check(main.screen == main.SCREEN_OVER and not main.hud._score.visible and not main.hud._best.visible, "results: the shift HUD is gone")
+	art = main.hud._art       # (the results card is its own layer)
+	area = func(k): return art.btn_rect[k].size.x * art.btn_rect[k].size.y
 	check(art.res_t < 1.0 and not main.hud.results_revealed() and not main.hud._over_body.visible and not main.hud.results_details_open(), "results: the stars and total are revealed in sequence; the breakdown is hidden")
 	var res_prim = []
 	var res_small = true
@@ -4051,6 +4053,7 @@ func _initialize() -> void:
 	main.shift.fine(40, "conflict")
 	main.hud.set_shift(main.shift)
 	main.hud.show_results("SHIFT COMPLETE", "Landings earned|+210", main.shift, 488, 728, 488, true)
+	sc_art = main.hud._art
 	check(sc_art.res_chips[0] == main.shift.earned + main.shift.bonus and sc_art.res_chips[2] == main.shift.fines + main.shift.overtime_penalty and sc_art.res_sub.contains(Airports.airport_name()) and sc_art.res_sub.contains("landed"), "the results card has the three chips (landings, early clear, fines) and the subtitle")
 	main.hud.queue_unlock("County")
 	check(sc_art.res_unlock == "County", "a new airport shows as a card on the results")
