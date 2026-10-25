@@ -4914,6 +4914,55 @@ func _initialize() -> void:
 	main.restart()
 	Airports.current = rp_keep
 
+	print("25. The frame-delta clamp is 1/20 s: the game runs at real speed down to 20 fps")
+	check(absf(float(Engine.max_physics_steps_per_frame) / float(Engine.physics_ticks_per_second) - 0.05) < 0.0001 and absf(tuning.max_frame_delta - 0.05) < 0.0001, "the engine holds a frame to 1/20 s (%d physics steps of 1/%d s) and the game uses it whole" % [Engine.max_physics_steps_per_frame, Engine.physics_ticks_per_second])
+	check(absf(main._frame_delta(0.05) - 0.05) < 0.0001 and absf(main._frame_delta(0.04) - 0.04) < 0.0001 and absf(main._frame_delta(0.2) - 0.05) < 0.0001, "...a 40 ms or 50 ms frame is simulated whole; a longer one is cut to 50 ms (slow motion below 20 fps)")
+	# a path flown in 1/20 s steps ends where and when it does in 1/60 s steps; a pass that would be missed between two big steps is still seen
+	var cl_end = []
+	for cl_dt in [1.0 / 60.0, 1.0 / 20.0]:
+		main.restart()
+		tr.auto_spawn = false
+		tr.release_all()
+		tr.half_w = 5.0
+		tr.half_h = 11.0
+		var cl_p = tr.place(0, Vector2(-3.0, 6.0), 0.0, MEDIUM)
+		for cl_q in [Vector2(-3, 3), Vector2(-1, 1), Vector2(2, -1), Vector2(2, 4)]:
+			cl_p.push(cl_q)
+		var cl_t = 0.0
+		while cl_p.count > 0 and cl_t < 60.0:
+			main.step(cl_dt)
+			cl_t += cl_dt
+		cl_end.append([cl_t, cl_p.pos])
+	check(absf(cl_end[0][0] - cl_end[1][0]) < 0.06 and cl_end[0][1].distance_to(cl_end[1][1]) < 0.01, "a path takes the same time and ends in the same place at 60 and 20 steps a second (%.2f s / %.2f s)" % [cl_end[0][0], cl_end[1][0]])
+	var cl_hits = []
+	for cl_dt in [1.0 / 60.0, 1.0 / 20.0]:
+		var cl_n = 0
+		for cl_k in 30:
+			main.restart()
+			tr.auto_spawn = false
+			tr.release_all()
+			tr._god = false
+			tr.grace_until = 0.0
+			tr.half_w = 5.0
+			tr.half_h = 11.0
+			var cl_conf = [0]
+			var cl_cb = func(_a, _b): cl_conf[0] += 1
+			tr.conflict.connect(cl_cb)
+			var cl_a = tr.place(0, Vector2(0.0, 8.0), 0.0, JET)
+			var cl_b = tr.place(1, Vector2(0.8 + 0.003 * cl_k, -8.0), PI, JET)
+			cl_a.timer_left = 999.0
+			cl_b.timer_left = 999.0
+			for cl_i in int(6.0 / cl_dt):
+				tr.step(cl_dt)
+			tr.conflict.disconnect(cl_cb)
+			if cl_conf[0] > 0:
+				cl_n += 1
+		cl_hits.append(cl_n)
+	check(cl_hits[0] == cl_hits[1] and cl_hits[0] > 20, "a pass just inside the conflict distance is a conflict at 60 and at 20 steps a second (%s of 30): the test sweeps the whole step" % str(cl_hits))
+	main.restart()
+	tr.auto_spawn = false
+	tr.release_all()
+
 	print("24. Start-up: only the first airport before the menu, the rest in the idle time; shared meshes; the ramp's models")
 	var lz_script = load("res://scripts/Airfield.gd")
 	lz_script.boot_lazy = true

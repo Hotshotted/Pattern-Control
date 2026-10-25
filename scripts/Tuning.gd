@@ -7,7 +7,7 @@ extends Node
 
 # ---------- Frame time ----------
 ## The simulation never advances more than this per frame (seconds), whatever the real frame took.
-var max_frame_delta := 0.05
+var max_frame_delta := 0.05     # = the engine's own clamp (Main._ready: 3 physics steps of 1/60 s); a step this big is sub-stepped where it matters (see tools/step_micro.gd)
 ## A frame longer than this (a tab switch, a long hitch) is a stall: it is not simulated at all.
 var stall_delta := 0.25
 ## Frames skipped (no simulation) after a stall or the window coming back, so nothing catches up.

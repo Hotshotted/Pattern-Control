@@ -64,3 +64,21 @@ Setting a material property marks it changed and uploads it again, even to the v
 - the aircraft livery colours -> `Traffic._paint` (earlier).
 
 No tween is created anywhere (there is no `create_tween` in the scripts), and the life props are few: 2 birds, a balloon, a mower, a fuel truck, a few vehicles and chairs per airport.
+
+## The frame-delta clamp (1/20 s)
+
+The engine holds every frame's delta to `max_physics_steps_per_frame / physics_ticks_per_second`. The game used 1 step (1/60 s), so any
+device under 60 fps ran in slow motion. `Main._ready` now sets 3 steps: 1/20 s, so the game runs at real speed down to 20 fps and only
+slower below that (a tab-switch spike is still never simulated). Checked on the web: a slow frame is simulated up to 50 ms (it was 17 ms).
+
+Because a step can now be 50 ms, `tools/step_micro.gd` runs each system on its own at 60, 30 and 20 steps a second (path following, a
+landing, circling, the aircraft timer, the go-around warning, taxiing, the wind clock, a conflict pass, a flight past a storm's edge)
+and `tools/step_compare.py` compares the whole economy / fairness survey (`economy_sim.gd survey totals fps=N`, all bots and airports,
+10 shifts each) at the three step sizes: landings, crashes and gross coins must agree within 5%. Both run in the CI job `frame-rate`.
+
+Only the two detections that compare positions at the end of a step needed sub-stepping, and both now test the whole step instead of
+its end point (a swept test, `Aircraft.step_from`): **aircraft-aircraft conflicts** (the nearest approach of the two straight lines flown
+during the step) and **storm / mountain crashes** (the distance from the hazard to the segment flown). With the old end-of-step tests a
+pass just inside the conflict distance was missed 4 times in 60 at 30 fps. Everything else is already proportional to the step (path
+following walks the path by distance, circling integrates an angle, timers and the landing roll subtract the step) and agreed to within
+one step.

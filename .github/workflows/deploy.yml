@@ -128,8 +128,37 @@ jobs:
         with:
           path: build/web
 
+  # The game must behave the same at 60, 30 and 20 frames a second (the frame-delta clamp is 1/20 s): each system on its own
+  # (tools/step_micro.gd), then the whole economy / fairness survey at the three step sizes, which must agree within 5% on
+  # landings, crashes and coins (tools/step_compare.py).
+  frame-rate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Godot (headless editor)
+        run: |
+          BASE=https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}
+          curl -fsSL -o godot.zip $BASE/Godot_v${GODOT_VERSION}_linux.x86_64.zip
+          unzip -q godot.zip
+          sudo mv Godot_v${GODOT_VERSION}_linux.x86_64 /usr/local/bin/godot
+      - name: Import project
+        run: godot --headless --import || true
+      - name: Each system at 60, 30 and 20 fps
+        run: |
+          set -o pipefail
+          timeout 600 godot --headless --path . --script tools/step_micro.gd 2>&1 | grep -v "^\[boot\]" | tee micro.log
+          ! grep -q "^FAIL\|SCRIPT ERROR" micro.log
+      - name: The economy and fairness survey at 60, 30 and 20 fps
+        run: |
+          for f in 60 30 20; do
+            (timeout 1700 godot --headless --path . --script tools/economy_sim.gd -- survey per=10 totals fps=$f 2>&1 | grep "^TOTALS" > sim_$f.txt) &
+          done
+          wait
+          python3 tools/step_compare.py sim_60.txt sim_30.txt sim_20.txt
+
   deploy:
-    needs: build
+    needs: [build, frame-rate]
     runs-on: ubuntu-latest
     environment:
       name: github-pages

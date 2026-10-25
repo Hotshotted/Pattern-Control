@@ -717,6 +717,16 @@ func reroute_closed_ends() -> int:
 			n += 1
 	return n
 
+## The least distance between two aircraft during the step that has just been made (each flew a straight line from `step_from` to `pos`).
+static func _closest_approach(a: Aircraft, b: Aircraft, d_end: float) -> float:
+	var r0 := a.step_from - b.step_from
+	var dr := (a.pos - b.pos) - r0
+	var l2 := dr.length_squared()
+	if l2 < 0.000001:
+		return d_end
+	var t := clampf(-r0.dot(dr) / l2, 0.0, 1.0)
+	return (r0 + dr * t).length()
+
 ## The finger lifted: finish the path at the finger. (A glider's first path is final.)
 func end_path(p: Aircraft, world: Vector2) -> void:
 	if not p.active():
@@ -855,6 +865,8 @@ func step(delta: float) -> void:
 	_update_weather(delta)
 	var mult := Tuning.speed_mult(run_time) * Tuning.traffic_speed_mult()
 	for i in pool_n:
+		planes[i].step_from = planes[i].pos
+	for i in pool_n:
 		var p := planes[i]
 		if not p.active():
 			continue
@@ -933,7 +945,7 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 			timed_out.emit(p)
 	if p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD) and not _god:
 		for k in hz_count:
-			if p.pos.distance_to(hz_pos[k]) < hz_r[k] + Tuning.hazard_margin:
+			if _dist_to_segment(hz_pos[k], p.step_from, p.pos) < hz_r[k] + Tuning.hazard_margin:       # (the whole step: a big step cannot jump over a storm's edge)
 				crashed.emit(p, hz_kind[k])
 				_remove(p)
 				return
@@ -1114,6 +1126,7 @@ func _check_conflicts() -> void:
 			if not b.can_conflict():
 				continue
 			var d := a.pos.distance_to(b.pos)
+			var closest := _closest_approach(a, b, d)       # (the nearest the two came during the whole step)
 			if d < wd:
 				var w := clampf((wd - d) / maxf(wd - cd, 0.01), 0.0, 1.0)
 				if w > a.warn:
@@ -1122,9 +1135,9 @@ func _check_conflicts() -> void:
 				if w > b.warn:
 					b.warn = w
 					b.warn_other = a
-				if d < cd and not _god and run_time >= grace_until:
-					conflict.emit(a, b)
-					return
+			if closest < cd and not _god and run_time >= grace_until:
+				conflict.emit(a, b)
+				return
 
 ## Copy a plane's state onto its node (position, heading, bank, pitch, size, colours, spinning rotor, emergency flash),
 ## its shadow and the prop blur.

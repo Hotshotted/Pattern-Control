@@ -13,6 +13,8 @@ var SURVEY := false               # per-airport star survey instead of the 20-sh
 var SURVEY_SHIFTS := 8
 var ONLY_BOTS := ["poor", "average", "good"]
 var ONLY_AIRPORTS := [0, 1, 2, 3, 4, 5]
+var FPS := 60                     # the simulated frame rate: every step is 1 / FPS s (the autopilot still acts at 10 Hz)
+var TOTALS := false               # survey: also print one machine-readable line per bot and airport (tools/step_compare.py reads them)
 ## ignore: share of aircraft never helped; react: chance per autopilot tick (10 Hz) of dealing with a waiting
 ## aircraft; aligned: how often the path is a proper straight final; wrong_end: picks a closed runway end;
 ## notice: how soon an aircraft whose path did not work gets a new one (s); avoid: chance per tick to put an
@@ -62,6 +64,10 @@ func _initialize() -> void:
 				ONLY_AIRPORTS.append(int(x))
 		elif a.begins_with("per="):
 			SURVEY_SHIFTS = int(a.substr(4))
+		elif a.begins_with("fps="):
+			FPS = int(a.substr(4))
+		elif a == "totals":
+			TOTALS = true
 	if SURVEY:
 		_survey()
 		quit()
@@ -89,6 +95,10 @@ func _survey() -> void:
 			var tot_arr := 0
 			var tot_conf := 0
 			var tot_net := 0
+			var tot_crash := 0
+			var tot_div := 0
+			var tot_coins := 0
+			var tot_paid := 0
 			var tot_stars := 0
 			var tot_clean := 0
 			var intro_stars := 0
@@ -99,10 +109,16 @@ func _survey() -> void:
 				tot_arr += r["spawned"]
 				tot_conf += r["conflicts"]
 				tot_net += r["net"]
+				tot_crash += r["crashes"]
+				tot_div += r["diversions"]
+				tot_coins += r["coins"]
+				tot_paid += r["paid"]
 				tot_stars += r["stars"]
 				tot_clean += r["clean_stars"]
 				if n == 0:
 					intro_stars = r["stars"]
+			if TOTALS:
+				print("TOTALS %s %d landed=%d spawned=%d conflicts=%d crashes=%d diversions=%d coins=%d paid=%d net=%d stars=%d" % [who, ap, tot_land, tot_arr, tot_conf, tot_crash, tot_div, tot_coins, tot_paid, tot_net, tot_stars])
 			var th: Array = tun.star_thresholds(ap)
 			print("%-8s %-16s %-16s %5.1f/%-5.1f %5.1f %9.0f %10.2f  %s %17d %20.2f" % [who, Airports.airport_name(ap), str(th), float(tot_land) / SURVEY_SHIFTS, float(tot_arr) / SURVEY_SHIFTS, float(tot_conf) / SURVEY_SHIFTS, float(tot_net) / SURVEY_SHIFTS, float(tot_stars) / SURVEY_SHIFTS, str(dist), intro_stars, float(tot_clean) / SURVEY_SHIFTS])
 	save.reset_all()
@@ -120,13 +136,13 @@ func _play_shift(skill: Dictionary, ap: int, n: int, who: String) -> Dictionary:
 	_spawned = 0
 	_gos = 0
 	var steps := 0
-	while main.alive and steps < 60 * 400:
-		if steps % 6 == 0:
+	while main.alive and steps < FPS * 400:
+		if steps % (FPS / 10) == 0:
 			_autopilot(skill)
-		main.step(1.0 / 60.0)
+		main.step(1.0 / FPS)
 		steps += 1
 	var s = main.shift
-	return {"landed": s.landed, "spawned": _spawned, "conflicts": s.conflicts, "net": s.balance(), "stars": s.stars(), "clean_stars": _stars_for(s.earned + s.bonus + s.time_bonus, s.thresholds)}
+	return {"landed": s.landed, "spawned": _spawned, "conflicts": s.conflicts, "crashes": s.crashes, "diversions": s.diversions, "coins": s.earned + s.bonus + s.time_bonus, "paid": s.payout(), "net": s.balance(), "stars": s.stars(), "clean_stars": _stars_for(s.earned + s.bonus + s.time_bonus, s.thresholds)}
 
 func _run_player(who: String, mode: String) -> Dictionary:
 	var save = root.get_node("Save")
@@ -154,10 +170,10 @@ func _run_player(who: String, mode: String) -> Dictionary:
 		_gos = 0
 		var coins0: int = save.coins
 		var steps := 0
-		while main.alive and steps < 60 * 400:
-			if steps % 6 == 0:
+		while main.alive and steps < FPS * 400:
+			if steps % (FPS / 10) == 0:
 				_autopilot(skill)
-			main.step(1.0 / 60.0)
+			main.step(1.0 / FPS)
 			steps += 1
 		var s = main.shift
 		rows.append({"airport": ap, "landed": s.landed, "earned": s.earned, "bonus": s.bonus + s.time_bonus, "fines": s.fines + s.overtime_penalty,
@@ -258,7 +274,7 @@ func _autopilot(skill: Dictionary) -> void:
 ## An aircraft that p is on course to conflict with in the next few seconds, and that p should give way to
 ## (null if none, or if the other should give way). Straight-line prediction from heading and speed.
 func _threat(p: Aircraft) -> Aircraft:
-	var tr: Traffic = main.traffic
+	var tr = main.traffic
 	var mult: float = tun.speed_mult(tr.run_time) * tun.traffic_speed_mult()
 	var vp: Vector2 = Vector2(sin(p.heading), -cos(p.heading)) * p.speed * mult if p.state == Aircraft.State.FLY else Vector2.ZERO
 	for o: Aircraft in tr.planes:

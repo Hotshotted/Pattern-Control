@@ -40,6 +40,8 @@ srv.listen(0, async () => {
     const cdp = await context.newCDPSession(page);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });
     const errors = [];
+    const hitchLines = [];
+    page.on('console', m => { const t = m.text(); if (t.startsWith('[hitch]') && hitchLines.length < 400) hitchLines.push(t); });
     page.on('pageerror', e => errors.push(String(e)));
     await page.addInitScript(() => {
       window.__frames = [];
@@ -95,6 +97,9 @@ srv.listen(0, async () => {
       console.log(`GAME CODE per frame (every _process, no rendering) at ${THROTTLE}x: mean ${mean.toFixed(1)} ms, worst ${worst.toFixed(1)} ms, ${over} frames over 33 ms (${procs.length * 30} frames)`);
       if (LIMIT_FRAME_MS && worst > LIMIT_FRAME_MS) fail(`the game's own code took ${worst.toFixed(1)} ms in one frame (limit ${LIMIT_FRAME_MS})`);
     } else console.log('(no game-code timings: run with QUERY=perf)');
+    // ?perf logs every frame over 50 ms with how long the game simulated it: the engine's delta clamp (1/20 s) shows here
+    const sim = hitchLines.map(l => (l.match(/simulated (\d+) ms/) || [0, 0])[1]).map(Number).filter(x => x > 0);
+    if (sim.length) console.log(`SIMULATED per slow frame (ms): max ${Math.max(...sim)} (the clamp is 50), ${sim.length} frames over 50 ms logged`);
     console.log(`\nFRAMES of ${SHIFT_SECONDS} s of the shift at ${THROTTLE}x: ${fr.length} frames, mean ${(fr.reduce((a, b) => a + b, 0) / Math.max(fr.length, 1)).toFixed(1)} ms, ${over} over 33 ms, worst ${sorted.slice(0, 8).map(x => x.toFixed(0)).join(' ')} ms`);
     if (errors.length) fail('page errors: ' + errors.join(' | '));
   } catch (e) {

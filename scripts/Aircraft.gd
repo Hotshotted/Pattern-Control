@@ -25,6 +25,7 @@ var type := Type.SMALL
 var speed_class := 0            # 0 slow, 1 medium, 2 fast (the entry glow colour and the model)
 var speed := 2.0                # base units / second (before the run's speed ramp)
 var pos := Vector2.ZERO
+var step_from := Vector2.ZERO    # where it was at the start of this step (the conflict and storm tests sweep the whole step, so a big step cannot skip over a pass)
 var heading := 0.0              # direction of travel
 var vis_heading := 0.0          # drawn heading (turns toward `heading` at plane_turn_rate)
 var entered := false            # has been on screen (planes still outside can't conflict)

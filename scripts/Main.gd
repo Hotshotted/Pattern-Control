@@ -101,7 +101,10 @@ func _ready() -> void:
 		probe.set_script(load("res://scripts/FrameProbe.gd"))
 		probe.main = self
 		add_child(probe)
-	Engine.max_physics_steps_per_frame = 1   # no physics here: a stall can never trigger catch-up steps
+	# The engine holds every frame's delta to max_physics_steps_per_frame / physics_ticks_per_second: 3 / 60 = 1/20 s. The game runs at real
+	# speed down to 20 fps and only below that in slow motion (so a tab-switch spike is never simulated). With 1 step the clamp was 1/60 s
+	# and anything under 60 fps ran in slow motion. (There is no physics here, so the extra steps cost nothing and nothing catches up.)
+	Engine.max_physics_steps_per_frame = 3
 	view_size = Tuning.view_size()
 	_setup_environment()
 	sun.look_at_from_position(Vector3.ZERO, Vector3(0.3, -0.8, -0.5))
