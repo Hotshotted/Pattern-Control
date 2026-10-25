@@ -60,6 +60,10 @@ func _initialize() -> void:
 	main.hud.set_shift(main.shift)
 	main.airfield.cur.lights.visible = false          # (the runway lights shimmer by the clock)
 	main.set_process(false)                           # (nothing moves between the two frames)
+	main.airfield.set_process(false)                  # (...not the runway lights, which the airfield would switch back on)
+	main.diorama.active = false                       # (...nor the menu's scenic aircraft, which are still landing behind the field)
+	main.diorama.set_process(false)
+	main.diorama.traffic.release_all()
 	var full := await _grab()                         # the whole picture, interface and marks too: for the magenta scan
 	main.overlay.visible = false                      # the 3D field alone for the comparison (the marks pulse by the clock)
 	main.hud.visible = false

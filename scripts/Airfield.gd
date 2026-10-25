@@ -1767,7 +1767,7 @@ func _animate_life(delta: float) -> void:
 # ---------- Upgrade scenery: each purchased upgrade can be seen on the airport ----------
 
 ## Is the point `p` clear of runways, pads, lanes, mountains, the tower and the windsock (with `r` to spare)?
-func _spot_free(p: Vector2, r: float, bound: float = 6.0) -> bool:
+func _spot_free(p: Vector2, r: float, bound: float = 6.0, use_occupied: bool = true) -> bool:
 	for i in Airports.rw_count():
 		var a := Airports.end_threshold(i, 0)
 		var b := Airports.end_far(i, 0)
@@ -1791,9 +1791,10 @@ func _spot_free(p: Vector2, r: float, bound: float = 6.0) -> bool:
 			return false
 	if p.distance_to(Airports.tower_pos()) < 0.8 + r or p.distance_to(Airports.windsock_pos()) < 0.5 + r:
 		return false
-	for o in _occupied:
-		if p.distance_to(o[0]) < float(o[1]) + r:
-			return false
+	if use_occupied:
+		for o in _occupied:
+			if p.distance_to(o[0]) < float(o[1]) + r:
+				return false
 	return absf(p.x) < 4.6 and absf(p.y) < bound
 
 ## Up to `n` free spots on rings around `c`, at least `spacing` apart (then, if the rings were not enough, anywhere on the field,
@@ -1831,7 +1832,7 @@ func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> 
 			while gz <= 8.4:
 				await _slice()
 				var p2 := Vector2(gx, gz)
-				if _spot_free(p2, r, 8.6) and _clear_of_paths(p2, -0.9):
+				if _spot_free(p2, r, 8.6, false) and _clear_of_paths(p2, -0.9):
 					if not in_strip(p2, r):
 						g_best.append(p2)
 					elif not in_strip(p2, r, true, false):
@@ -1840,8 +1841,17 @@ func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> 
 				await _slice()
 			gx += 0.5
 		_grid_cache[key] = [g_best, g_relaxed]
-	var best: Array = (_grid_cache[key][0] as Array).duplicate()
-	var relaxed: Array = (_grid_cache[key][1] as Array).duplicate()
+	var best: Array = []
+	var relaxed: Array = []
+	for pair in [[_grid_cache[key][0], best], [_grid_cache[key][1], relaxed]]:
+		for q in pair[0]:
+			var taken := false
+			for o in _occupied:          # (what has been built since: the cached list is of the fixed geometry only)
+				if q.distance_to(o[0]) < float(o[1]) + r:
+					taken = true
+					break
+			if not taken:
+				pair[1].append(q)
 	best.sort_custom(func(a: Vector2, b: Vector2): return a.distance_to(c) < b.distance_to(c))
 	relaxed.sort_custom(func(a: Vector2, b: Vector2): return a.distance_to(c) < b.distance_to(c))
 	best.append_array(relaxed)
