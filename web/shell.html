@@ -88,6 +88,7 @@
   // (for the web audio check) the level each layer is asked to play at, in dB, and the loop's length in seconds
   api.levels = function () { return JSON.parse(JSON.stringify(want)); };
   api.loopLength = function () { return bufs.music1 ? bufs.music1.duration : 0; };
+  api.debug = function () { var g = {}; names.forEach(function (n) { g[n] = +gains[n].gain.value.toFixed(4); }); return { state: ctx.state, time: +ctx.currentTime.toFixed(2), master: +master.gain.value.toFixed(4), gains: g, started: started }; };
   api.setHeld = function (b) { master.gain.setTargetAtTime(b ? 0 : 1, ctx.currentTime, 0.015); };
 })();
 </script>

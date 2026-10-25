@@ -180,7 +180,13 @@ srv.listen(0, async () => {
     marks.resume = await nowSec();
     await page.waitForTimeout(7000);
     marks.end = await nowSec();
+    // The recorder lives on the main thread's message queue: when the page is very busy its chunks can arrive late. Give the music up to
+    // three more looks (3 s each) before calling the silence real.
+    const peakAfter = async () => page.evaluate(([from]) => { const rate = window.__rec.rate || 44100; let m = 0; for (const w of ['music', 'sfx']) { let off = 0; for (const c of window.__rec[w]) { for (let i = 0; i < c.length; i++) { if ((off + i) / rate >= from && Math.abs(c[i]) > m) m = Math.abs(c[i]); } off += c.length; } } return m; }, [marks.resume + 1.5]);
+    
+    for (let k = 0; k < 3 && (await peakAfter()) < 0.0015; k++) { await page.waitForTimeout(3000); marks.end = await nowSec(); }
     const afterLevels = await page.evaluate(() => window.PWAudio && PWAudio.levels ? PWAudio.levels() : null);
+    const afterDebug = await page.evaluate(() => window.PWAudio && PWAudio.debug ? PWAudio.debug() : null);
     const after = await state();
     await page.screenshot({ path: path.join(process.env.TMPDIR || '/tmp', 'web_audio_check.png') });
 
@@ -205,7 +211,7 @@ srv.listen(0, async () => {
     const afterPeak = both(marks.resume + 1.5, marks.end);
     const menuAll = Math.max(peakIn(xm, marks.tap + 3, marks.menuEnd), peakIn(xs, marks.tap, marks.menuEnd));
     const shiftAll = Math.max(peakIn(xm, marks.play + 2, marks.shiftEnd), peakIn(xs, marks.play, marks.shiftEnd));
-    const out = { marks, loops: loopReport, levels: { menu: menuLevels, shift: shiftLevels, afterResume: afterLevels }, rate, seconds: +secs.toFixed(1), throttle: THROTTLE, menu, shift, shots, musicStream: xm.length > 0, peaks: { hidden: +hiddenPeak.toFixed(4), visibleBeforeResume: +visiblePeak.toFixed(4), afterResume: +afterPeak.toFixed(4) }, game: { before: before.game, hidden: during.game, visible: visibleState.game, after: after.game }, ctx: { before: before.ctx, hidden: during.ctx, visible: visibleState.ctx, after: after.ctx }, errors };
+    const out = { marks, loops: loopReport, levels: { menu: menuLevels, shift: shiftLevels, afterResume: afterLevels }, afterDebug, rate, seconds: +secs.toFixed(1), throttle: THROTTLE, menu, shift, shots, musicStream: xm.length > 0, peaks: { hidden: +hiddenPeak.toFixed(4), visibleBeforeResume: +visiblePeak.toFixed(4), afterResume: +afterPeak.toFixed(4) }, game: { before: before.game, hidden: during.game, visible: visibleState.game, after: after.game }, ctx: { before: before.ctx, hidden: during.ctx, visible: visibleState.ctx, after: after.ctx }, errors };
     console.log(JSON.stringify(out));
     if (process.env.QUERY) console.log('PLAY AT WALL ' + playWall.toFixed(1) + 's; long frames:\n' + hitches.join('\n'));
     if (process.env.SAVE_SHOTS) { fs.writeFileSync(process.env.SAVE_SHOTS, Buffer.from(xs.buffer, xs.byteOffset, xs.byteLength)); }
