@@ -2699,30 +2699,33 @@ func _initialize() -> void:
 	check(sizes_ok, "every label uses one of the three text sizes %s (seen %s)" % [str([main.hud.SZ_XL, main.hud.SZ_M, main.hud.SZ_S]), str(sizes_seen.keys())])
 	# Airport select: just a name, stars and a lock.
 	main._on_button("airports")
+	var pa = main.hud._art
 	var sel_ok = true
 	var cards_n = 0
-	for k in art.btn_count:
-		if art.btn_kind[k] == 1:
+	for k in pa.btn_count:
+		if pa.btn_kind[k] == 1:
 			cards_n += 1
-			sel_ok = sel_ok and art.btn_sub[k].length() < 40 and art.btn_map[k] >= 0 and words_ok.call(art.btn_text[k])
+			sel_ok = sel_ok and pa.btn_sub[k].length() < 40 and pa.btn_map[k] >= 0 and words_ok.call(pa.btn_text[k])
 	check(cards_n == Airports.COUNT and sel_ok, "airport select: one big card per airport with a mini-map, its name, one line, stars and lock")
 	main._show_menu()
 	# Upgrades: icon, name, one line, pips, cost.
 	main._on_button("upgrades")
+	pa = main.hud._art
 	var up_ok = true
-	for k in art.btn_count:
-		if art.btn_kind[k] == 1:
-			up_ok = up_ok and art.btn_glyph[k] != "" and art.btn_sub[k].length() <= 26 and art.btn_sub[k].length() > 0 and art.btn_pips[k] >= 0 and art.btn_cost[k] >= 0 and words_ok.call(art.btn_text[k]) and art.btn_stars[k] == -1
-	check(up_ok and art.btn_id.find("upg:radar") >= 0, "upgrades: each card has an icon, a name, one short line, level pips and a cost")
+	for k in pa.btn_count:
+		if pa.btn_kind[k] == 1:
+			up_ok = up_ok and pa.btn_glyph[k] != "" and pa.btn_sub[k].length() <= 26 and pa.btn_sub[k].length() > 0 and pa.btn_pips[k] >= 0 and pa.btn_cost[k] >= 0 and words_ok.call(pa.btn_text[k]) and pa.btn_stars[k] == -1
+	check(up_ok and pa.btn_id.find("upg:radar") >= 0, "upgrades: each card has an icon, a name, one short line, level pips and a cost")
 	main._show_menu()
 	# Shop.
 	for tab in [0, 1]:
 		main.shop_tab = tab
 		main._show_shop()
+		pa = main.hud._art
 		var shop_ok = true
-		for k in art.btn_count:
-			if art.btn_kind[k] == 1:
-				shop_ok = shop_ok and art.btn_icon[k] >= 0 and art.btn_sub[k].length() <= 10 and words_ok.call(art.btn_text[k])
+		for k in pa.btn_count:
+			if pa.btn_kind[k] == 1:
+				shop_ok = shop_ok and pa.btn_icon[k] >= 0 and pa.btn_sub[k].length() <= 10 and words_ok.call(pa.btn_text[k])
 		check(shop_ok, "shop (tab %d): cards are an icon, a name and a price or a status, no paragraphs" % tab)
 	main.shop_tab = 0
 	main._show_menu()
@@ -3008,7 +3011,7 @@ func _initialize() -> void:
 	hud._process(Style.T_BASE)
 	check(q_mid_x > 0.0 and q_mid_x < hud.SLIDE and hud.offset == Vector2.ZERO and hud._art.modulate.a == 1.0 and not hud.transitioning(), "...eases in over %.2f s and settles exactly" % Style.T_BASE)
 	main._show_menu()
-	check(hud.transition_dir() == -1 and hud.offset.x < 0.0, "coming back slides from the left")
+	check(hud.transition_dir() == -1 and hud.transitioning() and hud.transform != Transform2D.IDENTITY, "coming back pops in too (direction %d)" % hud.transition_dir())
 	hud.skip_animations()
 	check(hud.offset == Vector2.ZERO and hud.transform == Transform2D.IDENTITY, "skipping finishes it")
 	main._show_upgrades()
@@ -3025,16 +3028,14 @@ func _initialize() -> void:
 	hud.skip_animations()
 	main._show_menu()
 	hud.skip_animations()
-	# Cards pop in one after another; buttons squash and bounce.
+	# Screens pop in as a whole (no per-card stagger); buttons squash and bounce.
 	main._show_select()
-	hud._process(0.01)
-	check(hud._art.btn_age < 0.1, "a screen's cards start their pop-in (age %.2f)" % hud._art.btn_age)
-	hud._process(Style.T_BASE + Style.STAGGER * 6.0 + 0.1)
-	check(not hud._art.animating() or hud._art.btn_age >= 0.9 or hud._art.btn_age > Style.T_BASE + Style.STAGGER * 6.0, "...and are all in place after the stagger")
-	var q_bk = hud._art.btn_id.find("airport:0")
+	hud.skip_animations()
+	check(not hud._art.animating(), "a screen's cards sit still once it has opened (no per-card pop-in)")
+	var q_bk = hud._art.btn_id.find("pick:0")
 	var q_bpos = hud._art.btn_rect[q_bk].get_center()
 	hud.press(q_bpos)
-	hud._process(Style.T_FAST)
+	hud._process(Style.T_FAST * 0.5)
 	check(hud._art.press_k == q_bk and hud._art.animating(), "a pressed card squashes")
 	hud.release()
 	check(hud._art.rel_k == q_bk and hud._art.rel_t == 0.0 and hud._art.animating(), "...and bounces back on release")
@@ -4246,6 +4247,7 @@ func _initialize() -> void:
 	main.hud.show_menu("Grass Strip", 10, 3, 0, "", 2)
 	check(absf(rad_to_deg(deg_to_rad(2.0)) - 2.0) < 0.001 and zu_art.lockup and zu_art.lockup_airport == "Grass Strip", "the title sits at a 2 degree tilt over the live field")
 	main.hud.show_select(3, PackedByteArray([1, 0, 0, 0, 0, 0]), PackedInt32Array([2, 0, 0, 0, 0, 0]), PackedInt32Array([120, 0, 0, 0, 0, 0]), 0)
+	zu_art = main.hud._art
 	var zu_ids = []
 	for zu_k in zu_art.btn_count:
 		zu_ids.append(zu_art.btn_id[zu_k])

@@ -53,7 +53,9 @@ const LIP := 7.0                         # the 7 px edge under the primary butto
 
 # ---- motion (seconds) ----
 const T_FAST := 0.12                     # press / release
-const T_BASE := 0.30                     # screen transitions, panels in
+const T_BASE := 0.30                     # (button release bounce)
+const T_PANEL := 0.18                    # a screen or panel opening: opacity and scale of its layer
+const PANEL_FROM := 0.94                 # ...scaling up from this
 const T_SLOW := 0.5                      # celebrations
 const STAGGER := 0.05                    # between cards animating in
 const OVERSHOOT := 1.70158               # ease-out-back constant for popups

@@ -109,3 +109,28 @@ Worst menu frames in the first 20 s under a 4x CPU slowdown with all six airport
 | first frame of the menu | 24 ms (`hud.show_menu` 14 ms) | the same |
 
 A phone's GPU does not make the browser wait for a frame on an upload the way SwiftShader does, so the long ones should be shorter there.
+
+## Opening a panel (180 ms, transform and opacity only)
+
+Airports, Upgrades and the Hangar are laid out **before** they are tapped: `Main._prime_panels` (menu idle for 0.6 s) fills each panel's own
+`Art` while it sits parked off screen (`Hud.PARK`; a hidden item is drawn again when shown, a parked one keeps what it drew), one panel a
+frame. Opening one only moves the layer: `Hud._apply_transition` scales it 0.94 -> 1 (ease-out back) and fades it 0 -> 1 in
+`Style.T_PANEL` (0.18 s); nothing inside is resized, laid out or redrawn. A panel is laid out again only when its data signature changed
+(coins, stars, a purchase, safe area). The results card and the pause menu use the same pop; the pause sheet is no longer part of the
+shift interface's redraw, and the first frame of a screen is drawn invisibly (`_tr_wait`) before it starts to move.
+
+Both fonts are MSDF (`assets/fonts/*.import`), so a size never rasterises a glyph. The characters that are not ASCII (the minus on
+the results chips, the middle dot, dashes) are in the start-up pre-warm rows too: the first sight of the minus sign (a glyph Bowlby One SC
+does not carry, so it came from a fallback face) cost 20 ms in the results card.
+
+`tools/web_panel_check.js` (CI step "Panel open check") opens each panel in the exported build at 4x throttle, reads the game's own
+frame cost from `window.__menu` and fails on any frame over 33 ms. Slowest frame of the game's own code while a panel opens, 4x, headless
+Chromium on software GL:
+
+| | before | after |
+|---|---|---|
+| Airports | 19.8 ms | 4-9 ms |
+| Upgrades | 24.4 ms | 4-11 ms |
+| Hangar | 16.4 ms | 6-14 ms |
+| Pause (first open) | 20.1 ms | 7-15 ms |
+| Results | not measured (first sight of the minus sign: 70+ ms) | 30-32 ms |

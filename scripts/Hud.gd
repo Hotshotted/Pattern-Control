@@ -60,6 +60,7 @@ class Art extends Control:
 	var details_lines := PackedStringArray()
 	# ---- the pause menu ----
 	var show_pause := false
+	var warm := false                  # (the start-up pre-warm draws the pause sheet and sliders too, under the shift's interface)
 	var pause_rect := Rect2(Style.GUTTER * 0.5, 10.0, 80.0, 80.0)   # the pause button, top-left (the wind dial is on the right)
 	var slider_rect: Array[Rect2] = [Rect2(), Rect2(), Rect2()]      # 0 effects, 1 music, 2 ambience
 	var slider_val := PackedFloat32Array([0.8, 0.8, 0.8])
@@ -602,7 +603,7 @@ class Art extends Control:
 
 	## Is anything on the buttons still moving (so the art needs redrawing every frame)?
 	func animating() -> bool:
-		return (btn_count > 0 and btn_age < 0.9) or (press_k >= 0 and press_t < Style.T_FAST) or (rel_k >= 0 and rel_t < Style.T_BASE)
+		return (press_k >= 0 and press_t < Style.T_FAST) or (rel_k >= 0 and rel_t < Style.T_BASE)       # (a panel opening is the layer's transform and opacity: nothing is redrawn for it)
 
 	func clear_buttons() -> void:
 		btn_count = 0
@@ -637,15 +638,10 @@ class Art extends Control:
 				return k
 		return -1
 
-	## Every button pops in (staggered, overshooting) when its screen appears, squashes while pressed and bounces back.
+	## A button squashes while pressed and bounces back. (They do not animate when a screen opens: the whole panel does, as a layer.)
 	func _draw_buttons() -> void:
 		for k in btn_count:
 			var s := 1.0
-			var t := (btn_age - minf(float(k), 6.0) * Style.STAGGER) / Style.T_BASE
-			if t < 1.0:
-				s = Style.ease_out_back(maxf(t, 0.0))
-				if s <= 0.01:
-					continue
 			if press_k == k:
 				s *= lerpf(1.0, 0.94, Style.ease_out_cubic(press_t / Style.T_FAST))
 			elif rel_k == k and rel_t < Style.T_BASE:
@@ -1151,10 +1147,17 @@ class Art extends Control:
 		if sp >= 0.0 and sp < 1.0:
 			_sparks(lc + Vector2(0, -60.0), sp, 60.0, 280.0, 12, Style.ACCENT)
 
+	func _span(what: String, since: int) -> int:
+		var n := Time.get_ticks_usec()
+		if n - since > 4000:
+			Boot.add("interface art: " + what.strip_edges(), float(n - since) / 1000.0)
+		return n
+
 	func _draw() -> void:
 		var t_start := Time.get_ticks_usec()
 		_draw_all()
 		last_draw_us = Time.get_ticks_usec() - t_start
+		Boot.add("interface art redraw", float(last_draw_us) / 1000.0)
 
 	func _draw_all() -> void:
 		if logo_t >= 0.0:
@@ -1174,26 +1177,34 @@ class Art extends Control:
 			draw_style_box(_sb_hdr, pr2)
 			glyph(header2_glyph, Vector2(pr2.position.x + 50.0, pr2.get_center().y), 25.0)
 			ptext(header2_text, Vector2(pr2.position.x + 92.0, pr2.get_center().y + 16.0), 46, C_TEXT)
-		if show_pause and pause_card.size.x > 0.0:
+		var t0 := Time.get_ticks_usec()
+		if (show_pause or warm) and pause_card.size.x > 0.0:
 			panel(_sb_sheet, pause_card, _sheen_l)
+		t0 = _span("  pause card", t0)
 		if show_result:
 			_draw_results()
+		t0 = _span("  results card", t0)
 		if unlock_t >= 0.0:
 			_draw_unlock()
 		_draw_buttons()
+		t0 = _span("  buttons", t0)
 		if show_play and not show_pause:
 			_draw_hud()
-		elif show_play and show_pause:
-			pass
-		if show_pause:
+		t0 = _span("  shift interface", t0)
+		if show_pause or warm:
 			_draw_sliders()
+		t0 = _span("  sliders", t0)
 		_draw_pills()
 		_draw_confetti()
 		for i in fc_s.size():
 			if fc_s[i] > 0.01:
 				glyph("coin", fc_pos[i], 26.0 * fc_s[i])
 
-var _art: Art
+var _art: Art                      # the one every screen draws with right now (the main one, or one of the three pre-built panels)
+var _main_art: Art
+var _panel_arts := {}              # "select" | "upgrades" | "shop" -> the Art that holds that panel, laid out in advance
+var _panel_sig := {}               # ...and the data it was laid out with
+var priming := false               # Main is laying a panel out in advance (hidden): no transition, no screen change
 var _score: Label                    # the coin total (rolls up)
 var _best: Label                     # the shift clock
 var _wind_banner: Label              # the one banner (wind shifts, last arrivals, weather starting...)
@@ -1287,6 +1298,7 @@ func _ready() -> void:
 	_logo_bg.visible = false
 	add_child(_logo_bg)
 	_art = Art.new()
+	_main_art = _art
 	add_child(_art)
 	_score = _label(SZ_XL, HORIZONTAL_ALIGNMENT_CENTER)
 	_score.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
@@ -1479,6 +1491,8 @@ const SLIDE := 140.0
 const DEPTH := {"menu": 0.0, "select": 1.0, "upgrades": 1.0, "list": 1.0, "play": 2.0, "results": 3.0, "pause": 2.5, "ad": 2.5}
 const POP_KINDS := ["results", "pause", "ad"]
 var _tr_t := 99.0
+var transition_count := 0
+var _tr_wait := 0              # frames to wait before the transition starts (one: the panel's first, invisible, draw)
 var _tr_dir := 0
 var _tr_kind := ""
 var _tr_depth := 0.0
@@ -1494,6 +1508,8 @@ const LOGO_FADE := 0.3
 ## A new screen is about to show: arm its transition (slide forward / back, or a scale pop for sheets). Redrawing the
 ## same screen (a shop tab, a purchase) does not replay it.
 func _go(kind: String) -> void:
+	if DebugFlags.perf_enabled() and OS.has_feature("web"):
+		call_deferred("_publish_buttons")
 	if _prewarming or kind == _tr_kind:
 		_tr_kind = kind
 		return
@@ -1503,12 +1519,24 @@ func _go(kind: String) -> void:
 	_tr_dir = 0 if kind in POP_KINDS else int(signf(d - _tr_depth))
 	_tr_depth = d
 	_tr_kind = kind
+	transition_count += 1
 	_tr_t = 0.0
-	_art.btn_age = 0.0
+	_tr_wait = 1                 # (the panel is drawn once, invisibly, before it moves)
 	_art.press_k = -1
 	_art.rel_k = -1
 	_apply_transition()
 	transition_started.emit(_tr_dir)
+
+## ?perf on the web: where every button on screen is (CSS pixels, `window.__btn`), for the web checks to tap.
+func _publish_buttons() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var sc := float(JavaScriptBridge.eval("window.innerWidth")) / vp.x
+	var parts: Array[String] = []
+	for k in _art.btn_count:
+		var c: Vector2 = _art.btn_rect[k].get_center()
+		parts.append("%s: [%.1f, %.1f]" % [JSON.stringify(_art.btn_id[k]), c.x * sc, c.y * sc])
+	var pc: Vector2 = _art.pause_rect.get_center() * sc
+	JavaScriptBridge.eval("window.__btn = {" + ", ".join(parts) + "}; window.__screen = %s; window.__pausePos = [%.1f, %.1f]" % [JSON.stringify(_tr_kind), pc.x, pc.y])
 
 func transition_kind() -> String:
 	return _tr_kind
@@ -1517,19 +1545,18 @@ func transition_dir() -> int:
 	return _tr_dir
 
 func transitioning() -> bool:
-	return _tr_t < Style.T_BASE
+	return _tr_t < Style.T_PANEL or _tr_wait > 0
 
 func _apply_transition() -> void:
-	var k := clampf(_tr_t / Style.T_BASE, 0.0, 1.0)
-	var e := Style.ease_out_cubic(k)
-	var a := clampf(_tr_t / (Style.T_BASE * 0.7), 0.0, 1.0)
-	if k >= 1.0:
+	# Opening a screen: the layer scales up from 94% with a little overshoot (ease-out back) and fades in from nothing, in 180 ms.
+	# Position, scale and opacity of the whole layer only: nothing inside is resized, re-laid out or redrawn for it.
+	var k := clampf(_tr_t / Style.T_PANEL, 0.0, 1.0)
+	var a := 0.0 if _tr_wait > 0 else clampf(_tr_t / (Style.T_PANEL * 0.8), 0.0, 1.0)
+	if k >= 1.0 and _tr_wait <= 0:
 		transform = Transform2D.IDENTITY
 		a = 1.0
-	elif _tr_dir != 0:
-		transform = Transform2D(0.0, Vector2.ONE, 0.0, Vector2(_tr_dir * SLIDE * (1.0 - e), 0.0))
 	else:
-		var sc := lerpf(0.9, 1.0, Style.ease_out_back(k))
+		var sc := lerpf(Style.PANEL_FROM, 1.0, Style.ease_out_back(k))
 		var vp := get_viewport().get_visible_rect().size
 		transform = Transform2D(0.0, Vector2(sc, sc), 0.0, vp * 0.5 * (1.0 - sc))
 	for n in _tr_nodes:
@@ -1663,10 +1690,11 @@ func _tick_logo(delta: float) -> void:
 ## button and the top-anchored labels move in; screens read Style.safe_* when they are laid out.
 func apply_safe() -> void:
 	var t := Style.safe_top
-	_art.top = t
-	_art.left = Style.safe_left
-	_art.right = Style.safe_right
-	_art.pause_rect = Rect2(Style.GUTTER * 0.5 + Style.safe_left, 10.0 + t, 80.0, 80.0)
+	for a in [_main_art] + _panel_arts.values():
+		a.top = t
+		a.left = Style.safe_left
+		a.right = Style.safe_right
+		a.pause_rect = Rect2(Style.GUTTER * 0.5 + Style.safe_left, 10.0 + t, 80.0, 80.0)
 	_score.offset_top = 56 + t
 	_best.offset_top = 6 + t
 	_wind_banner.offset_top = 262 + t
@@ -1901,6 +1929,7 @@ func resume_play() -> void:
 	_art.queue_redraw()
 
 func _hide_all_screens() -> void:
+	_use_main()
 	_menu.visible = false
 	_over.visible = false
 	_select.visible = false
@@ -1908,6 +1937,7 @@ func _hide_all_screens() -> void:
 	_art.show_pause = false
 	_art.show_play = false
 	_art.show_result = false
+	_art.show_pause = false
 	_art.show_wind = false
 	_wind_inited = false
 	_art.header_text = ""
@@ -2011,6 +2041,7 @@ func set_results_text(text: String) -> void:
 ## and by the tests.
 func skip_animations() -> void:
 	_tr_t = 99.0
+	_tr_wait = 0
 	_apply_transition()
 	_art.btn_age = 99.0
 	_art.press_k = -1
@@ -2032,26 +2063,90 @@ func results_revealed() -> bool:
 
 # ---------- Lists ----------
 
+
+# ---------- The panels, laid out in advance ----------
+# Airports, Upgrades and the Hangar each have their own Art. Main lays them out while the menu is idle (`priming`: hidden, drawn once,
+# invisibly), so tapping one just shows what is already drawn: the layer's transform and opacity are all that animate. If what the panel
+# shows has changed since (coins, stars, a purchase), it is laid out again when it is opened.
+
+## Where a panel waits: far off the screen (a hidden item is drawn again when it is shown; a parked one keeps what it drew).
+const PARK := Vector2(-30000.0, 0.0)
+
+func _panel_art(kind: String) -> Art:
+	if not _panel_arts.has(kind):
+		var a := Art.new()
+		add_child(a)
+		a.position = PARK
+		move_child(a, _main_art.get_index() + 1)
+		a.top = _main_art.top
+		a.left = _main_art.left
+		a.right = _main_art.right
+		a.btn_age = 99.0
+		_panel_arts[kind] = a
+		_tr_nodes.append(a)
+	return _panel_arts[kind]
+
+func _use_main() -> void:
+	_art = _main_art
+	_main_art.visible = true
+	for a in _panel_arts.values():
+		a.position = PARK
+
+## Make `kind` the panel being drawn: `layout` fills its Art (only if `sig`, the data, is not what it was laid out with). Returns the Art.
+func _use_panel(kind: String, sig: String, layout: Callable) -> void:
+	var pa := _panel_art(kind)
+	var prev := _art
+	_art = pa
+	if _panel_sig.get(kind, "") != sig:
+		layout.call()
+		_panel_sig[kind] = sig
+	elif not priming:
+		# (laid out already: only the header totals, which the screen change switched off, come back as they were drawn)
+		_hdr_on[0] = pa.header_glyph != ""
+		_hdr_on[1] = pa.header2_glyph != ""
+		_hdr_shown[0] = float(pa.header_text.to_int())
+		_hdr_shown[1] = float(pa.header2_text.to_int())
+		_hdr_target = _hdr_shown.duplicate()
+	if priming:
+		_art = prev                # (it stays parked off the screen: drawn once, out of sight)
+	else:
+		_main_art.visible = false
+		pa.position = Vector2.ZERO
+		pa.btn_age = 99.0
+		pa.press_k = -1
+		pa.rel_k = -1
+
+func panel_ready(kind: String) -> bool:
+	return _panel_sig.has(kind)
+
+func _sig(parts: Array) -> String:
+	var out := PackedStringArray()
+	for x in parts:
+		out.append(str(x))
+	return "|".join(out) + "|%d|%.1f|%.1f|%.1f|%d" % [get_viewport().get_visible_rect().size.x, Style.safe_top, Style.safe_bottom, Style.safe_left, _loading_airport]
+
 ## The airport select screen: one big card per airport, with just its name, stars and lock state.
 func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Array, _best_scores: PackedInt32Array, selected: int) -> void:
-	_go("select")
-	_hide_all_screens()
-	_select.visible = true
-	_select_title.text = "AIRPORTS"
-	_set_header(0, "star", total_stars)
-	var vp := get_viewport().get_visible_rect().size
-	_art.clear_buttons()
-	_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
-	for i in Airports.COUNT:
-		var r := Rect2(40.0, 150.0 + Style.safe_top + i * 252.0, vp.x - 80.0, 236.0)
-		if open[i] != 0:
-			var best := _best_scores[i] if i < _best_scores.size() else 0
-			_art.add_button("pick:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, Airports.tag(i), stars[i], -1, {"kind": 1, "map": i, "cost": maxi(best, 0)})
-			if i == selected:
-				_art.add_button("airport:%d" % i, "Fly here", Rect2(r.end.x - 270.0, r.get_center().y - 52.0, 240.0, 104.0), 0, "", -1, -1, {"kind": 8})
-		else:
-			_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, Airports.tag(i), -1, -1, {"kind": 1, "map": i, "lock": Airports.unlock_stars(i)})
-	_art.queue_redraw()
+	if not priming:
+		_go("select")
+		_hide_all_screens()
+		_select.visible = true
+		_select_title.text = "AIRPORTS"
+	_use_panel("select", _sig([total_stars, open, stars, _best_scores, selected]), func() -> void:
+		_set_header(0, "star", total_stars)
+		var vp := get_viewport().get_visible_rect().size
+		_art.clear_buttons()
+		_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+		for i in Airports.COUNT:
+			var r := Rect2(40.0, 150.0 + Style.safe_top + i * 252.0, vp.x - 80.0, 236.0)
+			if open[i] != 0:
+				var best := _best_scores[i] if i < _best_scores.size() else 0
+				_art.add_button("pick:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, Airports.tag(i), stars[i], -1, {"kind": 1, "map": i, "cost": maxi(best, 0)})
+				if i == selected:
+					_art.add_button("airport:%d" % i, "Fly here", Rect2(r.end.x - 270.0, r.get_center().y - 52.0, 240.0, 104.0), 0, "", -1, -1, {"kind": 8})
+			else:
+				_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, Airports.tag(i), -1, -1, {"kind": 1, "map": i, "lock": Airports.unlock_stars(i)})
+		_art.queue_redraw())
 
 ## The airport card whose scenery is still being built says so (its subtitle) until it is there; -1 clears it.
 var _loading_airport := -1
@@ -2070,49 +2165,53 @@ func set_loading_airport(i: int) -> void:
 
 ## A generic list screen: optional tab chips, then cards {id, title, sub, state, stars, icon, cost}, then Back.
 func show_list(title: String, coins: int, tabs: Array, cards: Array) -> void:
-	_go("list:" + title)
-	_hide_all_screens()
-	_select.visible = true
-	_select_title.text = title
-	_set_header(0, "coin", coins)
-	var vp := get_viewport().get_visible_rect().size
-	_art.clear_buttons()
-	_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
-	var y := 130.0 + Style.safe_top
-	if not tabs.is_empty():
-		var w := (vp.x - 80.0 - 20.0 * (tabs.size() - 1)) / tabs.size()
-		for k in tabs.size():
-			_art.add_button(tabs[k]["id"], tabs[k]["title"], Rect2(40.0 + k * (w + 20.0), y, w, 90.0), 2 if tabs[k]["selected"] else 0)
-		y += 120.0
-	for c in cards:
-		_art.add_button(c["id"], c["title"], Rect2(40.0, y, vp.x - 80.0, 160.0), c["state"], c["sub"], c.get("stars", -1), c.get("icon", -1), {"kind": 1, "cost": c.get("cost", -1), "glyph": c.get("glyph", "")})
-		y += 176.0
-	_art.queue_redraw()
+	if not priming:
+		_go("list:" + title)
+		_hide_all_screens()
+		_select.visible = true
+		_select_title.text = title
+	_use_panel("shop", _sig([title, coins, tabs, cards]), func() -> void:
+		_set_header(0, "coin", coins)
+		var vp := get_viewport().get_visible_rect().size
+		_art.clear_buttons()
+		_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+		var y := 130.0 + Style.safe_top
+		if not tabs.is_empty():
+			var w := (vp.x - 80.0 - 20.0 * (tabs.size() - 1)) / tabs.size()
+			for k in tabs.size():
+				_art.add_button(tabs[k]["id"], tabs[k]["title"], Rect2(40.0 + k * (w + 20.0), y, w, 90.0), 2 if tabs[k]["selected"] else 0)
+			y += 120.0
+		for c in cards:
+			_art.add_button(c["id"], c["title"], Rect2(40.0, y, vp.x - 80.0, 160.0), c["state"], c["sub"], c.get("stars", -1), c.get("icon", -1), {"kind": 1, "cost": c.get("cost", -1), "glyph": c.get("glyph", "")})
+			y += 176.0
+		_art.queue_redraw())
 
 ## The upgrade shop: a card per upgrade with an icon, its name, one line of effect, level pips and the next price.
 func show_upgrades(coins: int, levels: PackedInt32Array) -> void:
-	_go("upgrades")
-	_hide_all_screens()
-	_select.visible = true
-	_select_title.text = "UPGRADES"
-	_set_header(0, "coin", coins)
-	var vp := get_viewport().get_visible_rect().size
-	_art.clear_buttons()
-	_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
-	for i in Upgrades.IDS.size():
-		var id: String = Upgrades.IDS[i]
-		var lvl := levels[i]
-		var price := Upgrades.cost(id, lvl)
-		var r := Rect2(40.0, 150.0 + Style.safe_top + i * 190.0, vp.x - 80.0, 170.0)
-		var state := 0
-		if price < 0:
-			state = 2
-		elif coins < price:
-			state = 1
-		else:
-			state = 2
-		_art.add_button("upg:" + id, Upgrades.upgrade_name(id), r, state, Upgrades.description(id), -1, -1, {"kind": 1, "glyph": Upgrades.glyph(id), "pips": lvl, "cost": maxi(price, 0), "tint": [Style.PRIMARY, Color("a06bff"), Style.WARNING, Style.DANGER, Style.SUCCESS, Color("ff8a3d")][i % 6]})
-	_art.queue_redraw()
+	if not priming:
+		_go("upgrades")
+		_hide_all_screens()
+		_select.visible = true
+		_select_title.text = "UPGRADES"
+	_use_panel("upgrades", _sig([coins, levels]), func() -> void:
+		_set_header(0, "coin", coins)
+		var vp := get_viewport().get_visible_rect().size
+		_art.clear_buttons()
+		_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+		for i in Upgrades.IDS.size():
+			var id: String = Upgrades.IDS[i]
+			var lvl := levels[i]
+			var price := Upgrades.cost(id, lvl)
+			var r := Rect2(40.0, 150.0 + Style.safe_top + i * 190.0, vp.x - 80.0, 170.0)
+			var state := 0
+			if price < 0:
+				state = 2
+			elif coins < price:
+				state = 1
+			else:
+				state = 2
+			_art.add_button("upg:" + id, Upgrades.upgrade_name(id), r, state, Upgrades.description(id), -1, -1, {"kind": 1, "glyph": Upgrades.glyph(id), "pips": lvl, "cost": maxi(price, 0), "tint": [Style.PRIMARY, Color("a06bff"), Style.WARNING, Style.DANGER, Style.SUCCESS, Color("ff8a3d")][i % 6]})
+		_art.queue_redraw())
 
 ## The id of the enabled button under `pos` ("" if none).
 func button_at(pos: Vector2) -> String:
@@ -2511,11 +2610,12 @@ func _process_inner(delta: float) -> void:
 			_art.tip_alpha = ta
 			_art.queue_redraw()
 	# Screen transition, button motion, rolling header totals, coins in flight.
-	if _tr_t < Style.T_BASE:
+	if _tr_wait > 0:
+		_tr_wait -= 1
+		_apply_transition()
+	elif _tr_t < Style.T_PANEL:
 		_tr_t += delta
 		_apply_transition()
-	if _art.btn_age < 2.0:
-		_art.btn_age += delta
 	if _art.press_k >= 0:
 		_art.press_t += delta
 	if _art.rel_k >= 0 and _art.rel_t < 1.0:
@@ -2605,6 +2705,8 @@ func begin_prewarm() -> void:
 	_art.bar_shown = 150.0
 	_art.show_play = true
 	_art.show_result = true
+	_art.warm = true
+	_art.pause_card = Rect2(140.0, 700.0, 800.0, 470.0)
 	_art.res_stars = 2
 	_art.res_total = 123
 	_art.res_t = 99.0
@@ -2623,6 +2725,15 @@ func begin_prewarm() -> void:
 	var open := PackedByteArray([1, 1, 0, 1, 0, 1])
 	var st := PackedInt32Array([3, 2, 0, 1, 0, 3])
 	show_select(14, open, st, PackedInt32Array([12, 5, 0, 9, 0, 33]), 1)
+	_use_main()                  # (the main Art carries the results card, the pause sheet and the shift's interface: warm those)
+	set_results_ads(10, 10)
+	var pv := get_viewport().get_visible_rect().size
+	_art.add_button("resume", "RESUME", Rect2(pv.x * 0.5 - 420.0, pv.y * 0.5 - 420.0, 840.0, 230.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
+	_art.add_button("restart", "Restart", Rect2(pv.x * 0.5 - 330.0, pv.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
+	_art.add_button("quit", "Menu", Rect2(pv.x * 0.5 + 110.0, pv.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
+	_art.slider_rect[1] = Rect2(pv.x * 0.5 - 250.0, pv.y * 0.5 - 70.0, 620.0, 80.0)
+	_art.slider_rect[0] = Rect2(pv.x * 0.5 - 250.0, pv.y * 0.5 + 60.0, 620.0, 80.0)
+	_art.slider_rect[2] = Rect2(pv.x * 0.5 - 250.0, pv.y * 0.5 + 190.0, 620.0, 80.0)
 	_select.visible = true
 	_menu.visible = true
 	_over.visible = true
@@ -2636,6 +2747,7 @@ func begin_prewarm() -> void:
 	var ascii := ""
 	for cp in range(32, 127):
 		ascii += char(cp)
+	ascii += "\u2212\u00b7\u2014\u2013\u2019\u00d7\u2026"       # (the minus on the fines chip, the middle dot, dashes, an apostrophe, a times sign: not ASCII, and a first sight of one costs a frame)
 	var row := 0
 	for face in 2:
 		for sz in [SZ_S, SZ_M, SZ_XL]:
@@ -2687,6 +2799,9 @@ func end_prewarm() -> void:
 	_over_body.visible = false
 	_art.show_play = false
 	_art.show_result = false
+	_art.warm = false
+	_art.show_pause = false
+	_art.clear_buttons()
 	_art.show_wind = false
 	_art.chip_finale = ""
 	_art.chip_weather = ""

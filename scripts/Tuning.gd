@@ -267,6 +267,7 @@ var haptic_ms := 25
 var score_punch := 0.35
 
 # ---------- Start-up pre-warm ----------
+var menu_log_all := false            # ?perf: log the menu's slow frames for the whole visit, not only its first 20 s (the panel check opens panels later)
 var prewarm_min_seconds := 0.6
 var prewarm_stable_frames := 6
 var prewarm_stable_ms := 45.0

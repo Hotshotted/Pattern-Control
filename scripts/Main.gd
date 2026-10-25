@@ -95,6 +95,10 @@ var _last_world := Vector2.ZERO
 func _ready() -> void:
 	Boot.mark("main: children ready")
 	if DebugFlags.perf_enabled():
+		Tuning.menu_log_all = true
+		if OS.has_feature("web"):          # (the web checks end a shift on demand)
+			_end_cb = JavaScriptBridge.create_callback(func(_a): _end_shift())
+			JavaScriptBridge.get_interface("window").__endShift = _end_cb
 		process_priority = -1000                  # (first of the frame's _process calls, and the probe last: the game's own code, timed)
 		var probe := Node.new()
 		probe.process_priority = 1000
@@ -197,6 +201,7 @@ func _ready() -> void:
 ## built yet gets a short loading state on its card (`request_airport`), and the build takes more of each frame until it is there.
 const IDLE_BUILD_AFTER_MS := 2000
 var _idle_since_ms := 0
+var _idle_transitions := 0
 var wanted_airport := -1               # an airport the player picked that is still being built
 func _idle_build() -> void:
 	var busy := _warming or screen == SCREEN_PLAY or screen == SCREEN_PAUSE or hud.logo_active()
@@ -205,8 +210,9 @@ func _idle_build() -> void:
 		_idle_since_ms = 0
 		return
 	var now := Time.get_ticks_msec()
-	if _idle_since_ms == 0:
-		_idle_since_ms = now
+	if _idle_since_ms == 0 or hud.transition_count != _idle_transitions or _touch_ms > _idle_since_ms:
+		_idle_since_ms = now          # (a screen change or a touch starts the wait again)
+		_idle_transitions = hud.transition_count
 	if wanted_airport >= 0:
 		if airfield.is_built(wanted_airport):
 			var a := wanted_airport
@@ -217,8 +223,45 @@ func _idle_build() -> void:
 			airfield.select(airport)
 			_show_select() if screen == SCREEN_SELECT else _show_menu()
 		return
-	if now - _idle_since_ms >= IDLE_BUILD_AFTER_MS and not airfield.background_running():
+	if screen == SCREEN_MENU and now - _idle_since_ms >= 600 and not hud.transitioning() and not _priming_busy:
+		_prime_panels()
+	if now - _idle_since_ms >= IDLE_BUILD_AFTER_MS and not airfield.background_running() and not _priming_busy:
 		airfield.start_background()
+
+## The three panels (Airports, Upgrades, Hangar) are laid out in advance while the menu sits idle, so opening one is only an animation
+## of its layer (see Hud._use_panel). Quick when nothing has changed since: each just compares its data.
+var _priming_busy := false
+func _prime_panels() -> void:
+	if _priming_busy:
+		return
+	_priming_busy = true
+	var open := PackedByteArray()
+	var stars := PackedInt32Array()
+	var best := PackedInt32Array()
+	for i in Airports.COUNT:
+		open.append(1 if Save.airport_open(i) else 0)
+		stars.append(Save.stars_of(i))
+		best.append(Save.best_for(i))
+	# (`priming` is on only while a panel is being laid out, never across a frame: a tap in between is a real one)
+	hud.priming = true
+	hud.show_select(Save.stars_total(), open, stars, best, airport)
+	hud.priming = false
+	await get_tree().process_frame
+	if screen == SCREEN_MENU:
+		var levels := PackedInt32Array()
+		for id in Upgrades.IDS:
+			levels.append(Save.upgrade_level(id))
+		hud.priming = true
+		hud.show_upgrades(Save.coins, levels)
+		hud.priming = false
+		await get_tree().process_frame
+	if screen == SCREEN_MENU:
+		var sh := _shop_args()
+		hud.priming = true
+		hud.show_list("SHOP", Save.coins, sh[0], sh[1])
+		hud.priming = false
+		await get_tree().process_frame
+	_priming_busy = false
 
 ## The player picked airport `i`: if its scenery is built, go there; if not, show a loading state on its card and carry on when it is.
 func request_airport(i: int) -> bool:
@@ -529,6 +572,7 @@ var _proc_sum := 0.0
 var _proc_max := 0.0
 var _proc_over := 0
 var _probe_t0 := 0
+var _end_cb: JavaScriptObject
 var _menu_first_ms := 0
 var _frame_last_us := 0
 var menu_worst_script := 0.0          # the slowest frame of the game's own code on the menu in its first 20 s (ms)
@@ -537,7 +581,9 @@ var menu_hitches := 0
 ## interface), to the console and, on the web, `window.__menu` (the web boot check reads it). `script_ms` is the game's own code in the
 ## frame (first _process to last); `wall` is the frame as the browser saw it.
 func _log_menu_frame(script_ms: float) -> void:
-	script_ms += float(Boot.frame_spans.get("airport build (background)", 0.0))      # (the build runs as the frame starts, before the first _process)
+	# (the background build runs as the frame starts, before the first _process, and the interface's canvas is redrawn after the last one:
+	# both are ours and both are part of the frame)
+	script_ms += float(Boot.frame_spans.get("airport build (background)", 0.0)) + float(Boot.frame_spans.get("interface art redraw", 0.0))
 	var now := Time.get_ticks_usec()
 	var wall := float(now - _frame_last_us) / 1000.0 if _frame_last_us > 0 else 0.0
 	_frame_last_us = now
@@ -545,7 +591,7 @@ func _log_menu_frame(script_ms: float) -> void:
 		Boot.frame_spans.clear()
 		return
 	var since := float(Time.get_ticks_msec() - _menu_first_ms) / 1000.0
-	if since <= 20.0:
+	if since <= 20.0 or Tuning.menu_log_all:
 		menu_worst_script = maxf(menu_worst_script, script_ms)
 		if script_ms > 33.0 or wall > 33.0:
 			menu_hitches += 1
@@ -555,7 +601,7 @@ func _log_menu_frame(script_ms: float) -> void:
 			var what := ", ".join(parts) if not parts.is_empty() else "nothing of ours"
 			print("[menu-hitch] t=%.1fs wall %.0f ms, our code %.1f ms: %s" % [since, wall, script_ms, what])
 			if OS.has_feature("web"):
-				JavaScriptBridge.eval("(window.__menu = window.__menu || []).push([%.2f, %.1f, %.2f, %s])" % [since, wall, script_ms, JSON.stringify(what)])
+				JavaScriptBridge.eval("(window.__menu = window.__menu || []).push([%.2f, %.1f, %.2f, %s, performance.now()])" % [since, wall, script_ms, JSON.stringify(what)])
 	Boot.frame_spans.clear()
 
 func _log_process_time(ms: float) -> void:
@@ -1020,7 +1066,7 @@ func _end_shift() -> void:
 		shift.set_finish(t_end, Tuning.par_eff(), int(Tuning.early_bonus_per_second))
 	else:
 		shift.set_overtime(t_end - Tuning.par_eff(), int(Tuning.overtime_penalty_per_second))
-	sfx.play("clear_sky" if shift.balance() >= 0 else "fine")
+	_stinger_later("clear_sky" if shift.balance() >= 0 else "fine")
 	var gained := _settle()
 	if not daily_mode:
 		Save.submit_best(airport, shift.landed)
@@ -1044,6 +1090,12 @@ func _end_shift() -> void:
 		Input.vibrate_handheld(150)
 
 var _daily_note := ""
+
+## The end-of-shift sting starts two frames after the results card is laid out, so its audio work is not in the frame that draws the card.
+func _stinger_later(sound: String) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	sfx.play(sound)
 
 ## Credit what the shift is worth right now and return what was added: coins, first-time stars, a new best, a note.
 ## Safe to call again after a refund: it pays only the difference, and each star and daily bonus only once.
@@ -1346,9 +1398,8 @@ func apply_cosmetics() -> void:
 	traffic.set_livery(li)
 	diorama.traffic.set_livery(li)
 
-func _show_shop() -> void:
-	screen = SCREEN_SHOP
-	alive = false
+## The Hangar's tabs and cards for the tab that is up.
+func _shop_args() -> Array:
 	var cards: Array = []
 	var kind := "theme" if shop_tab == 0 else "livery"
 	var n := Cosmetics.THEME_COUNT if shop_tab == 0 else Cosmetics.LIVERY_COUNT
@@ -1367,9 +1418,15 @@ func _show_shop() -> void:
 			cost = d["cost"]
 			state = 0 if Save.coins >= d["cost"] else 1
 		cards.append({"id": "%s:%d" % [kind, i], "title": d["name"], "sub": sub, "state": state, "icon": (100 + i) if shop_tab == 0 else d["animal"], "cost": cost})
-	hud.show_list("SHOP", Save.coins, [
+	return [[
 		{"id": "shop_tab:0", "title": "THEMES", "selected": shop_tab == 0},
-		{"id": "shop_tab:1", "title": "LIVERIES", "selected": shop_tab == 1}], cards)
+		{"id": "shop_tab:1", "title": "LIVERIES", "selected": shop_tab == 1}], cards]
+
+func _show_shop() -> void:
+	screen = SCREEN_SHOP
+	alive = false
+	var sh := _shop_args()
+	hud.show_list("SHOP", Save.coins, sh[0], sh[1])
 
 ## Tap a shop card: equip it if owned, otherwise buy (and equip) it.
 func shop_pick(kind: String, i: int) -> bool:

@@ -124,6 +124,14 @@ jobs:
           CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
           QUERY=perf THROTTLE=4 LIMIT_BUILD_MS=9000 LIMIT_FRAME_MS=33 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_boot_check.js build/web "$CHROME"
 
+      # Opening a panel must not stutter: Airports, Upgrades and the Hangar from the menu, the pause menu and the results card from a
+      # shift, each at a 4x CPU slowdown. No frame may spend over 33 ms in the game's own code while one opens.
+      - name: Panel open check
+        timeout-minutes: 10
+        run: |
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
+          THROTTLE=4 LIMIT_MS=33 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_panel_check.js build/web "$CHROME"
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/web
