@@ -672,9 +672,7 @@ class Art extends Control:
 					panel(_sb_primary, face, _sheen_o)
 				r = face
 				var gw := r.size.y * 0.34 if btn_glyph[k] != "" else 0.0
-				var fs := SZ_XL
-				while text_width(btn_text[k], fs) + gw > r.size.x - 90.0 and fs > 40:
-					fs -= 6
+				var fs := Style.fit_size(btn_text[k], SZ_XL, 40, r.size.x - 90.0 - gw)
 				var tw := text_width(btn_text[k], fs)
 				var x0 := r.get_center().x - (tw + gw) * 0.5
 				if gw > 0.0:
@@ -686,9 +684,7 @@ class Art extends Control:
 				if pressed:
 					face2.position.y += 4.0
 				panel(_sb_primary, face2, _sheen_o)
-				var fs2 := 40
-				while text_width(btn_text[k], fs2) > face2.size.x - 40.0 and fs2 > 24:
-					fs2 -= 4
+				var fs2 := Style.fit_size(btn_text[k], 40, 24, face2.size.x - 40.0)
 				btext(btn_text[k], Vector2(face2.position.x, face2.get_center().y + fs2 * 0.33), fs2, HORIZONTAL_ALIGNMENT_CENTER, face2.size.x)
 			3:      # a colour tile (ink border, a lip under it) with a small label under it: the pause buttons
 				var tint := btn_tint[k]
@@ -797,9 +793,7 @@ class Art extends Control:
 			_:
 				panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
 				var gw4 := r.size.y * 0.5 if btn_glyph[k] != "" else 0.0
-				var fs4 := SZ_M
-				while text_width(btn_text[k], fs4) + gw4 > r.size.x - 50.0 and fs4 > 30:
-					fs4 -= 4
+				var fs4 := Style.fit_size(btn_text[k], SZ_M, 30, r.size.x - 50.0 - gw4)
 				var tw4 := text_width(btn_text[k], fs4)
 				var sx := r.get_center().x - (tw4 + gw4) * 0.5
 				if btn_glyph[k] != "":
@@ -818,9 +812,7 @@ class Art extends Control:
 		_vignette(vig, btn_map[k], locked)
 		var tx := vig.end.x + 28.0
 		var avail := r.end.x - tx - (300.0 if sel else 40.0)
-		var nfs := 46
-		while text_width(btn_text[k], nfs) > avail and nfs > 28:
-			nfs -= 3
+		var nfs := Style.fit_size(btn_text[k], 46, 28, avail)
 		ptext(btn_text[k], Vector2(tx, r.position.y + 78.0), nfs, C_TEXT if not locked else C_QUIET, HORIZONTAL_ALIGNMENT_LEFT, avail)
 		draw_string(Style.body(), Vector2(tx, r.position.y + 118.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, avail, 26, C_SOFT if not locked else C_QUIET)
 		if not locked:
@@ -944,9 +936,7 @@ class Art extends Control:
 			if banner_glyph != "":
 				glyph(banner_glyph, Vector2(x + 30.0, r.get_center().y), 30.0, Color(banner_color.r, banner_color.g, banner_color.b, banner_alpha))
 				x += 84.0
-			var bfs := SZ_M
-			while text_width(banner_text, bfs) > r.end.x - x - 40.0 and bfs > 28:
-				bfs -= 4
+			var bfs := Style.fit_size(banner_text, SZ_M, 28, r.end.x - x - 40.0)
 			ptext(banner_text, Vector2(x, r.get_center().y + bfs * 0.34), bfs, Color(Style.TEXT.r, Style.TEXT.g, Style.TEXT.b, banner_alpha))
 		if tip_alpha > 0.01 and tip_text != "":
 			var r2 := tip_rect
@@ -983,9 +973,7 @@ class Art extends Control:
 			return
 		var s2 := size.y / 1920.0                 # (positions below are for a 1080 x 1920 screen)
 		# The title (over the field, cream on a warm extrusion) and where we were.
-		var tfs := 104
-		while text_width("SHIFT COMPLETE", tfs) > 1000.0 and tfs > 50:
-			tfs -= 4
+		var tfs := Style.fit_size("SHIFT COMPLETE", 104, 50, 1000.0)
 		Style.draw_ext(self, Vector2(cx - 520.0, 290.0 * s2 + top), "SHIFT COMPLETE", tfs, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
 		if res_sub != "":
 			text(res_sub, Vector2(cx - 520.0, 350.0 * s2 + top), SZ_S, C_CREAM, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
@@ -1012,9 +1000,7 @@ class Art extends Control:
 		var f := clampf((res_t - t_count) / 1.0, 0.0, 1.0)
 		var shown := roundi(res_total * (1.0 - pow(1.0 - f, 3.0)))
 		var label := "+%d" % shown
-		var bfs := 150
-		while text_width(label, bfs) > 560.0 and bfs > 80:
-			bfs -= 10
+		var bfs := Style.fit_size(label, 150, 80, 560.0)
 		var tw := text_width(label, bfs)
 		var ty := card.position.y + 230.0 * s2
 		glyph("coin", Vector2(cx - tw * 0.5 - 76.0, ty - 62.0), 54.0)
@@ -1128,9 +1114,7 @@ class Art extends Control:
 		var card := Rect2(cx - 430.0, cy - 340.0, 860.0, 680.0)
 		panel(_sb_sheet, card, _sheen_l)
 		draw_string(Style.text(), Vector2(cx - 400.0, cy - 40.0), "NEW AIRPORT", HORIZONTAL_ALIGNMENT_CENTER, 800.0, SZ_S, C_GOLD_TXT)
-		var ufs := SZ_XL
-		while text_width(unlock_name, ufs) > 780.0 and ufs > 40:
-			ufs -= 6
+		var ufs := Style.fit_size(unlock_name, SZ_XL, 40, 780.0)
 		ptext(unlock_name, Vector2(cx - 420.0, cy + 90.0), ufs, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, 840.0)
 		draw_string(Style.body(), Vector2(cx - 400.0, cy + 170.0), "ready for flights", HORIZONTAL_ALIGNMENT_CENTER, 800.0, SZ_S, Style.TEXT_SOFT)
 		# The padlock: the shackle pops up and swings open at 0.55 s.
@@ -2786,10 +2770,10 @@ func begin_prewarm() -> void:
 	ascii += "\u2212\u00b7\u2014\u2013\u2019\u00d7\u2026"       # (the minus on the fines chip, the middle dot, dashes, an apostrophe, a times sign: not ASCII, and a first sight of one costs a frame)
 	var row := 0
 	# (the sizes the interface draws text at: a glyph is rasterised once per face and size, so each size gets its row)
-	var sizes_text := [22, 24, 26, 28, 30, 34, 36, 40, 46, 54]
-	var sizes_display := [22, 24, 26, 28, 30, 34, 36, 40, 46, 54, SZ_M, 80, 104, SZ_XL, 120, 150]       # (digits are always the display face)
 	for face in 2:
-		for sz in (sizes_display if face == 0 else sizes_text):
+		for sz in Style.PREWARM_SIZES:
+			if face == 1 and sz >= SZ_M:       # (the text face is for small text; digits and big text are the display face)
+				continue
 			var wl := Label.new()
 			wl.text = ascii
 			wl.add_theme_font_size_override("font_size", sz)

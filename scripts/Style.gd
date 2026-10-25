@@ -107,6 +107,29 @@ static func draw_ext(ci: CanvasItem, pos: Vector2, s: String, size_px: int, alig
 		ci.draw_string(f, pos + Vector2(0, step * i), s, align, width, size_px, Color(c, alpha))
 	ci.draw_string(f, pos, s, align, width, size_px, Color(col, col.a * alpha))
 
+## Text that has to fit a width is drawn at the largest size of a fixed ladder that fits (never at an arbitrary pixel size): every
+## size on it is rasterised by the start-up pre-warm, so fitting a string never rasterises a glyph for the first time mid-game.
+const FIT := [150, 130, 110, 104, 96, 84, 74, 64, 56, 48, 42, 36, 32, 28, 24]
+
+## Every size the interface draws text at (the pre-warm rows): the ladder plus the fixed ones.
+const PREWARM_SIZES := [22, 24, 26, 28, 30, 32, 34, 36, 40, 42, 46, 48, 54, 56, 64, 74, 80, 84, 96, 104, 110, 120, 130, 150]
+
+## The size to draw `s` at: `start` if it fits `max_w`, else the largest ladder size below it that does (never under `min_px`).
+static func fit_size(s: String, start: int, min_px: int, max_w: float) -> int:
+	var f := font_for(s, start)
+	if f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, start).x <= max_w:
+		return start
+	var last := start
+	for sz in FIT:
+		if sz >= start:
+			continue
+		if sz < min_px:
+			break
+		last = sz
+		if font_for(s, sz).get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x <= max_w:
+			return sz
+	return last
+
 ## The font for a string at a size: the display face for big text and for numbers, the text face for the rest.
 static func font_for(s: String, size_px: int) -> Font:
 	if size_px >= SZ_M:
