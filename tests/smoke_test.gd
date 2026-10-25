@@ -4978,19 +4978,39 @@ func _initialize() -> void:
 		if lz_v != null:
 			lz_built += 1
 	check(lz_af.variants.size() == 6 and lz_built == 1 and lz_af.is_built(0) and lz_af.cur != null, "boot builds only the airport it opens on (%d of 6)" % lz_built)
-	var lz_steps := 0
-	while lz_af.build_step() and lz_steps < 200:
-		lz_steps += 1
-	lz_steps += 1
+	# the background build: one airport at a time, a few statements per frame, never more than its budget of a frame
+	check(lz_open < 6 and not lz_af.is_built(5) and not lz_af.background_running(), "...and leaves the locked ones for when they are needed")
+	lz_af.budget_us = 400
+	var lz_frames_started = Engine.get_process_frames()
+	var lz_worst_us = 0
+	var lz_seen_running = false
+	lz_af.bg_paused = true
+	check(lz_af.start_background(true) and lz_af.background_running(), "the background build starts (here with the build paused: a shift is on)")
+	for lz_i in 5:
+		await process_frame
+	var lz_units_paused = lz_af.bg_units
+	check(lz_af.background_running() and not lz_af.is_built(1), "...and a pause stops it between two statements (%d statements so far)" % lz_units_paused)
+	lz_af.bg_paused = false
+	var lz_guard = 0
+	while lz_af.background_running() and lz_guard < 3000:
+		var lz_t0 = Time.get_ticks_usec()
+		await process_frame
+		lz_worst_us = maxi(lz_worst_us, Time.get_ticks_usec() - lz_t0)
+		lz_guard += 1
+	check(lz_af.is_built(1) and lz_af.bg_frames >= 5 and lz_af.bg_units > 300, "...then it builds airport 1 across several frames (%d frames, %d statements)" % [lz_af.bg_frames, lz_af.bg_units])
+	lz_af.budget_us = 3000
+	while lz_af.start_background(true) and lz_guard < 6000:
+		while lz_af.background_running() and lz_guard < 6000:
+			await process_frame
+			lz_guard += 1
 	lz_built = 0
 	for lz_v in lz_af.variants:
 		if lz_v != null:
 			lz_built += 1
-	check(lz_built == lz_open and lz_steps <= (lz_open - 1) * lz_script.BUILD_PHASES, "the idle time builds the unlocked ones, a phase at a time (%d phases for %d airports)" % [lz_steps, lz_open - 1])
-	check(lz_open < 6 and not lz_af.is_built(5), "...and leaves the locked ones for when they are needed")
+	check(lz_built == 6 and lz_af.variants[5].phase == lz_script.BUILD_PHASES, "...and the rest one after another until all six are there")
 	lz_af.apply_theme(1)
 	lz_af.select(5)
-	check(lz_af.is_built(5) and lz_af.cur == lz_af.variants[5] and lz_af.variants[5].phase == lz_script.BUILD_PHASES, "selecting one that is missing builds it whole")
+	check(lz_af.is_built(5) and lz_af.cur == lz_af.variants[5], "selecting a built one shows it")
 	lz_af.select(2)
 	check(lz_af.variants[2].root.get_child_count() == main.airfield.variants[2].root.get_child_count() and lz_af.variants[5].root.get_child_count() == main.airfield.variants[5].root.get_child_count() and lz_af.variants[5].base_ground == main.airfield.variants[5].base_ground, "a late-built airport is the same airport as an eagerly built one")
 	check(lz_af.variants[2].ground_now.is_equal_approx(Cosmetics.THEMES[1]["ground"]), "...and wears the equipped theme")
@@ -5003,6 +5023,28 @@ func _initialize() -> void:
 	var lz_b3 = lz_a.box(lz_n1, Vector3(0.3, 0.2, 0.71), Vector3.ZERO, lz_a.mat(Color.WHITE))
 	check(lz_b1.mesh == lz_b2.mesh and lz_b1.mesh != lz_b3.mesh, "boxes of the same size share one mesh")
 	lz_n1.free()
+	# 	# picking an airport whose scenery is not built yet: the card says "Loading..." and the game carries on, then it goes there
+	var ld_save = root.get_node("Save")
+	ld_save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	Airports.current = 2
+	main.airfield.select(2)
+	main._show_select()
+	var ldz_old = main.airfield.variants[3]
+	main.airfield.variants[3] = null
+	ldz_old.root.queue_free()
+	main._on_button("pick:3")
+	var ldz_k = main.hud._art.btn_id.find("pick:3")
+	check(main.wanted_airport == 3 and main.screen == main.SCREEN_SELECT and main.airport == 2 and ldz_k >= 0 and main.hud._art.btn_sub[ldz_k] == "Loading...", "picking an airport that is still being built shows a loading state on its card, and the game does not freeze")
+	var ldz_frames = 0
+	while main.wanted_airport >= 0 and ldz_frames < 1500:
+		await process_frame
+		ldz_frames += 1
+	check(main.airfield.is_built(3) and main.airport == 3 and main.screen == main.SCREEN_SELECT and ldz_frames > 2, "...and when it is built the game goes there (%d frames later)" % ldz_frames)
+	main.select_airport(2)
+	Airports.current = 2
+	main.airfield.select(2)
+	main._show_menu()
 	# the baked textures are the formulas' pictures (assets/textures: run tools/bake_textures.gd after changing a formula)
 	var bk_ok := true
 	var bk_names := ""

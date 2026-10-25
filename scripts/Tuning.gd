@@ -267,7 +267,6 @@ var haptic_ms := 25
 var score_punch := 0.35
 
 # ---------- Start-up pre-warm ----------
-var idle_build_every := 4            # the menu's idle time builds one phase of a missing airport every this many frames
 var prewarm_min_seconds := 0.6
 var prewarm_stable_frames := 6
 var prewarm_stable_ms := 45.0

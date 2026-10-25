@@ -4,5 +4,10 @@ extends Node
 var main: Node
 
 func _process(_delta: float) -> void:
-	if main != null and main.screen == main.SCREEN_PLAY:
-		main._log_process_time((Time.get_ticks_usec() - main._probe_t0) / 1000.0)
+	if main == null:
+		return
+	var ms: float = (Time.get_ticks_usec() - main._probe_t0) / 1000.0
+	if main.screen == main.SCREEN_PLAY:
+		main._log_process_time(ms)
+	else:
+		main._log_menu_frame(ms)

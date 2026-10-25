@@ -94,7 +94,7 @@ var _last_world := Vector2.ZERO
 
 func _ready() -> void:
 	Boot.mark("main: children ready")
-	if DebugFlags.perf_enabled() and OS.has_feature("web"):
+	if DebugFlags.perf_enabled():
 		process_priority = -1000                  # (first of the frame's _process calls, and the probe last: the game's own code, timed)
 		var probe := Node.new()
 		probe.process_priority = 1000
@@ -191,15 +191,43 @@ func _ready() -> void:
 	if not _warming and tune_panel:
 		tune_panel.set_available(true)
 
-## While the menu (or any screen but a shift) is up, the airports that are not built yet are built a phase at a time, one phase
-## every few frames: the unlocked ones, the one on show first. (A shift never starts a build.)
-var _idle_frames := 0
+## While the menu (or any screen but a shift) is up, the airports that are not built yet are built in the background (unlocked ones
+## first): once the screen has been up for IDLE_BUILD_AFTER_MS, one airport at a time, a few statements between frames, never more than
+## `Airfield.budget_us` (3 ms) of any frame (see Airfield._slice). A shift pauses the build. The player picking an airport that is not
+## built yet gets a short loading state on its card (`request_airport`), and the build takes more of each frame until it is there.
+const IDLE_BUILD_AFTER_MS := 2000
+var _idle_since_ms := 0
+var wanted_airport := -1               # an airport the player picked that is still being built
 func _idle_build() -> void:
-	if _warming or screen == SCREEN_PLAY or screen == SCREEN_PAUSE or hud.logo_active():
+	var busy := _warming or screen == SCREEN_PLAY or screen == SCREEN_PAUSE or hud.logo_active()
+	airfield.bg_paused = busy
+	if busy:
+		_idle_since_ms = 0
 		return
-	_idle_frames += 1
-	if _idle_frames % Tuning.idle_build_every == 0:
-		airfield.build_step()
+	var now := Time.get_ticks_msec()
+	if _idle_since_ms == 0:
+		_idle_since_ms = now
+	if wanted_airport >= 0:
+		if airfield.is_built(wanted_airport):
+			var a := wanted_airport
+			wanted_airport = -1
+			hud.set_loading_airport(-1)
+			select_airport(a)
+			Airports.current = airport
+			airfield.select(airport)
+			_show_select() if screen == SCREEN_SELECT else _show_menu()
+		return
+	if now - _idle_since_ms >= IDLE_BUILD_AFTER_MS and not airfield.background_running():
+		airfield.start_background()
+
+## The player picked airport `i`: if its scenery is built, go there; if not, show a loading state on its card and carry on when it is.
+func request_airport(i: int) -> bool:
+	if airfield.is_built(i):
+		return true
+	wanted_airport = i
+	hud.set_loading_airport(i)
+	airfield.hurry(i)
+	return false
 
 ## First-use stutter fix: GL shaders / particle buffers / font glyphs set themselves up the first time
 ## they are used. So at boot, behind a splash, draw EVERYTHING for real (every plane, flashing; paths,
@@ -351,6 +379,8 @@ func restart() -> void:
 
 func _show_menu() -> void:
 	Boot.mark("menu shown")
+	if _menu_first_ms == 0:
+		_menu_first_ms = Time.get_ticks_msec()
 	screen = SCREEN_MENU
 	alive = false
 	daily_mode = false
@@ -362,7 +392,9 @@ func _show_menu() -> void:
 	hud.bad_done = Save.daily_done_today("bad")
 	airfield.progress = -1.0
 	_set_day(0.0)
+	var sm_t0 := Time.get_ticks_usec()
 	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport), Save.stars_of(airport))
+	Boot.add("hud.show_menu", float(Time.get_ticks_usec() - sm_t0) / 1000.0)
 
 # ---------- Frame time: the simulation can never run ahead of the clock ----------
 # However long the real frame was, the simulation advances by at most Tuning.max_frame_delta; a stall (a tab
@@ -497,6 +529,35 @@ var _proc_sum := 0.0
 var _proc_max := 0.0
 var _proc_over := 0
 var _probe_t0 := 0
+var _menu_first_ms := 0
+var _frame_last_us := 0
+var menu_worst_script := 0.0          # the slowest frame of the game's own code on the menu in its first 20 s (ms)
+var menu_hitches := 0
+## ?perf: every menu frame over 33 ms in the first 20 s, with what ran in it (the build of another airport, the pre-warm, audio, the
+## interface), to the console and, on the web, `window.__menu` (the web boot check reads it). `script_ms` is the game's own code in the
+## frame (first _process to last); `wall` is the frame as the browser saw it.
+func _log_menu_frame(script_ms: float) -> void:
+	script_ms += float(Boot.frame_spans.get("airport build (background)", 0.0))      # (the build runs as the frame starts, before the first _process)
+	var now := Time.get_ticks_usec()
+	var wall := float(now - _frame_last_us) / 1000.0 if _frame_last_us > 0 else 0.0
+	_frame_last_us = now
+	if _menu_first_ms == 0:
+		Boot.frame_spans.clear()
+		return
+	var since := float(Time.get_ticks_msec() - _menu_first_ms) / 1000.0
+	if since <= 20.0:
+		menu_worst_script = maxf(menu_worst_script, script_ms)
+		if script_ms > 33.0 or wall > 33.0:
+			menu_hitches += 1
+			var parts: Array[String] = []
+			for k in Boot.frame_spans:
+				parts.append("%s %.1f ms" % [k, Boot.frame_spans[k]])
+			var what := ", ".join(parts) if not parts.is_empty() else "nothing of ours"
+			print("[menu-hitch] t=%.1fs wall %.0f ms, our code %.1f ms: %s" % [since, wall, script_ms, what])
+			if OS.has_feature("web"):
+				JavaScriptBridge.eval("(window.__menu = window.__menu || []).push([%.2f, %.1f, %.2f, %s])" % [since, wall, script_ms, JSON.stringify(what)])
+	Boot.frame_spans.clear()
+
 func _log_process_time(ms: float) -> void:
 	_proc_n += 1
 	_proc_sum += ms
@@ -1185,6 +1246,8 @@ func _on_button(id: String) -> void:
 	elif id == "airports":
 		_show_select()
 	elif id.begins_with("pick:"):
+		if not request_airport(int(id.substr(5))):
+			return                    # (its scenery is still being built: the card says so, and this carries on when it is there)
 		select_airport(int(id.substr(5)))
 		Airports.current = airport
 		airfield.select(airport)
@@ -1453,6 +1516,8 @@ func _cycle_airport(dir: int) -> void:
 		i = posmod(i + dir, Airports.COUNT)
 		if Save.airport_open(i):
 			break
+	if i != airport and not request_airport(i):
+		return
 	select_airport(i)
 	Airports.current = airport           # (the field behind the menu follows)
 	airfield.select(airport)

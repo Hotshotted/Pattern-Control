@@ -2053,6 +2053,21 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 			_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, Airports.tag(i), -1, -1, {"kind": 1, "map": i, "lock": Airports.unlock_stars(i)})
 	_art.queue_redraw()
 
+## The airport card whose scenery is still being built says so (its subtitle) until it is there; -1 clears it.
+var _loading_airport := -1
+func set_loading_airport(i: int) -> void:
+	var was := _loading_airport
+	_loading_airport = i
+	for a in [was, i]:
+		if a < 0:
+			continue
+		var k: int = _art.btn_id.find("pick:%d" % a)
+		if k >= 0:
+			_art.btn_sub[k] = "Loading..." if a == i else Airports.tag(a)
+			_art.queue_redraw()
+	if i >= 0 and _select != null and not _select.visible:
+		popup("Loading %s..." % Airports.airport_name(i), Color(1.0, 0.9, 0.6), get_viewport().get_visible_rect().size * Vector2(0.5, 0.45))
+
 ## A generic list screen: optional tab chips, then cards {id, title, sub, state, stars, icon, cost}, then Back.
 func show_list(title: String, coins: int, tabs: Array, cards: Array) -> void:
 	_go("list:" + title)
@@ -2425,6 +2440,11 @@ func flash(color: Color) -> void:
 	_flash_ms = Time.get_ticks_msec()
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_inner(delta)
+	Boot.add("interface (hud _process)", float(Time.get_ticks_usec() - t0) / 1000.0)
+
+func _process_inner(delta: float) -> void:
 	var now := Time.get_ticks_msec()
 	var wdiff := wrapf(_art.wind_toward - _art.wind_shown, -180.0, 180.0)
 	if absf(wdiff) > 0.05:          # the wind arrow turns smoothly

@@ -86,9 +86,8 @@ var traffic: Traffic                  # set by Main (the birds keep away from ai
 var progress := -1.0                  # 0..1 through the shift (the mower works the field edge); -1 = the menu: a slow loop
 var _life_t := 0.0
 var variants: Array[AirportScene] = []     # indexed by airport; null until built
-var _pending := {}                        # airport -> its scene, part-built
 var _theme := 0
-const BUILD_PHASES := 7
+const BUILD_PHASES := 1               # (v.phase is 1 once an airport is finished)
 static var boot_lazy := true
 var cur: AirportScene
 var selected := 0
@@ -160,16 +159,14 @@ func select(a: int) -> void:
 			variants[i].root.visible = i == a
 	cur = variants[a]
 
-## Build airport `a` now, whatever is left of it.
+## Build airport `a` now, all of it, without a pause (the start-up and the tests; the menu's idle time uses `start_background`).
 func ensure(a: int) -> void:
-	if variants[a] != null:
+	if variants[a] != null or _bg_a == a:
 		return
-	var v: AirportScene = _pending.get(a)
-	if v == null:
-		v = _begin_airport(a)
-		_pending[a] = v
-	while not _build_phase(v):
-		pass
+	var keep_async := _async
+	_async = false
+	_build_scene(_begin_airport(a))
+	_async = keep_async
 
 func build_all() -> void:
 	for a in Airports.COUNT:
@@ -184,17 +181,84 @@ func _next_wanted(include_locked: bool) -> int:
 			return a
 	return -1
 
-## One phase of the next wanted airport (the menu's idle time calls this every few frames). Returns false when nothing is left to build.
-func build_step(include_locked: bool = false) -> bool:
+# The background build. One airport at a time is built in the idle time of a screen that is not a shift: `_build_scene` is a coroutine
+# that checks the clock between its statements (`_slice`) and, once it has used `budget_us` of this frame, gives the frame back and
+# carries on at the start of the next one. So no frame ever pays more than the budget (and the one statement it is in the middle of).
+var _bg_a := -1                       # the airport being built in the background (-1 = none)
+var _async := false                   # the build may suspend (the background one) or must not (ensure)
+var bg_paused := false                # Main sets it while a shift is on: the build waits
+var budget_us := 3000                 # what the background build may use of a frame
+var _slice_us := 0
+var _keep_a := 0
+var _keep_outlines := true
+var bg_units := 0                     # statements run by the background build (the tests and the hitch log read it)
+var bg_frames := 0
+
+## Start building the next wanted airport in the background (if one is wanted and none is being built). Returns true if one is running.
+func start_background(include_locked: bool = false) -> bool:
+	if _bg_a >= 0:
+		return true
 	var a := _next_wanted(include_locked)
 	if a < 0:
 		return false
-	var v: AirportScene = _pending.get(a)
-	if v == null:
-		v = _begin_airport(a)
-		_pending[a] = v
-	_build_phase(v)
-	return _next_wanted(include_locked) >= 0
+	_bg_a = a
+	_async = true
+	_slice_us = Time.get_ticks_usec()
+	_build_scene(_begin_airport(a))        # (not awaited: it runs until its first pause and carries on in the following frames)
+	return _bg_a >= 0
+
+func background_running() -> bool:
+	return _bg_a >= 0
+
+## The player wants airport `a` now: its build takes more of every frame until it is done.
+func hurry(a: int, big_budget_us: int = 9000) -> void:
+	if variants[a] != null:
+		return
+	if _bg_a < 0:
+		_bg_a = a
+		_async = true
+		_slice_us = Time.get_ticks_usec()
+		budget_us = big_budget_us
+		_build_scene(_begin_airport(a))
+	elif _bg_a == a:
+		budget_us = big_budget_us
+
+## Between two statements of the build: if this frame's share is spent, wait for the next frame (and put the game's own state back
+## while waiting: the build borrows Airports.current and Prim.outlines).
+var _stage := ""                     # which part of the build is running (the hitch log names it)
+var _last_slice_us := 0
+var slice_trace := false              # tools/build_profile.gd: remember how long each statement took, and which
+var slice_log: Array = []
+var _trace_us := 0
+func _slice(site: int = 0) -> void:
+	if slice_trace:                    # (`site` is the call's line: tools/build_profile.gd writes it in)
+		var now := Time.get_ticks_usec()
+		if _trace_us > 0:
+			slice_log.append([now - _trace_us, site])
+		_trace_us = now
+	if not _async:
+		return
+	bg_units += 1
+	var now_us := Time.get_ticks_usec()
+	if _last_slice_us > 0 and now_us - _last_slice_us > 15000 and now_us - _last_slice_us < 3000000:
+		Boot.add("slow statement (%.0f ms) in %s" % [float(now_us - _last_slice_us) / 1000.0, _stage], 0.0)
+	_last_slice_us = now_us
+	var spent := now_us - _slice_us >= budget_us
+	if not spent and not bg_paused:
+		return
+	Boot.add("airport build (background)", float(now_us - _slice_us) / 1000.0)
+	Airports.current = _keep_a
+	Prim.outlines = _keep_outlines
+	await get_tree().process_frame
+	while bg_paused:
+		await get_tree().process_frame
+	bg_frames += 1
+	_slice_us = Time.get_ticks_usec()
+	_last_slice_us = _slice_us
+	_keep_a = Airports.current
+	_keep_outlines = Prim.outlines
+	Airports.current = _bg_a
+	Prim.outlines = false
 
 func is_built(a: int) -> bool:
 	return variants[a] != null
@@ -208,85 +272,97 @@ func _begin_airport(a: int) -> AirportScene:
 	v.root = root
 	return v
 
-## One phase of an airport's build (0..BUILD_PHASES-1). Returns true when the airport is finished (and then it joins `variants`).
-func _build_phase(v: AirportScene) -> bool:
-	var keep_current := Airports.current
-	var keep_outlines := Prim.outlines
+## Build one airport's scenery (a coroutine: with `_async` it pauses between statements, see `_slice`). It borrows Airports.current.
+func _build_scene(v: AirportScene) -> void:
+	_keep_a = Airports.current
+	_keep_outlines = Prim.outlines
 	Airports.current = v.airport
 	Prim.outlines = false        # Sunny Airfield: the ground and its props have soft shadows and highlights, never outlines
-	_occupied = v.occupied
 	var root := v.root
-	match v.phase:
-		0:
-			var ground := Airports.ground_color()
-			v.base_ground = ground
-			v.ground_now = ground
-			v.ground_mat = Prim.mat(ground)
-			_ground(root, v.ground_mat, bool(Airports.def().get("water", false)))
-			var stripe := _overlay_mat(Color(1, 1, 1, 0.12))        # lighter and darker patches are translucent, so they follow the field's own light
-			v.stripe_mat = stripe
-			var patch := _overlay_mat(Color(0, 0, 0, 0.07))
-			v.patch_mat = patch
-			var water: bool = Airports.def().get("water", false)
-			v.water = water
-			if not water:
-				# Mown patches in slightly different greens: long diagonal bands, light and dark, the same on every visit.
-				var rngp := RandomNumberGenerator.new()
-				rngp.seed = 31 + Airports.current * 17
-				for i in 9:
-					var bandp := Prim.box(root, Vector3(rngp.randf_range(7.0, 15.0), 0.02, rngp.randf_range(1.6, 3.4)), Vector3(rngp.randf_range(-6.0, 6.0), 0.005 + 0.001 * i, rngp.randf_range(-9.0, 9.0)), stripe if i % 2 == 0 else patch, false)
-					bandp.rotation.y = deg_to_rad(rngp.randf_range(-24.0, 24.0))
-			else:
-				var wave := _overlay_mat(Color(1, 1, 1, 0.16))
-				v.stripe_mat = wave
-				for i in 5:
-					Prim.box(root, Vector3(9.0 + 2.0 * (i % 3), 0.02, 0.5), Vector3(-5.0 + 2.5 * i, 0.005, -8.0 + 4.1 * i), wave, false)
-			for d in Airports.decor():
-				var m := Prim.mat(d["color"])
-				if d["shape"] == "disc":
-					Prim.cyl(root, d["r"], d["r"], 0.06, d["sides"], Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
-				else:
-					Prim.box(root, Vector3(d["size"].x, 0.04, d["size"].y), Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
-		1:
-			for i in Airports.rw_count():
-				_runway(v, i)
-			for pad in Airports.pads():
-				_pad(root, pad)
-			for lane in Airports.lanes():
-				_lane(root, lane)
-			for h in Airports.hazards():
-				_mountain(root, h["center"], h["radius"])
-		2:
-			_taxiways(v)
-			_lights(v)
-			_vehicles(v)
-		3:
-			v.occupied = []
-			_occupied = v.occupied
-			v.style = Airports.style()
-			_ramp(v)
-			_landmark(v)
-			_ramp_slots(v)
-		4:
-			_life(v)
-			var sp := Airports.windsock_pos()
-			_windsock(v, Vector3(sp.x, 0.0, sp.y))
-		5:
-			if not v.water:
-				_trees(v)
-				_tufts(v)
-		6:
-			_upgrade_props(v)
-	v.phase += 1
-	Airports.current = keep_current
-	Prim.outlines = keep_outlines
-	if v.phase < BUILD_PHASES:
-		return false
-	_pending.erase(v.airport)
+	var ground := Airports.ground_color()
+	v.base_ground = ground
+	v.ground_now = ground
+	v.ground_mat = Prim.mat(ground)
+	_stage = "ground"
+	await _ground(root, v.ground_mat, bool(Airports.def().get("water", false)))
+	await _slice()
+	var stripe := _overlay_mat(Color(1, 1, 1, 0.12))        # lighter and darker patches are translucent, so they follow the field's own light
+	v.stripe_mat = stripe
+	var patch := _overlay_mat(Color(0, 0, 0, 0.07))
+	v.patch_mat = patch
+	var water: bool = Airports.def().get("water", false)
+	v.water = water
+	if not water:
+		# Mown patches in slightly different greens: long diagonal bands, light and dark, the same on every visit.
+		var rngp := RandomNumberGenerator.new()
+		rngp.seed = 31 + Airports.current * 17
+		for i in 9:
+			var bandp := Prim.box(root, Vector3(rngp.randf_range(7.0, 15.0), 0.02, rngp.randf_range(1.6, 3.4)), Vector3(rngp.randf_range(-6.0, 6.0), 0.005 + 0.001 * i, rngp.randf_range(-9.0, 9.0)), stripe if i % 2 == 0 else patch, false)
+			bandp.rotation.y = deg_to_rad(rngp.randf_range(-24.0, 24.0))
+			await _slice()
+	else:
+		var wave := _overlay_mat(Color(1, 1, 1, 0.16))
+		v.stripe_mat = wave
+		for i in 5:
+			Prim.box(root, Vector3(9.0 + 2.0 * (i % 3), 0.02, 0.5), Vector3(-5.0 + 2.5 * i, 0.005, -8.0 + 4.1 * i), wave, false)
+			await _slice()
+	for d in Airports.decor():
+		var m := Prim.mat(d["color"])
+		if d["shape"] == "disc":
+			Prim.cyl(root, d["r"], d["r"], 0.06, d["sides"], Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
+		else:
+			Prim.box(root, Vector3(d["size"].x, 0.04, d["size"].y), Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
+		await _slice()
+	for i in Airports.rw_count():
+		_stage = "runway"
+		await _runway(v, i)
+	for pad in Airports.pads():
+		_stage = "pad"
+		await _pad(root, pad)
+	for lane in Airports.lanes():
+		_stage = "lane"
+		await _lane(root, lane)
+	for h in Airports.hazards():
+		_stage = "mountain"
+		await _mountain(root, h["center"], h["radius"])
+	_stage = "taxiways"
+	await _taxiways(v)
+	_stage = "lights"
+	await _lights(v)
+	_stage = "vehicles"
+	await _vehicles(v)
+	v.occupied = []
+	_occupied = v.occupied
+	v.style = Airports.style()
+	_stage = "ramp"
+	await _ramp(v)
+	_stage = "landmark"
+	await _landmark(v)
+	_stage = "ramp_slots"
+	await _ramp_slots(v)
+	_stage = "life"
+	await _life(v)
+	var sp := Airports.windsock_pos()
+	_stage = "windsock"
+	await _windsock(v, Vector3(sp.x, 0.0, sp.y))
+	if not v.water:
+		_stage = "trees"
+		await _trees(v)
+		_stage = "tufts"
+		await _tufts(v)
+	_stage = "upgrade_props"
+	await _upgrade_props(v)
+	Airports.current = _keep_a
+	Prim.outlines = _keep_outlines
+	v.phase = BUILD_PHASES
+	v.root.visible = false
 	variants[v.airport] = v
+	if _bg_a == v.airport:
+		_bg_a = -1
+		_async = false
+		budget_us = 3000
 	v.root.visible = v.airport == selected and cur != null
 	_dress(v)
-	return true
 
 ## A scene that has just been finished takes the look the others already have: the equipped theme, the bought upgrades, the time of day.
 func _dress(v: AirportScene) -> void:
@@ -357,7 +433,10 @@ func _ground(root: Node3D, m: Material, water: bool) -> void:
 	var mid := Color(0.774, 0.891, 0.807)
 	var low := Color(0.639, 0.773, 0.658)
 	for j in rows_n + 1:
+		await _slice()
+		await _slice()
 		for i in cols_n + 1:
+			await _slice()
 			var x := -20.0 + 40.0 * i / cols_n
 			var z := -35.0 + 70.0 * j / rows_n
 			verts.append(Vector3(x, 0.0, z))
@@ -367,7 +446,9 @@ func _ground(root: Node3D, m: Material, water: bool) -> void:
 			var c := Color.WHITE.lerp(mid, t * 2.0) if t < 0.5 else mid.lerp(low, (t - 0.5) * 2.0)
 			cols.append(Color.WHITE.lerp(c, 0.4) if water else c)
 	for j in rows_n:
+		await _slice()
 		for i in cols_n:
+			await _slice()
 			var a := j * (cols_n + 1) + i
 			var b := a + 1
 			var c2 := a + cols_n + 1
@@ -458,7 +539,18 @@ const HUD_RECTS_PX := [
 	Rect2(100.0, 262.0, 880.0, 90.0),       # the wind-shift banner (the widest it gets), just under the star bar
 ]
 
+static var _hud_key := Vector3(-1.0, 0.0, 0.0)
+static var _hud_rects: Array[Rect2] = []
+
 static func hud_world_rects(extra_px: float = 0.0) -> Array[Rect2]:
+	var key := Vector3(Tuning.ortho_size, Tuning.camera_tilt_deg, extra_px)
+	if key == _hud_key:
+		return _hud_rects            # (worked out once per view: a placement search asks thousands of times)
+	_hud_key = key
+	_hud_rects = _hud_world_rects(extra_px)
+	return _hud_rects
+
+static func _hud_world_rects(extra_px: float) -> Array[Rect2]:
 	var k := Tuning.ortho_size / 1080.0
 	var kz := k / cos(deg_to_rad(Tuning.camera_tilt_deg))
 	var out: Array[Rect2] = []
@@ -503,94 +595,172 @@ static func rect_out_of_strips(rc: Rect2, r: float = 0.0) -> bool:
 ## Small three-blade grass tufts scattered sparsely over the grass (one MultiMesh per airport; nothing moves).
 func _tufts(v: AirportScene) -> void:
 	var blade := ArrayMesh.new()
+	await _slice()
 	var verts := PackedVector3Array()
+	await _slice()
 	var cols := PackedColorArray()
+	await _slice()
 	var norms := PackedVector3Array()
+	await _slice()
 	for k in 3:
+		await _slice()
 		var a := k * TAU / 3.0 + 0.5
+		await _slice()
 		var d := Vector3(cos(a), 0.0, sin(a))
+		await _slice()
 		var s := Vector3(-d.z, 0.0, d.x)
+		await _slice()
 		verts.append_array([s * 0.025, -s * 0.025, d * 0.15 + Vector3(0, 0.06, 0)])
+		await _slice()
 		cols.append_array([Color(0.78, 0.78, 0.78), Color(0.78, 0.78, 0.78), Color(1, 1, 1)])
+		await _slice()
 		norms.append_array([Vector3.UP, Vector3.UP, Vector3.UP])
+		await _slice()
 	var arrays := []
+	await _slice()
 	arrays.resize(Mesh.ARRAY_MAX)
+	await _slice()
 	arrays[Mesh.ARRAY_VERTEX] = verts
+	await _slice()
 	arrays[Mesh.ARRAY_NORMAL] = norms
+	await _slice()
 	arrays[Mesh.ARRAY_COLOR] = cols
+	await _slice()
 	blade.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	await _slice()
 	var m := Prim.mat(Color("7ab351"))
+	await _slice()
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	await _slice()
 	var rng := RandomNumberGenerator.new()
+	await _slice()
 	rng.seed = 77 + Airports.current * 13
+	await _slice()
 	var spots: Array[Transform3D] = []
+	await _slice()
 	var tries := 0
+	await _slice()
 	while spots.size() < 46 and tries < 500:
+		await _slice()
 		tries += 1
+		await _slice()
 		var p := Vector2(rng.randf_range(-4.8, 4.8), rng.randf_range(-8.6, 8.6))
+		await _slice()
 		if not _spot_free(p, 0.35, 9.0) or not _clear_of_paths(p) or in_strip(p, 0.1):
 			continue
 		var tr := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.7, 1.1)), Vector3(p.x, 0.012, p.y))
+		await _slice()
 		spots.append(tr)
+		await _slice()
 	var mm := MultiMesh.new()
+	await _slice()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	await _slice()
 	mm.mesh = blade
+	await _slice()
 	mm.instance_count = spots.size()
+	await _slice()
 	for k in spots.size():
+		await _slice()
 		mm.set_instance_transform(k, spots[k])
+		await _slice()
 	v.tuft_base = spots
+	await _slice()
 	var mi := MultiMeshInstance3D.new()
+	await _slice()
 	mi.multimesh = mm
+	await _slice()
 	mi.material_override = m
+	await _slice()
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	await _slice()
 	v.root.add_child(mi)
+	await _slice()
 	v.tufts = mi
+	await _slice()
 
 ## Trees at a few fixed spots, each in three styles (round, pine, cactus): the theme picks which one shows.
 func _trees(v: AirportScene) -> void:
 	v.leaf_mat = Prim.mat(Color("3f7d3f"))
+	await _slice()
 	v.leaf_mid = Prim.mat(v.leaf_mat.albedo_color.lightened(0.18))
+	await _slice()
 	v.leaf_hi = Prim.mat(v.leaf_mat.albedo_color.lightened(0.38))
+	await _slice()
 	v.trunk_mat = Prim.mat(Color(0.45, 0.3, 0.18))
+	await _slice()
 	for t in [Vector2(-4.4, 6.4), Vector2(-3.6, 7.6), Vector2(4.3, 6.9), Vector2(4.5, -6.5), Vector2(-4.4, -6.9), Vector2(3.7, -7.8), Vector2(-4.2, -3.9), Vector2(4.5, 4.4)]:
+		await _slice()
 		var blocked := in_strip(t, 0.45)
+		await _slice()
 		for st in v.strips:
+			await _slice()
 			var sa: Vector2 = st[0]
+			await _slice()
 			var sab: Vector2 = (st[1] as Vector2) - sa
+			await _slice()
 			var su := clampf((t - sa).dot(sab) / maxf(sab.length_squared(), 0.0001), 0.0, 1.0)
+			await _slice()
 			if t.distance_to(sa + sab * su) < 1.0:
 				blocked = true
 		for h in Airports.hazards():
+			await _slice()
 			if (h["center"] as Vector2).distance_to(t) < h["radius"] + 0.7:
 				blocked = true
 		if blocked:
 			continue
 		var round_t := Node3D.new()         # style 0: a cluster of round crowns, each with a shadow, a lighter middle and a highlight
+		await _slice()
 		round_t.position = Vector3(t.x, 0.0, t.y)
+		await _slice()
 		v.root.add_child(round_t)
+		await _slice()
 		_shadow(round_t, 0.2, 0.18, 0.95, 0.95, 1.0, 0.02)
+		await _slice()
 		_shadow(round_t, 0.5, 0.42, 0.6, 0.6, 0.9, 0.02)
+		await _slice()
 		Prim.cyl(round_t, 0.34, 0.4, 0.55, 10, Vector3(0.0, 0.3, 0.0), v.leaf_mat, false)
+		await _slice()
 		Prim.cyl(round_t, 0.22, 0.28, 0.1, 10, Vector3(-0.04, 0.6, -0.04), v.leaf_mid, false)
+		await _slice()
 		Prim.cyl(round_t, 0.1, 0.12, 0.06, 8, Vector3(-0.09, 0.67, -0.09), v.leaf_hi, false)
+		await _slice()
 		Prim.cyl(round_t, 0.22, 0.26, 0.4, 9, Vector3(0.4, 0.22, 0.32), v.leaf_mat, false)
+		await _slice()
 		Prim.cyl(round_t, 0.12, 0.17, 0.08, 9, Vector3(0.37, 0.43, 0.29), v.leaf_mid, false)
+		await _slice()
 		var pine := Node3D.new()            # style 1: a pine
+		await _slice()
 		pine.position = Vector3(t.x, 0.0, t.y)
+		await _slice()
 		v.root.add_child(pine)
+		await _slice()
 		Prim.cyl(pine, 0.05, 0.05, 0.4, 5, Vector3(0, 0.2, 0), v.trunk_mat)
+		await _slice()
 		Prim.cyl(pine, 0.0, 0.42, 0.9, 6, Vector3(0, 0.85, 0), v.leaf_mat)
+		await _slice()
 		var cactus := Node3D.new()          # style 2: a cactus
+		await _slice()
 		cactus.position = Vector3(t.x, 0.0, t.y)
+		await _slice()
 		v.root.add_child(cactus)
+		await _slice()
 		Prim.cyl(cactus, 0.12, 0.14, 0.8, 6, Vector3(0, 0.4, 0), v.leaf_mat)
+		await _slice()
 		Prim.box(cactus, Vector3(0.3, 0.1, 0.1), Vector3(-0.2, 0.5, 0), v.leaf_mat, false)
+		await _slice()
 		Prim.box(cactus, Vector3(0.1, 0.3, 0.1), Vector3(-0.32, 0.65, 0), v.leaf_mat, false)
+		await _slice()
 		Prim.box(cactus, Vector3(0.3, 0.1, 0.1), Vector3(0.2, 0.38, 0), v.leaf_mat, false)
+		await _slice()
 		Prim.box(cactus, Vector3(0.1, 0.26, 0.1), Vector3(0.32, 0.5, 0), v.leaf_mat, false)
+		await _slice()
 		v.tree_styles[0].append(round_t)
+		await _slice()
 		v.tree_styles[1].append(pine)
+		await _slice()
 		v.tree_styles[2].append(cactus)
+		await _slice()
 
 ## Dress every airport in a theme: ground, scenery style and colours (no new nodes).
 func apply_theme(index: int) -> void:
@@ -622,68 +792,126 @@ func _apply_theme_to(v: AirportScene, t: Dictionary) -> void:
 
 func _runway(v: AirportScene, i: int) -> void:
 	var col := Airports.rw_color(i)
+	await _slice()
 	var root := Node3D.new()
+	await _slice()
 	root.position = Vector3(Airports.rw_center(i).x, 0.0, Airports.rw_center(i).y)
+	await _slice()
 	root.rotation.y = -deg_to_rad(Airports.rw_heading_deg(i))
+	await _slice()
 	v.root.add_child(root)
+	await _slice()
 	var len := Airports.rw_length(i)
+	await _slice()
 	var w := Airports.rw_width(i)
+	await _slice()
 	Prim.box(root, Vector3(w + 0.16, 0.11, len + 0.16), Vector3(0, 0.055, 0), Prim.mat(Tuning.runway_asphalt.darkened(0.3)), false)       # the darker rim
+	await _slice()
 	Prim.box(root, Vector3(w, 0.12, len), Vector3(0, 0.06, 0), Prim.mat(Tuning.runway_asphalt), false)
+	await _slice()
 	var edge := Prim.mat(col)
+	await _slice()
 	for s in [-1.0, 1.0]:
+		await _slice()
 		Prim.box(root, Vector3(0.08, 0.13, len - 0.1), Vector3(s * (w * 0.5 - 0.1), 0.065, 0), edge, false)
+		await _slice()
 	var white := Prim.mat(Color("f2ede4").lerp(Tuning.runway_asphalt, 0.1))       # cream, 90%
+	await _slice()
 	# End 0 is approached from behind its landing direction (local +z end); end 1 from the other side (-z).
 	for e in 2:
+		await _slice()
 		var sign := 1.0 if e == 0 else -1.0
+		await _slice()
 		var thr := Prim.mat(col)
+		await _slice()
 		thr.emission_enabled = true
+		await _slice()
 		thr.emission = col
+		await _slice()
 		thr.emission_energy_multiplier = 0.0
+		await _slice()
 		v.thr_mats.append(thr)
+		await _slice()
 		v.thr_colors.append(col)
+		await _slice()
 		v.glow_born.append(0)
+		await _slice()
 		v.active.append(true)
+		await _slice()
 		Prim.box(root, Vector3(w - 0.3, 0.14, 0.5), Vector3(0, 0.07, sign * (len * 0.5 - 0.35)), thr, false)
+		await _slice()
 		for k in 4:   # piano keys just past the threshold block
+			await _slice()
 			Prim.box(root, Vector3(0.08, 0.14, 0.4), Vector3(-0.27 + k * 0.18, 0.07, sign * (len * 0.5 - 0.9)), white, false)
+			await _slice()
 	for k in 5:
+		await _slice()
 		Prim.box(root, Vector3(0.09, 0.14, 0.36), Vector3(0, 0.07, (k - 2) * 1.0), white, false)
+		await _slice()
 	# Approach chevrons in the runway's colour: three Vs on the grass before each end, pointing at the runway.
 	var chev := Prim.mat(col.lerp(v.base_ground, 0.15))
+	await _slice()
 	for e in 2:
+		await _slice()
 		var sg := 1.0 if e == 0 else -1.0
+		await _slice()
 		for k in 3:
+			await _slice()
 			for sd in [-1.0, 1.0]:
+				await _slice()
 				var arm := Prim.box(root, Vector3(0.5, 0.03, 0.09), Vector3(sd * 0.2, 0.02, sg * (len * 0.5 + 0.95 + k * 0.42) + sg * 0.1), chev, false)
 				arm.rotation.y = deg_to_rad(sg * sd * 32.0)
 	Prim.lift(root)       # runways are drawn above the fog
+	await _slice()
 	# Rubber streaks in the touchdown zones (20% black), and the runway numbers (cream, 80%).
 	var rubber := StandardMaterial3D.new()
+	await _slice()
 	rubber.albedo_color = Color(0, 0, 0, 0.14)
+	await _slice()
 	rubber.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	await _slice()
 	rubber.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	await _slice()
 	rubber.render_priority = 3
+	await _slice()
 	var hdg := Airports.rw_heading_deg(i)
+	await _slice()
 	for e in 2:
+		await _slice()
 		var sg := 1.0 if e == 0 else -1.0
+		await _slice()
 		for sd in [-1.0, 1.0]:
+			await _slice()
 			Prim.box(root, Vector3(minf(w * 0.2, 0.22), 0.02, 0.8), Vector3(sd * w * 0.22, 0.125, sg * (len * 0.5 - 2.5)), rubber, false)
+			await _slice()
 		var num := posmod(roundi((hdg + 180.0 * e) / 10.0), 36)
+		await _slice()
 		var lab := Label3D.new()
+		await _slice()
 		lab.text = "%02d" % (36 if num == 0 else num)
+		await _slice()
 		lab.font_size = 96
+		await _slice()
 		lab.pixel_size = 0.0046
+		await _slice()
 		lab.modulate = Color(0.949, 0.929, 0.894, 0.8)
+		await _slice()
 		lab.shaded = false
+		await _slice()
 		lab.double_sided = false
+		await _slice()
 		lab.rotation_degrees = Vector3(-90.0, 0.0 if e == 0 else 180.0, 0.0)
+		await _slice()
 		lab.position = Vector3(0.0, 0.142, sg * (len * 0.5 - 1.55))
+		await _slice()
 		lab.render_priority = 4
+		await _slice()
 		root.add_child(lab)
+		await _slice()
 		var sdx := -1.0 if e == 0 else 1.0       # the PAPI lights stand on the pilot's left, beside the touchdown zone
+		await _slice()
 		Models.papi(root, Vector2(sdx * (w * 0.5 + 0.4), sg * (len * 0.5 - 2.7)), sdx)
+		await _slice()
 
 ## A parallel taxiway beside each runway that has room for one: asphalt strip, yellow centre dashes and two stubs to the
 ## runway. All of it lies on the ground, under everything that moves.
@@ -691,123 +919,214 @@ func _taxiways(v: AirportScene) -> void:
 	if v.water:
 		return
 	var asphalt := Prim.mat(Color("a3a8b0"))
+	await _slice()
 	var yellow := Prim.mat(Color("e6c35a"))
+	await _slice()
 	for i in Airports.rw_count():
+		await _slice()
 		var h := deg_to_rad(Airports.rw_heading_deg(i))
+		await _slice()
 		var dir := Vector2(sin(h), -cos(h))
+		await _slice()
 		var perp := Vector2(cos(h), sin(h))
+		await _slice()
 		var c := Airports.rw_center(i)
+		await _slice()
 		var len := Airports.rw_length(i)
+		await _slice()
 		var w := Airports.rw_width(i)
+		await _slice()
 		var half := len * 0.34
+		await _slice()
 		for side in [1.0, -1.0]:
+			await _slice()
 			var off: float = w * 0.5 + 0.95
+			await _slice()
 			var a: Vector2 = c + perp * off * side - dir * half
+			await _slice()
 			var b: Vector2 = c + perp * off * side + dir * half
+			await _slice()
 			var free := true
+			await _slice()
 			for f in [0.0, 0.5, 1.0]:
+				await _slice()
 				if not _spot_free(a.lerp(b, f), 0.4, 8.6):
 					free = false
 			if not free:
 				continue
 			var n := Node3D.new()
+			await _slice()
 			n.position = Vector3(c.x, 0.0, c.y)
+			await _slice()
 			n.rotation.y = -h
+			await _slice()
 			v.root.add_child(n)
+			await _slice()
 			Prim.box(n, Vector3(0.6, 0.05, half * 2.0), Vector3(side * off, 0.03, 0), asphalt, false)
+			await _slice()
 			var stub := off - w * 0.5
+			await _slice()
 			for z in [-half, half]:
+				await _slice()
 				Prim.box(n, Vector3(stub + 0.3, 0.05, 0.6), Vector3(side * (w * 0.5 + stub * 0.5 - 0.15), 0.032, z), asphalt, false)
 			for k in int(half * 2.0 / 0.6):
+				await _slice()
 				Prim.box(n, Vector3(0.05, 0.06, 0.24), Vector3(side * off, 0.05, -half + 0.3 + k * 0.6), yellow, false)
 			# Hold-short lines where each stub meets the runway (two solid, two dashed) and a taxiway sign (black letter on yellow).
 			var hold := Prim.mat(Color("e6c35a"))
+			await _slice()
 			for z in [-half, half]:
+				await _slice()
 				for k in 2:
 					Prim.box(n, Vector3(0.025, 0.012, 0.6), Vector3(side * (w * 0.5 + 0.3 + k * 0.06), 0.063, z), hold, false)
 					for q in 4:
 						Prim.box(n, Vector3(0.025, 0.012, 0.1), Vector3(side * (w * 0.5 + 0.42 + k * 0.06), 0.063, z - 0.25 + q * 0.17), hold, false)
 			var sign_at := Vector3(side * (off + 0.5), 0.0, -half - 0.45)
+			await _slice()
 			Prim.box(n, Vector3(0.05, 0.1, 0.05), sign_at + Vector3(0, 0.05, 0), Prim.mat(Color("9aa0aa")), false)
+			await _slice()
 			Prim.box(n, Vector3(0.2, 0.05, 0.14), sign_at + Vector3(0, 0.12, 0), hold, false)
+			await _slice()
 			var tl := Label3D.new()
+			await _slice()
 			tl.text = char(65 + i)
+			await _slice()
 			tl.font_size = 64
+			await _slice()
 			tl.pixel_size = 0.0036
+			await _slice()
 			tl.modulate = Color(0.08, 0.08, 0.1)
+			await _slice()
 			tl.shaded = false
+			await _slice()
 			tl.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+			await _slice()
 			tl.position = sign_at + Vector3(0, 0.15, 0)
+			await _slice()
 			tl.render_priority = 4
+			await _slice()
 			n.add_child(tl)
+			await _slice()
 			v.strips.append([a, b])
+			await _slice()
 			break
 
 ## Runway edge lights and the approach strobes: one MultiMesh per airport; the shader makes them shimmer / run.
 func _lights(v: AirportScene) -> void:
 	var pts: Array = []        # [Vector3 position, phase, strobe]
+	await _slice()
 	for i in Airports.rw_count():
+		await _slice()
 		var h := deg_to_rad(Airports.rw_heading_deg(i))
+		await _slice()
 		var dir := Vector2(sin(h), -cos(h))
+		await _slice()
 		var perp := Vector2(cos(h), sin(h))
+		await _slice()
 		var c := Airports.rw_center(i)
+		await _slice()
 		var len := Airports.rw_length(i)
+		await _slice()
 		var w := Airports.rw_width(i)
+		await _slice()
 		var lz := -len * 0.5 + 0.35
+		await _slice()
 		var k := 0
+		await _slice()
 		while lz < len * 0.5 - 0.2:
+			await _slice()
 			for side in [-1.0, 1.0]:
+				await _slice()
 				var p: Vector2 = c - dir * lz + perp * side * (w * 0.5 + 0.06)
 				pts.append([Vector3(p.x, 0.15, p.y), float(k % 7) / 7.0, 0.0])
 			lz += 0.8
+			await _slice()
 			k += 1
+			await _slice()
 		for e in 2:
+			await _slice()
 			var sign := 1.0 if e == 0 else -1.0
+			await _slice()
 			for j in 8:
+				await _slice()
 				var p2: Vector2 = c - dir * (sign * (len * 0.5 + 0.55 + j * 0.5))
 				pts.append([Vector3(p2.x, 0.04, p2.y), float(7 - j) / 8.0, 1.0])
 	var mm := MultiMesh.new()
+	await _slice()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	await _slice()
 	mm.use_colors = true
+	await _slice()
 	var bm := BoxMesh.new()
+	await _slice()
 	bm.size = Vector3(0.09, 0.04, 0.09)
+	await _slice()
 	mm.mesh = bm
+	await _slice()
 	mm.instance_count = pts.size()
+	await _slice()
 	for k in pts.size():
+		await _slice()
 		mm.set_instance_transform(k, Transform3D(Basis.IDENTITY, pts[k][0]))
+		await _slice()
 		mm.set_instance_color(k, Color(pts[k][1], pts[k][2], 0.0, 1.0))
+		await _slice()
 	var mat := ShaderMaterial.new()
+	await _slice()
 	mat.shader = preload("res://shaders/runway_lights.gdshader")
+	await _slice()
 	mat.render_priority = 3
+	await _slice()
 	var mi := MultiMeshInstance3D.new()
+	await _slice()
 	mi.multimesh = mm
+	await _slice()
 	mi.material_override = mat
+	await _slice()
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	await _slice()
 	v.root.add_child(mi)
+	await _slice()
 	v.lights = mi
+	await _slice()
 
 ## A couple of ground vehicles driving up and down the first taxiway: a yellow fuel truck with a blue cab, and a white van.
 func _vehicles(v: AirportScene) -> void:
 	if v.strips.is_empty():
 		return
 	for k in 2:
+		await _slice()
 		var n := Node3D.new()
+		await _slice()
 		v.root.add_child(n)
+		await _slice()
 		if k == 0:      # the fuel truck: a long yellow tank behind a blue cab
 			Prim.box(n, Vector3(0.22, 0.1, 0.36), Vector3(0, 0.1, 0.1), Prim.mat(Color("ffc933")), false)
+			await _slice()
 			Prim.box(n, Vector3(0.2, 0.1, 0.14), Vector3(0, 0.1, -0.16), Prim.mat(Color("3d8bff")), false)
+			await _slice()
 			Prim.box(n, Vector3(0.14, 0.02, 0.3), Vector3(0, 0.16, 0.1), Prim.mat(Color("ffe27a")), false)
 		else:
 			Prim.box(n, Vector3(0.2, 0.1, 0.34), Vector3(0, 0.1, 0), Prim.mat(Color("f3f7ff")), false)
+			await _slice()
 			Prim.box(n, Vector3(0.18, 0.09, 0.12), Vector3(0, 0.15, -0.1), Prim.mat(Color(0.2, 0.28, 0.38)), false)
+			await _slice()
 		var bm := Prim.mat(Color(1.0, 0.25, 0.2))
+		await _slice()
 		Prim.box(n, Vector3(0.06, 0.05, 0.06), Vector3(0, 0.22, 0.12), bm, false)
+		await _slice()
 		v.veh.append(n)
+		await _slice()
 		v.veh_beacon.append(bm)
+		await _slice()
 		v.veh_strip.append(0)
+		await _slice()
 		v.veh_t.append(0.0 if k == 0 else 1.1)
+		await _slice()
 		v.veh_speed.append(0.07 if k == 0 else 0.05)
+		await _slice()
 	_place_vehicles(v)
+	await _slice()
 
 func _place_vehicles(v: AirportScene) -> void:
 	for k in v.veh.size():
@@ -833,48 +1152,85 @@ func _animate_ground(delta: float, now: int) -> void:
 ## A round helipad with an H: a light concrete disc, a ring and an H in the pad's purple.
 func _pad(root: Node3D, pad: Dictionary) -> void:
 	var holder := Node3D.new()
+	await _slice()
 	root.add_child(holder)
+	await _slice()
 	var c: Vector2 = pad["center"]
+	await _slice()
 	var r: float = pad["radius"]
+	await _slice()
 	_shadow(holder, c.x + 0.05, c.y + 0.05, r * 2.5, r * 2.5, 0.7, 0.02)
+	await _slice()
 	Prim.cyl(holder, r * 1.06, r * 1.06, 0.1, 16, Vector3(c.x, 0.05, c.y), Prim.mat(Tuning.runway_asphalt.darkened(0.3)), false)
+	await _slice()
 	Prim.cyl(holder, r, r, 0.11, 16, Vector3(c.x, 0.055, c.y), Prim.mat(Color("e9edf4")), false)
+	await _slice()
 	Prim.cyl(holder, r * 0.84, r * 0.84, 0.12, 16, Vector3(c.x, 0.06, c.y), Prim.mat(pad["color"]), false)
+	await _slice()
 	Prim.cyl(holder, r * 0.74, r * 0.74, 0.13, 16, Vector3(c.x, 0.065, c.y), Prim.mat(Color("e9edf4")), false)
+	await _slice()
 	var mark := Prim.mat(pad["color"])
+	await _slice()
 	Prim.box(holder, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x - r * 0.28, 0.07, c.y), mark, false)
+	await _slice()
 	Prim.box(holder, Vector3(0.1, 0.16, r * 0.9), Vector3(c.x + r * 0.28, 0.07, c.y), mark, false)
+	await _slice()
 	Prim.box(holder, Vector3(r * 0.56, 0.16, 0.1), Vector3(c.x, 0.07, c.y), mark, false)
+	await _slice()
 	Prim.lift(holder)       # pads are drawn above the fog
+	await _slice()
 
 ## A strip of water marked out for seaplanes.
 func _lane(root: Node3D, lane: Dictionary) -> void:
 	var n := Node3D.new()
+	await _slice()
 	n.position = Vector3(lane["center"].x, 0.0, lane["center"].y)
+	await _slice()
 	n.rotation.y = -deg_to_rad(lane["heading"])
+	await _slice()
 	root.add_child(n)
+	await _slice()
 	var len: float = lane["length"]
+	await _slice()
 	var w: float = lane["width"]
+	await _slice()
 	Prim.box(n, Vector3(w, 0.05, len), Vector3(0, 0.05, 0), Prim.mat(Color("62b8e2")), false)
+	await _slice()
 	var edge := Prim.mat(lane["color"])
+	await _slice()
 	for s in [-1.0, 1.0]:
+		await _slice()
 		Prim.box(n, Vector3(0.07, 0.08, len), Vector3(s * w * 0.5, 0.06, 0), edge, false)
+		await _slice()
 		for k in 3:
+			await _slice()
 			Prim.cyl(n, 0.1, 0.1, 0.2, 5, Vector3(s * (w * 0.5 + 0.18), 0.1, (k - 1) * len * 0.42), Prim.mat(Color(1.0, 0.5, 0.15)))
+			await _slice()
 	var white := Prim.mat(Color(0.95, 0.97, 1.0))
+	await _slice()
 	for k in int(len / 1.0) - 1:
+		await _slice()
 		Prim.box(n, Vector3(0.08, 0.08, 0.34), Vector3(0, 0.07, -len * 0.5 + 0.9 + k * 1.0), white, false)
+		await _slice()
 	Prim.lift(n)            # lanes are drawn above the fog
+	await _slice()
 
 ## A low-poly mountain: two peaks with snow caps and a soft shadow. Its radius is the no-fly zone.
 func _mountain(root: Node3D, c: Vector2, r: float) -> void:
 	var rock := Prim.mat(Color(0.56, 0.54, 0.52))
+	await _slice()
 	var rock2 := Prim.mat(Color(0.66, 0.63, 0.58))
+	await _slice()
 	var snow := Prim.mat(Color(0.97, 0.98, 1.0))
+	await _slice()
 	_shadow(root, c.x + r * 0.27, c.y + r * 0.27, r * 2.7, r * 2.7, 1.0, 0.02)
+	await _slice()
 	Prim.cyl(root, 0.0, r * 0.95, r * 1.5, 7, Vector3(c.x, r * 0.75, c.y), rock, false)
+	await _slice()
 	Prim.cyl(root, 0.0, r * 0.4, r * 0.55, 7, Vector3(c.x, r * 1.25, c.y), snow, false)
+	await _slice()
 	Prim.cyl(root, 0.0, r * 0.6, r * 0.9, 6, Vector3(c.x + r * 0.55, r * 0.45, c.y + r * 0.2), rock2, false)
+	await _slice()
 
 ## A soft round shadow lying on the ground (build time): centre (x, z), size (w, d), `alpha` (1 = the standard 26%), height `y`.
 func _shadow(parent: Node3D, x: float, z: float, w: float, d: float, alpha: float, y: float, tex: Texture2D = null) -> MeshInstance3D:
@@ -903,83 +1259,135 @@ func _cast(parent: Node3D, x: float, z: float, fw: float, fd: float, h: float, y
 ## clear of the approach corridors and the strips where paths are drawn.
 func _ramp(v: AirportScene) -> void:
 	var root := v.root
+	await _slice()
 	var ap := Airports.apron()
+	await _slice()
 	var tp := Airports.tower_pos()
+	await _slice()
 	var beacons: Array = []
+	await _slice()
 	if ap.is_empty():
 		Models.tower(root, tp, beacons)
+		await _slice()
 		v.beacons.append_array(beacons)
+		await _slice()
 		return
 	var c: Vector2 = ap["center"]
+	await _slice()
 	var s: float = ap["s"]
+	await _slice()
 	v.apron_c = c
+	await _slice()
 	v.apron_s = s
+	await _slice()
 	v.scenery.append(c)
+	await _slice()
 	_occupied.append([c, 2.1 * s])
+	await _slice()
 	var pal: Dictionary = PALETTE[v.style]
+	await _slice()
 	var slab := Prim.box(root, Vector3(2.8 * s, 0.03, 3.2 * s), Vector3(c.x, 0.0, c.y), Prim.mat(pal["apron"]), false)
+	await _slice()
 	var edge := Prim.box(root, Vector3(2.8 * s + 0.06, 0.028, 3.2 * s + 0.06), Vector3(c.x, -0.002, c.y), Prim.mat(Color("8c9199")), false)
+	await _slice()
 	edge.position.y = -0.002
+	await _slice()
 	Models.tower(root, tp, beacons)
+	await _slice()
 	v.beacons.append_array(beacons)
+	await _slice()
 	Models.hangar(root, c + Vector2(-0.7, -1.0) * s, s, pal["hangar"], pal["wall"])
+	await _slice()
 	Models.fbo(root, c + Vector2(-0.65, 0.1) * s, s, pal["fbo"], pal["wall2"])
+	await _slice()
 	Models.picnic(root, c + Vector2(0.2, 0.25) * s)
+	await _slice()
 	Models.car_lot(root, c + Vector2(1.0, 0.18) * s, s)
+	await _slice()
 	# oil stains on the concrete
 	var oil := _overlay_mat(Color(0, 0, 0, 0.16))
+	await _slice()
 	for o in [Vector2(-0.35, 0.82), Vector2(0.95, 1.35)]:
+		await _slice()
 		var st := Prim.cyl(root, 0.1 * s, 0.1 * s, 0.006, 10, Vector3(c.x + o.x * s, 0.02, c.y + o.y * s), oil, false)
+		await _slice()
 		st.scale = Vector3(1.3, 1.0, 0.8)
+		await _slice()
 	# the fuel farm and its truck
-	var farm = _find_rect([c + Vector2(0.0, 1.6 * s + 1.3), c + Vector2(-1.4 * s - 1.25, 1.0 * s), c + Vector2(1.4 * s + 1.25, 1.0 * s), c + Vector2(0.0, -1.6 * s - 1.3), c + Vector2(-1.4 * s - 1.25, -1.0 * s)], 1.1, 1.1)
+	var farm = await _find_rect([c + Vector2(0.0, 1.6 * s + 1.3), c + Vector2(-1.4 * s - 1.25, 1.0 * s), c + Vector2(1.4 * s + 1.25, 1.0 * s), c + Vector2(0.0, -1.6 * s - 1.3), c + Vector2(-1.4 * s - 1.25, -1.0 * s)], 1.1, 1.1)
+	await _slice()
 	if farm != null:
 		_occupied.append([farm, 0.8])
+		await _slice()
 		v.scenery.append(farm)
+		await _slice()
 		Models.fuel_farm(root, farm, 1.0)
+		await _slice()
 		var truck := Models.fuel_truck(root)
+		await _slice()
 		var home: Vector2 = farm
+		await _slice()
 		var vert: bool = absf(farm.x - c.x) < 0.5
+		await _slice()
 		var dest := Vector2(c.x + 0.33 * s, c.y + 1.18 * s + 0.1 * s) + Vector2(0.0, 0.55 * s)
+		await _slice()
 		var pts := PackedVector2Array()
+		await _slice()
 		if vert:
 			var dir_z := -1.0 if farm.y > c.y else 1.0
+			await _slice()
 			pts.append(home + Vector2(0.0, 0.62 * dir_z))
+			await _slice()
 			pts.append(Vector2(home.x, dest.y))
+			await _slice()
 			pts.append(dest)
 		else:
 			var dir_x := -1.0 if farm.x > c.x else 1.0
+			await _slice()
 			pts.append(home + Vector2(0.62 * dir_x, 0.0))
+			await _slice()
 			pts.append(Vector2(dest.x, home.y))
+			await _slice()
 			pts.append(dest)
+			await _slice()
 		v.truck = truck
+		await _slice()
 		v.truck_pts = pts
+		await _slice()
 	# a glider on its trailer by the hangar
-	var gl = _find_rect([c + Vector2(-1.4 * s - 0.35, -0.7 * s), c + Vector2(1.4 * s + 0.35, -0.7 * s), c + Vector2(-1.4 * s - 0.35, 0.9 * s)], 0.6, 1.5)
+	var gl = await _find_rect([c + Vector2(-1.4 * s - 0.35, -0.7 * s), c + Vector2(1.4 * s + 0.35, -0.7 * s), c + Vector2(-1.4 * s - 0.35, 0.9 * s)], 0.6, 1.5)
+	await _slice()
 	if gl != null:
 		_occupied.append([gl, 0.7])
+		await _slice()
 		v.scenery.append(gl)
+		await _slice()
 		Models.glider_trailer(root, gl, 8.0)
+		await _slice()
 
 ## The landmark of each look: the countryside has a red barn and a white silo beyond the fence; the coast a lighthouse and a pier with
 ## gulls; the Alps a timber lodge with chimney smoke, pines and a chairlift with two chairs. All outside the paths' strips.
 func _landmark(v: AirportScene) -> void:
 	var root := v.root
+	await _slice()
 	match v.style:
 		"coastal":
-			var lh = _find_rect([Vector2(-3.9, -3.4), Vector2(-3.9, 4.0), Vector2(3.9, 4.2), Vector2(-3.9, 0.4)], 1.0, 1.0)
+			var lh = await _find_rect([Vector2(-3.9, -3.4), Vector2(-3.9, 4.0), Vector2(3.9, 4.2), Vector2(-3.9, 0.4)], 1.0, 1.0)
+			await _slice()
 			if lh != null:
 				_occupied.append([lh, 0.8])
 				v.scenery.append(lh)
 				Models.lighthouse(root, lh, v.lamps)
-			var pr = _find_rect([Vector2(4.2, 2.8), Vector2(-4.2, -6.0), Vector2(4.2, -4.8)], 1.7, 0.8)
+			var pr = await _find_rect([Vector2(4.2, 2.8), Vector2(-4.2, -6.0), Vector2(4.2, -4.8)], 1.7, 0.8)
+			await _slice()
 			if pr != null:
 				_occupied.append([pr, 0.9])
 				v.scenery.append(pr)
 				Models.pier(root, pr + Vector2(-0.65, 0.0))
 				v.docks_at = [pr + Vector2(-0.3, 0.5), pr + Vector2(0.35, 0.5)]
 		"alpine":
-			var lo = _find_rect([Vector2(-3.9, 2.8), Vector2(-3.9, -2.2), Vector2(3.9, -3.8), Vector2(-3.8, 5.0)], 1.7, 1.2)
+			var lo = await _find_rect([Vector2(-3.9, 2.8), Vector2(-3.9, -2.2), Vector2(3.9, -3.8), Vector2(-3.8, 5.0)], 1.7, 1.2)
+			await _slice()
 			if lo != null:
 				_occupied.append([lo, 1.1])
 				v.scenery.append(lo)
@@ -997,10 +1405,15 @@ func _landmark(v: AirportScene) -> void:
 					v.smoke.append({"node": puff, "mat": m, "t": k * 0.25})
 			# pines, in a loose bunch beside the lodge and along the far edge
 			var pine_n := 0
+			await _slice()
 			var rng := RandomNumberGenerator.new()
+			await _slice()
 			rng.seed = 91
+			await _slice()
 			var tries := 0
+			await _slice()
 			while pine_n < 7 and tries < 200:
+				await _slice()
 				tries += 1
 				var pp := Vector2(rng.randf_range(-4.5, 4.5), rng.randf_range(-8.0, 8.0))
 				if _spot_free(pp, 0.3, 9.0) and _clear_of_paths(pp, 0.1) and not in_strip(pp, 0.4):
@@ -1009,6 +1422,7 @@ func _landmark(v: AirportScene) -> void:
 					pine_n += 1
 			# a chairlift line along a clear column at one side
 			for x in [-4.6, 4.6]:
+				await _slice()
 				var a := Vector2(x, -5.2)
 				var b := Vector2(x, 1.6)
 				var ok := true
@@ -1021,18 +1435,19 @@ func _landmark(v: AirportScene) -> void:
 					v.chair_b = b
 					break
 			for hz in Airports.hazards():
+				await _slice()
 				var hc: Vector2 = hz["center"]
 				Models.snow_patch(root, hc + Vector2(hz["radius"] * 0.9, hz["radius"] * 0.8), 0.45)
 		_:
 			if not v.water:
-				var pd = _find_rect([Vector2(-3.6, 6.6), Vector2(3.6, -6.8), Vector2(-3.6, -6.4), Vector2(3.6, 6.8), Vector2(-3.8, 2.0), Vector2(-3.8, -2.0)], 1.4, 1.1)
+				var pd = await _find_rect([Vector2(-3.6, 6.6), Vector2(3.6, -6.8), Vector2(-3.6, -6.4), Vector2(3.6, 6.8), Vector2(-3.8, 2.0), Vector2(-3.8, -2.0)], 1.4, 1.1)
 				if pd != null:
 					_occupied.append([pd, 0.8])
 					v.scenery.append(pd)
 					_make_pond(v, pd, 0.55)
 			if not v.water and Airports.current != 3:
 				var corners := [Vector2(-3.4, 7.9), Vector2(3.4, 7.9), Vector2(-3.4, -8.2), Vector2(3.4, -8.2)]
-				var bp = _find_rect(corners, 2.4, 1.4)
+				var bp = await _find_rect(corners, 2.4, 1.4)
 				if bp != null:
 					_occupied.append([bp, 1.1])
 					v.scenery.append(bp)
@@ -1041,6 +1456,7 @@ func _landmark(v: AirportScene) -> void:
 ## The first of `cands` (centres) whose w x d rectangle lies in the field, clear of the paths' strips and of everything built.
 func _find_rect(cands: Array, w: float, d: float, pads: bool = true) -> Variant:
 	for p in cands:
+		await _slice()
 		if _rect_clear(p, w, d, pads):
 			return p
 	return null
@@ -1069,63 +1485,107 @@ func _rect_clear(c: Vector2, w: float, d: float, pads: bool = true) -> bool:
 ## The moving scenery, built once: two birds, the hot-air balloon with its far shadow, and the mower with the stripes it leaves.
 func _life(v: AirportScene) -> void:
 	var root := v.root
+	await _slice()
 	var rng := RandomNumberGenerator.new()
+	await _slice()
 	rng.seed = 5150 + Airports.current * 31
+	await _slice()
 	for k in 2:
+		await _slice()
 		var b := Models.bird(root, Color("fbfaf6") if v.style == "coastal" else Color("3a3f4c"))
+		await _slice()
 		b.position.y = 1.1
+		await _slice()
 		var sh := Models.blob(root, Vector2.ZERO, 0.3, 0.3, 0.02, 0.6)
+		await _slice()
 		var a := rng.randf() * TAU
+		await _slice()
 		v.birds.append({"node": b, "shadow": sh, "pos": Vector2(rng.randf_range(-4.0, 4.0), rng.randf_range(-6.0, 6.0)), "vel": Vector2.from_angle(a) * 0.2, "scatter": 0.0})
+		await _slice()
 	var bn := Models.balloon(root)
+	await _slice()
 	bn.position.y = 2.4
+	await _slice()
 	var bs := Models.blob(root, Vector2.ZERO, 1.7, 1.7, 0.02, 0.55)
+	await _slice()
 	v.balloon = {"node": bn, "shadow": bs, "x": rng.randf_range(-5.0, 3.0), "z": -7.0}
+	await _slice()
 	if v.water:
 		return
 	# the mower: along the far (top) edge of the field, over the longest stretch that is clear of the paths' strips
 	var z0 := -8.45
+	await _slice()
 	var best := Vector2.ZERO
+	await _slice()
 	var run_start := -999.0
+	await _slice()
 	var x := -4.9
+	await _slice()
 	while x <= 5.0:
+		await _slice()
 		var ok := _clear_of_paths(Vector2(x, z0), 0.1)
+		await _slice()
 		for o in _occupied:
+			await _slice()
 			if Vector2(x, z0).distance_to(o[0]) < float(o[1]):
 				ok = false
 		if ok and run_start < -900.0:
 			run_start = x
+			await _slice()
 		if (not ok or x > 4.85) and run_start > -900.0:
 			if x - run_start > best.y - best.x:
 				best = Vector2(run_start, x)
 			run_start = -999.0
+			await _slice()
 		x += 0.2
+		await _slice()
 	if best.y - best.x < 1.4:
 		return
 	v.mower_span = best
+	await _slice()
 	v.mower_z0 = z0
+	await _slice()
 	var stripe := _overlay_mat(Color(1, 1, 1, 0.14))
+	await _slice()
 	for k in 5:
+		await _slice()
 		var st := Prim.box(root, Vector3(best.y - best.x, 0.012, 0.22), Vector3((best.x + best.y) * 0.5, 0.012, z0 + 0.25 * k), stripe, false)
+		await _slice()
 		st.visible = false
+		await _slice()
 		v.mower_rows.append(st)
+		await _slice()
 	v.mower = Models.mower(root)
+	await _slice()
 	v.mower.visible = false
+	await _slice()
 
 ## A pole with a striped cone on top. The cone's pivot turns to point downwind.
 func _windsock(v: AirportScene, at: Vector3) -> void:
 	_cast(v.root, at.x, at.z, 0.12, 0.12, 1.3, 0.02, 0.8)
+	await _slice()
 	Prim.cyl(v.root, 0.04, 0.05, 1.3, 5, at + Vector3(0, 0.65, 0), Prim.mat(Color(0.8, 0.8, 0.82)))
+	await _slice()
 	var sock := Node3D.new()
+	await _slice()
 	sock.position = at + Vector3(0, 1.3, 0)
+	await _slice()
 	v.root.add_child(sock)
+	await _slice()
 	v.sock = sock
+	await _slice()
 	var orange := Prim.mat(Color("ff6a3d"))
+	await _slice()
 	var white := Prim.mat(Color(0.97, 0.97, 0.95))
+	await _slice()
 	var radii := [0.22, 0.17, 0.12, 0.07]
+	await _slice()
 	for k in 3:
+		await _slice()
 		var seg := Prim.cyl(sock, radii[k + 1], radii[k], 0.32, 6, Vector3(0, 0, -(0.16 + k * 0.32)), orange if k % 2 == 0 else white)
+		await _slice()
 		seg.rotation.x = deg_to_rad(-90.0)
+		await _slice()
 
 ## A landing happened on this end: flash its threshold.
 func glow(runway: int, end: int) -> void:
@@ -1338,41 +1798,58 @@ func _spot_free(p: Vector2, r: float, bound: float = 6.0) -> bool:
 
 ## Up to `n` free spots on rings around `c`, at least `spacing` apart (then, if the rings were not enough, anywhere on the field,
 ## nearest first).
+var _grid_cache := {}
+
 func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> Array[Vector2]:
 	var out: Array[Vector2] = []
 	for ring in radii:
+		await _slice()
 		for k in 12:
+			await _slice()
 			var p: Vector2 = c + Vector2(cos(k * TAU / 12.0 + 0.4), sin(k * TAU / 12.0 + 0.4)) * ring
 			if not _spot_free(p, r, 8.6) or in_strip(p, r):
 				continue
 			var ok := true
 			for q in out:
+				await _slice()
 				if q.distance_to(p) < spacing:
 					ok = false
 			if ok:
 				out.append(p)
 				if out.size() >= n:
 					return out
-	var best: Array = []
-	var relaxed: Array = []        # (only where the field is too crowded: under the interface, but still outside every strip)
-	var gx := -4.4
-	while gx <= 4.4:
-		var gz := -8.4
-		while gz <= 8.4:
-			var p2 := Vector2(gx, gz)
-			if _spot_free(p2, r, 8.6) and _clear_of_paths(p2, -0.9):
-				if not in_strip(p2, r):
-					best.append(p2)
-				elif not in_strip(p2, r, true, false):
-					relaxed.append(p2)
-			gz += 0.5
-		gx += 0.5
+	# The free spots of the whole field on a 0.5 grid for this radius: the same whoever asks (it depends only on the airport's fixed
+	# geometry), so each airport works them out once per radius, a column at a time (see _slice), and every search after that reuses them.
+	var key := "%d:%.3f" % [Airports.current, r]
+	if not _grid_cache.has(key):
+		var g_best: Array = []
+		var g_relaxed: Array = []        # (only where the field is too crowded: under the interface, but still outside every strip)
+		var gx := -4.4
+		while gx <= 4.4:
+			await _slice()
+			var gz := -8.4
+			while gz <= 8.4:
+				await _slice()
+				var p2 := Vector2(gx, gz)
+				if _spot_free(p2, r, 8.6) and _clear_of_paths(p2, -0.9):
+					if not in_strip(p2, r):
+						g_best.append(p2)
+					elif not in_strip(p2, r, true, false):
+						g_relaxed.append(p2)
+				gz += 0.5
+				await _slice()
+			gx += 0.5
+		_grid_cache[key] = [g_best, g_relaxed]
+	var best: Array = (_grid_cache[key][0] as Array).duplicate()
+	var relaxed: Array = (_grid_cache[key][1] as Array).duplicate()
 	best.sort_custom(func(a: Vector2, b: Vector2): return a.distance_to(c) < b.distance_to(c))
 	relaxed.sort_custom(func(a: Vector2, b: Vector2): return a.distance_to(c) < b.distance_to(c))
 	best.append_array(relaxed)
 	for p3 in best:
+		await _slice()
 		var ok2 := true
 		for q in out:
+			await _slice()
 			if q.distance_to(p3) < spacing:
 				ok2 = false
 		if ok2:
@@ -1383,87 +1860,155 @@ func _find_spots(c: Vector2, n: int, r: float, spacing: float, radii: Array) -> 
 
 func _upgrade_props(v: AirportScene) -> void:
 	var root := v.root
+	await _slice()
 	var tower: Vector2 = v.apron_c if v.apron_s > 0.0 and not v.apron_c.is_equal_approx(Vector2.ZERO) else Airports.tower_pos()
+	await _slice()
 	var ar := 2.1 * v.apron_s if not v.apron_c.is_equal_approx(Vector2.ZERO) else 0.0       # (the props stand around the apron, not on it)
+	await _slice()
 	var metal := Prim.mat(Color(0.78, 0.8, 0.84))
+	await _slice()
 	var dark := Prim.mat(Color(0.2, 0.22, 0.26))
+	await _slice()
 	# Radar: up to three turning dishes around the tower.
-	var spots := _find_spots(tower, 3, 0.35, 0.8, [ar + 0.5, ar + 0.9, ar + 1.3, 1.2, 1.6, 2.1])
+	var spots := await _find_spots(tower, 3, 0.35, 0.8, [ar + 0.5, ar + 0.9, ar + 1.3, 1.2, 1.6, 2.1])
+	await _slice()
 	for k in spots.size():
+		await _slice()
 		var holder := Node3D.new()
+		await _slice()
 		holder.position = Vector3(spots[k].x, 0.0, spots[k].y)
+		await _slice()
 		root.add_child(holder)
+		await _slice()
 		Prim.cyl(holder, 0.05, 0.06, 0.7, 5, Vector3(0, 0.35, 0), metal)
+		await _slice()
 		var turret := Node3D.new()
+		await _slice()
 		turret.position = Vector3(0, 0.78, 0)
+		await _slice()
 		holder.add_child(turret)
+		await _slice()
 		var dish := Prim.cyl(turret, 0.36, 0.04, 0.16, 8, Vector3(0, 0.0, -0.1), metal)
+		await _slice()
 		dish.rotation.x = deg_to_rad(-62.0)
+		await _slice()
 		Prim.box(turret, Vector3(0.05, 0.05, 0.3), Vector3(0, 0.12, -0.12), dark, false)
+		await _slice()
 		v.dishes.append(turret)
+		await _slice()
 		v.ups.append([holder, "radar", k + 1])
+		await _slice()
 	# Better Comms: radio masts with blinking beacons.
-	spots = _find_spots(tower, 3, 0.3, 0.8, [ar + 1.5, ar + 1.9, ar + 2.3, 2.4, 2.9, 3.4])
+	spots = await _find_spots(tower, 3, 0.3, 0.8, [ar + 1.5, ar + 1.9, ar + 2.3, 2.4, 2.9, 3.4])
+	await _slice()
 	for k in spots.size():
+		await _slice()
 		var holder := Node3D.new()
+		await _slice()
 		holder.position = Vector3(spots[k].x, 0.0, spots[k].y)
+		await _slice()
 		root.add_child(holder)
+		await _slice()
 		Prim.cyl(holder, 0.03, 0.07, 1.6, 4, Vector3(0, 0.8, 0), metal)
+		await _slice()
 		Prim.box(holder, Vector3(0.5, 0.04, 0.04), Vector3(0, 1.25, 0), metal, false)
+		await _slice()
 		var lm := Prim.mat(Color(1.0, 0.2, 0.15))
+		await _slice()
 		lm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		await _slice()
 		lm.emission_enabled = true
+		await _slice()
 		lm.emission = Color(1.0, 0.15, 0.1)
+		await _slice()
 		lm.emission_energy_multiplier = 0.0
+		await _slice()
 		v.mast_lights.append(lm)
+		await _slice()
 		Prim.cyl(holder, 0.07, 0.07, 0.12, 6, Vector3(0, 1.64, 0), lm, false)
+		await _slice()
 		v.ups.append([holder, "comms", k + 1])
+		await _slice()
 	# Tower Staff: a terminal annex, then a bigger one, then a flag.
-	spots = _find_spots(tower, 3, 0.55, 1.0, [ar + 0.9, ar + 1.3, ar + 1.7, 1.9, 2.4, 2.9])
+	spots = await _find_spots(tower, 3, 0.55, 1.0, [ar + 0.9, ar + 1.3, ar + 1.7, 1.9, 2.4, 2.9])
+	await _slice()
 	for k in spots.size():
+		await _slice()
 		var holder := Node3D.new()
+		await _slice()
 		holder.position = Vector3(spots[k].x, 0.0, spots[k].y)
+		await _slice()
 		root.add_child(holder)
+		await _slice()
 		if k == 2:
 			Prim.cyl(holder, 0.03, 0.03, 1.1, 4, Vector3(0, 0.55, 0), metal, false)
+			await _slice()
 			Prim.box(holder, Vector3(0.5, 0.3, 0.03), Vector3(0.25, 0.95, 0), Prim.mat(Color(0.9, 0.2, 0.2)), false)
 		else:
 			Prim.box(holder, Vector3(0.9 + 0.3 * k, 0.4, 0.55), Vector3(0, 0.2, 0), Prim.mat(Color(0.88, 0.85, 0.78)))
+			await _slice()
 			Prim.box(holder, Vector3(0.96 + 0.3 * k, 0.1, 0.62), Vector3(0, 0.45, 0), Prim.mat(Color(0.55, 0.3, 0.25)))
+			await _slice()
 		v.ups.append([holder, "tower", k + 1])
+		await _slice()
 	# Holding Fixes: marker cones (two more each level) out in the airspace.
 	var cone_a := Prim.mat(Color(1.0, 0.5, 0.1))
+	await _slice()
 	var cone_b := Prim.mat(Color(0.97, 0.97, 0.95))
+	await _slice()
 	var fix_pos: Array[Vector2] = []
+	await _slice()
 	for z in [-1.5, 1.0, -3.2, 2.6, -4.6, 4.4, 0.0, -2.2, 3.4, -5.4, 5.4, -6.4, 6.4, -7.4, 7.4, -8.2, 8.2]:
+		await _slice()
 		for x in [-4.2, 4.2, -3.6, 3.6, -4.6, 4.6, 0.0]:
+			await _slice()
 			fix_pos.append(Vector2(x, z))
+			await _slice()
 	var placed := 0
+	await _slice()
 	for p in fix_pos:
+		await _slice()
 		if placed >= 6 or not _spot_free(p, 0.3, 8.6) or in_strip(p, 0.25):
 			continue
 		var near_other := false
+		await _slice()
 		for u in v.ups:
+			await _slice()
 			if u[1] == "holding" and Vector2(u[0].position.x, u[0].position.z).distance_to(p) < 1.6:
 				near_other = true
 		if near_other:
 			continue
 		var holder := Node3D.new()
+		await _slice()
 		holder.position = Vector3(p.x, 0.0, p.y)
+		await _slice()
 		root.add_child(holder)
+		await _slice()
 		Prim.cyl(holder, 0.0, 0.22, 0.5, 6, Vector3(0, 0.25, 0), cone_a)
+		await _slice()
 		Prim.cyl(holder, 0.0, 0.12, 0.2, 6, Vector3(0, 0.44, 0), cone_b, false)
+		await _slice()
 		v.ups.append([holder, "holding", 1 + placed / 2])
+		await _slice()
 		placed += 1
+		await _slice()
 	# Approach Control: rows of approach lights behind every runway end (3, 6, then 9 of them).
 	var light := Prim.mat(Color(1.0, 0.95, 0.7))
+	await _slice()
 	light.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	await _slice()
 	for r in Airports.rw_count():
+		await _slice()
 		for e in 2:
+			await _slice()
 			var thr := Airports.end_threshold(r, e)
+			await _slice()
 			var dir := Airports.end_dir(r, e)
+			await _slice()
 			var side := Vector2(-dir.y, dir.x)
+			await _slice()
 			for k in 9:
+				await _slice()
 				var p := thr - dir * (0.9 + k * 0.42) + side * (0.0 if k % 3 == 0 else (0.3 if k % 3 == 1 else -0.3))
 				if not _spot_free(p, 0.1, 8.0):
 					continue
@@ -1471,19 +2016,33 @@ func _upgrade_props(v: AirportScene) -> void:
 				v.ups.append([node, "approach", 1 + k / 3])
 	# Fast Turnoffs: angled exit taxiways off each runway (2, 4, then 6).
 	var taxi := Prim.mat(Tuning.runway_asphalt.lightened(0.05))
+	await _slice()
 	for r in Airports.rw_count():
+		await _slice()
 		var rr := Node3D.new()
+		await _slice()
 		rr.position = Vector3(Airports.rw_center(r).x, 0.0, Airports.rw_center(r).y)
+		await _slice()
 		rr.rotation.y = -deg_to_rad(Airports.rw_heading_deg(r))
+		await _slice()
 		root.add_child(rr)
+		await _slice()
 		var len := Airports.rw_length(r)
+		await _slice()
 		var w := Airports.rw_width(r)
+		await _slice()
 		for k in 6:
+			await _slice()
 			var sx := 1.0 if k % 2 == 0 else -1.0
+			await _slice()
 			var z := (0.34 - 0.07 * (k / 2)) * len * (1.0 if (k / 2) % 2 == 0 else -1.0)
+			await _slice()
 			var strip := Prim.box(rr, Vector3(0.32, 0.1, 1.3), Vector3(sx * (w * 0.5 + 0.35), 0.05, z), taxi)
+			await _slice()
 			strip.rotation.y = deg_to_rad(sx * 35.0)
+			await _slice()
 			v.ups.append([strip, "turnoffs", 1 + k / 2])
+			await _slice()
 
 ## Show each upgrade's scenery that has been bought (called at start-up and after a purchase).
 func show_upgrades() -> void:
@@ -1518,127 +2077,226 @@ func _ramp_slots(v: AirportScene) -> void:
 	if Airports.apron().is_empty():
 		return
 	var root := v.root
+	await _slice()
 	var c := v.apron_c
+	await _slice()
 	var s := v.apron_s
+	await _slice()
 	var pal: Dictionary = PALETTE[v.style]
+	await _slice()
 	v.ramp_ok = true
+	await _slice()
 	var south := absf(c.y + 2.7 * s) < 8.9 and rect_out_of_strips(Rect2(c.x - 1.4 * s, c.y + 1.6 * s, 2.8 * s, 1.1 * s), 0.1)
+	await _slice()
 	var west := not south and c.x - 2.5 * s > -5.0 and rect_out_of_strips(Rect2(c.x - 2.5 * s, c.y - 1.6 * s, 1.1 * s, 3.2 * s), 0.1)
+	await _slice()
 	var ex := c.x + 1.55 * s
+	await _slice()
 	var aisle1 := c.y + 0.82 * s
+	await _slice()
 	var aisle2 := c.y + 1.72 * s
+	await _slice()
 	var ties: Array = []
+	await _slice()
 	for i in 3:
+		await _slice()
 		var x := c.x + (-0.9 + 0.9 * i) * s
+		await _slice()
 		var p := Vector2(x, c.y + 1.28 * s)
+		await _slice()
 		ties.append({"pos": p, "yaw": PI, "goals": [Vector2(ex, aisle1)], "tail": PackedVector2Array([Vector2(x, aisle1), p])})
+		await _slice()
 	var tag_pos := c + Vector2(1.0 * s, 1.45 * s)
+	await _slice()
 	v.extra_goals = [Vector2(ex, aisle1)]
+	await _slice()
 	v.extra_tail = PackedVector2Array([Vector2(c.x + 1.0 * s, aisle1), tag_pos])
+	await _slice()
 	if south:
 		Prim.box(root, Vector3(2.8 * s, 0.03, 1.1 * s), Vector3(c.x, 0.0, c.y + 2.15 * s), Prim.mat(pal["apron"]), false)
+		await _slice()
 		for i in 3:
+			await _slice()
 			var x2 := c.x + (-0.9 + 0.9 * i) * s
+			await _slice()
 			var p2 := Vector2(x2, c.y + 2.23 * s)
+			await _slice()
 			ties.append({"pos": p2, "yaw": PI, "goals": [Vector2(ex, aisle2)], "tail": PackedVector2Array([Vector2(x2, aisle2), p2])})
+			await _slice()
 		tag_pos = c + Vector2(1.0 * s, 2.4 * s)
+		await _slice()
 		v.extra_goals = [Vector2(ex, aisle2)]
+		await _slice()
 		v.extra_tail = PackedVector2Array([Vector2(c.x + 1.0 * s, aisle2), tag_pos])
 	elif west:
 		Prim.box(root, Vector3(1.1 * s, 0.03, 3.2 * s), Vector3(c.x - 1.95 * s, 0.0, c.y), Prim.mat(pal["apron"]), false)
+		await _slice()
 		for i in 3:
+			await _slice()
 			var p3 := Vector2(c.x - 1.95 * s, c.y + (-0.55 + 0.95 * i) * s)
+			await _slice()
 			ties.append({"pos": p3, "yaw": PI * 0.5, "goals": [p3 + Vector2(-1.0 * s, 0.0)], "tail": PackedVector2Array([p3])})
+			await _slice()
 		tag_pos = c + Vector2(-1.95 * s, -1.35 * s)
+		await _slice()
 		v.extra_goals = [tag_pos + Vector2(-1.0 * s, 0.0)]
+		await _slice()
 		v.extra_tail = PackedVector2Array([tag_pos])
+		await _slice()
 	v.slots["tie"] = []
+	await _slice()
 	for i in ties.size():
+		await _slice()
 		var t: Dictionary = ties[i]
+		await _slice()
 		var e := _slot_node(v, root, t["pos"], t["yaw"], false)
+		await _slice()
 		e["goals"] = t["goals"]
+		await _slice()
 		e["tail"] = t["tail"]
+		await _slice()
 		(v.slots["tie"] as Array).append(e)
+		await _slice()
 		Models.tie_down(root, (t["pos"] as Vector2) + Vector2(sin(t["yaw"]), -cos(t["yaw"])) * -0.02, -rad_to_deg(t["yaw"]))
+		await _slice()
 	# the hangar: the door faces south; aircraft come along the gap between it and the FBO
 	var door := Vector2(c.x - 0.7 * s, c.y - 0.62 * s)
+	await _slice()
 	v.hangar_goals = [Vector2(ex, c.y - 0.38 * s), Vector2(c.x - 1.55 * s, c.y - 0.38 * s)]
+	await _slice()
 	v.hangar_tail = PackedVector2Array([Vector2(c.x - 0.7 * s, c.y - 0.38 * s), door])
+	await _slice()
 	v.hangar_label = _ramp_label(root, Vector3(c.x - 0.7 * s, 0.55, c.y - 1.0 * s), 0.0042 * s, Color("f7f0e1"))
+	await _slice()
 	v.extra_tag = _ramp_label(root, Vector3(tag_pos.x, 0.06, tag_pos.y), 0.0042 * s, Color("f7f0e1"))
+	await _slice()
 	v.extra_tag.visible = false
+	await _slice()
 	v.hangar_label.visible = false
+	await _slice()
 	# the overflow spots: on the grass along the taxiway, nearest the apron first
 	v.slots["over"] = []
+	await _slice()
 	var far0 := Airports.land_far(Aircraft.Kind.RUNWAY, 0, 0)
+	await _slice()
 	var dir0 := Airports.end_dir(0, 0)
+	await _slice()
 	var best: PackedVector2Array
+	await _slice()
 	for g in v.hangar_goals:
+		await _slice()
 		var r0 := Ramp.taxi_route(far0, dir0, g, v.hangar_tail)
+		await _slice()
 		if not r0.is_empty() and (best.is_empty() or Ramp.route_length(r0) < Ramp.route_length(best)):
 			best = r0
+			await _slice()
 	var chosen: Array[Vector2] = []
+	await _slice()
 	var walk: Array = []         # [point, tangent] along the route, from the apron end back
+	await _slice()
 	var total := Ramp.route_length(best)
+	await _slice()
 	var d := total - 2.2 * s
+	await _slice()
 	while d > 1.4:
+		await _slice()
 		walk.append(_route_at(best, d))
+		await _slice()
 		d -= 0.8
+		await _slice()
 	for w in walk:
+		await _slice()
 		if chosen.size() >= Ramp.OVERS:
 			break
 		var wp: Vector2 = w[0]
+		await _slice()
 		var wt: Vector2 = w[1]
+		await _slice()
 		var wn := Vector2(-wt.y, wt.x)
+		await _slice()
 		for sg in [1.0, -1.0]:
+			await _slice()
 			var cp: Vector2 = wp + wn * sg * 0.72
+			await _slice()
 			if chosen.size() >= Ramp.OVERS:
 				break
 			if not _spot_free(cp, 0.4, 8.6) or not _clear_of_paths(cp, -0.3) or in_strip(cp, 0.35) or cp.distance_to(c) < 2.0 * s + 0.3:
 				continue
 			var near := false
+			await _slice()
 			for o in chosen:
+				await _slice()
 				if o.distance_to(cp) < 0.95:
 					near = true
 			if near:
 				continue
 			chosen.append(cp)
+			await _slice()
 			_occupied.append([cp, 0.42])
+			await _slice()
 			var ye := atan2(wt.x, -wt.y)
+			await _slice()
 			var e2 := _slot_node(v, root, cp, ye, false)
+			await _slice()
 			e2["goals"] = [cp]
+			await _slice()
 			e2["tail"] = PackedVector2Array()
+			await _slice()
 			(v.slots["over"] as Array).append(e2)
+			await _slice()
 			break
 	# a marked heli spot (airports with a pad)
 	v.slots["heli"] = []
+	await _slice()
 	if not Airports.pads().is_empty():
 		var cands: Array[Vector2] = []
+		await _slice()
 		for ring in [1.9 * s + 0.6, 2.2 * s + 0.7, 2.4 * s + 1.0, 2.7 * s + 1.2, 3.0 * s + 1.4, 3.5 * s + 1.6, 4.0 * s + 1.8]:
+			await _slice()
 			for k in 16:
+				await _slice()
 				cands.append(c + Vector2(cos(k * TAU / 16.0), sin(k * TAU / 16.0)) * ring)
 		var pc: Vector2 = Airports.pads()[0]["center"]       # (also beside the pad itself: the helicopter has only a short hop)
+		await _slice()
 		for ring in [1.6, 2.0, 2.4, 2.9]:
+			await _slice()
 			for k in 16:
+				await _slice()
 				cands.append(pc + Vector2(cos(k * TAU / 16.0 + 0.2), sin(k * TAU / 16.0 + 0.2)) * ring)
-		var hs = _find_rect(cands, 0.9, 0.9, false)       # (it may stand beside its own pad, inside the pad's ring)
+		var hs = await _find_rect(cands, 0.9, 0.9, false)       # (it may stand beside its own pad, inside the pad's ring)
+		await _slice()
 		if hs != null:
 			_occupied.append([hs, 0.5])
+			await _slice()
 			Prim.cyl(root, 0.4, 0.4, 0.012, 16, Vector3(hs.x, 0.02, hs.y), Prim.mat(Airports.PAD_COLOR.lightened(0.15)), false)
+			await _slice()
 			Prim.cyl(root, 0.34, 0.34, 0.012, 16, Vector3(hs.x, 0.026, hs.y), Prim.mat(Color("f2ede4")), false)
+			await _slice()
 			var hl := _ramp_label(root, Vector3(hs.x, 0.034, hs.y), 0.0035, Airports.PAD_COLOR)
+			await _slice()
 			hl.text = "H"
+			await _slice()
 			var he := _slot_node(v, root, hs, 0.0, true)
+			await _slice()
 			he["goals"] = [hs]
+			await _slice()
 			he["tail"] = PackedVector2Array()
+			await _slice()
 			(v.slots["heli"] as Array).append(he)
+			await _slice()
 	# the dock (the pier's two berths)
 	v.slots["dock"] = []
+	await _slice()
 	for dk in v.docks_at:
+		await _slice()
 		var de := _slot_node(v, root, dk, PI * 0.5, false)
+		await _slice()
 		de["goals"] = [dk]
+		await _slice()
 		de["tail"] = PackedVector2Array()
+		await _slice()
 		(v.slots["dock"] as Array).append(de)
+		await _slice()
 
 func _ramp_label(root: Node3D, at: Vector3, px: float, col: Color) -> Label3D:
 	var lab := Label3D.new()

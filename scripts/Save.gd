@@ -114,7 +114,7 @@ func write_file() -> void:
 
 ## Is airport `i` open? (By total stars; the debug unlock opens them all.)
 func airport_open(i: int) -> bool:
-	return Airports.unlocked(i, stars_total()) or unlocks.has("all_airports")
+	return Airports.unlocked(i, stars_total()) or unlocks.has("all_airports") or DebugFlags.airports_enabled()
 
 # ---------- Daily shift and Bad Pilot Day ----------
 # Both are one seeded shift per day with a streak and a best; they keep separate records (daily / bad_day).

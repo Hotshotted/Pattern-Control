@@ -297,6 +297,11 @@ func set_fog(level: float) -> void:
 		_stop_layers(["tense"])
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_inner(delta)
+	Boot.add("audio (layers, sounds)", float(Time.get_ticks_usec() - t0) / 1000.0)
+
+func _process_inner(delta: float) -> void:
 	if not enabled:
 		return
 	# The layers glide on the wall clock: the engine's frame delta is held to 1/60 s when frames are slower, which on a slow phone

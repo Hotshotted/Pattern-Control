@@ -66,6 +66,13 @@ srv.listen(0, async () => {
     const builtAt = info.boot.find(m => m[0] === 'prewarm: everything shown')[3];
     console.log(`  GAME BUILD (engine up -> scene built): ${(builtAt - upAt).toFixed(0)} ms; engine boot ${upAt.toFixed(0)} ms`);
     if (LIMIT_BUILD_MS && builtAt - upAt > LIMIT_BUILD_MS) fail(`the game takes ${(builtAt - upAt).toFixed(0)} ms to build its scene (limit ${LIMIT_BUILD_MS})`);
+    // the menu's own frames (?perf): every one over 33 ms in the first 20 s, and what ran in it
+    await page.waitForTimeout(21000);
+    const menuFrames = await page.evaluate(() => (window.__menu || []).slice());
+    const worstScript = menuFrames.reduce((m, f) => Math.max(m, f[2]), 0);
+    console.log(`MENU, first 20 s: ${menuFrames.length} frames over 33 ms (wall; a software renderer makes them all) or in our code; the 12 with the most game code, then the worst: ${worstScript.toFixed(1)} ms`);
+    for (const f of menuFrames.slice().sort((a, b) => b[2] - a[2]).slice(0, 12)) console.log(`   t=${f[0]}s wall ${f[1]} ms, our code ${f[2]} ms: ${f[3]}`);
+    if (process.env.LIMIT_MENU_FRAME_MS && worstScript > +process.env.LIMIT_MENU_FRAME_MS) fail(`a menu frame spent ${worstScript.toFixed(1)} ms in the game's own code (limit ${process.env.LIMIT_MENU_FRAME_MS})`);
     console.log(`  MENU SHOWN at ${menuAt.toFixed(0)} ms of page time (${wall} ms wall)`);
     if (LIMIT_MENU_MS && menuAt > LIMIT_MENU_MS) fail(`the menu took ${menuAt.toFixed(0)} ms (limit ${LIMIT_MENU_MS})`);
     // play a shift and look at the frames

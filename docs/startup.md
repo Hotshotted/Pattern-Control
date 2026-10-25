@@ -84,3 +84,28 @@ during the step) and **storm / mountain crashes** (the distance from the hazard 
 pass just inside the conflict distance was missed 4 times in 60 at 30 fps. Everything else is already proportional to the step (path
 following walks the path by distance, circling integrates an angle, timers and the landing roll subtract the step) and agreed to within
 one step.
+
+## The menu's background build (3 ms a frame)
+
+`?perf` logs every menu frame over 33 ms in its first 20 s with what ran in it (`[menu-hitch] t=.. wall .. ms, our code .. ms:` the
+airport build, `hud.show_menu`, the interface, the audio; also `window.__menu` for `tools/web_boot_check.js`, which prints the worst
+ones). `?airports` opens every airport for the visit, so the background build has something to do.
+
+The other airports are built in the background once the menu has been up 2 s (a shift or the pause menu pauses it). `Airfield._build_scene`
+is a coroutine: `await _slice()` sits between its statements (about 38 000 of them for all six airports), and `_slice` hands the frame back
+once 3 ms (`Airfield.budget_us`) of it is spent. The placement search that took 15-20 ms in one go (`_find_spots`' grid scan) works a
+point at a time and keeps its result per airport and radius; the HUD rectangles are worked out once per view. `tools/build_profile.gd`
+lists the slowest statements (natively); none is over 2.5 ms now except a few first-airport warm-ups.
+
+Picking an airport that is not built yet (the airport card or the menu arrows) shows "Loading..." on its card, gives the build 9 ms of
+each frame and goes there when it is done, instead of freezing.
+
+Worst menu frames in the first 20 s under a 4x CPU slowdown with all six airports open (headless Chromium, software GL):
+
+| | before (818df89) | after |
+|---|---|---|
+| frames with the build in them | 8+ frames of 177-394 ms of our code (each a whole build phase) | 3.1-3.6 ms typically; about 3 in 20 s at 110-150 ms |
+| what the long ones are | a build phase (6-15 ms natively, ×25 in the browser) | one statement waiting on the software renderer: "ground", "runway" or "pad" (a mesh or texture upload; the same ~90-120 ms at 1x throttle, so not CPU), not the game's own code |
+| first frame of the menu | 24 ms (`hud.show_menu` 14 ms) | the same |
+
+A phone's GPU does not make the browser wait for a frame on an upload the way SwiftShader does, so the long ones should be shorter there.

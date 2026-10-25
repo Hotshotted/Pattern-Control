@@ -5,6 +5,11 @@ extends RefCounted
 ## started. Costs nothing noticeable (one clock read and one print per step).
 
 static var marks: Array = []
+## What ran in this frame (name -> ms), for the menu's hitch log (Main._log_menu_frame): the parts that can be slow add their time here.
+static var frame_spans := {}
+
+static func add(what: String, ms: float) -> void:
+	frame_spans[what] = float(frame_spans.get(what, 0.0)) + ms
 static var _last := 0
 ## How far through the start-up each step is (0..1): the loading page's bar follows it, after the download's share.
 const PROGRESS := {
