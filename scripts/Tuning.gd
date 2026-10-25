@@ -82,7 +82,8 @@ var hold_radius := 1.1
 
 # ---------- Timers and strikes ----------
 ## Every aircraft has a timer that runs down from when it enters the screen (seconds), by type, shortest first.
-var timer_glider := 20.0
+## A glider's ring starts at this share of a powered (small) plane's timer: it has no engine to buy time with, but it can go around like the rest.
+var glider_timer_frac := 0.6
 var timer_heli := 28.0
 var timer_small := 36.0
 var timer_medium := 44.0
@@ -225,6 +226,9 @@ var student_pay_mult := 2.0          # students pay double when they land
 var bad_day_go_around_mult := 3.0    # Bad Pilot Day: every aircraft is a student, with far higher go-around chances
 var bad_day_go_around_floor := 0.6
 var bad_day_pay_mult := 1.5          # ...and every landing pays big (x student_pay_mult as well)
+## The "No engines" challenge (Bad Pilot Day, or an airport card once it has three stars): nobody can go around, so a busy runway or a missed
+## approach is a crash, and a glider's first path is final and it cannot hold. Every landing pays this much more.
+var no_engines_pay_mult := 1.5
 var bad_day_threshold_mult := 2.5    # ...so the star thresholds are higher
 var bad_day_bonus_mult := 2.0        # ...and so is the completion bonus
 var go_around_climb_seconds := 1.6   # how long the climb-out lift shows
@@ -411,7 +415,7 @@ func landing_pay(type: int) -> int:
 	return [pay_glider, pay_heli, pay_small, pay_medium, pay_jet, pay_seaplane][type]
 
 func type_timer(type: int) -> float:
-	return [timer_glider, timer_heli, timer_small, timer_medium, timer_jet, timer_seaplane][type]
+	return [glider_timer_frac * timer_small, timer_heli, timer_small, timer_medium, timer_jet, timer_seaplane][type]
 
 ## Speed by type (units / second), and the class (0 slow / 1 medium / 2 fast) that picks the entry glow and model.
 func type_speed(type: int) -> float:

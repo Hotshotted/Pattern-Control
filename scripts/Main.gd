@@ -49,6 +49,8 @@ var log_go_arounds := true               # print the go-around cancel rate after
 var last_go_around_log := ""
 var score := 0                        # aircraft landed this shift (the big number)
 var _event_key := ""
+var no_engines := false                 # the "No engines" challenge is on for this shift (see Tuning.no_engines_pay_mult)
+var force_no_engines := false           # (the simulations)
 var bad_mode := false                 # Bad Pilot Day (also a seeded daily-style shift: daily_mode is true too)
 var daily_mode := false               # playing today's seeded daily shift
 var shop_tab := 0                     # 0 themes, 1 liveries
@@ -244,7 +246,7 @@ func _prime_panels() -> void:
 		best.append(Save.best_for(i))
 	# (`priming` is on only while a panel is being laid out, never across a frame: a tap in between is a real one)
 	hud.priming = true
-	hud.show_select(Save.stars_total(), open, stars, best, airport)
+	hud.show_select(Save.stars_total(), open, stars, best, airport, Save.no_engines_at)
 	hud.priming = false
 	await get_tree().process_frame
 	if screen == SCREEN_MENU or _warming:
@@ -381,6 +383,8 @@ func restart() -> void:
 	_drag_active = false
 	_doubled = false
 	traffic.all_students = bad_mode
+	no_engines = force_no_engines or (Save.no_engines_bad if bad_mode else (not daily_mode and Save.no_engines_on(airport)))
+	traffic.no_engines = no_engines
 	traffic.auto_spawn = not DebugFlags.windtest_enabled()
 	if DebugFlags.windtest_enabled():       # (the web check's field: just the ground, the light and the wind; no interface, no marks)
 		hud.visible = false
@@ -423,6 +427,8 @@ func restart() -> void:
 	airfield.show_active(wind)
 	hud.mode = "bad" if bad_mode else ("daily" if daily_mode else "")
 	hud.reset_for_run(Save.best_for(airport))
+	if no_engines:
+		hud.post_banner("No engines: no go-arounds, \u00d7%s pay" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Color(1.0, 0.8, 0.3), "glider", 3.4)
 	hud.set_wind(wind.from_deg, wind.toward_deg())
 	hud.set_shift(shift)
 
@@ -442,7 +448,7 @@ func _show_menu() -> void:
 	airfield.progress = -1.0
 	_set_day(0.0)
 	var sm_t0 := Time.get_ticks_usec()
-	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport), Save.stars_of(airport))
+	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport), Save.stars_of(airport), Save.no_engines_bad)
 	Boot.add("hud.show_menu", float(Time.get_ticks_usec() - sm_t0) / 1000.0)
 
 # ---------- Frame time: the simulation can never run ahead of the clock ----------
@@ -773,6 +779,8 @@ func _on_landed(p: Aircraft) -> void:
 	score += 1
 	var vip_paid := p.vip and p.vip_ok
 	var base := Tuning.landing_pay(p.type)
+	if no_engines:
+		base = roundi(base * Tuning.no_engines_pay_mult)
 	if p.student:
 		base = roundi(base * Tuning.student_pay_mult * (Tuning.bad_day_pay_mult if bad_mode else 1.0))
 	var extra := 0
@@ -846,7 +854,7 @@ func _on_crashed(p: Aircraft, kind: int) -> void:
 	fx.burst(p.pos, Color(0.85, 0.6, 0.4), true)
 	overlay.ripple(p.pos, Color(1, 0.35, 0.2), 1.1)
 	shake(0.2, 0.25)
-	_apply_fine(Tuning.fine_amount(Tuning.fine_hazard), "crash", "Struck by storm!" if kind == 1 else ("No room to land!" if kind == 2 else "Crashed!"), p.pos)
+	_apply_fine(Tuning.fine_amount(Tuning.fine_hazard), "crash", "Struck by storm!" if kind == 1 else ("No room to land!" if kind == 2 else ("Missed approach!" if kind == 3 else "Crashed!")), p.pos)
 
 ## A go-around: the aircraft climbs out along the runway heading and needs a new path (it keeps its timer).
 func _on_go_around(p: Aircraft, reason: int) -> void:
@@ -889,7 +897,7 @@ func _on_refused(_p: Aircraft, text: String, at: Vector2) -> void:
 ## First time a kind of aircraft is on screen: a one-line tip. Emergencies announce themselves every time.
 const TIPS := {
 	"drag": ["Drag from an aircraft to its runway", "plane"],
-	"glider": ["Glider: one path, no holding", "glider"],
+	"glider": ["Glider: short timer, watch the ring", "glider"],
 	"heli": ["Helicopters land on the H pad", "heli"],
 	"jet": ["Jets need a long runway", "jet"],
 	"seaplane": ["Seaplanes land on water", "seaplane"],
@@ -1303,6 +1311,15 @@ func _on_button(id: String) -> void:
 		hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
 	elif id == "airports":
 		_show_select()
+	elif id.begins_with("noeng:"):
+		var ne_i := int(id.substr(6))
+		Save.no_engines_at[ne_i] = 0 if Save.no_engines_at[ne_i] != 0 else 1
+		Save.write_file()
+		_show_select()
+	elif id == "noeng_bad":
+		Save.no_engines_bad = not Save.no_engines_bad
+		Save.write_file()
+		_show_menu()
 	elif id.begins_with("pick:"):
 		if not request_airport(int(id.substr(5))):
 			return                    # (its scenery is still being built: the card says so, and this carries on when it is there)
@@ -1359,7 +1376,7 @@ func _on_button(id: String) -> void:
 func _ui_sound(id: String) -> String:
 	if id == "back" or id == "menu" or id == "quit" or id == "restart" or id == "resume":
 		return "back"
-	if id == "details" or id.begins_with("shop_tab:"):
+	if id == "details" or id.begins_with("shop_tab:") or id.begins_with("noeng"):
 		return "toggle"
 	if id == "unlock_ok" or id.begins_with("ad_"):
 		return "unlock"
@@ -1597,7 +1614,7 @@ func _show_select() -> void:
 		open.append(1 if Save.airport_open(i) else 0)
 		stars.append(Save.stars_of(i))
 		best.append(Save.best_for(i))
-	hud.show_select(Save.stars_total(), open, stars, best, airport)
+	hud.show_select(Save.stars_total(), open, stars, best, airport, Save.no_engines_at)
 
 func _touch_move(index: int, pos: Vector2) -> void:
 	if _slider_drag >= 0:

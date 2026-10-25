@@ -34,8 +34,8 @@ You run an airport, one **shift** at a time.
   (water and a seaplane lane) and International (three long runways, two helipads, two lanes). A second
   aircraft reaching a runway that is still busy goes around.
 - **Special aircraft** (each shows a one-line tip the first time it appears): **helicopters** land on the
-  helipad only and hover when tapped; **gliders** can't hold and only get their first path, with the shortest
-  timer; **jets** are fast and need a long runway; **seaplanes** land on the water lane; **emergencies**
+  helipad only and hover when tapped; **gliders** behave like the rest of the traffic (they can hold, redraw and go around) but their timer ring
+  starts at 60% of a small plane's (`glider_timer_frac` in `?tune`); **jets** are fast and need a long runway; **seaplanes** land on the water lane; **emergencies**
   (flashing, SOS) have a short timer, may use any suitable runway and pay a big bonus; **VIP flights** pay
   bonus coins, unless you put them in a holding pattern.
 - **Upgrades** (bought with coins, three levels each, and visible on the airport): *Radar* (wider view, earlier
@@ -67,7 +67,10 @@ You run an airport, one **shift** at a time.
   previous landing on that runway, and the wind. A good approach practically never goes around; a poor one often
   does: the aircraft climbs out along the runway heading ("Go-around!" and the reason), keeps its timer and needs a
   new path. While you draw, the last stretch of the path is tinted green / yellow / red by the predicted go-around
-  chance. Gliders and emergencies never go around (a glider that finds the runway busy is lost).
+  chance. Emergencies never go around (an emergency that finds the runway busy is lost).
+- **No engines** is a challenge modifier: nobody can go around, so a busy runway or a missed approach is a crash
+  ("Missed approach!"), and a glider's first path is final and it can't hold. Every landing pays ×1.5 (`no_engines_pay_mult`).
+  Switch it on from the chip above **Bad pilot day** on the menu, or from the airport card once that airport has three stars.
 
 - **Student pilots** (an orange **L** badge) turn up now and then in normal shifts: they go around far more
   often, and pay double when they land.

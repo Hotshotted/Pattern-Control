@@ -24,6 +24,8 @@ var tips_seen := {}                  # aircraft-type tips already shown
 var daily := {}                      # {"done_day": int, "streak": int, "best": int, "best_day": int}
 var bad_day := {}                    # Bad Pilot Day: the same fields, its own best and streak (version 3)
 var shifts_played := 0
+var no_engines_at := PackedByteArray()  # the "No engines" challenge switched on, per airport (it only counts at three stars)
+var no_engines_bad := false            # ...and for Bad Pilot Day
 var airport_plays := PackedInt32Array()   # shifts finished at each airport (the first one there is gentler)
 var ads := {}                        # ad stub bookkeeping: shifts since the last interstitial
 var selected_airport := 0
@@ -44,6 +46,9 @@ func _defaults() -> void:
 	best_coins.fill(0)
 	airport_plays.resize(AIRPORT_SLOTS)
 	airport_plays.fill(0)
+	no_engines_at.resize(AIRPORT_SLOTS)
+	no_engines_at.fill(0)
+	no_engines_bad = false
 	upgrades = {}
 	unlocks = {}
 	equipped = {}
@@ -84,6 +89,10 @@ func load_file() -> void:
 	var ap: Array = data.get("airport_plays", [])
 	for i in mini(ap.size(), airport_plays.size()):
 		airport_plays[i] = int(ap[i])
+	var ne: Array = data.get("no_engines_at", [])
+	for i in mini(ne.size(), no_engines_at.size()):
+		no_engines_at[i] = 1 if int(ne[i]) != 0 else 0
+	no_engines_bad = bool(data.get("no_engines_bad", false))
 	upgrades = _dict(data.get("upgrades"))
 	unlocks = _dict(data.get("unlocks"))
 	equipped = _dict(data.get("equipped"))
@@ -106,7 +115,7 @@ func write_file() -> void:
 		f.store_string(JSON.stringify({
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
 			"upgrades": upgrades, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
-			"daily": daily, "bad_day": bad_day, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "selected_airport": selected_airport, "ads": ads,
+			"daily": daily, "bad_day": bad_day, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
 			"sound_volume": sound_volume, "music_volume": music_volume, "ambience_volume": ambience_volume,
 		}))
 
@@ -191,6 +200,10 @@ func stars_of(airport: int) -> int:
 	for i in STARS_PER_AIRPORT:
 		n += stars[airport * STARS_PER_AIRPORT + i]
 	return n
+
+## Is the "No engines" challenge on for this airport's shifts? (It is offered once the airport has three stars.)
+func no_engines_on(airport: int) -> bool:
+	return no_engines_at[airport] != 0 and stars_of(airport) >= STARS_PER_AIRPORT
 
 func stars_total() -> int:
 	var n := 0

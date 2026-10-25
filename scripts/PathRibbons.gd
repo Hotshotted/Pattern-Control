@@ -145,7 +145,7 @@ func _build(p: Aircraft, i: int, ghost: bool = false) -> void:
 ## For a cleared runway path: the first vertex of its final stretch (the last `tint_distance` of path up to the
 ## threshold). Everything from there to the end is drawn in the quality colour. -1 = no tint.
 func _tint_start(p: Aircraft, m: int) -> int:
-	if not p.cleared or not p.can_go_around() or m < 3:
+	if not p.cleared or not p.approach_scored() or m < 3:
 		return -1
 	var d := 0.0
 	var k := m - 2                    # (the last vertex is the runway's far end)

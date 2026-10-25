@@ -18,7 +18,8 @@ var any_target := false         # emergencies may use any suitable runway / pad 
 var emergency := false
 var vip := false
 var vip_ok := true              # a VIP put into holding loses its bonus
-var locked := false             # gliders: the first path is final
+var locked := false             # gliders with no engines (the "No engines" challenge): the first path is final
+var one_shot := false           # "No engines": no go-around, a busy runway or a missed approach is a crash
 var hovering := false
 var fogged := false             # hidden in the fog (too far from the field to be seen)
 var type := Type.SMALL
@@ -113,6 +114,7 @@ func reset() -> void:
 	vip = false
 	vip_ok = true
 	locked = false
+	one_shot = false
 	hovering = false
 	fogged = false
 	tkind = Kind.RUNWAY
@@ -177,6 +179,14 @@ func can_conflict() -> bool:
 func timer_frac() -> float:
 	return clampf(timer_left / maxf(timer_max, 0.01), 0.0, 1.0)
 
-## Gliders and emergencies never go around (they land or are lost); only runway landings are scored.
+## Emergencies never go around (they land or are lost), nor does anything in the "No engines" challenge; only runway landings are scored.
 func can_go_around() -> bool:
-	return tkind == Kind.RUNWAY and type != Type.GLIDER and not emergency
+	return tkind == Kind.RUNWAY and not emergency and not one_shot
+
+## Is the approach judged (the path tint, the go-around dice)? Everything but an emergency. In "No engines" a failed one is a crash.
+func approach_scored() -> bool:
+	return tkind == Kind.RUNWAY and not emergency
+
+## A glider in the "No engines" challenge: its first path is final and it cannot hold.
+func glider_one_shot() -> bool:
+	return type == Type.GLIDER and one_shot

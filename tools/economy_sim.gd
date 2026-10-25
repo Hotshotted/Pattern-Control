@@ -56,6 +56,8 @@ func _initialize() -> void:
 			MODES = a.substr(6).split(",")
 		elif a == "survey":
 			SURVEY = true
+		elif a == "noeng":              # the "No engines" challenge on every shift
+			main.force_no_engines = true
 		elif a.begins_with("bots="):
 			ONLY_BOTS = Array(a.substr(5).split(","))
 		elif a.begins_with("aps="):

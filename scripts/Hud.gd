@@ -2157,13 +2157,13 @@ func _sig(parts: Array) -> String:
 	return "|".join(out) + "|%d|%.1f|%.1f|%.1f|%d" % [get_viewport().get_visible_rect().size.x, Style.safe_top, Style.safe_bottom, Style.safe_left, _loading_airport]
 
 ## The airport select screen: one big card per airport, with just its name, stars and lock state.
-func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Array, _best_scores: PackedInt32Array, selected: int) -> void:
+func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Array, _best_scores: PackedInt32Array, selected: int, no_engines: PackedByteArray = PackedByteArray()) -> void:
 	if not priming:
 		_go("select")
 		_hide_all_screens()
 		_select.visible = true
 		_select_title.text = "AIRPORTS"
-	_use_panel("select", _sig([total_stars, open, stars, _best_scores, selected]), func() -> void:
+	_use_panel("select", _sig([total_stars, open, stars, _best_scores, selected, no_engines, Tuning.no_engines_pay_mult]), func() -> void:
 		_set_header(0, "star", total_stars)
 		var vp := get_viewport().get_visible_rect().size
 		_art.clear_buttons()
@@ -2175,6 +2175,8 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 				_art.add_button("pick:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, Airports.tag(i), stars[i], -1, {"kind": 1, "map": i, "cost": maxi(best, 0)})
 				if i == selected:
 					_art.add_button("airport:%d" % i, "Fly here", Rect2(r.end.x - 270.0, r.get_center().y - 52.0, 240.0, 104.0), 0, "", -1, -1, {"kind": 8})
+					if stars[i] >= 3:       # three stars: the "No engines" challenge can be switched on for this airport
+						_art.add_button("noeng:%d" % i, "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(r.end.x - 340.0, r.end.y - 62.0, 310.0, 48.0), 2 if i < no_engines.size() and no_engines[i] != 0 else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
 			else:
 				_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, Airports.tag(i), -1, -1, {"kind": 1, "map": i, "lock": Airports.unlock_stars(i)})
 		_art.queue_redraw())
@@ -2261,7 +2263,7 @@ func hide_screens() -> void:
 	_art.clear_buttons()
 
 ## The menu: one primary PLAY button, the current airport under the title, and a row of round icon buttons.
-func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _tag: String = "", airport_stars: int = 0) -> void:
+func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _tag: String = "", airport_stars: int = 0, bad_no_engines: bool = false) -> void:
 	_go("menu")
 	_hide_all_screens()
 	_menu.visible = true
@@ -2273,13 +2275,14 @@ func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _
 	_art.clear_buttons()
 	var sb := Style.safe_bottom
 	var row2 := Rect2(cx - 450.0, vp.y - 40.0 - sb - 150.0, 436.0, 150.0)
-	var play := Rect2(cx - 450.0, row2.position.y - 30.0 - 250.0, 900.0, 250.0)
+	var play := Rect2(cx - 450.0, row2.position.y - 60.0 - 250.0, 900.0, 250.0)
 	_art.lockup = true
 	_art.lockup_airport = airport_name
 	_art.lockup_stars = airport_stars
 	_art.add_button("play", "Start shift", play, 2, "", -1, -1, {"kind": 2, "glyph": "play"})
 	_art.add_button("airports", "Airports", row2, 0, "", -1, -1, {"kind": 0, "glyph": "airport"})
 	_art.add_button("bad", "Bad pilot day", Rect2(row2.position.x + 464.0, row2.position.y, 436.0, 150.0), 0, "", -1, -1, {"kind": 0, "glyph": "bad"})
+	_art.add_button("noeng_bad", "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(row2.position.x + 464.0 + 70.0, row2.position.y - 50.0, 366.0, 44.0), 2 if bad_no_engines else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
 	var items := [["upgrades", "Upgrades", "upgrades", 0], ["shop", "Hangar", "hangar", 0], ["daily", "Daily", "sun", -1 if daily_done else (daily_streak if daily_streak > 0 else -2)]]
 	for k in items.size():
 		_art.add_button(items[k][0], items[k][1], Rect2(vp.x - 36.0 - Style.safe_right - 130.0, 150.0 + Style.safe_top + k * 176.0, 130.0, 160.0), 0, "", -1, -1, {"kind": 7, "glyph": items[k][2], "badge": items[k][3]})

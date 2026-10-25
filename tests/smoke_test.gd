@@ -478,7 +478,7 @@ func _initialize() -> void:
 	check(main.shift.conflicts == 1, "...but two airborne planes on the screen do")
 
 	print("7. timers, fines, diverting")
-	check(tuning.timer_glider < tuning.timer_heli and tuning.timer_heli < tuning.timer_small and tuning.timer_small < tuning.timer_medium and tuning.timer_medium < tuning.timer_jet, "timer lengths: glider < helicopter < small < medium < jet")
+	check(tuning.type_timer(0) < tuning.timer_heli and tuning.timer_heli < tuning.timer_small and tuning.timer_small < tuning.timer_medium and tuning.timer_medium < tuning.timer_jet, "timer lengths: glider < helicopter < small < medium < jet")
 	check(tuning.timer_color(1.0) == tuning.timer_color_ok and tuning.timer_color(0.4) == tuning.timer_color_low and tuning.timer_color(0.1) == tuning.timer_color_red, "the ring goes green, then yellow, then red")
 	main.restart()
 	tr.auto_spawn = false
@@ -1060,12 +1060,25 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 	set_wind(main, 0.0)
 	var gl = tr.place(0, Vector2(1.5, -4.0), PI, GLIDER)
-	check(is_equal_approx(gl.timer_max, tuning.timer_glider * tuning.timer_mult()) and gl.speed < tuning.speed_slow, "a glider is slow with the shortest timer")
+	check(is_equal_approx(gl.timer_max, tuning.glider_timer_frac * tuning.timer_small * tuning.timer_mult()) and is_equal_approx(tuning.glider_timer_frac, 0.6) and gl.speed < tuning.speed_slow, "a glider is slow, and its ring starts at 60%% of a small plane's (%.1f of %.1f s)" % [gl.timer_max, tuning.timer_small * tuning.timer_mult()])
+	check(tuning.type_timer(GLIDER) < tuning.timer_small and tuning.type_timer(GLIDER) == tuning.glider_timer_frac * tuning.timer_small, "...the share is a tuning value (?tune)")
 	tr.toggle_hold(gl)
-	check(gl.state == Aircraft.State.FLY and refused_txt[0] == "Gliders can't hold", "gliders can't hold (%s)" % refused_txt[0])
+	check(gl.state == Aircraft.State.HOLD, "in normal play a glider can hold like the rest")
+	tr.toggle_hold(gl)
 	draw_path(main, gl, [gl.pos + Vector2(0.0, 0.8), gl.pos + Vector2(-1.0, 2.0)])
-	check(gl.locked and not gl.cleared, "a glider's first path (that misses the runway) is final")
-	check(not tr.begin_path(gl) and refused_txt[0] == "Glider: first path only", "...it refuses a second one")
+	check(not gl.locked and not gl.cleared and tr.begin_path(gl), "...and its first path is not final: it may draw another")
+	check(gl.can_go_around() and gl.approach_scored(), "...and can go around")
+	tr.release_all()
+	# "No engines": a glider's first path is final, nobody holds on a glider, and nothing goes around.
+	tr.no_engines = true
+	var glx0 = tr.place(0, Vector2(1.5, -4.0), PI, GLIDER)
+	check(glx0.one_shot and glx0.glider_one_shot() and not glx0.can_go_around(), "No engines: a glider cannot go around")
+	tr.toggle_hold(glx0)
+	check(glx0.state == Aircraft.State.FLY and refused_txt[0] == "Gliders can't hold", "...cannot hold (%s)" % refused_txt[0])
+	draw_path(main, glx0, [glx0.pos + Vector2(0.0, 0.8), glx0.pos + Vector2(-1.0, 2.0)])
+	check(glx0.locked and not glx0.cleared, "...its first path (that misses the runway) is final")
+	check(not tr.begin_path(glx0) and refused_txt[0] == "Glider: first path only", "...it refuses a second one")
+	tr.release_all()
 	var gl2 = tr.place(0, Airports.end_threshold(0, 1) + Vector2(0.5, -3.0), PI, GLIDER)
 	draw_path(main, gl2, [gl2.pos + Vector2(0, 1.0), Airports.end_threshold(0, 0) if false else Airports.end_threshold(0, 0)])
 	set_wind(main, 180.0)
@@ -1073,6 +1086,7 @@ func _initialize() -> void:
 	var gl3 = tr.place(0, Airports.end_threshold(0, 1) + Vector2(0.5, -3.0), PI, GLIDER)
 	draw_path(main, gl3, [gl3.pos + Vector2(0, 0.8), Airports.end_threshold(0, 1)])
 	check(gl3.cleared and gl3.locked, "a glider that gets it right on the first path lands")
+	tr.no_engines = false
 	tr.release_all()
 	# Jets need a long runway.
 	main.select_airport(3)
@@ -1908,7 +1922,7 @@ func _initialize() -> void:
 			ribbons._pts[k + 1] = qg.pts[qg.head + k]
 		check(ribbons._tint_start(qg, qg.count + 1) > 0, "the ribbon tints the last stretch of a cleared path")
 		var glx = mk.call(GLIDER, good_pts, 99.0)
-		check(ribbons._tint_start(glx, glx.count + 1) == -1, "...but not a glider's")
+		check(ribbons._tint_start(glx, glx.count + 1) > 0, "...and a glider's (it can go around now)")
 	# Rolling the dice: a good approach never goes around, a bad one nearly always does.
 	var ga_good = 0
 	var ga_bad = 0
@@ -1959,35 +1973,72 @@ func _initialize() -> void:
 			pop_why = true
 	check(pop_why, "the 'Go-around!' popup says why")
 	tr.go_around.disconnect(cb_ga)
-	# Gliders and emergencies never go around.
+	# Emergencies never go around; a glider is judged like any other plane.
 	var qgl = mk.call(GLIDER, bad_pts, 99.0)
-	var qem = mk.call(MEDIUM, bad_pts, 99.0)
-	tr.make_special(qem, true, false)
-	var both = [qgl, qem]
-	for who in both:
-		who.timer_left = 40.0
+	qgl.timer_left = 40.0
 	tr.go_rng.seed = 9
 	for i in 300:
 		tr.step(1.0 / 60.0)
-	check(qgl.go_arounds == 0 and qem.go_arounds == 0 and qgl.ga_chance == 0.0 and qem.ga_chance == 0.0, "gliders and emergencies are never scored for a go-around")
-	# ...and if the runway is busy they are lost instead.
+	check(qgl.go_arounds > 0 or qgl.ga_chance > 0.0, "a glider on a bad final is scored for a go-around like any plane (chance %.2f, %d)" % [qgl.ga_chance, qgl.go_arounds])
+	var qem = mk.call(MEDIUM, bad_pts, 99.0)
+	tr.make_special(qem, true, false)
+	qem.timer_left = 40.0
+	tr.go_rng.seed = 9
+	for i in 300:
+		tr.step(1.0 / 60.0)
+	check(qem.go_arounds == 0 and qem.ga_chance == 0.0, "emergencies are never scored for a go-around")
+	# ...if the runway is busy a glider goes around (a lost one only with "No engines"), an emergency is lost.
 	tr.release_all()
 	tr._busy_until.fill(0.0)
 	var crashed_kind = [-1]
-	tr.crashed.connect(func(_pl, k): crashed_kind[0] = k, CONNECT_ONE_SHOT)
+	var cb_cr = func(_pl, k): crashed_kind[0] = k
+	tr.crashed.connect(cb_cr)
 	var occp = tr.place(0, thr_a, rw_head, MEDIUM)
 	occp.push(thr_a)
 	occp.push(Airports.end_far(0, 0))
 	occp.cleared = true
 	occp.land_end = 0
 	tr.step(1.0 / 60.0)
+	var glid2_ga = [0]
+	var cb_g2 = func(_pl, _r): glid2_ga[0] += 1
+	tr.go_around.connect(cb_g2)
 	var glid2 = tr.place(0, thr_a, rw_head, GLIDER)
 	glid2.push(thr_a)
 	glid2.push(Airports.end_far(0, 0))
 	glid2.cleared = true
 	glid2.land_end = 0
 	tr.step(1.0 / 60.0)
-	check(crashed_kind[0] == 2 and not glid2.active(), "a glider reaching a busy runway has no go-around: it is lost")
+	tr.go_around.disconnect(cb_g2)
+	check(crashed_kind[0] == -1 and glid2_ga[0] == 1, "a glider reaching a busy runway goes around, like any other plane (%d go-around, no crash)" % glid2_ga[0])
+	tr.release_all()
+	tr._busy_until.fill(0.0)
+	tr.no_engines = true
+	var occp2 = tr.place(0, thr_a, rw_head, MEDIUM)
+	occp2.push(thr_a)
+	occp2.push(Airports.end_far(0, 0))
+	occp2.cleared = true
+	occp2.land_end = 0
+	tr.step(1.0 / 60.0)
+	var glid3 = tr.place(0, thr_a, rw_head, GLIDER)
+	glid3.push(thr_a)
+	glid3.push(Airports.end_far(0, 0))
+	glid3.cleared = true
+	glid3.land_end = 0
+	tr.step(1.0 / 60.0)
+	check(crashed_kind[0] == 2 and not glid3.active(), "No engines: a plane reaching a busy runway has no go-around, it is lost")
+	# A missed approach in "No engines" is a crash (kind 3); in normal play it is a go-around.
+	tr.release_all()
+	tr._busy_until.fill(0.0)
+	crashed_kind[0] = -1
+	var qmiss = mk.call(SMALL, bad_pts, 99.0)
+	qmiss.timer_left = 40.0
+	qmiss.ga_pending = true
+	qmiss.ga_t = 0.0
+	qmiss.ga_reason = ap.Reason.TURN
+	tr.step(1.0 / 60.0)
+	check(crashed_kind[0] == 3 and not qmiss.active(), "No engines: a missed approach is a crash, not a go-around")
+	tr.no_engines = false
+	tr.crashed.disconnect(cb_cr)
 	tr.release_all()
 	tuning.go_around_max = 0.0
 	main.restart()
@@ -4039,7 +4090,7 @@ func _initialize() -> void:
 	var sc_kinds = {}
 	for sc_k in sc_art.btn_count:
 		sc_kinds[sc_art.btn_id[sc_k]] = [sc_art.btn_kind[sc_k], sc_art.btn_text[sc_k]]
-	check(sc_kinds["play"] == [2, "Start shift"] and sc_kinds["airports"] == [0, "Airports"] and sc_kinds["bad"] == [0, "Bad pilot day"] and sc_kinds["upgrades"][0] == 7 and sc_kinds["shop"] == [7, "Hangar"] and sc_kinds["daily"][0] == 7 and sc_art.btn_count == 6, "the menu: Start shift (orange), Airports and Bad pilot day (cream), and three small round buttons")
+	check(sc_kinds["play"] == [2, "Start shift"] and sc_kinds["airports"] == [0, "Airports"] and sc_kinds["bad"] == [0, "Bad pilot day"] and sc_kinds["upgrades"][0] == 7 and sc_kinds["shop"] == [7, "Hangar"] and sc_kinds["daily"][0] == 7 and sc_art.btn_count == 7, "the menu: Start shift (orange), Airports and Bad pilot day (cream), and three small round buttons")
 	main.select_airport(0)
 	main._on_button("airport_next")
 	check(main.airport == 1 and Airports.current == 1 and main.screen == main.SCREEN_MENU, "the next arrow moves to the next airport and the field behind the menu follows")
@@ -5118,6 +5169,58 @@ func _initialize() -> void:
 			lz_k += (lz_v.slots[lz_kind] as Array).size() if lz_v.slots.has(lz_kind) else 0
 		lz_most = maxi(lz_most, lz_k)
 	check(lz_most + main.airfield.TAXI_MAX <= main.traffic.RAMP_MODELS and main.traffic.RAMP_MODELS < 24 and main.traffic.RAMP_MODELS >= 12 and main.traffic.RAMP_MODELS >= 12, "the ramp has the models the most crowded airport shows at once (%d + %d taxiing <= %d)" % [lz_most, main.airfield.TAXI_MAX, main.traffic.RAMP_MODELS])
+
+	print("26. No engines: a challenge for Bad Pilot Day and for airports with three stars")
+	save.reset_all()
+	main._show_menu()
+	main.hud.skip_animations()
+	var ne_art = main.hud._art
+	var ne_k = ne_art.btn_id.find("noeng_bad")
+	check(ne_k >= 0 and ne_art.btn_state[ne_k] == 0 and ne_art.btn_text[ne_k].begins_with("No engines"), "the menu has a No engines switch beside Bad pilot day (off)")
+	main._on_button("noeng_bad")
+	check(save.no_engines_bad and main.hud._art.btn_state[main.hud._art.btn_id.find("noeng_bad")] == 2, "...tapping it switches it on (and it is saved)")
+	main.start_bad_day()
+	check(main.no_engines and main.traffic.no_engines, "Bad Pilot Day with it on is a No engines shift")
+	var ne_gl = main.traffic.place(0, Vector2(1.5, -4.0), PI, GLIDER)
+	var ne_sm = main.traffic.place(0, Vector2(-1.5, -4.0), PI, SMALL)
+	check(ne_gl.one_shot and ne_sm.one_shot and not ne_sm.can_go_around(), "...every aircraft in it is one-shot (no go-around)")
+	main.traffic.release_all()
+	main._show_menu()
+	main._on_button("noeng_bad")
+	main.start_bad_day()
+	check(not main.no_engines and not main.traffic.no_engines, "...and off again, Bad Pilot Day is as it was")
+	# The airport card: only with three stars.
+	save.reset_all()
+	main._show_menu()
+	main._show_select()
+	main.hud.skip_animations()
+	check(main.hud._art.btn_id.find("noeng:%d" % main.airport) < 0, "an airport with fewer than three stars has no No engines switch")
+	for ne_i in 3:
+		save.stars[main.airport * save.STARS_PER_AIRPORT + ne_i] = 1
+	main._show_select()
+	main.hud.skip_animations()
+	var ne_ck = main.hud._art.btn_id.find("noeng:%d" % main.airport)
+	check(ne_ck >= 0 and main.hud._art.btn_state[ne_ck] == 0, "...with three stars the selected card offers it (off)")
+	main._on_button("noeng:%d" % main.airport)
+	check(save.no_engines_on(main.airport) and main.hud._art.btn_state[main.hud._art.btn_id.find("noeng:%d" % main.airport)] == 2, "...tapping it switches it on")
+	var ne_coin0 = tuning.landing_pay(SMALL)
+	main.restart()
+	check(main.no_engines and main.traffic.no_engines, "a normal shift there is a No engines shift")
+	var ne_pay = tuning.landing_pay(SMALL)
+	var ne_before = main.shift.earned
+	main._on_landed(main.traffic.place(0, Vector2(0, 0), 0.0, SMALL))
+	var ne_got = main.shift.earned - ne_before
+	check(ne_got >= roundi(ne_pay * tuning.no_engines_pay_mult), "...and pays the bonus multiplier (%d for a plane worth %d, x%.1f)" % [ne_got, ne_pay, tuning.no_engines_pay_mult])
+	save.stars[main.airport * save.STARS_PER_AIRPORT + 0] = 0
+	check(not save.no_engines_on(main.airport), "the switch only counts while the airport still has its three stars")
+	main.restart()
+	check(not main.no_engines, "...otherwise a shift is normal")
+	save.write_file()
+	save.load_file()
+	check(save.no_engines_at[main.airport] == 1 and not save.no_engines_bad, "the switches survive a reload")
+	save.reset_all()
+	main.restart()
+	tr.auto_spawn = false
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")

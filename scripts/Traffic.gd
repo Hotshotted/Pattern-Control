@@ -12,7 +12,7 @@ signal wrong_runway(plane: Aircraft, runway: int)  # a path went for another col
 signal inactive_end(plane: Aircraft, runway: int, end: int)  # ...or for an end the wind doesn't allow
 signal rerouted(plane: Aircraft)   # the wind shifted: its path now ends on a closed end
 signal spawned(plane: Aircraft)
-signal crashed(plane: Aircraft, kind: int)   # flew into terrain (kind 0) or a storm cell (kind 1)
+signal crashed(plane: Aircraft, kind: int)   # flew into terrain (kind 0) or a storm cell (kind 1); no room to land (2); a missed approach with no engines (3)
 signal go_around_warned(plane: Aircraft, reason: int)   # a go-around is coming in a second (the plane wobbles)
 signal go_around_cancelled(plane: Aircraft)   # ...and the player redrew a cleaner final in time
 signal go_around(plane: Aircraft, reason: int)   # climbing out: the runway was busy, or the approach was poor (Approach.Reason)
@@ -79,6 +79,7 @@ var livery := 0                          # index into Cosmetics.LIVERIES
 var _cand := PackedInt32Array()
 var _draws := PackedFloat32Array()      # every random number a spawn() call may need, drawn up front
 var all_students := false               # Bad Pilot Day: every aircraft is a student pilot
+var no_engines := false                 # the "No engines" challenge: nobody can go around (a busy runway or a missed approach is a crash)
 var grace_until := 0.0                  # run time until which conflicts are ignored (after an ad-continue)
 var _body_mats: Array[StandardMaterial3D] = []
 var _wing_mats: Array[StandardMaterial3D] = []
@@ -356,6 +357,7 @@ func place(target: int, pos: Vector2, heading: float, type: int, entered: bool =
 	p.speed = Tuning.type_speed(type)
 	p.timer_max = Tuning.type_timer(type) * Tuning.timer_mult()
 	p.timer_left = p.timer_max
+	p.one_shot = no_engines
 	p.pos = pos
 	p.entry = pos
 	p.heading = heading
@@ -566,7 +568,7 @@ func pick(world: Vector2) -> Aircraft:
 ## A drag starts: the plane forgets its old route (a plane in a holding pattern leaves it). Returns false if
 ## the aircraft refuses (a glider only gets its first path).
 func begin_path(p: Aircraft) -> bool:
-	if p.type == Aircraft.Type.GLIDER and p.locked:
+	if p.glider_one_shot() and p.locked:
 		refused.emit(p, "Glider: first path only", p.pos)
 		return false
 	p.clear_path()
@@ -610,7 +612,7 @@ func extend_path(p: Aircraft, world: Vector2, raw: Vector2 = Vector2(INF, INF)) 
 					p.cleared = true
 					p.runway = idx
 					p.land_end = e
-					if p.type == Aircraft.Type.GLIDER:
+					if p.glider_one_shot():
 						p.locked = true
 					cleared.emit(p)
 					return true
@@ -661,7 +663,7 @@ func _try_snap(p: Aircraft, last: Vector2, raw: Vector2) -> bool:
 			p.cleared = true
 			p.runway = idx
 			p.land_end = e
-			if p.type == Aircraft.Type.GLIDER:
+			if p.glider_one_shot():
 				p.locked = true
 			snapped.emit(p, at)
 			cleared.emit(p)
@@ -731,7 +733,7 @@ static func _closest_approach(a: Aircraft, b: Aircraft, d_end: float) -> float:
 func end_path(p: Aircraft, world: Vector2) -> void:
 	if not p.active():
 		return
-	if p.type == Aircraft.Type.GLIDER:
+	if p.glider_one_shot():
 		p.locked = true
 	if p.cleared:
 		return
@@ -743,7 +745,7 @@ func end_path(p: Aircraft, world: Vector2) -> void:
 func toggle_hold(p: Aircraft) -> void:
 	if p.cleared:
 		return
-	if p.type == Aircraft.Type.GLIDER:
+	if p.glider_one_shot():
 		refused.emit(p, "Gliders can't hold", p.pos)
 		return
 	if p.state == Aircraft.State.HOLD:
@@ -886,7 +888,7 @@ func step(delta: float) -> void:
 		if p.active():
 			if p.ga_pending:
 				_tick_telegraph(p, delta)
-			if p.active() and p.cleared and p.state == Aircraft.State.FLY and p.can_go_around():
+			if p.active() and p.cleared and p.state == Aircraft.State.FLY and p.approach_scored():
 				_score_approach(p, mult)
 			_sync(p, i)
 	_check_conflicts()
@@ -993,7 +995,7 @@ func _begin_landing(p: Aircraft) -> bool:
 		return true
 	var r := p.runway
 	if run_time < _busy_until[r] and _occupant[r] != p:
-		if not p.can_go_around():       # gliders and emergencies have no go-around: no room, so they are lost
+		if not p.can_go_around():       # emergencies (and everything in "No engines") have no go-around: no room, so they are lost
 			crashed.emit(p, 2)
 			_remove(p)
 			return false
@@ -1049,7 +1051,7 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 		p.ga_checked = true
 		if go_rng.randf() < chance:
 			if Tuning.go_around_telegraph <= 0.0 or dist <= Tuning.short_final_distance:
-				_start_go_around(p, approach.reason)
+				_miss_approach(p, approach.reason)
 			else:
 				p.ga_pending = true
 				p.ga_t = Tuning.go_around_telegraph
@@ -1070,7 +1072,15 @@ func _tick_telegraph(p: Aircraft, dt: float) -> void:
 
 func _fire_go_around(p: Aircraft) -> void:
 	p.ga_pending = false
-	_start_go_around(p, p.ga_reason)
+	_miss_approach(p, p.ga_reason)
+
+## The approach was not good enough: the plane goes around, or, with no engines to do it with, is lost.
+func _miss_approach(p: Aircraft, reason: int) -> void:
+	if p.one_shot:
+		crashed.emit(p, 3)
+		_remove(p)
+		return
+	_start_go_around(p, reason)
 
 ## Climb out along the runway heading with the remaining timer; the path is gone, so a new one is needed.
 func _start_go_around(p: Aircraft, reason: int) -> void:
