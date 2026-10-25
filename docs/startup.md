@@ -119,9 +119,12 @@ frame. Opening one only moves the layer: `Hud._apply_transition` scales it 0.94 
 (coins, stars, a purchase, safe area). The results card and the pause menu use the same pop; the pause sheet is no longer part of the
 shift interface's redraw, and the first frame of a screen is drawn invisibly (`_tr_wait`) before it starts to move.
 
-Both fonts are MSDF (`assets/fonts/*.import`), so a size never rasterises a glyph. The characters that are not ASCII (the minus on
-the results chips, the middle dot, dashes) are in the start-up pre-warm rows too: the first sight of the minus sign (a glyph Bowlby One SC
-does not carry, so it came from a fallback face) cost 20 ms in the results card.
+Glyphs: MSDF rendering was tried for both fonts (it needs no per-size glyphs) and measured: generating the ~300 glyphs of the three
+faces added 7.7 s to the pre-warm at 4x (about 25 ms a glyph), which is the load time the game worked hard to lose, so the fonts stay
+rasterised and the pre-warm draws every ASCII glyph at **every size the interface uses** (`Hud.begin_prewarm`: 16 display and 10 text
+sizes, about 0.4 s at 4x). The characters that are not ASCII (the minus on the results chips, the middle dot, dashes) are in those rows
+too: the first sight of the minus sign (a glyph Bowlby One SC does not carry, so it came from a fallback face) cost 20 ms in the results card.
+The three panels' first draw is done in the pre-warm as well, behind the cover.
 
 `tools/web_panel_check.js` (CI step "Panel open check") opens each panel in the exported build at 4x throttle, reads the game's own
 frame cost from `window.__menu` and fails on any frame over 33 ms. Slowest frame of the game's own code while a panel opens, 4x, headless
@@ -129,8 +132,8 @@ Chromium on software GL:
 
 | | before | after |
 |---|---|---|
-| Airports | 19.8 ms | 4-9 ms |
-| Upgrades | 24.4 ms | 4-11 ms |
-| Hangar | 16.4 ms | 6-14 ms |
-| Pause (first open) | 20.1 ms | 7-15 ms |
-| Results | not measured (first sight of the minus sign: 70+ ms) | 30-32 ms |
+| Airports | 19.8 ms | 5-6 ms |
+| Upgrades | 24.4 ms | 5-6 ms |
+| Hangar | 16.4 ms | 8-9 ms |
+| Pause (first open) | 20.1 ms | 7-11 ms |
+| Results | not measured (first sight of the minus sign: 70+ ms) | 21-28 ms |

@@ -1780,31 +1780,48 @@ func _build_pause() -> void:
 	_pause.visible = false
 
 func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
-	_go("pause")
+	if not priming:
+		_go("pause")
+		_pause.visible = true
+		_main_art.show_pause = true          # (the shift's interface steps aside; the sheet is its own layer, laid out in advance)
+		_main_art.queue_redraw()
+		_set_play_labels(false)
 	var vp := get_viewport().get_visible_rect().size
-	_pause.visible = true
-	_art.show_pause = true
-	_set_play_labels(false)
-	_art.slider_rect[1] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 - 70.0, 620.0, 80.0)       # music on top, then effects, then ambience
-	_art.slider_rect[0] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 60.0, 620.0, 80.0)
-	_art.slider_rect[2] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 190.0, 620.0, 80.0)
-	_art.pause_card = Rect2(vp.x * 0.5 - 440.0, vp.y * 0.5 - 150.0, 880.0, 470.0)
-	_art.slider_val[0] = sound
-	_art.slider_val[1] = music
-	_art.slider_val[2] = ambience
-	_art.clear_buttons()
-	_art.add_button("resume", "RESUME", Rect2(vp.x * 0.5 - 420.0, vp.y * 0.5 - 420.0, 840.0, 230.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
-	_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, vp.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
-	_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, vp.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
-	_art.queue_redraw()
+	var pa := _panel_art("pause")
+	var prev := _art
+	_art = pa
+	if _panel_sig.get("pause", "") != _sig([]):
+		_art.show_pause = true
+		_art.slider_rect[1] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 - 70.0, 620.0, 80.0)       # music on top, then effects, then ambience
+		_art.slider_rect[0] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 60.0, 620.0, 80.0)
+		_art.slider_rect[2] = Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 190.0, 620.0, 80.0)
+		_art.pause_card = Rect2(vp.x * 0.5 - 440.0, vp.y * 0.5 - 150.0, 880.0, 470.0)
+		_art.clear_buttons()
+		_art.add_button("resume", "RESUME", Rect2(vp.x * 0.5 - 420.0, vp.y * 0.5 - 420.0, 840.0, 230.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
+		_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, vp.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
+		_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, vp.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
+		_panel_sig["pause"] = _sig([])
+		_art.queue_redraw()
+	if not is_equal_approx(_art.slider_val[0], sound) or not is_equal_approx(_art.slider_val[1], music) or not is_equal_approx(_art.slider_val[2], ambience):
+		_art.slider_val[0] = sound
+		_art.slider_val[1] = music
+		_art.slider_val[2] = ambience
+		_art.queue_redraw()
+	if priming:
+		_art = prev
+		return
+	pa.position = Vector2.ZERO
+	pa.btn_age = 99.0
+	pa.press_k = -1
+	pa.rel_k = -1
 
 func hide_pause() -> void:
 	if _tr_kind == "pause":
 		_tr_kind = "play"
 		_tr_depth = 2.0
 	_pause.visible = false
-	_art.show_pause = false
-	_art.clear_buttons()
+	_main_art.show_pause = false
+	_use_main()
 	if _art.show_play:
 		_set_play_labels(true)
 	_art.queue_redraw()
@@ -2724,7 +2741,9 @@ func begin_prewarm() -> void:
 	_select.visible = true
 	var open := PackedByteArray([1, 1, 0, 1, 0, 1])
 	var st := PackedInt32Array([3, 2, 0, 1, 0, 3])
+	Boot.mark("prewarm: hud flags")
 	show_select(14, open, st, PackedInt32Array([12, 5, 0, 9, 0, 33]), 1)
+	Boot.mark("prewarm: select panel laid out")
 	_use_main()                  # (the main Art carries the results card, the pause sheet and the shift's interface: warm those)
 	set_results_ads(10, 10)
 	var pv := get_viewport().get_visible_rect().size
@@ -2749,8 +2768,11 @@ func begin_prewarm() -> void:
 		ascii += char(cp)
 	ascii += "\u2212\u00b7\u2014\u2013\u2019\u00d7\u2026"       # (the minus on the fines chip, the middle dot, dashes, an apostrophe, a times sign: not ASCII, and a first sight of one costs a frame)
 	var row := 0
+	# (the sizes the interface draws text at: a glyph is rasterised once per face and size, so each size gets its row)
+	var sizes_text := [22, 24, 26, 28, 30, 34, 36, 40, 46, 54]
+	var sizes_display := [22, 24, 26, 28, 30, 34, 36, 40, 46, 54, SZ_M, 80, 104, SZ_XL, 120, 150]       # (digits are always the display face)
 	for face in 2:
-		for sz in [SZ_S, SZ_M, SZ_XL]:
+		for sz in (sizes_display if face == 0 else sizes_text):
 			var wl := Label.new()
 			wl.text = ascii
 			wl.add_theme_font_size_override("font_size", sz)
@@ -2761,6 +2783,7 @@ func begin_prewarm() -> void:
 			wl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			_splash.add_child(wl)
 			row += 1
+	Boot.mark("prewarm: glyph rows")
 	var bg := ColorRect.new()
 	bg.color = Style.SURFACE_DARK.darkened(0.35)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

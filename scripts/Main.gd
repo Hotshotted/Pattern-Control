@@ -247,7 +247,7 @@ func _prime_panels() -> void:
 	hud.show_select(Save.stars_total(), open, stars, best, airport)
 	hud.priming = false
 	await get_tree().process_frame
-	if screen == SCREEN_MENU:
+	if screen == SCREEN_MENU or _warming:
 		var levels := PackedInt32Array()
 		for id in Upgrades.IDS:
 			levels.append(Save.upgrade_level(id))
@@ -255,10 +255,15 @@ func _prime_panels() -> void:
 		hud.show_upgrades(Save.coins, levels)
 		hud.priming = false
 		await get_tree().process_frame
-	if screen == SCREEN_MENU:
+	if screen == SCREEN_MENU or _warming:
 		var sh := _shop_args()
 		hud.priming = true
 		hud.show_list("SHOP", Save.coins, sh[0], sh[1])
+		hud.priming = false
+		await get_tree().process_frame
+	if screen == SCREEN_MENU or _warming:
+		hud.priming = true
+		hud.show_pause(Save.sound_volume, Save.music_volume, Save.ambience_volume)
 		hud.priming = false
 		await get_tree().process_frame
 	_priming_busy = false
@@ -324,6 +329,7 @@ func _prewarm() -> void:
 	diorama.prewarm(false)
 	overlay.clear()
 	airfield.reset()
+	await _prime_panels()          # (the three panels' first draw happens here, behind the cover, not on the menu)
 	hud.end_prewarm()
 	if tune_panel:
 		tune_panel.prewarm_show(false)

@@ -2773,10 +2773,11 @@ func _initialize() -> void:
 	main.hud._process(0.016)
 	# Pause: nothing from the HUD shows through; one primary button.
 	main.pause_game()
+	var pause_art = main.hud._art
 	var pause_prim = []
-	for k in art.btn_count:
-		if art.btn_kind[k] == 2:
-			pause_prim.append(art.btn_id[k])
+	for k in pause_art.btn_count:
+		if pause_art.btn_kind[k] == 2:
+			pause_prim.append(pause_art.btn_id[k])
 	check(pause_prim == ["resume"] and not main.hud._score.visible and not main.hud._best.visible, "pause: RESUME is the one primary button and the HUD is hidden behind it")
 	main._on_button("resume")
 	check(main.hud._score.visible and main.hud._best.visible, "...and comes back on resume")
@@ -4057,6 +4058,7 @@ func _initialize() -> void:
 	main._show_menu()
 	main.restart()
 	main.pause_game()
+	sc_art = main.hud._art
 	check(sc_art.pause_card.size.x > 600.0 and sc_art.btn_kind[sc_art.btn_id.find("restart")] == 3, "the pause menu sits on a sheet with colour tiles")
 	main.resume_game()
 	var sc_doc = FileAccess.get_file_as_string("res://docs/style.md")
