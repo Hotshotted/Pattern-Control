@@ -1187,7 +1187,7 @@ class Art extends Control:
 		if show_play and not show_pause:
 			_draw_hud()
 		t0 = _span("  shift interface", t0)
-		if show_pause or warm:
+		if (show_pause or warm) and slider_rect[0].size.x > 0.0:       # (only the pause layer has sliders; the shift's layer just steps aside)
 			_draw_sliders()
 		t0 = _span("  sliders", t0)
 		_draw_pills()
