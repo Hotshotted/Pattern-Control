@@ -130,6 +130,7 @@ class Art extends Control:
 	var _sb_primary: StyleBoxFlat
 	var _sb_gold: StyleBoxFlat
 	var _sb_pill: StyleBoxFlat
+	var _sb_flat_accent: StyleBoxFlat
 	var _sb_banner: StyleBoxFlat
 	var _sb_tip: StyleBoxFlat
 	var _sb_sheet: StyleBoxFlat
@@ -199,16 +200,17 @@ class Art extends Control:
 		_sb_fill = Style.box(Style.ACCENT, Style.ACCENT, 11, 0, false)
 		_sb_logo = Style.box(Style.SURFACE_DARK_2, Style.ACCENT, Style.R_L, 4)
 		_sb_ghost = _cream(Style.R_PILL, 4, Color(Style.SURFACE_DARK, 0.92))
-		_sb_pill = _cream(Style.R_PILL, 4, Style.SURFACE_DARK)
-		_sb_sheet = _cream(Style.R_L, 6, Style.SURFACE_DARK)
-		_sb_banner = Style.box(Style.SURFACE_DARK, Style.WARNING, Style.R_PILL, 4)
-		_sb_tip = Style.box(Style.SURFACE_DARK, Style.SUCCESS, Style.R_PILL, 4)
+		_sb_pill = _flat(Style.R_PILL, Color(Style.SURFACE_DARK, 0.94))
+		_sb_sheet = _cream(Style.R_L, 0, Style.SURFACE_DARK)          # (a surface that holds things: a soft shadow, no bottom edge: only what you can tap has an edge)
+		_sb_banner = Style.box(Style.SURFACE_DARK, Style.WARNING, Style.R_PILL, 4, false)
+		_sb_tip = Style.box(Style.SURFACE_DARK, Style.SUCCESS, Style.R_PILL, 4, false)
+		_sb_flat_accent = Style.box(Style.SURFACE_DARK, Style.ORANGE, 22, 5, false)
 		_sb_tile = Style.box(Style.PRIMARY, Style.INK, 34, 6, false)
 		_sb_tile_lip = Style.box(Style.INK, Style.INK, 34, 0, false)
 		_sb_dock = _cream(56, 6, Style.SURFACE_DARK)
-		_sb_hdr = _cream(Style.R_PILL, 4, Style.SURFACE_DARK)
+		_sb_hdr = _flat(Style.R_PILL, Color(Style.SURFACE_DARK, 0.94))
 		_sb_chip = Style.box(Style.SURFACE_DARK_2, Style.SURFACE_DARK_2, 40, 0, false)
-		_sb_card = _cream(52, 8, Style.SURFACE_DARK)
+		_sb_card = _cream(52, 0, Style.SURFACE_DARK)
 		_sb_tag = Style.box(Style.DANGER, Style.INK, 999, 5, false)
 		_sb_unlock = Style.box(Style.SURFACE_DARK_2, Color(Style.ACCENT_DARK, 0.9), 60, 4, false)
 		_sb_lockpill = Style.box(Color(Style.INK, 0.86), Color(Style.INK, 0.86), Style.R_PILL, 0, false)
@@ -235,6 +237,23 @@ class Art extends Control:
 			sb.shadow_size = Style.SHADOW_SIZE
 			sb.shadow_offset = Style.SHADOW_OFFSET
 		return sb
+
+	## A flat cream shape for things that only show something: no bottom edge, no shadow (those belong to what you can tap).
+	func _flat(radius: int, fill: Color) -> StyleBoxFlat:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = fill
+		sb.set_corner_radius_all(radius)
+		sb.anti_aliasing = true
+		return sb
+
+	## Small tracked capitals: the letters spaced apart, one by one.
+	func tracked(s: String, pos: Vector2, size_px: int, col: Color, track: float) -> void:
+		var f := Style.font_for(s, size_px)
+		var x := pos.x
+		for i in s.length():
+			var ch := s.substr(i, 1)
+			draw_string(f, Vector2(x, pos.y), ch, HORIZONTAL_ALIGNMENT_LEFT, -1.0, size_px, col)
+			x += f.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x + track
 
 	## A panel with its soft highlight: a rounded cap at the top fading down into the face (the style's gradient).
 	func panel(sb: StyleBoxFlat, r: Rect2, sheen_sb: StyleBoxFlat = null) -> void:
@@ -736,6 +755,11 @@ class Art extends Control:
 				ptext(btn_text[k], Vector2(x0, r.get_center().y + SZ_S * 0.35), SZ_S, ink)
 				if btn_sub[k] != "":
 					ptext(btn_sub[k], Vector2(x0 + tw2 + 16.0, r.get_center().y + SZ_S * 0.35), SZ_S, C_GOLD_TXT)
+			9:      # the airport under the title: name and stars on a cream chip, a tap opens the Airports screen
+				panel(_sb_normal, r, _sheen_s)
+				ptext(btn_text[k], Vector2(r.position.x + 32.0, r.get_center().y + 12.0), 34, ink)
+				for i in 3:
+					glyph("star" if i < btn_stars[k] else "star_off", Vector2(r.end.x - 128.0 + i * 44.0, r.get_center().y), 16.0)
 			6:      # a quiet pill (the rewarded ads): it stays out of the way of the one big button
 				draw_style_box(_sb_ghost, r)
 				var lw := text_width(btn_text[k], SZ_S)
@@ -882,7 +906,7 @@ class Art extends Control:
 	func _draw_wind() -> void:
 		var card := Rect2(size.x - 24.0 - right - 132.0, 20.0 + top, 132.0, 150.0)
 		var flash := wind_warn and int(Time.get_ticks_msec() / 250.0) % 2 == 0
-		draw_style_box(_sb_accent if flash else _sb_normal, card)
+		draw_style_box(_sb_flat_accent if flash else _sb_pill, card)
 		var c := card.get_center() + Vector2(0, -22.0)
 		var d := Vector2(sin(deg_to_rad(wind_shown)), -cos(deg_to_rad(wind_shown)))
 		var n := Vector2(-d.y, d.x)
@@ -1059,20 +1083,13 @@ class Art extends Control:
 		draw_polygon(_gp, _gc)
 		var x0 := 56.0 + left
 		var y0 := 250.0 * s2 + top
-		var tag_w := 520.0
-		draw_style_box(_sb_pill, Rect2(x0, y0 - 40.0, tag_w, 64.0))
-		draw_string(Style.text(), Vector2(x0, y0 + 2.0), "AIR TRAFFIC CONTROL", HORIZONTAL_ALIGNMENT_CENTER, tag_w, 28, Style.TEXT)
+		var muted := Color(Style.WORLD_TEXT, 0.7)         # (plain small print: nothing here can be tapped, so nothing is a shape)
+		tracked("AIR TRAFFIC CONTROL", Vector2(x0 + 4.0, y0 - 6.0), 24, muted, 5.0)
 		draw_set_transform(Vector2(x0, y0), deg_to_rad(2.0), Vector2.ONE)
 		Style.draw_ext(self, Vector2(0.0, 150.0), "PATTERN", 150, HORIZONTAL_ALIGNMENT_LEFT, -1.0, Style.WORLD_TEXT, 7)
 		Style.draw_ext(self, Vector2(0.0, 300.0), "WORK", 150, HORIZONTAL_ALIGNMENT_LEFT, -1.0, Style.WORLD_TEXT, 7)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		if lockup_airport != "":
-			var nw := text_width(lockup_airport, 34)
-			var pr := Rect2(x0, y0 + 360.0, nw + 250.0, 76.0)
-			draw_style_box(_sb_pill, pr)
-			ptext(lockup_airport, Vector2(pr.position.x + 32.0, pr.get_center().y + 12.0), 34, C_TEXT)
-			for i in 3:
-				glyph("star" if i < lockup_stars else "star_off", Vector2(pr.end.x - 128.0 + i * 44.0, pr.get_center().y), 16.0)
+		tracked("CLEAR PROP GAMES", Vector2(x0 + 4.0, y0 + 376.0), 24, muted, 5.0)
 
 	## The intro: the studio mark (a propeller that spins up and settles) and wordmark pop in and out, then the game's
 	## name lands with a little plane across it.
@@ -2330,6 +2347,9 @@ func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _
 	_art.lockup_airport = airport_name
 	_art.lockup_stars = airport_stars
 	_art.add_button("play", "Start shift", play, 2, "", -1, -1, {"kind": 2, "glyph": "play"})
+	# The airport under the title is a button (it opens the Airports screen): it is drawn as one.
+	var tag_y := 250.0 * vp.y / 1920.0 + Style.safe_top + 398.0
+	_art.add_button("airports_tag", airport_name, Rect2(56.0 + Style.safe_left, tag_y, _art.text_width(airport_name, 34) + 250.0, 76.0), 0, "", airport_stars, -1, {"kind": 9})
 	_art.add_button("airports", "Airports", row2, 0, "", -1, -1, {"kind": 0, "glyph": "airport"})
 	_art.add_button("bad", "Bad pilot day", Rect2(row2.position.x + 464.0, row2.position.y, 436.0, 150.0), 0, "", -1, -1, {"kind": 0, "glyph": "bad"})
 	_art.add_button("noeng_bad", "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(row2.position.x + 464.0 + 70.0, row2.position.y - 50.0, 366.0, 44.0), 2 if bad_no_engines else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})

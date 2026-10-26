@@ -4094,7 +4094,7 @@ func _initialize() -> void:
 	var sc_kinds = {}
 	for sc_k in sc_art.btn_count:
 		sc_kinds[sc_art.btn_id[sc_k]] = [sc_art.btn_kind[sc_k], sc_art.btn_text[sc_k]]
-	check(sc_kinds["play"] == [2, "Start shift"] and sc_kinds["airports"] == [0, "Airports"] and sc_kinds["bad"] == [0, "Bad pilot day"] and sc_kinds["upgrades"][0] == 7 and sc_kinds["shop"] == [7, "Hangar"] and sc_kinds["daily"][0] == 7 and sc_art.btn_count == 7, "the menu: Start shift (orange), Airports and Bad pilot day (cream), and three small round buttons")
+	check(sc_kinds["play"] == [2, "Start shift"] and sc_kinds["airports"] == [0, "Airports"] and sc_kinds["bad"] == [0, "Bad pilot day"] and sc_kinds["upgrades"][0] == 7 and sc_kinds["shop"] == [7, "Hangar"] and sc_kinds["daily"][0] == 7 and sc_art.btn_count == 8 and sc_kinds["airports_tag"][0] == 9, "the menu: Start shift (orange), Airports and Bad pilot day (cream), and three small round buttons")
 	main.select_airport(0)
 	main._on_button("airport_next")
 	check(main.airport == 1 and Airports.current == 1 and main.screen == main.SCREEN_MENU, "the next arrow moves to the next airport and the field behind the menu follows")

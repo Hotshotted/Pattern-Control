@@ -1321,7 +1321,7 @@ func _on_button(id: String) -> void:
 	elif id == "unlock_ok":
 		hud.hide_unlock()
 		hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
-	elif id == "airports":
+	elif id == "airports" or id == "airports_tag":
 		_show_select()
 	elif id.begins_with("noeng:"):
 		var ne_i := int(id.substr(6))

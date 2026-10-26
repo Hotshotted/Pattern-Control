@@ -227,6 +227,18 @@ google/fonts repository.
 States: **normal**, **pressed** (cream drops 4 px; the primary drops onto its edge), **disabled** (flat, greyed, no shadow; taps
 are swallowed, not passed to the game), **selected** (an orange ring; a maxed upgrade is gold).
 
+### Only what you can tap looks tappable
+
+**Only things you can tap get a bottom edge and a shadow.** Everything that only shows something is flat: no bottom edge, no
+drop shadow, no pill around plain text.
+
+- Tappable: buttons, cards (airport, upgrade, hangar rows), tabs, the round icon buttons, the airport name under the menu title
+  (it opens the Airports screen), the ad chips, the pause button. These use `_cream` (a 4 px #C9A46E bottom edge and the warm shadow).
+- Flat (`Art._flat`, or a ring with no shadow): the coin and star counters, the status pills under the star bar, the banner and tip,
+  the wind card, the results chips and unlock card, the title's small print ("AIR TRAFFIC CONTROL", "CLEAR PROP GAMES": tracked
+  capitals in muted cream at 70%, no shape at all).
+- Surfaces that hold things (the pause sheet, the results card, Details) have the soft shadow but no bottom edge.
+
 ## Icons
 
 One vector set drawn in code (`Hud.Art.glyph`): bold filled silhouettes and thick strokes, round proportions, no text and
