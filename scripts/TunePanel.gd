@@ -53,6 +53,7 @@ const ENTRIES := [
 	["bad_day_go_around_floor", "Bad Pilot Day: go-around floor", 0.0, 1.0, 0.05],
 	["bad_day_pay_mult", "Bad Pilot Day: pay multiplier", 1.0, 5.0, 0.5],
 	["no_engines_pay_mult", "No engines: pay multiplier", 1.0, 5.0, 0.1],
+	["buy_hold_seconds", "Shop: hold to buy (s)", 0.2, 2.0, 0.1],
 	["intro_spawn_scale", "First shift: arrivals further apart (x)", 1.0, 3.0, 0.05],
 	["intro_timer_scale", "First shift: timers longer (x)", 1.0, 2.5, 0.05],
 	["beat_quiet_lead", "Intro beat: quiet before (s)", 0.0, 12.0, 0.5],

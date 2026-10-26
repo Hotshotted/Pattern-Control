@@ -60,6 +60,11 @@ class Art extends Control:
 	var details_lines := PackedStringArray()
 	# ---- the pause menu ----
 	var show_pause := false
+	var pv_on := false                 # the shop's preview sheet is up (see Hud.show_preview)
+	var pv := {}
+	var pv_t := 0.0
+	var pv_ok_t := -1.0                # seconds since the purchase (the success animation), < 0 = none
+	var pv_hold := 0.0                 # the buy button's fill, 0..1
 	var res_layer := 0                 # the results card is two layers: 1 = the part that never changes (title, star outlines, card, chip boxes and labels), 2 = the rest; 0 = both
 	var warm := false                  # (the start-up pre-warm draws the pause sheet and sliders too, under the shift's interface)
 	var pause_rect := Rect2(Style.GUTTER * 0.5, 10.0, 80.0, 80.0)   # the pause button, top-left (the wind dial is on the right)
@@ -130,6 +135,8 @@ class Art extends Control:
 	var _sb_primary: StyleBoxFlat
 	var _sb_gold: StyleBoxFlat
 	var _sb_pill: StyleBoxFlat
+	var _sb_hold: StyleBoxFlat
+	var _sb_stage: StyleBoxFlat
 	var _sb_flat_accent: StyleBoxFlat
 	var _sb_banner: StyleBoxFlat
 	var _sb_tip: StyleBoxFlat
@@ -204,6 +211,8 @@ class Art extends Control:
 		_sb_sheet = _cream(Style.R_L, 0, Style.SURFACE_DARK)          # (a surface that holds things: a soft shadow, no bottom edge: only what you can tap has an edge)
 		_sb_banner = Style.box(Style.SURFACE_DARK, Style.WARNING, Style.R_PILL, 4, false)
 		_sb_tip = Style.box(Style.SURFACE_DARK, Style.SUCCESS, Style.R_PILL, 4, false)
+		_sb_stage = _flat(36, Color.WHITE)
+		_sb_hold = _flat(Style.R_L, Color(1.0, 0.86, 0.45, 0.6))
 		_sb_flat_accent = Style.box(Style.SURFACE_DARK, Style.ORANGE, 22, 5, false)
 		_sb_tile = Style.box(Style.PRIMARY, Style.INK, 34, 6, false)
 		_sb_tile_lip = Style.box(Style.INK, Style.INK, 34, 0, false)
@@ -541,16 +550,22 @@ class Art extends Control:
 
 	## A top-down vignette of airport `i` in a rounded square: its field (or water), runways in their colours, pads, lanes, mountains, the
 	## apron, and the airport's landmark (a barn and silo; a lighthouse and pier; a lodge and pines). Dimmed when the airport is locked.
-	func _vignette(r: Rect2, i: int, dim: bool = false) -> void:
+	func _vignette(r: Rect2, i: int, dim: bool = false, theme: int = -1) -> void:
 		var d: Dictionary = Airports.def(i)
 		var water: bool = d.get("water", false)
 		var gcol: Color = d["ground"]
+		var tint := Color.WHITE
+		if theme >= 0:       # the shop's preview: the same picture in a skin's colours
+			var th: Dictionary = Cosmetics.THEMES[theme]
+			if th["ground"] != null and not water:
+				gcol = th["ground"]
+			tint = th["tint"]
 		_sb_vig.bg_color = gcol.darkened(0.12) if not water else Color("5db8e0")
 		draw_style_box(_sb_vig, r)
 		var c := r.get_center()
 		var k := r.size.x / 13.0
 		for dc in d["decor"]:
-			var col: Color = dc["color"]
+			var col: Color = (dc["color"] as Color) * tint
 			if dc["shape"] == "disc":
 				draw_circle(c + (dc["pos"] as Vector2) * k, minf(dc["r"] * k, r.size.x * 0.46), col)
 			else:
@@ -603,6 +618,8 @@ class Art extends Control:
 				draw_circle(bp + Vector2(r.size.x * 0.24, r.size.y * 0.04), r.size.x * 0.04, Color("f1ece0"))
 		if dim:
 			draw_style_box(_sb_vig_veil, r)
+		if theme >= 0 and Cosmetics.THEMES[theme]["sun"] < 0.6:
+			draw_style_box(_sb_vig_veil, r)         # (the night skin: the same picture, darker)
 
 	## A card's icon: an animal pilot portrait, or a theme's two colours.
 	func text_l(c: Vector2, r: float, col: Color) -> void:
@@ -661,6 +678,8 @@ class Art extends Control:
 	## A button squashes while pressed and bounces back. (They do not animate when a screen opens: the whole panel does, as a layer.)
 	func _draw_buttons() -> void:
 		for k in btn_count:
+			if btn_kind[k] == 11:
+				continue                 # (an invisible catcher: the sheet's scrim and card)
 			var s := 1.0
 			if press_k == k:
 				s *= lerpf(1.0, 0.94, Style.ease_out_cubic(press_t / Style.T_FAST))
@@ -755,6 +774,24 @@ class Art extends Control:
 				ptext(btn_text[k], Vector2(x0, r.get_center().y + SZ_S * 0.35), SZ_S, ink)
 				if btn_sub[k] != "":
 					ptext(btn_sub[k], Vector2(x0 + tw2 + 16.0, r.get_center().y + SZ_S * 0.35), SZ_S, C_GOLD_TXT)
+			10:     # the sheet's buy button: orange, with a fill that runs across it while it is held
+				var face10 := Rect2(r.position.x, r.position.y, r.size.x, r.size.y - Style.LIP)
+				if st == 1:
+					draw_style_box(_sb_disabled, face10)
+				else:
+					draw_style_box(_sb_lip, Rect2(face10.position.x, face10.position.y + Style.LIP, face10.size.x, face10.size.y))
+					if pressed:
+						face10.position.y += Style.LIP - 2.0
+					panel(_sb_primary, face10, _sheen_o)
+					if pv_hold > 0.01:
+						_sb_hold.set_corner_radius_all(Style.R_L)
+						draw_style_box(_sb_hold, Rect2(face10.position.x, face10.position.y, maxf(face10.size.x * pv_hold, float(Style.R_L) * 2.0), face10.size.y))
+				var fs10 := Style.fit_size(btn_text[k], SZ_XL, 40, face10.size.x - 90.0)
+				var ink10 := Color.WHITE if st != 1 else C_QUIET
+				if st != 1:
+					btext(btn_text[k], Vector2(face10.position.x, face10.get_center().y + fs10 * 0.33), fs10, HORIZONTAL_ALIGNMENT_CENTER, face10.size.x)
+				else:
+					draw_string(Style.display(), Vector2(face10.position.x, face10.get_center().y + fs10 * 0.33), btn_text[k], HORIZONTAL_ALIGNMENT_CENTER, face10.size.x, fs10, ink10)
 			9:      # the airport under the title: name and stars on a cream chip, a tap opens the Airports screen
 				panel(_sb_normal, r, _sheen_s)
 				ptext(btn_text[k], Vector2(r.position.x + 32.0, r.get_center().y + 12.0), 34, ink)
@@ -1068,6 +1105,119 @@ class Art extends Control:
 			ptext("%s unlocked!" % res_unlock, Vector2(ur.position.x + 170.0, ur.get_center().y - 4.0), 40, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0)
 			draw_string(Style.body(), Vector2(ur.position.x + 170.0, ur.get_center().y + 40.0), Airports.tag(Airports.index_of(res_unlock)), HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0, SZ_S, C_SOFT)
 
+	# ---------- The shop's preview sheet ----------
+
+	static func fmt_int(n: int) -> String:
+		var t := str(absi(n))
+		var out := ""
+		while t.length() > 3:
+			out = "," + t.substr(t.length() - 3) + out
+			t = t.substr(0, t.length() - 3)
+		return ("-" if n < 0 else "") + t + out
+
+	## The sheet: a scrim over the shop, a card with the item's name, its picture, the price and the balance before and after.
+	func _draw_preview_base() -> void:
+		var card: Rect2 = pv["card"]
+		draw_rect(Rect2(Vector2.ZERO, size), Color(Style.INK, 0.58))
+		panel(_sb_sheet, card, _sheen_l)
+		ptext(pv["name"], Vector2(card.position.x, card.position.y + 150.0), SZ_M, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
+		text_plain(pv["sub"], Vector2(card.position.x, card.position.y + 196.0), SZ_S, C_SOFT, card.size.x)
+		var st: Rect2 = pv["stage"]
+		var ok_pop := 1.0
+		if pv_ok_t >= 0.0 and pv_ok_t < 0.35:
+			ok_pop = 1.0 + 0.06 * sin(pv_ok_t / 0.35 * PI)
+		if ok_pop != 1.0:
+			draw_set_transform(st.get_center() * (1.0 - ok_pop), 0.0, Vector2(ok_pop, ok_pop))
+		if pv["kind"] == "livery":
+			_draw_livery_stage(st)
+		else:
+			_draw_theme_stage(st)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		# price and balance
+		var y: float = pv["info_y"]
+		var cx := card.get_center().x
+		match pv["state"]:
+			"buy", "need":
+				var ps := fmt_int(pv["price"])
+				var tw := text_width(ps, SZ_M)
+				glyph("coin", Vector2(cx - tw * 0.5 - 44.0, y + 4.0), 30.0)
+				ptext(ps, Vector2(cx - tw * 0.5, y + 24.0), SZ_M, C_TEXT)
+				var line := "%s \u2192 %s" % [fmt_int(pv["balance"]), fmt_int(pv["balance"] - pv["price"])] if pv["state"] == "buy" else "Balance %s" % fmt_int(pv["balance"])
+				ptext(line, Vector2(card.position.x, y + 84.0), 40, C_SOFT if pv["state"] == "buy" else C_RED, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
+			"bought":
+				ptext("Balance %s" % fmt_int(pv["balance"]), Vector2(card.position.x, y + 64.0), 40, C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
+			_:
+				ptext("In use" if pv["state"] == "equipped" else "Yours", Vector2(card.position.x, y + 40.0), SZ_M, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
+
+	func text_plain(s: String, pos: Vector2, size_px: int, col: Color, width: float) -> void:
+		draw_string(Style.font_for(s, size_px), pos, s, HORIZONTAL_ALIGNMENT_CENTER, width, size_px, col)
+
+	## What bursts over the sheet when the purchase goes through: a ring, rays, a check.
+	func _draw_preview_top() -> void:
+		if pv_ok_t < 0.0 or pv_ok_t > 1.4:
+			return
+		var st: Rect2 = pv["stage"]
+		var c := st.get_center()
+		var k := clampf(pv_ok_t / 0.7, 0.0, 1.0)
+		_sparks(c, k, 60.0, 360.0, 14, C_GOLD)
+		var a := clampf(1.0 - (pv_ok_t - 0.7) / 0.7, 0.0, 1.0)
+		var s := Style.ease_out_back(clampf(pv_ok_t / 0.3, 0.0, 1.0))
+		draw_circle(c, 110.0 * s, Color(Style.SUCCESS, 0.92 * a))
+		glyph("check", c, 62.0 * s, Color(1, 1, 1, a))
+
+	func _draw_livery_stage(st: Rect2) -> void:
+		_sb_stage.bg_color = Color("a6cf74")
+		draw_style_box(_sb_stage, st)       # (a soft field green, like the menu's)
+		var d: Dictionary = pv["livery"]
+		var body: Color = d["body"] if d["body"] != null else Color.WHITE
+		var stripe = d["stripe"]
+		var rw: Color = pv["runway"]
+		# the big one: slowly turning on the spot, rocking into a bank
+		var yaw := sin(pv_t * 0.5) * 0.9 + 0.5
+		var bank := sin(pv_t * 0.9) * 0.45
+		_draw_plane(st.get_center() + Vector2(0.0, -30.0), 3.4, yaw, bank, body, stripe, rw)
+		# the small one, as it flies in the shift: on a strip of its runway's colour, nose, wingtips and fin in that colour
+		var w := 250.0
+		var box := Rect2(st.end.x - w - 18.0, st.end.y - w - 18.0, w, w)
+		_sb_stage.bg_color = Color(Style.SURFACE_DARK, 0.96)
+		draw_style_box(_sb_stage, box)
+		draw_rect(Rect2(box.get_center().x - 26.0, box.position.y + 14.0, 52.0, box.size.y - 66.0), Color(0.42, 0.44, 0.48))
+		draw_rect(Rect2(box.get_center().x - 3.0, box.position.y + 26.0, 6.0, box.size.y - 90.0), Color(rw, 0.9))
+		_draw_plane(box.get_center() + Vector2(0.0, -14.0), 0.9, 0.0, 0.0, body, stripe, rw)
+		text_plain("In the game", Vector2(box.position.x, box.end.y - 14.0), 24, C_SOFT, box.size.x)
+
+	## A plane seen from above, nose up: fuselage and stripe in the livery, nose cone, wingtips and fin in the runway's colour.
+	## `yaw` turns it, `bank` squeezes the wings as if it rolled.
+	func _draw_plane(c: Vector2, s: float, yaw: float, bank: float, body: Color, stripe, rw: Color) -> void:
+		var bx := cos(bank)
+		draw_set_transform(c, yaw, Vector2(s * bx, s))
+		var wing := Color(0.94, 0.94, 0.92)
+		for sx in [-1.0, 1.0]:
+			quad(Vector2(sx * 8.0, -12.0), Vector2(sx * 62.0, 2.0), Vector2(sx * 62.0, 14.0), Vector2(sx * 8.0, 10.0), wing)
+			quad(Vector2(sx * 50.0, -1.5), Vector2(sx * 62.0, 2.0), Vector2(sx * 62.0, 14.0), Vector2(sx * 50.0, 12.0), rw)
+			quad(Vector2(sx * 8.0, 40.0), Vector2(sx * 26.0, 47.0), Vector2(sx * 26.0, 53.0), Vector2(sx * 8.0, 50.0), wing)
+		draw_line(Vector2(0, -42.0), Vector2(0, 46.0), body, 20.0)
+		draw_circle(Vector2(0, -42.0), 10.0, body)
+		draw_circle(Vector2(0, 46.0), 10.0, body)
+		if stripe != null:
+			draw_line(Vector2(0, -30.0), Vector2(0, 36.0), stripe, 6.0)
+		draw_circle(Vector2(0, -47.0), 7.0, rw)
+		draw_rect(Rect2(-3.0, 34.0, 6.0, 22.0), rw)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	func _draw_theme_stage(st: Rect2) -> void:
+		var big: bool = pv["mode"] == 1
+		var main_theme: int = pv["theme"] if big else pv["current_theme"]
+		var other_theme: int = pv["current_theme"] if big else pv["theme"]
+		_sb_stage.bg_color = Color(Style.SURFACE_DARK_2)
+		draw_style_box(_sb_stage, st)
+		var side := st.size.y - 24.0
+		_vignette(Rect2(st.get_center().x - side * 0.5, st.position.y + 12.0, side, side), pv["airport"], false, main_theme)
+		var w := 230.0
+		var box := Rect2(st.end.x - w - 16.0, st.end.y - w - 16.0, w, w)
+		_vignette(box, pv["airport"], false, other_theme)
+		text_plain("Current" if big else "New", Vector2(box.position.x, box.position.y + 34.0), 28, Color.WHITE, box.size.x)
+
 	## The menu's title, top-left over the live field: PATTERN over WORK in the display face, cream on a stacked warm extrusion, at a
 	## 2 degree tilt, with a small tag above it and the selected airport under it. (A soft scrim at the top keeps it readable.)
 	func _draw_lockup() -> void:
@@ -1199,7 +1349,11 @@ class Art extends Control:
 		t0 = _span("  results card", t0)
 		if unlock_t >= 0.0:
 			_draw_unlock()
+		if pv_on:
+			_draw_preview_base()
 		_draw_buttons()
+		if pv_on:
+			_draw_preview_top()
 		t0 = _span("  buttons", t0)
 		if show_play and not show_pause:
 			_draw_hud()
@@ -1837,6 +1991,103 @@ func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 
 ## Lay a results card out in advance (made-up numbers, parked): the first draw of an Art grows its command buffers and warms its
 ## styles, which is the part of opening the results that does not depend on the shift. Called while the menu is idle.
+# ---------- The shop's preview sheet ----------
+# Tapping a livery or a skin opens a sheet over the shop (the list stays behind it): the picture, the price, the balance before and
+# after, and the one button. `p` is built by Main._preview_args(): kind, index, name, sub, state ("buy" | "need" | "bought" | "owned" |
+# "equipped"), price, balance, need, mode (0 current / 1 new), airport, theme, current_theme, livery, runway.
+var _preview_open := false
+
+func _preview_art() -> Art:
+	var pa := _panel_art("preview")
+	var si: int = _panel_arts["shop"].get_index() if _panel_arts.has("shop") else 0
+	if pa.get_index() < si:
+		move_child(pa, si)                  # (above the shop's list)
+	return pa
+
+func show_preview(p: Dictionary) -> void:
+	var pa := _preview_art()
+	var fresh := not _preview_open
+	_preview_open = true
+	pa.pv_on = true
+	var vp := get_viewport().get_visible_rect().size
+	var top := Style.safe_top
+	var card := Rect2(40.0, top + 110.0, vp.x - 80.0, vp.y - top - 110.0 - 50.0 - Style.safe_bottom)
+	var stage := Rect2(card.position.x + 40.0, card.position.y + 240.0, card.size.x - 80.0, minf(card.size.y * 0.36, 760.0))
+	p["card"] = card
+	p["stage"] = stage
+	var y := stage.end.y + 28.0
+	if p["kind"] == "theme":
+		y += 96.0
+	p["info_y"] = y + 40.0
+	pa.pv = p
+	if fresh:
+		pa.pv_t = 0.0
+		pa.pv_ok_t = -1.0
+		pa.pv_hold = 0.0
+		pa.modulate.a = 0.0
+	if p["state"] == "bought" and pa.pv_ok_t < 0.0:
+		pa.pv_ok_t = 0.0
+	_art = pa
+	pa.clear_buttons()
+	pa.add_button("preview_scrim", "", Rect2(Vector2.ZERO, vp), 0, "", -1, -1, {"kind": 11})
+	pa.add_button("preview_card", "", card, 0, "", -1, -1, {"kind": 11})
+	pa.add_button("preview_close", "", Rect2(card.position.x + 14.0, card.position.y + 14.0, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+	if p["kind"] == "theme":
+		var cw := 300.0
+		for m in 2:
+			pa.add_button("pv_mode:%d" % m, "Current" if m == 0 else "New", Rect2(card.get_center().x - cw - 10.0 + m * (cw + 20.0), stage.end.y + 20.0, cw, 76.0), 2 if p["mode"] == m else 0, "", -1, -1, {"kind": 4})
+	var label := ""
+	var bst := 2
+	match p["state"]:
+		"buy":
+			label = "Buy for %s" % Art.fmt_int(p["price"])
+		"need":
+			label = "Need %s more" % Art.fmt_int(p["need"])
+			bst = 1
+		"bought", "owned":
+			label = "Equip"
+		"equipped":
+			label = "Equipped"
+			bst = 1
+	pa.add_button("pv_buy", label, Rect2(card.position.x + 60.0, card.end.y - 60.0 - 220.0, card.size.x - 120.0, 220.0), bst, "", -1, -1, {"kind": 10})
+	pa.queue_redraw()
+	if DebugFlags.perf_enabled() and OS.has_feature("web"):
+		call_deferred("_publish_buttons")
+	pa.position = Vector2.ZERO
+	pa.btn_age = 99.0
+	if fresh:
+		pa.press_k = -1
+		pa.rel_k = -1
+	_art = pa
+
+func hide_preview() -> void:
+	if not _preview_open:
+		return
+	_preview_open = false
+	var pa: Art = _panel_arts["preview"]
+	pa.pv_on = false
+	pa.position = PARK
+	pa.btn_count = 0
+	pa.press_k = -1
+	pa.rel_k = -1
+	if _panel_arts.has("shop"):
+		_art = _panel_arts["shop"]
+	if DebugFlags.perf_enabled() and OS.has_feature("web"):
+		call_deferred("_publish_buttons")
+
+func preview_open() -> bool:
+	return _preview_open
+
+func set_preview_hold(f: float) -> void:
+	if _preview_open:
+		var pa: Art = _panel_arts["preview"]
+		if absf(pa.pv_hold - f) > 0.001:
+			pa.pv_hold = f
+			pa.queue_redraw()
+
+func preview_state() -> String:
+	return str(_panel_arts["preview"].pv.get("state", "")) if _preview_open else ""
+
 var _results_primed := false
 ## The part of the card that is the same every shift lives on its own layer under it, drawn once (here), never again.
 func _results_bg() -> Art:
@@ -1856,6 +2107,7 @@ func prime_results() -> void:
 	if _results_primed:
 		return
 	_results_primed = true
+	_preview_art()                # (the shop's preview sheet: its layer exists, above the list, before anyone taps a card)
 	_results_bg()
 	var ra := _panel_art("results")
 	ra.res_layer = 2
@@ -2179,6 +2431,10 @@ func _use_main() -> void:
 	_main_art.visible = true
 	for a in _panel_arts.values():
 		a.position = PARK
+	_preview_open = false
+	if _panel_arts.has("preview"):
+		_panel_arts["preview"].pv_on = false
+		_panel_arts["preview"].btn_count = 0
 	var ra: Art = _panel_arts.get("results")
 	if ra != null:                 # (the next results card starts from nothing: no stars, no reveal, no unlock card)
 		ra.show_result = false
@@ -2213,6 +2469,8 @@ func _use_panel(kind: String, sig: String, layout: Callable) -> void:
 		pa.btn_age = 99.0
 		pa.press_k = -1
 		pa.rel_k = -1
+		if _preview_open and kind == "shop":
+			_art = _panel_arts["preview"]       # (the list behind the sheet was refreshed: the sheet still has the touches)
 
 func panel_ready(kind: String) -> bool:
 	return _panel_sig.has(kind)
@@ -2316,8 +2574,10 @@ func show_upgrades(coins: int, levels: PackedInt32Array) -> void:
 ## The id of the enabled button under `pos` ("" if none).
 func button_at(pos: Vector2) -> String:
 	var k := _art.button_at(pos)
-	if k < 0 or _art.btn_state[k] == 1:
+	if k < 0:
 		return ""
+	if _art.btn_state[k] == 1 and not (_art.btn_id[k].begins_with("theme:") or _art.btn_id[k].begins_with("livery:")):
+		return ""             # (a shop card is dimmed when it is out of reach, but it still opens its preview: "Need 480 more")
 	return _art.btn_id[k]
 
 ## True if `pos` is on any button (even a disabled one): the tap belongs to the UI, not the game.
@@ -2720,6 +2980,13 @@ func _process_inner(delta: float) -> void:
 	elif _tr_t < Style.T_PANEL:
 		_tr_t += delta
 		_apply_transition()
+	if _preview_open:
+		var pva: Art = _panel_arts["preview"]
+		pva.pv_t += delta
+		if pva.pv_ok_t >= 0.0:
+			pva.pv_ok_t += delta
+		pva.modulate.a = minf(pva.pv_t / 0.16, 1.0)
+		pva.queue_redraw()
 	if _art.press_k >= 0:
 		_art.press_t += delta
 	if _art.rel_k >= 0 and _art.rel_t < 1.0:

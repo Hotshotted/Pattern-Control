@@ -175,12 +175,13 @@ func equip(kind: String, id: String) -> bool:
 	return true
 
 ## Buy (and equip) a cosmetic. Returns false if already owned or too expensive.
-func buy_cosmetic(kind: String, id: String, price: int) -> bool:
+func buy_cosmetic(kind: String, id: String, price: int, equip_now: bool = true) -> bool:
 	if owns(kind, id) or coins < price:
 		return false
 	coins -= price
 	unlocks[kind + ":" + id] = true
-	equipped[kind] = id
+	if equip_now:
+		equipped[kind] = id
 	write_file()
 	return true
 

@@ -239,6 +239,15 @@ drop shadow, no pill around plain text.
   capitals in muted cream at 70%, no shape at all).
 - Surfaces that hold things (the pause sheet, the results card, Details) have the soft shadow but no bottom edge.
 
+### The shop's preview sheet
+
+Tapping a livery or an airport skin opens a sheet over the shop (the list stays behind it): the name, a picture (a livery: the plane
+turning and banking, and a small one in the game's top-down view with the runway's colour on nose, wingtips and fin; a skin: the airport's
+vignette, the current look and the new one with a Current / New toggle), the price with the coin icon, and the balance before and after
+("2,480 \u2192 1,980"). Nothing is bought anywhere else. The button reads "Buy for N" and is **held** for `Tuning.buy_hold_seconds`
+(0.6 s) while an orange fill runs across it; a tap only says "Hold to buy". Too poor: grey, "Need N more", never spends. After the
+purchase a burst and a check, then a single "Equip" (owned things show "Equip" or "Equipped" instead of a price).
+
 ## Icons
 
 One vector set drawn in code (`Hud.Art.glyph`): bold filled silhouettes and thick strokes, round proportions, no text and

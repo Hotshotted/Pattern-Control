@@ -436,6 +436,7 @@ func restart() -> void:
 	hud.set_shift(shift)
 
 func _show_menu() -> void:
+	preview_kind = ""
 	Boot.mark("menu shown")
 	if _menu_first_ms == 0:
 		_menu_first_ms = Time.get_ticks_msec()
@@ -638,6 +639,7 @@ func _process(raw_delta: float) -> void:
 	if DebugFlags.windtest_enabled() and OS.has_feature("web") and screen == SCREEN_PLAY and alive:
 		JavaScriptBridge.eval("window.__wt = {t: %.2f}" % traffic.run_time)       # (the web wind check waits for the shift to be under way)
 	_tick_shake(raw_delta)
+	_tick_preview(raw_delta)
 	_idle_build()
 	# Music: the shift's own while playing; the calm menu bed everywhere else; the two crossfade.
 	if screen != SCREEN_PLAY and screen != SCREEN_PAUSE:
@@ -1349,9 +1351,16 @@ func _on_button(id: String) -> void:
 		shop_tab = int(id.substr(9))
 		_show_shop()
 	elif id.begins_with("theme:"):
-		shop_pick("theme", int(id.substr(6)))
+		open_preview("theme", int(id.substr(6)))
 	elif id.begins_with("livery:"):
-		shop_pick("livery", int(id.substr(7)))
+		open_preview("livery", int(id.substr(7)))
+	elif id == "preview_close" or id == "preview_scrim":
+		close_preview()
+	elif id.begins_with("pv_mode:"):
+		preview_mode = int(id.substr(8))
+		_refresh_preview()
+	elif id == "pv_buy":
+		_preview_tap()
 	elif id == "daily":
 		start_daily()
 	elif id == "bad":
@@ -1462,6 +1471,103 @@ func _show_shop() -> void:
 	alive = false
 	var sh := _shop_args()
 	hud.show_list("SHOP", Save.coins, sh[0], sh[1])
+
+# ---------- The preview sheet: nothing is bought without it ----------
+# A card opens a sheet over the list. Owned things have one "Equip" button. Things for sale have "Buy for N", which spends only when held
+# (Tuning.buy_hold_seconds, with a fill that runs across the button); a tap just says to hold. Too poor: "Need N more", disabled.
+# After the purchase a short animation, then one "Equip".
+
+var preview_kind := ""
+var preview_i := -1
+var preview_mode := 1                     # themes: 0 = the current look, 1 = the new one
+var preview_bought := false
+var _hold_t := 0.0
+var _hold_fired := false
+var _swallow_tap := false
+
+func open_preview(kind: String, i: int) -> void:
+	preview_kind = kind
+	preview_i = i
+	preview_mode = 1
+	preview_bought = false
+	_hold_t = 0.0
+	_hold_fired = false
+	_swallow_tap = false
+	_refresh_preview()
+
+func close_preview() -> void:
+	preview_kind = ""
+	preview_i = -1
+	hud.hide_preview()
+	if screen == SCREEN_SHOP:
+		_show_shop()
+
+func _preview_item() -> Dictionary:
+	return Cosmetics.THEMES[preview_i] if preview_kind == "theme" else Cosmetics.LIVERIES[preview_i]
+
+func _preview_args() -> Dictionary:
+	var d := _preview_item()
+	var owned := Save.owns(preview_kind, d["id"])
+	var state := "buy"
+	if owned and Save.equipped_id(preview_kind) == d["id"]:
+		state = "equipped"
+	elif owned:
+		state = "bought" if preview_bought else "owned"
+	elif Save.coins < d["cost"]:
+		state = "need"
+	var rw: Color = Airports.rw_color(0) if Airports.rw_count() > 0 else Airports.ORANGE
+	return {"kind": preview_kind, "index": preview_i, "name": d["name"], "state": state, "price": d["cost"], "balance": Save.coins, "need": maxi(d["cost"] - Save.coins, 0),
+		"sub": (d["pilot"] if preview_kind == "livery" else "Airport skin"), "mode": preview_mode, "airport": airport, "theme": preview_i if preview_kind == "theme" else 0,
+		"current_theme": Cosmetics.theme_index(Save.equipped_id("theme")), "livery": d if preview_kind == "livery" else {}, "runway": rw}
+
+func _refresh_preview() -> void:
+	if preview_kind == "":
+		return
+	hud.show_preview(_preview_args())
+
+## The buy button was tapped (not held). Equipping is a tap; buying is not.
+func _preview_tap() -> void:
+	if preview_kind == "":
+		return
+	if _swallow_tap:
+		_swallow_tap = false              # (the release that ends the hold which just bought it)
+		return
+	match hud.preview_state():
+		"owned", "bought":
+			var d := _preview_item()
+			if Save.equip(preview_kind, d["id"]):
+				apply_cosmetics()
+				sfx.play("toggle")
+				_refresh_preview()
+		"buy":
+			hud.popup("Hold to buy", Color(1.0, 0.85, 0.45), get_viewport().get_visible_rect().size * Vector2(0.5, 0.42))
+
+## Held long enough: spend the price, once.
+func _buy_previewed() -> void:
+	var d := _preview_item()
+	if Save.owns(preview_kind, d["id"]):
+		return
+	if Save.buy_cosmetic(preview_kind, d["id"], d["cost"], false):
+		preview_bought = true
+		_swallow_tap = true
+		sfx.play("buy")
+		hud.flash(Color(0.6, 1.0, 0.7))
+		_refresh_preview()
+
+## Every frame while a sheet is up: the buy button's fill follows the finger, and a full one buys.
+func _tick_preview(delta: float) -> void:
+	if preview_kind == "" or not hud.preview_open():
+		return
+	if hud.preview_state() == "buy" and hud.pressed_id() == "pv_buy":
+		_hold_t += delta
+		hud.set_preview_hold(minf(_hold_t / maxf(Tuning.buy_hold_seconds, 0.05), 1.0))
+		if _hold_t >= Tuning.buy_hold_seconds and not _hold_fired:
+			_hold_fired = true
+			_buy_previewed()
+	else:
+		_hold_t = 0.0
+		_hold_fired = false
+		hud.set_preview_hold(0.0)
 
 ## Tap a shop card: equip it if owned, otherwise buy (and equip) it.
 func shop_pick(kind: String, i: int) -> bool:
