@@ -60,6 +60,7 @@ class Art extends Control:
 	var details_lines := PackedStringArray()
 	# ---- the pause menu ----
 	var show_pause := false
+	var res_layer := 0                 # the results card is two layers: 1 = the part that never changes (title, star outlines, card, chip boxes and labels), 2 = the rest; 0 = both
 	var warm := false                  # (the start-up pre-warm draws the pause sheet and sliders too, under the shift's interface)
 	var pause_rect := Rect2(Style.GUTTER * 0.5, 10.0, 80.0, 80.0)   # the pause button, top-left (the wind dial is on the right)
 	var slider_rect: Array[Rect2] = [Rect2(), Rect2(), Rect2()]      # 0 effects, 1 music, 2 ambience
@@ -973,9 +974,12 @@ class Art extends Control:
 			return
 		var s2 := size.y / 1920.0                 # (positions below are for a 1080 x 1920 screen)
 		# The title (over the field, cream on a warm extrusion) and where we were.
-		var tfs := Style.fit_size("SHIFT COMPLETE", 104, 50, 1000.0)
-		Style.draw_ext(self, Vector2(cx - 520.0, 290.0 * s2 + top), "SHIFT COMPLETE", tfs, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
-		if res_sub != "":
+		var stat := res_layer != 2
+		var dyn := res_layer != 1
+		if stat:
+			var tfs := Style.fit_size("SHIFT COMPLETE", 104, 50, 1000.0)
+			Style.draw_ext(self, Vector2(cx - 520.0, 290.0 * s2 + top), "SHIFT COMPLETE", tfs, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
+		if dyn and res_sub != "":
 			text(res_sub, Vector2(cx - 520.0, 350.0 * s2 + top), SZ_S, C_CREAM, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
 		# The stars, one after another: each slams down from big with an impact ring, rays and a little shake. Three, big and tilted.
 		for i in 3:
@@ -983,8 +987,9 @@ class Art extends Control:
 			var rot := (i - 1) * deg_to_rad(12.0)
 			var rad := 150.0 if i == 1 else 118.0
 			var c := Vector2(cx + (i - 1) * 285.0, (520.0 if i == 1 else 580.0) * s2 + top)
-			star(c, rad, Color(Style.WORLD_TEXT), true, rot)
-			if i < res_stars and res_t >= t0:
+			if stat:
+				star(c, rad, Color(Style.WORLD_TEXT), true, rot)
+			if dyn and i < res_stars and res_t >= t0:
 				var k := clampf((res_t - t0) / SLAM, 0.0, 1.0)
 				var imp := res_t - t0 - SLAM
 				var jit := Vector2.ZERO
@@ -995,7 +1000,15 @@ class Art extends Control:
 					_sparks(c, imp / 0.5, rad, rad * 3.0, 10, C_GOLD)
 		# The card: NEW BEST, the total paid (rolling up once the stars are in), and three chips.
 		var card := Rect2(cx - 465.0, 750.0 * s2 + top, 930.0, 590.0 * s2)
-		panel(_sb_card, card, _sheen_l)
+		if stat:
+			panel(_sb_card, card, _sheen_l)
+			var cw0 := (card.size.x - 90.0 - 36.0) / 3.0
+			for j in 3:
+				var cr0 := Rect2(card.position.x + 45.0 + j * (cw0 + 18.0), card.position.y + 290.0 * s2, cw0, 150.0)
+				draw_style_box(_sb_chip, cr0)
+				draw_string(Style.text(), Vector2(cr0.position.x, cr0.position.y + 126.0), ["Landings", "Early clear", "Fines"][j], HORIZONTAL_ALIGNMENT_CENTER, cr0.size.x, SZ_S, C_SOFT)
+		if not dyn:
+			return
 		var t_count := STAR_T0 + STAR_GAP * 3.0
 		var f := clampf((res_t - t_count) / 1.0, 0.0, 1.0)
 		var shown := roundi(res_total * (1.0 - pow(1.0 - f, 3.0)))
@@ -1019,12 +1032,10 @@ class Art extends Control:
 		var cw := (card.size.x - 90.0 - 36.0) / 3.0
 		for j in 3:
 			var cr := Rect2(card.position.x + 45.0 + j * (cw + 18.0), card.position.y + 290.0 * s2, cw, 150.0)
-			draw_style_box(_sb_chip, cr)
 			var v := res_chips[j]
 			var colr := C_TEXT if j == 0 else (Style.SUCCESS_DARK if j == 1 else Color("b8322a"))
 			var sign := "+" if v >= 0 and j < 2 else ("" if j < 2 else "\u2212")
 			draw_string(Style.display(), Vector2(cr.position.x, cr.position.y + 80.0), "%s%d" % [sign, absi(v)], HORIZONTAL_ALIGNMENT_CENTER, cr.size.x, 54, colr)
-			draw_string(Style.text(), Vector2(cr.position.x, cr.position.y + 126.0), ["Landings", "Early clear", "Fines"][j], HORIZONTAL_ALIGNMENT_CENTER, cr.size.x, SZ_S, C_SOFT)
 		# A new airport opened with this shift.
 		if res_unlock != "":
 			var ur := Rect2(cx - 465.0, 1370.0 * s2 + top, 930.0, 130.0)
@@ -1133,8 +1144,8 @@ class Art extends Control:
 
 	func _span(what: String, since: int) -> int:
 		var n := Time.get_ticks_usec()
-		if n - since > 4000:
-			Boot.add("interface art: " + what.strip_edges(), float(n - since) / 1000.0)
+		if n - since > 2000:
+			Boot.add("interface art[%s]: " % name + what.strip_edges(), float(n - since) / 1000.0)
 		return n
 
 	func _draw() -> void:
@@ -1147,6 +1158,7 @@ class Art extends Control:
 		if logo_t >= 0.0:
 			_draw_logo()
 			return
+		var t0 := Time.get_ticks_usec()
 		if lockup:
 			_draw_lockup()
 		if header_text != "":
@@ -1161,7 +1173,7 @@ class Art extends Control:
 			draw_style_box(_sb_hdr, pr2)
 			glyph(header2_glyph, Vector2(pr2.position.x + 50.0, pr2.get_center().y), 25.0)
 			ptext(header2_text, Vector2(pr2.position.x + 92.0, pr2.get_center().y + 16.0), 46, C_TEXT)
-		var t0 := Time.get_ticks_usec()
+		t0 = _span("  lockup and header", t0)
 		if (show_pause or warm) and pause_card.size.x > 0.0:
 			panel(_sb_sheet, pause_card, _sheen_l)
 		t0 = _span("  pause card", t0)
@@ -1183,6 +1195,7 @@ class Art extends Control:
 		for i in fc_s.size():
 			if fc_s[i] > 0.01:
 				glyph("coin", fc_pos[i], 26.0 * fc_s[i])
+		t0 = _span("  pills and confetti", t0)
 
 var _art: Art                      # the one every screen draws with right now (the main one, or one of the three pre-built panels)
 var _main_art: Art
@@ -1283,6 +1296,7 @@ func _ready() -> void:
 	add_child(_logo_bg)
 	_art = Art.new()
 	_main_art = _art
+	_art.name = "main"
 	add_child(_art)
 	_score = _label(SZ_XL, HORIZONTAL_ALIGNMENT_CENTER)
 	_score.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
@@ -1544,6 +1558,8 @@ func _apply_transition() -> void:
 		var vp := get_viewport().get_visible_rect().size
 		transform = Transform2D(0.0, Vector2(sc, sc), 0.0, vp * 0.5 * (1.0 - sc))
 	for n in _tr_nodes:
+		if n is Art and n.position == PARK:
+			continue            # (a parked layer is left alone: touching it would draw it again)
 		n.modulate.a = a
 
 # ---------- Celebrations: star bar sparkle, results slam, confetti, the unlock reveal ----------
@@ -1679,6 +1695,8 @@ func apply_safe() -> void:
 		a.left = Style.safe_left
 		a.right = Style.safe_right
 		a.pause_rect = Rect2(Style.GUTTER * 0.5 + Style.safe_left, 10.0 + t, 80.0, 80.0)
+	if _panel_arts.has("results_bg"):
+		_panel_arts["results_bg"].queue_redraw()      # (its layout follows the safe area)
 	_score.offset_top = 56 + t
 	_best.offset_top = 6 + t
 	_wind_banner.offset_top = 262 + t
@@ -1795,9 +1813,49 @@ func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 		_art = prev
 		return
 	pa.position = Vector2.ZERO
+	_apply_transition()          # (its opacity follows the screen's transition from the first frame)
 	pa.btn_age = 99.0
 	pa.press_k = -1
 	pa.rel_k = -1
+
+## Lay a results card out in advance (made-up numbers, parked): the first draw of an Art grows its command buffers and warms its
+## styles, which is the part of opening the results that does not depend on the shift. Called while the menu is idle.
+var _results_primed := false
+## The part of the card that is the same every shift lives on its own layer under it, drawn once (here), never again.
+func _results_bg() -> Art:
+	var fresh := not _panel_arts.has("results_bg")
+	var rb := _panel_art("results_bg")
+	if fresh:
+		rb.show_result = true
+		rb.res_layer = 1
+		rb.queue_redraw()
+	if _panel_arts.has("results"):
+		var ri: int = _panel_arts["results"].get_index()
+		if rb.get_index() > ri:
+			move_child(rb, ri)              # (under the layer with the numbers)
+	return rb
+
+func prime_results() -> void:
+	if _results_primed:
+		return
+	_results_primed = true
+	_results_bg()
+	var ra := _panel_art("results")
+	ra.res_layer = 2
+	var prev := _art
+	_art = ra
+	ra.show_result = true
+	ra.res_stars = 2
+	ra.res_total = 123
+	ra.res_best = 99
+	ra.res_chips[0] = 140
+	ra.res_chips[1] = 12
+	ra.res_chips[2] = 29
+	ra.res_sub = "%s \u00b7 12 landed" % Airports.airport_name()
+	ra.res_t = 99.0
+	set_results_ads(10, 10)
+	ra.queue_redraw()
+	_art = prev
 
 func hide_pause() -> void:
 	if _tr_kind == "pause":
@@ -1969,10 +2027,14 @@ func _build_over() -> void:
 func show_results(header: String, reason: String, shift: Shift, coins_earned: int, coins_total: int, best: int, new_best: bool, _animal: int = -1, _quote: String = "", doubled: bool = false) -> void:
 	_go("results")
 	_hide_all_screens()
+	var rb := _results_bg()
 	var ra := _panel_art("results")           # (its own layer: the card is not drawn together with the shift's interface)
 	_art = ra
+	ra.res_layer = 2
+	rb.position = Vector2.ZERO
 	_main_art.visible = false
 	ra.position = Vector2.ZERO
+	_apply_transition()          # (its opacity follows the screen's transition from the first frame)
 	ra.btn_age = 99.0
 	_over_head.text = header
 	var total_line := "Total paid|+%d%s" % [coins_earned, " (doubled)" if doubled else ""]
@@ -2029,6 +2091,8 @@ func set_results_ads(double_coins: int, refund: int) -> void:
 ## "Details": show / hide the full breakdown.
 func toggle_details() -> void:
 	_art.details_open = not _art.details_open
+	if _panel_arts.has("results_bg") and _art == _panel_arts.get("results"):
+		_panel_arts["results_bg"].position = PARK if _art.details_open else Vector2.ZERO
 	_over_body.visible = _art.details_open
 	var vp := get_viewport().get_visible_rect().size
 	_art.details_rect = Rect2(vp.x * 0.5 - 470.0, vp.y * 0.5 - 90.0 - (90.0 + 46.0 * _art.details_lines.size()), 940.0, 90.0 + 46.0 * _art.details_lines.size()) if _art.details_open else Rect2()
@@ -2081,6 +2145,7 @@ const PARK := Vector2(-30000.0, 0.0)
 func _panel_art(kind: String) -> Art:
 	if not _panel_arts.has(kind):
 		var a := Art.new()
+		a.name = kind
 		add_child(a)
 		a.position = PARK
 		move_child(a, _main_art.get_index() + 1)
@@ -2105,7 +2170,7 @@ func _use_main() -> void:
 		ra.details_rect = Rect2()
 		ra.unlock_t = -1.0
 		ra.cf_on.fill(0)
-		ra.clear_buttons()
+		ra.btn_count = 0            # (not clear_buttons(): that would draw this parked layer again)
 
 ## Make `kind` the panel being drawn: `layout` fills its Art (only if `sig`, the data, is not what it was laid out with). Returns the Art.
 func _use_panel(kind: String, sig: String, layout: Callable) -> void:
@@ -2127,6 +2192,7 @@ func _use_panel(kind: String, sig: String, layout: Callable) -> void:
 	else:
 		_main_art.visible = false
 		pa.position = Vector2.ZERO
+		_apply_transition()          # (its opacity follows the screen's transition from the first frame)
 		pa.btn_age = 99.0
 		pa.press_k = -1
 		pa.rel_k = -1

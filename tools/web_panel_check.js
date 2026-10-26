@@ -13,6 +13,7 @@ const root = path.resolve(process.argv[2] || 'build/web');
 const chrome = process.argv[3] || process.env.CHROME_PATH || '/opt/pw-browsers/chromium';
 const THROTTLE = +(process.env.THROTTLE || 4);
 const LIMIT = +(process.env.LIMIT_MS || 33);
+const MEDIAN = !!process.env.REPORT;      // REPORT=file: write each panel's worst frame there and leave the limit to tools/median_gate.py (median of several runs)
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.pck': 'application/octet-stream', '.png': 'image/png', '.ttf': 'font/ttf', '.wav': 'audio/wav' };
 const srv = http.createServer((q, r) => {
   let p = path.join(root, decodeURIComponent(q.url.split('?')[0]));
@@ -54,7 +55,7 @@ srv.listen(0, async () => {
       const worst = fr.reduce((m, f) => Math.max(m, f.script), 0);
       const w = fr.slice().sort((a, b) => b.script - a.script)[0];
       results.push([name, worst, fr.length, w ? w.what : '']);
-      if (worst > LIMIT) fail(`${name}: a frame spent ${worst.toFixed(1)} ms in the game's own code (limit ${LIMIT}): ${w.what}`);
+      if (!MEDIAN && worst > LIMIT) fail(`${name}: a frame spent ${worst.toFixed(1)} ms in the game's own code (limit ${LIMIT}): ${w.what}`);
       if (back) { const b = await btn('back'); if (b) { await page.touchscreen.tap(b[0], b[1]); await waitScreen('menu').catch(() => {}); await page.waitForTimeout(1200); } }
     };
     await open('Airports', 'airports', 'select', true);
@@ -71,7 +72,7 @@ srv.listen(0, async () => {
         const t1 = await now();
         await page.touchscreen.tap(pz[0], pz[1]); await waitScreen('pause').catch(() => fail(round + ': the pause menu did not open')); await page.waitForTimeout(1600);
         const fr = await framesIn(t1, 1300); const worst = fr.reduce((m, f) => Math.max(m, f.script), 0); const w = fr.slice().sort((a, b) => b.script - a.script)[0];
-        results.push([round, worst, fr.length, w ? w.what : '']); if (worst > LIMIT) fail(`${round}: a frame spent ${worst.toFixed(1)} ms in the game's own code: ${w.what}`);
+        results.push([round, worst, fr.length, w ? w.what : '']); if (!MEDIAN && worst > LIMIT) fail(`${round}: a frame spent ${worst.toFixed(1)} ms in the game's own code: ${w.what}`);
         const rs = await btn('resume'); if (rs) { await page.touchscreen.tap(rs[0], rs[1]); await page.waitForTimeout(1500); }
       }
     }
@@ -80,9 +81,10 @@ srv.listen(0, async () => {
     await page.evaluate(() => window.__endShift && window.__endShift());
     await waitScreen('results').catch(() => fail('Results: the results card did not open'));
     await page.waitForTimeout(2500);
-    { const fr = await framesIn(t2, 1300); const worst = fr.reduce((m, f) => Math.max(m, f.script), 0); const w = fr.slice().sort((a, b) => b.script - a.script)[0]; results.push(['Results', worst, fr.length, w ? w.what : '']); if (worst > LIMIT) fail(`Results: a frame spent ${worst.toFixed(1)} ms in the game's own code: ${w.what}`); }
+    { const fr = await framesIn(t2, 1300); const worst = fr.reduce((m, f) => Math.max(m, f.script), 0); const w = fr.slice().sort((a, b) => b.script - a.script)[0]; results.push(['Results', worst, fr.length, w ? w.what : '']); if (!MEDIAN && worst > LIMIT) fail(`Results: a frame spent ${worst.toFixed(1)} ms in the game's own code: ${w.what}`); }
     console.log(`PANELS under a ${THROTTLE}x CPU slowdown: the slowest frame of the game's own code while each opens (limit ${LIMIT} ms)`);
     for (const r of results) console.log(`  ${r[0].padEnd(10)} ${r[1].toFixed(1).padStart(6)} ms   (${r[2]} logged frames)  ${r[1] > 8 ? r[3] : ''}`);
+    if (process.env.REPORT) require('fs').writeFileSync(process.env.REPORT, JSON.stringify(Object.fromEntries(results.map(r => [r[0], r[1]]))));
     if (errors.length) fail('page errors: ' + errors.join(' | '));
   } catch (e) {
     fail(String(e && e.stack || e));

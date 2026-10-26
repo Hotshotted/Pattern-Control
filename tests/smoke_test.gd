@@ -2842,6 +2842,8 @@ func _initialize() -> void:
 	check(main.screen == main.SCREEN_OVER and not main.hud._score.visible and not main.hud._best.visible, "results: the shift HUD is gone")
 	art = main.hud._art       # (the results card is its own layer)
 	area = func(k): return art.btn_rect[k].size.x * art.btn_rect[k].size.y
+	var rbg = main.hud._panel_arts.get("results_bg")
+	check(rbg != null and rbg.res_layer == 1 and rbg.position == Vector2.ZERO and art.res_layer == 2 and rbg.get_index() < art.get_index(), "results: the unchanging part of the card is its own layer under the numbers")
 	check(art.res_t < 1.0 and not main.hud.results_revealed() and not main.hud._over_body.visible and not main.hud.results_details_open(), "results: the stars and total are revealed in sequence; the breakdown is hidden")
 	var res_prim = []
 	var res_small = true
@@ -2856,6 +2858,7 @@ func _initialize() -> void:
 	main.hud._process(5.0)
 	check(t_mid > 0.9 and main.hud.results_revealed(), "results: the reveal plays out (%.1f s)" % t_mid)
 	main._on_button("details")
+	check(rbg.position != Vector2.ZERO, "...the unchanging layer steps aside for it")
 	check(main.hud.results_details_open() and art.details_lines.size() >= 8, "results: 'Details' opens the full breakdown (%d lines)" % art.details_lines.size())
 	main._on_button("details")
 	check(not main.hud.results_details_open(), "...and closes it again")

@@ -119,18 +119,24 @@ jobs:
       # build must stay short and no frame of a shift may spend over 33 ms in the game's own code (rendering is the browser's: this
       # runner draws in software, so only the game's share is judged).
       - name: Start-up and frame check
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
-          QUERY=perf THROTTLE=4 LIMIT_BUILD_MS=9000 LIMIT_FRAME_MS=33 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_boot_check.js build/web "$CHROME"
+          for i in 1 2 3; do
+            REPORT=boot_$i.json QUERY=perf THROTTLE=4 LIMIT_BUILD_MS=9000 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_boot_check.js build/web "$CHROME"
+          done
+          python3 tools/median_gate.py 33 boot_1.json boot_2.json boot_3.json
 
       # Opening a panel must not stutter: Airports, Upgrades and the Hangar from the menu, the pause menu and the results card from a
-      # shift, each at a 4x CPU slowdown. No frame may spend over 33 ms in the game's own code while one opens.
+      # shift, each at a 4x CPU slowdown, three runs; the median worst frame of each may not pass 33 ms in the game's own code.
       - name: Panel open check
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
-          THROTTLE=4 LIMIT_MS=33 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_panel_check.js build/web "$CHROME"
+          for i in 1 2 3; do
+            REPORT=panel_$i.json THROTTLE=4 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_panel_check.js build/web "$CHROME"
+          done
+          python3 tools/median_gate.py 33 panel_1.json panel_2.json panel_3.json
 
       - uses: actions/upload-pages-artifact@v3
         with:

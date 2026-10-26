@@ -137,3 +137,13 @@ Chromium on software GL:
 | Hangar | 16.4 ms | 8-9 ms |
 | Pause (first open) | 20.1 ms | 7-11 ms |
 | Results | not measured (first sight of the minus sign: 70+ ms) | 21-28 ms |
+
+## The perf gates judge the median of three runs
+
+CI runs the start-up check and the panel check three times each (`REPORT=file.json`) and `tools/median_gate.py 33 ...` gates on the
+median worst frame (per panel for the panel check), still 33 ms. One slow frame on a shared runner (33.6 ms once, 49.9 ms for the
+results card once) cannot fail a build; a frame that is slow in most runs does. Every run's numbers are printed in the job log.
+
+The results card's frame: the card is its own pre-laid-out layer, laid out once with made-up numbers while the menu is idle
+(`Hud.prime_results`: the first draw of an Art grows its command buffers and warms its styles), and what is not drawing waits for
+the frames after it (the end-of-shift sting, the buzz, the console line, the star chime).

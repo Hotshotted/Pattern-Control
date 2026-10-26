@@ -268,6 +268,9 @@ func _prime_panels() -> void:
 		hud.show_pause(Save.sound_volume, Save.music_volume, Save.ambience_volume)
 		hud.priming = false
 		await get_tree().process_frame
+	if screen == SCREEN_MENU or _warming:
+		hud.prime_results()
+		await get_tree().process_frame
 	_priming_busy = false
 
 ## The player picked airport `i`: if its scenery is built, go there; if not, show a loading state on its card and carry on when it is.
@@ -878,6 +881,8 @@ func _on_coin_arrived() -> void:
 
 ## A star lit on the bar during a shift.
 func _on_star_reached(_i: int) -> void:
+	if screen != SCREEN_PLAY:
+		return              # (the end of a shift lights stars too: the results card slams them in with its own sounds)
 	sfx.play("star")
 	if not DebugFlags.off("haptic"):
 		Input.vibrate_handheld(20)
@@ -1101,9 +1106,15 @@ func _end_shift() -> void:
 	hud.set_shift(shift)
 	_show_results(false)
 	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(150)
+		_later(2, func(): Input.vibrate_handheld(150))      # (not in the frame that lays the results card out)
 
 var _daily_note := ""
+
+## Run `c` after `frames` frames: work that is not part of drawing a screen waits for the frames after it.
+func _later(frames: int, c: Callable) -> void:
+	for i in frames:
+		await get_tree().process_frame
+	c.call()
 
 ## The end-of-shift sting starts two frames after the results card is laid out, so its audio work is not in the frame that draws the card.
 func _stinger_later(sound: String) -> void:
@@ -1155,7 +1166,8 @@ func _log_go_arounds() -> void:
 	var cancels := traffic.go_around_cancels
 	last_go_around_log = "go-around warnings: %d, cancelled by the player: %d (cancel rate %.0f%%, window %.1f s)" % [warns, cancels, 100.0 * cancels / maxf(warns, 1), Tuning.go_around_telegraph]
 	if log_go_arounds:
-		print("[go-around] %s  airport=%s" % [last_go_around_log, Airports.airport_name(airport)])
+		var line := "[go-around] %s  airport=%s" % [last_go_around_log, Airports.airport_name(airport)]
+		_later(3, func(): print(line))
 
 ## The results breakdown, one "label|value" line each (the "Details" panel draws them as two columns).
 func _reason_text() -> String:
