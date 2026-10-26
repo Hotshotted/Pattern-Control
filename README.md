@@ -69,7 +69,7 @@ You run an airport, one **shift** at a time.
   new path. While you draw, the last stretch of the path is tinted green / yellow / red by the predicted go-around
   chance. Emergencies never go around (an emergency that finds the runway busy is lost).
 - **No engines** is a challenge modifier: nobody can go around, so a busy runway or a missed approach is a crash
-  ("Missed approach!"), and a glider's first path is final and it can't hold. Every landing pays ×1.5 (`no_engines_pay_mult`).
+  ("Missed approach!"), and a glider's first path is final and it can't hold. Every landing pays ×2 (`no_engines_pay_mult`).
   Switch it on from the chip above **Bad pilot day** on the menu, or from the airport card once that airport has three stars.
 
 - **Student pilots** (an orange **L** badge) turn up now and then in normal shifts: they go around far more

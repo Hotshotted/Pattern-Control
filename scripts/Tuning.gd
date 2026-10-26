@@ -230,7 +230,7 @@ var bad_day_go_around_floor := 0.6
 var bad_day_pay_mult := 1.5          # ...and every landing pays big (x student_pay_mult as well)
 ## The "No engines" challenge (Bad Pilot Day, or an airport card once it has three stars): nobody can go around, so a busy runway or a missed
 ## approach is a crash, and a glider's first path is final and it cannot hold. Every landing pays this much more.
-var no_engines_pay_mult := 1.5
+var no_engines_pay_mult := 2.0
 var bad_day_threshold_mult := 2.5    # ...so the star thresholds are higher
 var bad_day_bonus_mult := 2.0        # ...and so is the completion bonus
 var go_around_climb_seconds := 1.6   # how long the climb-out lift shows
