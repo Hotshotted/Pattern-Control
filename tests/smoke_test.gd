@@ -580,7 +580,7 @@ func _initialize() -> void:
 	fake.type = GLIDER
 	main.traffic.run_time += 10.0
 	main._on_landed(fake)
-	check(main.shift.earned == int(tuning.pay_heli) + int(tuning.pay_glider), "a glider pays more than a small plane (%d)" % int(tuning.pay_glider))
+	check(main.shift.earned == int(tuning.pay_heli) + tuning.landing_pay(GLIDER), "a glider pays more than a small plane (%d)" % tuning.landing_pay(GLIDER))
 	# Quick succession: landings close together pay a growing bonus.
 	main.restart()
 	fake.type = MEDIUM
@@ -1060,8 +1060,9 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 	set_wind(main, 0.0)
 	var gl = tr.place(0, Vector2(1.5, -4.0), PI, GLIDER)
-	check(is_equal_approx(gl.timer_max, tuning.glider_timer_frac * tuning.timer_small * tuning.timer_mult()) and is_equal_approx(tuning.glider_timer_frac, 0.6) and gl.speed < tuning.speed_slow, "a glider is slow, and its ring starts at 60%% of a small plane's (%.1f of %.1f s)" % [gl.timer_max, tuning.timer_small * tuning.timer_mult()])
-	check(tuning.type_timer(GLIDER) < tuning.timer_small and tuning.type_timer(GLIDER) == tuning.glider_timer_frac * tuning.timer_small, "...the share is a tuning value (?tune)")
+	check(is_equal_approx(gl.timer_max, tuning.glider_frac() * tuning.timer_small * tuning.timer_mult()) and is_equal_approx(tuning.glider_frac(), 0.75) and is_equal_approx(tuning.glider_timer_frac, 0.6) and gl.speed < tuning.speed_slow, "a glider is slow, and its ring starts at 75%% of a small plane's on Grass Strip (60%% elsewhere) (%.1f of %.1f s)" % [gl.timer_max, tuning.timer_small * tuning.timer_mult()])
+	check(tuning.type_timer(GLIDER) < tuning.timer_small and tuning.type_timer(GLIDER) == tuning.glider_frac() * tuning.timer_small, "...the share is a tuning value (?tune)")
+	check(Airports.mix(0)[GLIDER] == 0.15 and Airports.glider_timer_own(1) < 0.0, "Grass Strip: 15%% gliders; the others have the general share")
 	tr.toggle_hold(gl)
 	check(gl.state == Aircraft.State.HOLD, "in normal play a glider can hold like the rest")
 	tr.toggle_hold(gl)

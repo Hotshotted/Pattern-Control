@@ -84,6 +84,8 @@ var hold_radius := 1.1
 ## Every aircraft has a timer that runs down from when it enters the screen (seconds), by type, shortest first.
 ## A glider's ring starts at this share of a powered (small) plane's timer: it has no engine to buy time with, but it can go around like the rest.
 var glider_timer_frac := 0.6
+## A glider's go-around chance is this share of what the same approach would earn a powered plane.
+var glider_go_around_mult := 1.0
 var timer_heli := 28.0
 var timer_small := 36.0
 var timer_medium := 44.0
@@ -412,10 +414,21 @@ func timer_color(frac: float) -> Color:
 	return timer_color_ok
 
 func landing_pay(type: int) -> int:
+	if type == Aircraft.Type.GLIDER:
+		return roundi(pay_glider * Airports.glider_pay_own())
 	return [pay_glider, pay_heli, pay_small, pay_medium, pay_jet, pay_seaplane][type]
 
+## The glider timer share at the airport being played: its own, or the general one.
+func glider_frac() -> float:
+	var own := Airports.glider_timer_own()
+	return own if own > 0.0 else glider_timer_frac
+
+func glider_go_around() -> float:
+	var own := Airports.glider_go_around_own()
+	return own if own >= 0.0 else glider_go_around_mult
+
 func type_timer(type: int) -> float:
-	return [glider_timer_frac * timer_small, timer_heli, timer_small, timer_medium, timer_jet, timer_seaplane][type]
+	return [glider_frac() * timer_small, timer_heli, timer_small, timer_medium, timer_jet, timer_seaplane][type]
 
 ## Speed by type (units / second), and the class (0 slow / 1 medium / 2 fast) that picks the entry glow and model.
 func type_speed(type: int) -> float:

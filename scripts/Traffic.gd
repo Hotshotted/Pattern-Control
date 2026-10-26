@@ -1035,6 +1035,8 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 			approach.reason = Approach.Reason.STUDENT
 	if scenic:
 		chance = 0.0
+	if p.type == Aircraft.Type.GLIDER:
+		chance *= Tuning.glider_go_around()      # (light and slow: a glider's approach is judged a little more kindly)
 	p.ga_chance = chance
 	p.ga_band = approach.band(chance)
 	# The dice roll one telegraph earlier than the go-around itself: the plane wobbles for that second.

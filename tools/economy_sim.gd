@@ -56,6 +56,14 @@ func _initialize() -> void:
 			MODES = a.substr(6).split(",")
 		elif a == "survey":
 			SURVEY = true
+		elif a.begins_with("set="):             # set=name=value: a Tuning value for this run
+			var kv := a.substr(4).split("=")
+			tun.set(kv[0], float(kv[1]))
+		elif a.begins_with("stars0="):          # stars0=a,b,c: Grass Strip's star thresholds for this run
+			var th0: Array = []
+			for x in a.substr(7).split(","):
+				th0.append(int(x))
+			tun.airport_profiles[0]["stars"] = th0
 		elif a == "noeng":              # the "No engines" challenge on every shift
 			main.force_no_engines = true
 		elif a.begins_with("bots="):
@@ -107,6 +115,8 @@ func _survey() -> void:
 			for n in SURVEY_SHIFTS:
 				var r := _play_shift(skill, ap, n, who)
 				dist[r["stars"]] += 1
+				if TOTALS:
+					print("SHIFT %s %d %d net=%d coins=%d paid=%d landed=%d" % [who, ap, n, r["net"], r["coins"], r["paid"], r["landed"]])
 				tot_land += r["landed"]
 				tot_arr += r["spawned"]
 				tot_conf += r["conflicts"]

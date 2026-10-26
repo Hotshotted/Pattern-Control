@@ -70,6 +70,7 @@ const ENTRIES := [
 	["fine_timeout", "Fine: timeout / diversion", 0.0, 200.0, 5.0],
 	["fine_hazard", "Fine: terrain / storm", 0.0, 300.0, 5.0],
 	["glider_timer_frac", "Glider timer (x small plane)", 0.2, 1.5, 0.05],
+	["glider_go_around_mult", "Glider go-around chance (x)", 0.0, 2.0, 0.05],
 	["timer_heli", "Timer: helicopter (s)", 5.0, 120.0, 1.0],
 	["timer_small", "Timer: small plane (s)", 5.0, 120.0, 1.0],
 	["timer_medium", "Timer: medium plane (s)", 5.0, 120.0, 1.0],

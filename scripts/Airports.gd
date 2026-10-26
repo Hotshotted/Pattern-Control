@@ -35,7 +35,9 @@ static func _build() -> void:
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
 			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6), "apron": {"center": Vector2(3.4, -1.0), "s": 1.0},
 			"ground": Color("b9dc72"),
-			"mix": {S: 0.7, G: 0.3},
+			"mix": {S: 0.85, G: 0.15},
+			# The opener stays the easy one: few gliders, with more time, a lenient approach and a better fare than elsewhere.
+			"glider_timer": 0.75, "glider_go_around": 0.1, "glider_pay": 1.4,
 			"unlock_stars": 0, "weather": [],
 		},
 		{   # 2: two crossing runways: simultaneous landings conflict
@@ -335,6 +337,18 @@ static func kind_for(type: int) -> int:
 ## Can this type use runway `i`? (Jets need a long one.)
 static func suitable_runway(type: int, i: int) -> bool:
 	return type != Aircraft.Type.JET or is_long(i)
+
+## A glider's ring as a share of a small plane's at this airport (the opener's is longer); -1 = the general one (Tuning.glider_timer_frac).
+static func glider_timer_own(i: int = -1) -> float:
+	return float(def(i).get("glider_timer", -1.0))
+
+## ...and the share of the go-around chance a glider keeps there; -1 = the general one (Tuning.glider_go_around_mult).
+static func glider_go_around_own(i: int = -1) -> float:
+	return float(def(i).get("glider_go_around", -1.0))
+
+## ...and its pay multiplier for a glider's landing (1 = the general fare).
+static func glider_pay_own(i: int = -1) -> float:
+	return float(def(i).get("glider_pay", 1.0))
 
 static func mix(i: int = -1) -> Dictionary:
 	return def(i)["mix"]
