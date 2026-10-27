@@ -11,7 +11,7 @@ extends SceneTree
 ##   7. timers: ring colours, per-type lengths, start on screen, holding drains slower; a timeout diverts (strike),
 ##      timed shifts: fines, coin payout, stars from coin thresholds
 ##   9b. wind: active ends, the shift warning, re-routing, windsock
-##   9c. airports: six layouts, unlock by stars, select screen, crossing runways (conflict), busy runway
+##   9c. airports: six layouts, unlock by stars, select screen, crossing runways (no ground conflicts), busy runway
 ##       (go around), terrain (crash = strike), cycling airports creates nothing
 ##   9d. special aircraft: helicopters (pad, hover), gliders (one path, no hold), jets (long runways), seaplanes
 ##       (lane), emergencies (any runway, bonus), VIPs (lose the bonus if held), first-time tips
@@ -886,14 +886,20 @@ func _initialize() -> void:
 	ca.pos += Vector2(30, 30)   # keep them out of each other's conflict range until we want them
 	ca.pos = Airports.end_threshold(0, 0)
 	cb.pos = Airports.end_threshold(1, 0) + Vector2(0.0, 0.0)
-	var rc = [false]
-	tr.runway_conflict.connect(func(_a, _b): rc[0] = true, CONNECT_ONE_SHOT)
-	cb.entered = false   # (aircraft outside never conflict in the air; the runway check is separate)
 	cb.entered = true
 	ca.ground = true
 	cb.ground = true
-	tr.step(1.0 / 60.0)
-	check(rc[0] and main.alive and main.shift.conflicts == 1, "landing on a crossing runway while the other is busy is a runway conflict (a fine, not the end)")
+	ca.state = Aircraft.State.LANDING
+	cb.state = Aircraft.State.LANDING
+	ca.pos = Vector2.ZERO
+	cb.pos = Vector2.ZERO
+	var rc = [false]
+	tr.conflict.connect(func(_a, _b): rc[0] = true, CONNECT_ONE_SHOT)
+	for rc_k in 30:
+		tr.step(1.0 / 60.0)
+	check(not rc[0] and main.alive and main.shift.conflicts == 0, "two aircraft rolling out on crossing runways, on the very same spot, never collide: no conflict, no fine")
+	check(not ca.can_conflict() and not cb.can_conflict(), "...aircraft in the landing roll or on the ground can't conflict at all")
+	check(not tr.has_signal("runway_conflict"), "...and the runway-crossing conflict no longer exists")
 	# Same runway: go around.
 	main.restart()
 	set_wind(main, 40.0)

@@ -139,7 +139,6 @@ func _ready() -> void:
 	hud.unlock_shown.connect(func(): sfx.play("unlock"))
 	hud.confetti_started.connect(func(): sfx.play("unlock"))
 	hud.star_slam.connect(_on_star_slam)
-	traffic.runway_conflict.connect(_on_runway_conflict)
 	traffic.refused.connect(_on_refused)
 	wind.reopened.connect(_on_runway_reopened)
 	weather.warned.connect(_on_weather_warned)
@@ -870,10 +869,6 @@ func _on_go_around(p: Aircraft, reason: int) -> void:
 	overlay.ripple(p.pos, Color(1, 0.85, 0.3), 0.7)
 	if not DebugFlags.off("haptic"):
 		Input.vibrate_handheld(30)
-
-## Two aircraft landed on crossing runways at once: a conflict.
-func _on_runway_conflict(a: Aircraft, b: Aircraft) -> void:
-	_conflict(a, b, "RUNWAY CONFLICT")
 
 ## A coin reaches the counter: a soft plink, each one a note higher in the key while they keep arriving.
 func _on_coin_arrived() -> void:

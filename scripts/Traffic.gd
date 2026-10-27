@@ -16,7 +16,6 @@ signal crashed(plane: Aircraft, kind: int)   # flew into terrain (kind 0) or a s
 signal go_around_warned(plane: Aircraft, reason: int)   # a go-around is coming in a second (the plane wobbles)
 signal go_around_cancelled(plane: Aircraft)   # ...and the player redrew a cleaner final in time
 signal go_around(plane: Aircraft, reason: int)   # climbing out: the runway was busy, or the approach was poor (Approach.Reason)
-signal runway_conflict(a: Aircraft, b: Aircraft)   # landed on a crossing runway while it was busy
 signal refused(plane: Aircraft, text: String, at: Vector2)   # a path / tap the aircraft can't follow (with why)
 signal appeared(plane: Aircraft)       # it just came on screen (first-time tips hook in here)
 signal snapped(plane: Aircraft, at: Vector2)   # a path locked onto a runway's extended centreline
@@ -1001,8 +1000,8 @@ func _follow(p: Aircraft, dist: float) -> void:
 			p.heading = atan2(to.x, -to.y)
 			left = 0.0
 
-## The aircraft is at the approach end. If its runway is still busy it goes around; if a CROSSING runway is
-## busy that is a runway conflict; otherwise the runway is taken for the landing roll. Returns true to land.
+## The aircraft is at the approach end. If its runway is still busy it goes around; otherwise the runway is taken for the
+## landing roll. (Aircraft rolling out on crossing runways never collide: only the air has conflicts.) Returns true to land.
 func _begin_landing(p: Aircraft) -> bool:
 	if p.tkind != Aircraft.Kind.RUNWAY:
 		return true
@@ -1014,10 +1013,6 @@ func _begin_landing(p: Aircraft) -> bool:
 			return false
 		_start_go_around(p, Approach.Reason.BUSY)
 		return false
-	for j in Airports.rw_count():
-		if j != r and Airports.runways_cross(r, j) and run_time < _busy_until[j] and _occupant[j] != null and _occupant[j] != p:
-			runway_conflict.emit(p, _occupant[j])
-			return false
 	_busy_until[r] = run_time + Tuning.landing_roll_time + Tuning.runway_clear()
 	_last_td[r] = run_time
 	_occupant[r] = p

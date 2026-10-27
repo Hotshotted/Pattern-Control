@@ -171,9 +171,9 @@ func pop() -> void:
 func active() -> bool:
 	return state != State.IDLE
 
-## Ground planes, diverting planes and planes still off screen never conflict.
+## Ground planes, planes in the landing roll, diverting planes and planes still off screen never conflict: only the air does.
 func can_conflict() -> bool:
-	return state != State.IDLE and state != State.DIVERT and entered and not ground
+	return state != State.IDLE and state != State.DIVERT and state != State.LANDING and entered and not ground
 
 ## Fraction of the timer left, 1 -> 0.
 func timer_frac() -> float:

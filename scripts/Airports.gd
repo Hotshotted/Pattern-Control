@@ -40,7 +40,7 @@ static func _build() -> void:
 			"glider_timer": 0.75, "glider_go_around": 0.1, "glider_pay": 1.4,
 			"unlock_stars": 0, "weather": [],
 		},
-		{   # 2: two crossing runways: simultaneous landings conflict
+		{   # 2: two crossing runways (aircraft rolling out on them never collide: only the air has conflicts)
 			"name": "County", "tag": "Crossing runways",
 			"runways": [_rw(Vector2(0.0, 0.2), 0.0, 6.5, ORANGE, "ORANGE"), _rw(Vector2(0.0, 0.2), 55.0, 5.4, BLUE, "BLUE")],
 			"pads": [], "lanes": [], "hazards": [],
