@@ -52,6 +52,7 @@ var ga_len_pen := 0.0
 var ga_turn_deg := 0.0
 var ga_chance := 0.0            # predicted go-around chance of the cleared approach (drives the path tint)
 var ga_band := 0                # 0 green, 1 yellow, 2 red
+var low_fuel := false           # its timer ran out while it was locked on final: it still lands, and the score pop says so
 var student := false            # student pilot: far more go-arounds, double coins
 var ga_pending := false         # a go-around is signalled and about to happen (wobble, '?' tag)
 var ga_t := 0.0                 # seconds until it does
@@ -87,6 +88,7 @@ func reset() -> void:
 	entered = false
 	ground = false
 	cleared = false
+	low_fuel = false
 	timer_left = timer_max
 	warn = 0.0
 	warn_other = null

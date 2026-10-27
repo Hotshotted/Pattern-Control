@@ -829,6 +829,8 @@ func _on_landed(p: Aircraft) -> void:
 			text = "VIP +%d (no bonus)" % (base + extra)
 			tcol = Color(0.7, 0.7, 0.72)
 	hud.popup(text, tcol, overlay.world_to_screen(land_at) + Vector2(0, -80))
+	if p.low_fuel:
+		hud.popup("Low fuel", Color(1.0, 0.75, 0.3), overlay.world_to_screen(land_at) + Vector2(0, -38))
 	_star_feedback(land_at)
 	if not DebugFlags.off("haptic"):
 		_vibrate(Tuning.haptic_ms)

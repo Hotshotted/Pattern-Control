@@ -5464,6 +5464,39 @@ func _initialize() -> void:
 	var cv_a1 = cv_af.cur.chev_mats[1].albedo_color.a
 	check(is_equal_approx(minf(cv_a0, cv_a1), 0.35) and is_equal_approx(maxf(cv_a0, cv_a1), 1.0), "...and after 1.2 s the active and inactive ends have swapped")
 
+	print("31. Locked on final is safe from fuel")
+	main.select_airport(0)
+	main.restart()
+	var lf_tr = main.traffic
+	lf_tr.auto_spawn = false
+	main.wind.from_deg = Airports.end_heading_deg(0, 0)
+	main.wind.refresh()
+	var lf_a = lf_tr.place(0, Airports.end_threshold(0, 0) - Airports.end_dir(0, 0) * 1.0, Airports.end_heading_deg(0, 0), 2)
+	lf_a.push(Airports.end_threshold(0, 0))
+	lf_a.push(Airports.end_far(0, 0))
+	lf_a.cleared = true
+	lf_a.land_end = 0
+	lf_a.entered = true
+	lf_a.timer_left = 0.001
+	var lf_timeouts = [0]
+	lf_tr.timed_out.connect(func(_p): lf_timeouts[0] += 1)
+	var lf_landed = [0]
+	lf_tr.landed.connect(func(_p): lf_landed[0] += 1)
+	var lf_coins0 = main.shift.earned
+	for lf_k in 20:
+		lf_tr.step(1.0 / 20.0)
+	check(lf_a.low_fuel and lf_a.state != Aircraft.State.DIVERT and lf_timeouts[0] == 0, "a plane whose timer runs out on a locked final does not divert (low fuel: %s, state %d)" % [str(lf_a.low_fuel), lf_a.state])
+	for lf_k in 200:
+		lf_tr.step(1.0 / 20.0)
+	check(lf_landed[0] == 1 and main.shift.earned > lf_coins0 and main.shift.diversions == 0 and main.shift.fines == 0, "...it lands normally, is paid as usual and costs no fine (%d landed, pay %d -> %d)" % [lf_landed[0], lf_coins0, main.shift.earned])
+	# anywhere else it still diverts
+	var lf_b = lf_tr.place(0, Vector2(-3.0, -4.0), 0.5, 2)
+	lf_b.entered = true
+	lf_b.timer_left = 0.001
+	lf_tr.step(1.0 / 20.0)
+	lf_tr.step(1.0 / 20.0)
+	check(lf_b.state == Aircraft.State.DIVERT and lf_timeouts[0] == 1 and not lf_b.low_fuel, "...but a plane that is not on a locked final still diverts when its timer runs out")
+
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
 	if failures.is_empty():

@@ -942,8 +942,12 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 	if p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD) and not _god:
 		p.timer_left -= dt * (Tuning.hold_drain() if p.state == Aircraft.State.HOLD else 1.0)
 		if p.timer_left <= 0.0:
-			_divert(p)
-			timed_out.emit(p)
+			if p.cleared and p.state == Aircraft.State.FLY:
+				p.timer_left = 0.0          # locked on final: out of time, but it keeps coming and lands (it pays as usual, with a "Low fuel" tag)
+				p.low_fuel = true
+			else:
+				_divert(p)
+				timed_out.emit(p)
 	if p.entered and (p.state == Aircraft.State.FLY or p.state == Aircraft.State.HOLD) and not _god:
 		for k in hz_count:
 			if _dist_to_segment(hz_pos[k], p.step_from, p.pos) < hz_r[k] + Tuning.hazard_margin:       # (the whole step: a big step cannot jump over a storm's edge)
