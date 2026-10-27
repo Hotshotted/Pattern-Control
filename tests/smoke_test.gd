@@ -4515,32 +4515,59 @@ func _initialize() -> void:
 		main.airfield.select(rp_i)
 		var rp_rv = main.airfield.cur
 		check(rp_rv.ramp_ok and (rp_rv.slots["tie"] as Array).size() == 6, "%s has six tie-downs" % Airports.airport_name(rp_i))
-		var rp_goals = []
-		for rp_rk in ["tie", "over", "heli", "dock"]:
+		check((rp_rv.slots["over"] as Array).size() == 6, "%s has six overflow bays on its ramp" % Airports.airport_name(rp_i))
+		var rp_vias = []
+		for rp_rk in ["tie", "over"]:
 			for rp_e in rp_rv.slots[rp_rk]:
-				rp_goals.append([rp_e["goals"], rp_e["tail"]])
-		rp_goals.append([rp_rv.hangar_goals, rp_rv.hangar_tail])
-		rp_goals.append([rp_rv.extra_goals, rp_rv.extra_tail])
+				rp_vias.append(rp_e["via"])
+		rp_vias.append(rp_rv.hangar_via)
+		rp_vias.append(rp_rv.extra_via)
 		for rp_rk in range(Airports.land_count(Aircraft.Kind.RUNWAY)):
 			for rp_re in 2:
-				var rp_far = Airports.land_far(Aircraft.Kind.RUNWAY, rp_rk, rp_re)
-				var rp_dir = Airports.end_dir(rp_rk, rp_re)
-				for rp_g in rp_goals:
-					var rp_any = false
-					for rp_gp in rp_g[0]:
-						var rp_rr = RampC.taxi_route(rp_far, rp_dir, rp_gp, rp_g[1])
-						if rp_rr.is_empty():
+				for rp_cl in [0, 2]:
+					for rp_via in rp_vias:
+						var rp_plan = Taxi.plan(rp_rk, rp_re, rp_cl, rp_via)
+						var rp_rr = rp_plan["route"]
+						if rp_rr.size() < 2:
+							rp_cross.append("%s rw%d e%d: a place has no route" % [Airports.airport_name(rp_i), rp_rk, rp_re])
 							continue
-						rp_any = true
 						rp_slots += 1
-						for rp_sg in range(1, rp_rr.size() - 1):
-							if RampC.crosses_runway(rp_rr[rp_sg], rp_rr[rp_sg + 1], 0.05):
-								rp_cross.append("%s rw%d e%d seg %d" % [Airports.airport_name(rp_i), rp_rk, rp_re, rp_sg])
-					if not rp_any:
-						rp_cross.append("%s rw%d e%d: a slot has no route (%s)" % [Airports.airport_name(rp_i), rp_rk, rp_re, str(rp_g[0])])
+						# a route may cross another runway only behind a hold-short line for it
+						for rp_j in Airports.rw_count():
+							if rp_j == rp_rk:
+								continue
+							var rp_hit = false
+							var rp_dd = 0.0
+							while rp_dd <= Taxi.length(rp_rr):
+								if Taxi.in_box(Taxi.at(rp_rr, rp_dd)[0], Taxi.rw_box(rp_j)):
+									rp_hit = true
+									break
+								rp_dd += 0.1
+							var rp_held = false
+							for rp_h in rp_plan["holds"]:
+								if rp_h["rw"] == rp_j:
+									rp_held = true
+							if rp_hit and not rp_held:
+								rp_cross.append("%s rw%d e%d crosses runway %d with no hold-short" % [Airports.airport_name(rp_i), rp_rk, rp_re, rp_j])
+		# helicopters and seaplanes keep their own pads and docks (their legacy routes never cross a runway)
+		for rp_rk in ["heli", "dock"]:
+			for rp_e in rp_rv.slots[rp_rk]:
+				for rp_kind in [Aircraft.Kind.PAD, Aircraft.Kind.LANE]:
+					for rp_lk in range(Airports.land_count(rp_kind)):
+						for rp_re in 2:
+							var rp_far = Airports.land_far(rp_kind, rp_lk, rp_re)
+							var rp_hd = deg_to_rad(Airports.land_heading_deg(rp_kind, rp_lk, rp_re))
+							for rp_gp in rp_e["goals"]:
+								var rp_rr = RampC.taxi_route(rp_far, Vector2(sin(rp_hd), -cos(rp_hd)), rp_gp, rp_e["tail"], rp_kind != Aircraft.Kind.PAD)
+								if rp_rr.is_empty():
+									continue
+								rp_slots += 1
+								for rp_sg in range(1, rp_rr.size() - 1):
+									if RampC.crosses_runway(rp_rr[rp_sg], rp_rr[rp_sg + 1], 0.05):
+										rp_cross.append("%s %s seg %d" % [Airports.airport_name(rp_i), rp_rk, rp_sg])
 	Airports.current = rp_keep
 	main.airfield.select(rp_keep)
-	check(rp_slots > 0 and rp_cross.is_empty(), "no taxi route crosses a runway (%d routes) %s" % [rp_slots, str(rp_cross.slice(0, 4))])
+	check(rp_slots > 0 and rp_cross.is_empty(), "every taxi route is held short of a runway it crosses (%d routes) %s" % [rp_slots, str(rp_cross.slice(0, 4))])
 	# in the game: landings park, nothing is allocated, a restart clears the ramp in place
 	main.restart()
 	var rp_rv0 = main.airfield.cur
@@ -4923,7 +4950,7 @@ func _initialize() -> void:
 	id_af.step_taxi(2.9)
 	var id_still = Vector2(id_tr.ramp_node(id_mi).position.x, id_tr.ramp_node(id_mi).position.z).distance_to(id_pad)
 	check(id_still < 0.05, "it sits on the pad for 3 s (%.2f from it after 2.9 s)" % id_still)
-	id_af.step_taxi(1.5)
+	id_af.step_taxi(0.6)
 	var id_moved = Vector2(id_tr.ramp_node(id_mi).position.x, id_tr.ramp_node(id_mi).position.z).distance_to(id_pad)
 	check(id_moved > 0.3 and id_tr.ramp_node(id_mi).position.y > 0.1, "...then air-taxis away, a little above the ground (%.2f)" % id_moved)
 	for id_k in 600:
@@ -5300,6 +5327,103 @@ func _initialize() -> void:
 	Airports.current = 0
 	check(ch_n > 0 and ch_bad.is_empty(), "every approach chevron, as built at every runway end of every airport, points within 10 degrees of toward its threshold (%d checked) %s" % [ch_n, str(ch_bad.slice(0, 4))])
 	check(ch_spacing, "...and they get closer together toward the threshold")
+
+	print("28. Every airport is one airfield")
+	var ly2_bad := []
+	for ly2_a in Airports.COUNT:
+		var ly2_probs = Layout.problems(ly2_a)
+		for ly2_p in ly2_probs:
+			ly2_bad.append("%s: %s" % [Airports.airport_name(ly2_a), ly2_p])
+	check(ly2_bad.is_empty(), "every airport's layout is sound: its taxi graph is one piece, every runway end has an exit that reaches every place on the ramp over pavement, a hold-short line stands before each runway a route crosses, no taxiway or ramp is in an approach funnel or under the HUD, and every junction has its letter %s" % str(ly2_bad.slice(0, 5)))
+	var ly2_marks := true
+	var ly2_notes := []
+	for ly2_a in Airports.COUNT:
+		Airports.current = ly2_a
+		main.airfield.ensure(ly2_a)
+		var ly2_v = main.airfield.variants[ly2_a]
+		var ly2_n = Taxi.net(ly2_a)
+		if ly2_v.thr_labels.size() != Airports.rw_count() * 2:
+			ly2_marks = false
+			ly2_notes.append("%s: %d numbers" % [Airports.airport_name(ly2_a), ly2_v.thr_labels.size()])
+			continue
+		for ly2_r in Airports.rw_count():
+			var ly2_hd = Airports.rw_heading_deg(ly2_r)
+			var ly2_t0 = int(ly2_v.thr_labels[ly2_r * 2].text)
+			var ly2_t1 = int(ly2_v.thr_labels[ly2_r * 2 + 1].text)
+			var ly2_want = posmod(roundi(ly2_hd / 10.0), 36)
+			if (ly2_want if ly2_want != 0 else 36) != ly2_t0 or posmod(ly2_t0 - ly2_t1, 36) != 18:
+				ly2_marks = false
+				ly2_notes.append("%s runway %d reads %d/%d for heading %.0f" % [Airports.airport_name(ly2_a), ly2_r, ly2_t0, ly2_t1, ly2_hd])
+		var ly2_junctions = 0
+		for ly2_e in ly2_n["edges"]:
+			if (ly2_n["rw"].has(ly2_e[0]) != ly2_n["rw"].has(ly2_e[1])):
+				ly2_junctions += 1
+		if ly2_v.signs.size() == 0 or ly2_v.signs.size() > ly2_junctions:
+			ly2_marks = false
+			ly2_notes.append("%s: %d signs for %d junctions" % [Airports.airport_name(ly2_a), ly2_v.signs.size(), ly2_junctions])
+		for ly2_s in ly2_v.signs:
+			if String(ly2_s["letter"]).length() != 1 or Taxi.on_taxiway(ly2_n, ly2_s["pos"], 0.05):
+				ly2_marks = false
+				ly2_notes.append("%s: sign %s" % [Airports.airport_name(ly2_a), str(ly2_s)])
+	Airports.current = 0
+	check(ly2_marks, "each runway number matches its magnetic heading (09/27 style), and every airport has its taxiway letter signs beside the pavement %s" % str(ly2_notes.slice(0, 4)))
+
+	print("29. The taxi network the planes follow")
+	main.select_airport(2)
+	main.restart()
+	tr.auto_spawn = false
+	var tx_af = main.airfield
+	var tx_rw := -1
+	var tx_end := 0
+	var tx_hold = {}
+	for tx_r in Airports.rw_count():
+		for tx_e in 2:
+			var tx_plan = Taxi.plan(tx_r, tx_e, 0, tx_af.cur.slots["tie"][0]["via"])
+			if tx_hold.is_empty() and not tx_plan["holds"].is_empty():
+				tx_rw = tx_r
+				tx_end = tx_e
+				tx_hold = tx_plan["holds"][0]
+	check(not tx_hold.is_empty(), "Regional: a landing on the far runway has to cross the other one (hold-short at %.1f of the route)" % float(tx_hold.get("hold", 0.0)))
+	# an aircraft on locked final to the runway it crosses keeps it holding short
+	var tx_fake := Aircraft.new()
+	tx_fake.tkind = Aircraft.Kind.RUNWAY
+	tx_fake.runway = int(tx_hold["rw"])
+	tx_fake.state = Aircraft.State.LANDING
+	tr.planes.append(tx_fake)
+	check(tr.runway_in_use(int(tx_hold["rw"])) and not tr.runway_in_use(tx_rw), "a plane rolling on a runway is 'in use' for that runway only")
+	var tx_slot = tx_af.begin_taxi(Aircraft.Type.SMALL, Aircraft.Kind.RUNWAY, tx_rw, tx_end, false, 0)
+	var tx_t = tx_af.taxis[tx_af.taxis.size() - 1]
+	for tx_k in 600:
+		tx_af.step_taxi(0.05)
+	check(tx_t["state"] == "hold" and absf(float(tx_t["d"]) - float(tx_hold["hold"])) < 0.01, "it stops at the hold-short line and waits there (%.2f of %.2f)" % [float(tx_t["d"]), float(tx_hold["hold"])])
+	tr.planes.erase(tx_fake)
+	for tx_k in 100:
+		tx_af.step_taxi(0.05)
+	check(float(tx_t["d"]) > float(tx_hold["hold"]) + 0.5, "...and goes on once nothing is on final or rolling on that runway")
+	main.restart()
+	tr.auto_spawn = false
+	# two landings close together queue on the graph: they never overlap
+	tx_af.begin_taxi(Aircraft.Type.SMALL, Aircraft.Kind.RUNWAY, 0, 0, false, 0)
+	tx_af.step_taxi(0.1)
+	tx_af.begin_taxi(Aircraft.Type.MEDIUM, Aircraft.Kind.RUNWAY, 0, 0, false, 0)
+	var tx_min := 9.0
+	for tx_k in 400:
+		tx_af.step_taxi(0.05)
+		if tx_af.taxis.size() >= 2:
+			tx_min = minf(tx_min, (tx_af.taxis[0]["p"] as Vector2).distance_to(tx_af.taxis[1]["p"]))
+	check(tx_min > 0.15, "two aircraft taxiing one behind the other keep apart (closest %.2f)" % tx_min)
+	# every route stays on the yellow line's pavement (checked at every airport above); and they roll out to the turn-off, not the far end
+	var tx_ok := true
+	for tx_a in Airports.COUNT:
+		Airports.current = tx_a
+		for tx_r in Airports.rw_count():
+			for tx_e in 2:
+				var tx_stop = Taxi.stop_point(tx_r, tx_e, 1)
+				var tx_far = Airports.end_far(tx_r, tx_e)
+				if tx_stop.distance_to(tx_far) < 0.5 or not Taxi.in_box(tx_stop, Taxi.rw_box(tx_r, 0.01)):
+					tx_ok = false
+	Airports.current = 0
+	check(tx_ok, "a landing rolls out to the point before its turn-off, on the runway, not to the far end")
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")

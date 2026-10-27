@@ -23,7 +23,7 @@ signal snapped(plane: Aircraft, at: Vector2)   # a path locked onto a runway's e
 signal touchdown(plane: Aircraft)      # the wheels just touched the runway (dust puff, a little pop)
 
 const MAX_POOL := 16
-const RAMP_MODELS := 14                # extra, complete aircraft models for the ramp: the ones that landed, taxiing and parked (see ramp_claim). The most any airport shows at once is 8 parked (tie-downs, overflow spots, heli spot, docks) and 4 taxiing, plus a spare or two
+const RAMP_MODELS := 18                # extra, complete aircraft models for the ramp: the ones that landed, taxiing and parked (see ramp_claim). The most any airport shows at once is 13 parked (tie-downs, overflow bays, heli spot, docks) and 4 taxiing, plus a spare or two
 var pool_n := MAX_POOL                  # (the menu's scenic traffic keeps a small pool)
 var go_around_warns := 0                # (statistics for the sims) warned / cancelled go-arounds this shift
 var go_around_cancels := 0
@@ -926,7 +926,7 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 		Aircraft.State.LANDING:
 			p.roll_t += dt / (Tuning.pad_land_seconds if p.tkind == Aircraft.Kind.PAD else Tuning.landing_roll_time)
 			var e := 1.0 - (1.0 - minf(p.roll_t, 1.0)) * (1.0 - minf(p.roll_t, 1.0))
-			p.pos = p.roll_from.lerp(Airports.land_far(p.tkind, p.runway, p.land_end), e)
+			p.pos = p.roll_from.lerp(roll_target(p), e)
 			p.ground = p.roll_t >= Tuning.touchdown_fraction
 			if p.ground and not p.touched:
 				p.touched = true
@@ -954,6 +954,19 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 	var diff := wrapf(p.heading - p.vis_heading, -PI, PI)
 	var turn := Tuning.plane_turn_rate * dt
 	p.vis_heading += clampf(diff, -turn, turn)
+
+## Where a landing roll ends: on a runway, at the point before the turn-off the aircraft takes (see Taxi.stop_point); elsewhere, the far end.
+func roll_target(p: Aircraft) -> Vector2:
+	if p.tkind != Aircraft.Kind.RUNWAY:
+		return Airports.land_far(p.tkind, p.runway, p.land_end)
+	return Taxi.stop_point(p.runway, p.land_end, p.speed_class)
+
+## Is anything on locked final to runway `r`, or rolling out on it? (A taxiing aircraft waits at the hold-short line for that to end.)
+func runway_in_use(r: int) -> bool:
+	for p in planes:
+		if p.tkind == Aircraft.Kind.RUNWAY and p.runway == r and p.active() and (p.state == Aircraft.State.LANDING or (p.state == Aircraft.State.FLY and p.cleared)):
+			return true
+	return false
 
 func _circle(p: Aircraft, speed: float, dt: float) -> void:
 	var hr := Tuning.hold_radius_eff()

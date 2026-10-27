@@ -120,10 +120,13 @@ funnels, rings, lane ends and 250 spawns per airport against the interface, and 
 ### Aircraft on the ground: taxi, hangar and ramp
 
 * A landing ends in a puff of dust and a soft in-key tyre chirp (E5 to G5, on the next eighth of the music, far under it). The plane
-  rolls out, leaves the runway past its far end and **taxis at 1.05 units/s along a fixed route** to its place: the shortest route that keeps
-  0.5 clear of every runway box (`Ramp.route`, a small visibility graph around the runways), so it never crosses one. Taxiing aircraft
-  are scenery: no collisions, drawn on the ground under the paths and the flying traffic. At most **four** taxi at their own pace; older
-  ones hurry at 9x.
+  rolls out to the point before its turn-off (`Taxi.stop_point`: the first exit past 30 / 40 / 55 % of the runway for a slow / medium /
+  fast class), then **taxis at 1.05 units/s along the airport's taxi graph** (`Taxi.plan`: yellow centrelines, corners rounded with the
+  same arcs the lines are drawn with) to its place, so it never crosses grass. Where the route must cross another runway it stops at the
+  hold-short line and waits until nothing is on locked final to that runway or rolling on it (`Traffic.runway_in_use`). Aircraft queue:
+  one never closes to within 0.6 of the one ahead. Taxiing aircraft are scenery: no collisions, drawn on the ground under the paths and the
+  flying traffic. At most **four** taxi at their own pace; older ones hurry at 9x. Helicopters and seaplanes keep their own pads, lanes and
+  docks (their routes are `Ramp.taxi_route`, which never crosses a runway).
 * **It is the aircraft that landed:** the ramp uses 24 extra complete models of the traffic pool (`Traffic.ramp_claim / ramp_configure`),
   dressed from the one that landed: its type and speed class, its runway's livery colour, the airline livery's body and stripe (the nose, wingtips and fin always keep the runway's colour), the
   student badge. It shrinks from the size it had on the runway (0.9) to the parked size (0.42 x the apron's scale) over its first
@@ -133,11 +136,39 @@ funnels, rings, lane ends and 250 spawns per airport against the interface, and 
   up (Regional 4, Mountain Field 5, Island 7), so "Hangar full" happens exactly when the shift breaks even. A helicopter sits on its pad
   for 3 s, then air-taxis to a marked heli spot (airports with a pad) and a seaplane taxis to the island's dock, but both still take one
   of the hangar's places and bump its "N / cap" (and the results line); the rest go into the hangar itself. The landings after it is full
-  are "on the ramp": the next free tie-down on the apron (six, in two rows, the second on an extension of the slab to the south or the
-  west), then up to six overflow spots on the grass along the taxiway, then a "+N" tag by the apron (a helicopter or seaplane still uses
+  are "on the ramp": the next free tie-down on the apron (six, in two rows), then six overflow bays (two more rows at the south end of the
+  same paved ramp), then a "+N" tag by the apron (a helicopter or seaplane still uses
   its spot or dock first).
   Crashes park nothing and keep the coin penalty. The results card says "Hangar full · 9 on the ramp" or "Hangar 5 / 8".
 * Everything that can park is built once and hidden; a shift restart clears it in place.
+
+### Airfield layout and markings
+
+Each airport is **one airfield**: its runways are one deliberate layout (a single strip, an X, two or three parallels, an open V of parallels
+a little off north) with the ramp east of them (the County's in the quiet south-east wedge between the arms of its X) and the tower, hangar,
+FBO and fuel farm on or beside the ramp. A taxi graph in the airport's data (`Airports.def[i]["taxi"]`, built in `Airports._taxi`:
+nodes, edges `[a, b, letter]`, the nodes on a runway's centreline, the exits, and the ramp's gates) joins them; `Taxi` and `Layout` are
+pure functions of it, so `tools/layout_check.gd` and the smoke test check every airport without drawing it.
+
+* **Paving.** Runways: the dark asphalt (`Tuning.runway_asphalt`), one slab each. Taxiways and the ramp: one lighter grey (the style's
+  `apron` colour), built as **one mesh** (a ribbon per edge, a disc at each node, a rounded fillet in every corner, including where a
+  taxiway meets a runway's edge or the ramp's edge), so no pavement is ever drawn on pavement. The ramp is one rounded slab 2.8 wide and
+  6.3 deep (x its scale): hangar aisle, two tie-down rows, two overflow rows. Where two runways cross, lines and dashes stop at the other
+  runway's edge, so there is one intersection. The taxiways run beside each runway where there is room, with a connector at each end and
+  a midfield exit, all leading to the ramp's west gates; a taxiway that must cross a runway does so at a marked crossing.
+* **Runway markings.** White threshold bars (6-8 across) at each end, the runway number at each end (`09` / `27` style, from the real
+  heading, the two ends 18 apart) **in the runway's colour**, a dashed centreline, two aiming-point blocks, and a thin edge line **in the
+  runway's colour**, nothing else (no coloured block, no rubber streaks, no rim). The last 2.0 of each edge line at an end glows when
+  the wind allows that end and goes grey when it does not (the number follows).
+* **Taxiway markings.** A yellow centreline (`e6c35a`, 0.04 wide), a hold-short marking where every taxiway meets a runway (two solid lines
+  on the aircraft's side, two dashed lines toward the runway, 0.4 outside the runway's edge), and at each such junction a small yellow
+  sign with the taxiway's letter in black (A, B, C...) on a short post beside the hold-short line.
+* **Clear zones.** No taxiway or ramp lies in an approach funnel or under the interface (`Layout.problems` checks the pavement and the
+  ramp's corners), and nothing is built, planted or parked on a taxiway (`Airfield._spot_free`, `_rect_clear`).
+* **Approach guides.** The three Vs before each runway end point **toward the threshold** and get closer together as they near it
+  (`Airports.approach_chevrons`, drawn by `Airfield._chevrons` and the overlay's funnel; the smoke test measures the built arms).
+* **Screenshots.** `docs/screens/layout_<airport>_{menu,shift,results}.png` show each airport on the menu, mid-shift with planes taxiing,
+  and on the results card.
 
 ### The wind layer
 

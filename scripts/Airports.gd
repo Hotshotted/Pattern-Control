@@ -33,7 +33,7 @@ static func _build() -> void:
 			"name": "Grass Strip", "tag": "One runway, both directions",
 			"runways": [_rw(Vector2(0.0, 0.8), 0.0, 7.0, ORANGE, "ORANGE", 1.1)],
 			"pads": [], "lanes": [], "hazards": [], "decor": [],
-			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6), "apron": {"center": Vector2(3.4, -1.0), "s": 1.0},
+			"tower": Vector2(2.6, -1.2), "windsock": Vector2(-2.6, 2.6), "apron": {"center": Vector2(3.36, -0.6), "s": 0.9},
 			"ground": Color("b9dc72"),
 			"mix": {S: 0.85, G: 0.15},
 			# The opener stays the easy one: few gliders, with more time, a lenient approach and a better fare than elsewhere.
@@ -45,9 +45,9 @@ static func _build() -> void:
 			"runways": [_rw(Vector2(0.0, 0.2), 0.0, 6.5, ORANGE, "ORANGE"), _rw(Vector2(0.0, 0.2), 55.0, 5.4, BLUE, "BLUE")],
 			"pads": [], "lanes": [], "hazards": [],
 			"decor": [{"shape": "box", "pos": Vector2(-3.3, -3.4), "size": Vector2(2.6, 3.4), "color": Color("d9c46a"), "y": 0.012},
-					{"shape": "box", "pos": Vector2(3.4, 4.0), "size": Vector2(2.4, 3.2), "color": Color("a8d070"), "y": 0.012},
+					{"shape": "box", "pos": Vector2(3.5, -4.6), "size": Vector2(2.4, 3.0), "color": Color("a8d070"), "y": 0.012},
 					{"shape": "box", "pos": Vector2(-3.5, 5.2), "size": Vector2(2.2, 2.4), "color": Color("e3cf7a"), "y": 0.012}],
-			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-2.2, 4.6), "apron": {"center": Vector2(-3.6, -3.85), "s": 1.0},
+			"tower": Vector2(3.2, -3.6), "windsock": Vector2(-2.2, 4.6), "apron": {"center": Vector2(3.44, 1.62), "s": 0.85},
 			"ground": Color("c0dc6e"),
 			"mix": {S: 0.35, M: 0.45, G: 0.2},
 			"unlock_stars": 2, "weather": ["crosswind"],
@@ -55,10 +55,9 @@ static func _build() -> void:
 		{   # 3: parallel runways and a helipad
 			"name": "Regional", "tag": "Parallel runways + helipad",
 			"runways": [_rw(Vector2(-2.6, 0.3), 0.0, 7.8, ORANGE, "ORANGE"), _rw(Vector2(0.4, 0.3), 0.0, 7.8, BLUE, "BLUE")],
-			"pads": [{"center": Vector2(3.5, 3.4), "radius": 0.85, "color": PAD_COLOR}], "lanes": [], "hazards": [],
-			"decor": [{"shape": "disc", "pos": Vector2(3.5, 3.4), "r": 1.45, "color": Color("d3d9e2"), "sides": 16, "y": 0.012},
-					{"shape": "box", "pos": Vector2(3.3, -2.4), "size": Vector2(2.4, 2.6), "color": Color("d3d9e2"), "y": 0.012}],
-			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.2, 0.8), "apron": {"center": Vector2(3.35, -1.9), "s": 1.0},
+			"pads": [{"center": Vector2(3.5, 5.0), "radius": 0.85, "color": PAD_COLOR}], "lanes": [], "hazards": [],
+			"decor": [{"shape": "disc", "pos": Vector2(3.5, 3.4), "r": 1.45, "color": Color("d3d9e2"), "sides": 16, "y": 0.012}],
+			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.5, 2.3), "apron": {"center": Vector2(3.55, -1.6), "s": 1.0},
 			"ground": Color("b2db78"),
 			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2},
 			"unlock_stars": 5, "weather": ["crosswind", "fog"],
@@ -76,7 +75,7 @@ static func _build() -> void:
 					{"shape": "disc", "pos": Vector2(4.3, -5.6), "r": 2.0, "color": Color("a7a392"), "sides": 9, "y": 0.012},
 					{"shape": "disc", "pos": Vector2(-4.2, 5.6), "r": 1.9, "color": Color("a7a392"), "sides": 9, "y": 0.012},
 					{"shape": "disc", "pos": Vector2(4.3, 5.4), "r": 1.9, "color": Color("a7a392"), "sides": 9, "y": 0.012}],
-			"tower": Vector2(0.0, 3.2), "windsock": Vector2(0.0, -1.2), "apron": {"center": Vector2(3.9, 1.9), "s": 0.75},
+			"tower": Vector2(0.0, 3.2), "windsock": Vector2(-3.7, -1.0), "apron": {"center": Vector2(4.09, 1.9), "s": 0.55},
 			"ground": Color("b0cf86"),
 			"mix": {S: 0.3, M: 0.35, G: 0.35},
 			"unlock_stars": 8, "weather": ["storm", "fog"],
@@ -87,9 +86,9 @@ static func _build() -> void:
 			"pads": [],
 			"lanes": [{"center": Vector2(0.2, 5.3), "heading": 90.0, "length": 6.0, "width": 1.0, "color": LANE_COLOR}],
 			"hazards": [],
-			"decor": [{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.4, "color": Color("84c26b"), "sides": 12, "y": 0.03},
-					{"shape": "disc", "pos": Vector2(0.0, 0.3), "r": 4.9, "color": Color("f1dfa0"), "sides": 12, "y": 0.01}],
-			"tower": Vector2(0.0, 0.3), "windsock": Vector2(0.0, -3.0), "apron": {"center": Vector2(3.75, -1.0), "s": 0.7},
+			"decor": [{"shape": "disc", "pos": Vector2(0.5, 0.3), "r": 4.6, "color": Color("84c26b"), "sides": 12, "y": 0.03},
+					{"shape": "disc", "pos": Vector2(0.5, 0.3), "r": 4.95, "color": Color("f1dfa0"), "sides": 12, "y": 0.01}],
+			"tower": Vector2(0.0, 0.3), "windsock": Vector2(-3.4, -1.6), "apron": {"center": Vector2(4.14, -1.0), "s": 0.6},
 			"ground": Color("5db8e0"), "water": true,
 			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25},
 			"unlock_stars": 11, "weather": ["storm", "crosswind", "fog"],
@@ -97,19 +96,21 @@ static func _build() -> void:
 		{   # 6: long runways and multiples of everything
 			"name": "International", "tag": "Everything, all at once",
 			"runways": [_rw(Vector2(-3.6, 0.0), 0.0, 8.4, ORANGE, "ORANGE"), _rw(Vector2(-1.3, 0.0), 0.0, 8.4, BLUE, "BLUE"), _rw(Vector2(1.0, 0.0), 0.0, 8.4, PINK, "PINK")],
-			"pads": [{"center": Vector2(4.2, 3.6), "radius": 0.7, "color": PAD_COLOR}, {"center": Vector2(4.2, 5.2), "radius": 0.7, "color": PAD_COLOR}],
+			"pads": [{"center": Vector2(4.2, 4.5), "radius": 0.7, "color": PAD_COLOR}, {"center": Vector2(4.2, 6.0), "radius": 0.7, "color": PAD_COLOR}],
 			"lanes": [{"center": Vector2(4.2, -3.9), "heading": 0.0, "length": 2.6, "width": 0.9, "color": LANE_COLOR},
 					{"center": Vector2(-1.2, 5.6), "heading": 90.0, "length": 6.0, "width": 0.9, "color": LANE_COLOR}],
 			"hazards": [],
 			"decor": [{"shape": "box", "pos": Vector2(4.2, 4.4), "size": Vector2(2.0, 3.6), "color": Color("c9cfda"), "y": 0.012},
 					{"shape": "box", "pos": Vector2(4.2, -3.9), "size": Vector2(1.5, 3.4), "color": Color("3fa2d6"), "y": 0.02},
 					{"shape": "box", "pos": Vector2(-1.2, 5.6), "size": Vector2(7.2, 1.8), "color": Color("3fa2d6"), "y": 0.02}],
-			"tower": Vector2(2.6, -2.6), "windsock": Vector2(4.2, 7.4), "apron": {"center": Vector2(3.2, 0.0), "s": 0.7},
+			"tower": Vector2(2.6, -2.6), "windsock": Vector2(4.3, 8.1), "apron": {"center": Vector2(3.78, -0.4), "s": 0.7},
 			"ground": Color("b6dc7a"),
 			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2},
 			"unlock_stars": 14, "weather": ["storm", "crosswind", "fog"],
 		},
 	]
+	for k in _defs.size():
+		_defs[k]["taxi"] = _taxi(k)
 	for d in _defs:
 		var n: int = d["runways"].size()
 		var m: Array = []
@@ -119,6 +120,94 @@ static func _build() -> void:
 				row.append(i != j and _segments_cross(d["runways"][i], d["runways"][j]))
 			m.append(row)
 		_cross.append(m)
+
+## One airport's taxi network (see Taxi): each is one deliberate layout. Distances along a runway are from its centre, north positive.
+static func _taxi(k: int) -> Dictionary:
+	var d: Dictionary = _defs[k]
+	var rws: Array = d["runways"]
+	var b := Taxi.Builder.new()
+	b.runways = rws
+	var ap: Dictionary = d["apron"]
+	var c: Vector2 = ap["center"]
+	var sc: float = ap["s"]
+	match k:
+		0:   # Grass Strip: one runway, one taxiway beside it on the ramp's side, a connector at each end and one at the middle
+			var r: Dictionary = rws[0]
+			var ys := b.gate_ys(c, sc)
+			b.beside("a", 0, 1.45, [2.5, r["center"].y - ys["1"], -2.6], {"h": r["center"].y - ys["h"], "2": r["center"].y - ys["2"]}, ["A", "B", "C"])
+			b.gate("h", c, sc, "a_th")
+			b.gate("1", c, sc, "a_c1")
+			b.gate("2", c, sc, "a_t2")
+		1:   # County: two runways crossing in an X; the ramp sits in the wide south-east corner between them
+			var ys1 := b.gate_ys(c, sc)
+			var hub := Vector2(1.6, ys1["h"])
+			b.node("hub", hub)
+			b.node("ea", Vector2(1.6, ys1["1"]))
+			b.node("eb", Vector2(1.6, ys1["2"]))
+			var r2: Dictionary = rws[1]
+			var h2 := deg_to_rad(r2["heading"])
+			var n2 := Vector2(cos(h2), sin(h2))
+			b.node("r2x", Taxi.rp(r2, (hub - (r2["center"] as Vector2)).cross(n2), 0.0), 1, true)
+			b.edge("r2x", "hub", "A")
+			b.node("a1x", Vector2(0.0, hub.y), 0, true)
+			b.edge("a1x", "hub", "B")
+			b.node("a2x", Vector2(0.0, ys1["2"]), 0, true)
+			b.edge("a2x", "eb", "C")
+			b.edge("hub", "ea")
+			b.edge("ea", "eb")
+			b.gate("h", c, sc, "hub")
+			b.gate("1", c, sc, "ea")
+			b.gate("2", c, sc, "eb")
+		2:   # Regional: two parallel runways with a taxiway between them; the ramp is east of the second
+			var r1: Dictionary = rws[1]
+			var ysr := b.gate_ys(c, sc)
+			var cy: float = r1["center"].y
+			b.beside("e", 1, 1.1, [3.3, cy - ysr["1"], -3.3], {"h": cy - ysr["h"], "2": cy - ysr["2"], "k": -1.5}, ["A", "B", "C"])
+			b.beside("m", 0, 1.5, [3.3, cy - ysr["1"], -3.3], {"k": -1.5}, ["D", "E", "F"])
+			b.crossing("xk", 1, -1.5, "m_tk", "e_tk", "G")
+			b.gate("h", c, sc, "e_th")
+			b.gate("1", c, sc, "e_c1")
+			b.gate("2", c, sc, "e_t2")
+		3:   # Mountain Field: two parallel runways (a little off north) with a taxiway between them; the small ramp is east
+			var r1m: Dictionary = rws[1]
+			var ysm := b.gate_ys(c, sc)
+			var off_e := 1.25
+			var sh := Taxi.s_at_y(r1m, off_e, ysm["h"])
+			var s1 := Taxi.s_at_y(r1m, off_e, ysm["1"])
+			var s2 := Taxi.s_at_y(r1m, off_e, ysm["2"])
+			var sk := 0.5
+			b.beside("e", 1, off_e, [2.3, sh, s2], {"1": s1, "k": sk}, ["A", "B", "C"])
+			var h8 := deg_to_rad(r1m["heading"])
+			var shift := ((rws[1]["center"] as Vector2) - (rws[0]["center"] as Vector2)).dot(Vector2(sin(h8), -cos(h8)))
+			var sep := ((rws[1]["center"] as Vector2) - (rws[0]["center"] as Vector2)).dot(Vector2(cos(h8), sin(h8)))
+			b.beside("m", 0, sep * 0.5, [2.3, -0.9, -2.1], {"k": sk + shift}, ["D", "E", "F"])
+			b.crossing("xk", 1, sk, "m_tk", "e_tk", "G")
+			b.gate("h", c, sc, "e_c1")
+			b.gate("1", c, sc, "e_t1")
+			b.gate("2", c, sc, "e_c2")
+		4:   # Island: two parallel runways with a taxiway between them and the ramp on the east shore
+			var r1i: Dictionary = rws[1]
+			var ysi := b.gate_ys(c, sc)
+			var cyi: float = r1i["center"].y
+			b.beside("e", 1, 1.2, [2.7, cyi - ysi["1"], -2.9], {"h": cyi - ysi["h"], "2": cyi - ysi["2"], "k": -1.7}, ["A", "B", "C"])
+			b.beside("m", 0, 1.6, [2.7, 0.2, -2.9], {"k": -1.7}, ["D", "E", "F"])
+			b.crossing("xk", 1, -1.7, "m_tk", "e_tk", "G")
+			b.gate("h", c, sc, "e_th")
+			b.gate("1", c, sc, "e_c1")
+			b.gate("2", c, sc, "e_t2")
+		5:   # International: three parallel runways, a taxiway between each pair, crossing taxiways, the ramp east
+			var r2i: Dictionary = rws[2]
+			var ysn := b.gate_ys(c, sc)
+			var cyn: float = r2i["center"].y
+			b.beside("a", 2, 1.2, [3.4, cyn - ysn["h"], -3.4], {"1": cyn - ysn["1"], "2": cyn - ysn["2"], "k": -2.7}, ["A", "B", "C"])
+			b.beside("b", 1, 1.15, [3.4, 0.0, -3.4], {"k1": -1.9, "k": -2.7}, ["D", "E", "F"])
+			b.beside("c", 0, 1.15, [3.4, 0.0, -3.4], {"k1": -1.9}, ["G", "H", "J"])
+			b.crossing("x1", 1, -1.9, "c_tk1", "b_tk1", "K")
+			b.crossing("x2", 2, -2.7, "b_tk", "a_tk", "L")
+			b.gate("h", c, sc, "a_c1")
+			b.gate("1", c, sc, "a_t1")
+			b.gate("2", c, sc, "a_t2")
+	return b.done()
 
 static func _ends(r: Dictionary) -> Array[Vector2]:
 	var h := deg_to_rad(r["heading"])
