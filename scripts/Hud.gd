@@ -60,6 +60,8 @@ class Art extends Control:
 	var details_lines := PackedStringArray()
 	# ---- the pause menu ----
 	var show_pause := false
+	var det_on := false                # an airport's detail screen is up (see Hud.show_detail): its card is drawn under the buttons
+	var det := {}
 	var pv_on := false                 # the shop's preview sheet is up (see Hud.show_preview)
 	var pv := {}
 	var pv_t := 0.0
@@ -862,6 +864,38 @@ class Art extends Control:
 					glyph(btn_glyph[k], Vector2(sx + gw4 * 0.4, r.get_center().y), r.size.y * 0.24, ink)
 				ptext(btn_text[k], Vector2(sx + gw4, r.get_center().y + fs4 * 0.34), fs4, ink)
 
+	## The airport detail screen's card, in the lower third (the live airport is above it): the name in the display face, the best shift, the
+	## three stars with what each needs, and for a locked airport the unlock requirement in place of the Fly here button.
+	func _draw_detail() -> void:
+		var d := det
+		var y0 := size.y * 0.667
+		var card := Rect2(18.0, y0, size.x - 36.0, size.y - y0 + 40.0)
+		panel(_sb_sheet, card, _sheen_l)
+		var locked: bool = not bool(d["open"])
+		var x0 := card.position.x + 40.0
+		var wide := card.size.x - 80.0
+		var nfs := Style.fit_size(d["name"], 64, 36, wide - 230.0)
+		ptext(d["name"], Vector2(x0, y0 + 84.0), nfs, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_LEFT, wide - 230.0)
+		draw_string(Style.body(), Vector2(x0, y0 + 124.0), d["tag"], HORIZONTAL_ALIGNMENT_LEFT, wide - 230.0, 27, C_SOFT)
+		if not locked:
+			var best_txt := "Best %d" % int(d["best"]) if int(d["best"]) > 0 else "No best yet"
+			draw_string(Style.text(), Vector2(card.end.x - 40.0 - 220.0, y0 + 80.0), best_txt, HORIZONTAL_ALIGNMENT_RIGHT, 220.0, 32, C_SOFT)
+		# the three stars: lit if earned, each with what it takes (landings at an average fare, and the coins behind that)
+		var col_w := wide / 3.0
+		for k in 3:
+			var cx := x0 + col_w * (float(k) + 0.5)
+			var have: bool = k < int(d["stars"]) and not locked
+			glyph("star" if have else "star_off", Vector2(cx, y0 + 200.0), 30.0)
+			ptext("Land %d" % int(d["land"][k]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
+			glyph("coin", Vector2(cx - 34.0, y0 + 304.0), 13.0, Color(1, 1, 1, 1.0))
+			draw_string(Style.text(), Vector2(cx - 14.0, y0 + 314.0), str(int(d["coins"][k])), HORIZONTAL_ALIGNMENT_LEFT, col_w * 0.5, 24, C_SOFT)
+		if locked:
+			var pill := Rect2(x0, size.y - 250.0, wide, 100.0)
+			draw_style_box(_sb_lockpill, pill)
+			glyph("lock", Vector2(pill.position.x + 62.0, pill.get_center().y), 24.0, Color.WHITE)
+			draw_string(Style.display(), Vector2(pill.position.x + 108.0, pill.get_center().y + 14.0), "Unlock with %d stars" % int(d["lock"]), HORIZONTAL_ALIGNMENT_LEFT, pill.size.x - 160.0, 40, Color.WHITE)
+			glyph("star", Vector2(pill.end.x - 60.0, pill.get_center().y), 24.0)
+
 	## An airport's card on the Airports screen: a top-down vignette, the name in the display face, the best shift and three stars; the selected
 	## card wears an orange ring (its "Fly here" button is its own button); a locked airport is dimmed under a dark "Unlock with N stars" pill.
 	func _draw_airport_card(k: int, r: Rect2, st: int) -> void:
@@ -1351,6 +1385,8 @@ class Art extends Control:
 			_draw_unlock()
 		if pv_on:
 			_draw_preview_base()
+		if det_on:
+			_draw_detail()
 		_draw_buttons()
 		if pv_on:
 			_draw_preview_top()
@@ -1657,7 +1693,7 @@ func _update_coins(delta: float) -> void:
 
 const SLIDE := 140.0
 ## How far into the flow each screen is: going deeper slides in from the right, coming back from the left.
-const DEPTH := {"menu": 0.0, "select": 1.0, "upgrades": 1.0, "list": 1.0, "play": 2.0, "results": 3.0, "pause": 2.5, "ad": 2.5}
+const DEPTH := {"menu": 0.0, "select": 1.0, "detail": 1.5, "upgrades": 1.0, "list": 1.0, "play": 2.0, "results": 3.0, "pause": 2.5, "ad": 2.5}
 const POP_KINDS := ["results", "pause", "ad"]
 var _tr_t := 99.0
 var transition_count := 0
@@ -2481,6 +2517,27 @@ func _sig(parts: Array) -> String:
 		out.append(str(x))
 	return "|".join(out) + "|%d|%.1f|%.1f|%.1f|%d" % [get_viewport().get_visible_rect().size.x, Style.safe_top, Style.safe_bottom, Style.safe_left, _loading_airport]
 
+## An airport's detail screen: the live airport above (Main frames it in the top two thirds), this card below it, a back button, the
+## "No engines" switch once the airport has three stars, and a big "Fly here" button (a locked airport shows what unlocks it instead).
+func show_detail(info: Dictionary) -> void:
+	if not priming:
+		_go("detail")
+		_hide_all_screens()
+	_use_panel("detail", _sig([info]), func() -> void:
+		var vp := get_viewport().get_visible_rect().size
+		_art.clear_buttons()
+		_art.det_on = true
+		_art.det = info.duplicate(true)
+		_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+		var y0 := vp.y * 0.667
+		_art.add_button("detail_card", "", Rect2(18.0, y0, vp.x - 36.0, vp.y - y0), 0, "", -1, -1, {"kind": 11})
+		var i: int = info["i"]
+		if bool(info["open"]):
+			if bool(info["no_engines_ok"]):
+				_art.add_button("noeng:%d" % i, "No engines \u00d7%s" % str(snappedf(float(info["no_engines_mult"]), 0.1)), Rect2(vp.x - 40.0 - 330.0, y0 + 118.0 - 26.0, 330.0, 52.0), 2 if bool(info["no_engines"]) else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
+			_art.add_button("airport:%d" % i, "Fly here", Rect2(40.0, vp.y - 250.0 - Style.safe_bottom, vp.x - 80.0, 130.0), 0, "", -1, -1, {"kind": 2})
+		_art.queue_redraw())
+
 ## The airport select screen: one big card per airport, with just its name, stars and lock state.
 func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Array, _best_scores: PackedInt32Array, selected: int, no_engines: PackedByteArray = PackedByteArray()) -> void:
 	if not priming:
@@ -2498,10 +2555,7 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 			if open[i] != 0:
 				var best := _best_scores[i] if i < _best_scores.size() else 0
 				_art.add_button("pick:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, Airports.tag(i), stars[i], -1, {"kind": 1, "map": i, "cost": maxi(best, 0)})
-				if i == selected:
-					_art.add_button("airport:%d" % i, "Fly here", Rect2(r.end.x - 270.0, r.get_center().y - 52.0, 240.0, 104.0), 0, "", -1, -1, {"kind": 8})
-					if stars[i] >= 3:       # three stars: the "No engines" challenge can be switched on for this airport
-						_art.add_button("noeng:%d" % i, "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(r.end.x - 340.0, r.end.y - 62.0, 310.0, 48.0), 2 if i < no_engines.size() and no_engines[i] != 0 else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
+				pass             # (tapping a card opens its detail screen: Fly here and the No engines switch are there)
 			else:
 				_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, Airports.tag(i), -1, -1, {"kind": 1, "map": i, "lock": Airports.unlock_stars(i)})
 		_art.queue_redraw())
@@ -2515,6 +2569,8 @@ func set_loading_airport(i: int) -> void:
 		if a < 0:
 			continue
 		var k: int = _art.btn_id.find("pick:%d" % a)
+		if k < 0:
+			k = _art.btn_id.find("locked:%d" % a)
 		if k >= 0:
 			_art.btn_sub[k] = "Loading..." if a == i else Airports.tag(a)
 			_art.queue_redraw()
@@ -2576,8 +2632,8 @@ func button_at(pos: Vector2) -> String:
 	var k := _art.button_at(pos)
 	if k < 0:
 		return ""
-	if _art.btn_state[k] == 1 and not (_art.btn_id[k].begins_with("theme:") or _art.btn_id[k].begins_with("livery:")):
-		return ""             # (a shop card is dimmed when it is out of reach, but it still opens its preview: "Need 480 more")
+	if _art.btn_state[k] == 1 and not (_art.btn_id[k].begins_with("theme:") or _art.btn_id[k].begins_with("livery:") or _art.btn_id[k].begins_with("locked:")):
+		return ""             # (a shop card is dimmed when it is out of reach, but it still opens its preview: "Need 480 more"; so does a locked airport's card, view only)
 	return _art.btn_id[k]
 
 ## True if `pos` is on any button (even a disabled one): the tap belongs to the UI, not the game.

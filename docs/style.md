@@ -166,9 +166,23 @@ pure functions of it, so `tools/layout_check.gd` and the smoke test check every 
 * **Clear zones.** No taxiway or ramp lies in an approach funnel or under the interface (`Layout.problems` checks the pavement and the
   ramp's corners), and nothing is built, planted or parked on a taxiway (`Airfield._spot_free`, `_rect_clear`).
 * **Approach guides.** The three Vs before each runway end point **toward the threshold** and get closer together as they near it
-  (`Airports.approach_chevrons`, drawn by `Airfield._chevrons` and the overlay's funnel; the smoke test measures the built arms).
+  (`Airports.approach_chevrons`, drawn by `Airfield._chevrons` and the overlay's funnel; the smoke test measures the built arms). At an end
+  the wind is not using they are **unlit**: desaturated grey at 35% opacity, no glow; a wind shift crossfades the two over `SWING_SECONDS` (1.2 s,
+  the wind streaks' time).
 * **Screenshots.** `docs/screens/layout_<airport>_{menu,shift,results}.png` show each airport on the menu, mid-shift with planes taxiing,
   and on the results card.
+
+### The airport detail screen
+
+Tapping an airport card opens that airport's detail screen (`Main.open_detail`, `SCREEN_DETAIL`); it starts nothing and selects nothing.
+The top two thirds are the live airport, idle, with the menu's autopilot traffic (`Diorama`), framed by moving the camera: 1.5 x the shift's
+size so the whole field fits above the card, shifted south so it sits in the top two thirds. One finger pans, two pinch (0.45 to 1.12 x the
+default size); when the last finger lifts the view eases back to the default in about 0.4 s. Below, a cream card: the name in the display
+face, the tag, the best shift, the three stars each with what it needs (`Land N`, the average-fare landings behind the coin threshold,
+and the coins), the "No engines" switch once the airport has three stars, and a large orange **Fly here** button (`airport:<i>`). A back
+button returns to the list. A locked airport opens the same screen view-only: a dark "Unlock with N stars" pill replaces Fly here. An
+airport whose scenery is not built yet shows "Loading..." on its card first. On the list, cards have no buttons of their own.
+Screens: `docs/screens/detail_*.png`.
 
 ### The wind layer
 

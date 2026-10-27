@@ -857,16 +857,21 @@ func _initialize() -> void:
 	check(cards.has("pick:0") and cards.has("locked:1") and cards.has("locked:5") and cards.has("back"), "airport 1 is open, the others show as locked, with a Back button")
 	check(main.hud._art.btn_lock[main.hud._art.btn_id.find("locked:1")] == 2 and main.hud._art.btn_state[main.hud._art.btn_id.find("locked:1")] == 1, "a locked card shows a padlock and the stars it needs")
 	var locked_pos = cards["locked:1"].get_center()
+	var sel_locked = main.airport
 	touch(main, 0, true, locked_pos)
 	touch(main, 0, false, locked_pos)
-	check(main.screen == main.SCREEN_SELECT, "tapping a locked airport does nothing")
+	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 1 and not main.hud._art.btn_id.has("airport:1") and main.hud._art.det_on and not bool(main.hud._art.det["open"]), "tapping a locked airport opens its detail screen, view only (no Fly here)")
+	touch(main, 0, true, main.hud._art.btn_rect[main.hud._art.btn_id.find("back")].get_center())
+	touch(main, 0, false, main.hud._art.btn_rect[main.hud._art.btn_id.find("back")].get_center())
+	check(main.screen == main.SCREEN_SELECT and main.airport == sel_locked, "...and Back returns to the list without changing the airport")
 	save.award_star(0, 0)
 	save.award_star(0, 1)
 	main._show_select()
 	check(save.stars_total() == 2 and main.hud.button_at(cards["locked:1"].get_center()) == "pick:1", "two stars open County")
+	var sel_before = main.airport
 	touch(main, 0, true, cards["locked:1"].get_center())
 	touch(main, 0, false, cards["locked:1"].get_center())
-	check(main.screen == main.SCREEN_SELECT and main.airport == 1 and main.hud._art.btn_id.has("airport:1"), "tapping an open airport's card selects it and shows its Fly here button")
+	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 1 and main.airport == sel_before and main.hud._art.btn_id.has("airport:1"), "tapping an open airport's card opens its detail screen with a Fly here button (nothing starts, nothing is selected yet)")
 	var fly_at = main.hud._art.btn_rect[main.hud._art.btn_id.find("airport:1")].get_center()
 	touch(main, 0, true, fly_at)
 	touch(main, 0, false, fly_at)
@@ -4359,7 +4364,7 @@ func _initialize() -> void:
 	var zu_ids = []
 	for zu_k in zu_art.btn_count:
 		zu_ids.append(zu_art.btn_id[zu_k])
-	check(zu_ids.has("pick:0") and zu_ids.has("airport:0") and zu_ids.has("locked:1") and zu_art.btn_text[zu_art.btn_id.find("airport:0")] == "Fly here" and zu_art.btn_cost[zu_art.btn_id.find("pick:0")] == 120 and zu_art.btn_map[zu_art.btn_id.find("locked:1")] == 1, "airports: vignette cards, the selected one has Fly here, a locked one a dimmed vignette")
+	check(zu_ids.has("pick:0") and not zu_ids.has("airport:0") and zu_ids.has("locked:1") and zu_art.btn_cost[zu_art.btn_id.find("pick:0")] == 120 and zu_art.btn_map[zu_art.btn_id.find("locked:1")] == 1, "airports: vignette cards (a tap opens the detail screen: no Fly here on the list), a locked one a dimmed vignette")
 	main._show_menu()
 	check(not FileAccess.file_exists("res://assets/fonts/Fredoka.ttf") and not FileAccess.file_exists("res://assets/fonts/Nunito.ttf"), "Fredoka and Nunito are gone")
 
@@ -5177,7 +5182,7 @@ func _initialize() -> void:
 	while main.wanted_airport >= 0 and ldz_frames < 1500:
 		await process_frame
 		ldz_frames += 1
-	check(main.airfield.is_built(3) and main.airport == 3 and main.screen == main.SCREEN_SELECT and ldz_frames > 2, "...and when it is built the game goes there (%d frames later)" % ldz_frames)
+	check(main.airfield.is_built(3) and main.airport == 2 and main.screen == main.SCREEN_DETAIL and main.detail_airport == 3 and ldz_frames > 2, "...and when it is built its detail screen opens (%d frames later), without selecting it" % ldz_frames)
 	main.select_airport(2)
 	Airports.current = 2
 	main.airfield.select(2)
@@ -5272,15 +5277,15 @@ func _initialize() -> void:
 	save.reset_all()
 	main._show_menu()
 	main.select_airport(0)          # (Bad Pilot Day moved the selection to its own airport, which depends on the date)
-	main._show_select()
+	main.open_detail(main.airport)
 	main.hud.skip_animations()
-	check(main.hud._art.btn_id.find("noeng:%d" % main.airport) < 0, "an airport with fewer than three stars has no No engines switch")
+	check(main.hud._art.btn_id.find("noeng:%d" % main.airport) < 0, "an airport with fewer than three stars has no No engines switch on its detail screen")
 	for ne_i in 3:
 		save.stars[main.airport * save.STARS_PER_AIRPORT + ne_i] = 1
-	main._show_select()
+	main.open_detail(main.airport)
 	main.hud.skip_animations()
 	var ne_ck = main.hud._art.btn_id.find("noeng:%d" % main.airport)
-	check(ne_ck >= 0 and main.hud._art.btn_state[ne_ck] == 0, "...with three stars the selected card offers it (off)")
+	check(ne_ck >= 0 and main.hud._art.btn_state[ne_ck] == 0, "...with three stars its detail screen offers it (off)")
 	main._on_button("noeng:%d" % main.airport)
 	check(save.no_engines_on(main.airport) and main.hud._art.btn_state[main.hud._art.btn_id.find("noeng:%d" % main.airport)] == 2, "...tapping it switches it on")
 	var ne_coin0 = tuning.landing_pay(SMALL)
@@ -5496,6 +5501,74 @@ func _initialize() -> void:
 	lf_tr.step(1.0 / 20.0)
 	lf_tr.step(1.0 / 20.0)
 	check(lf_b.state == Aircraft.State.DIVERT and lf_timeouts[0] == 1 and not lf_b.low_fuel, "...but a plane that is not on a locked final still diverts when its timer runs out")
+
+	print("32. The airport detail screen")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	for dt_k in 3:
+		save.stars[2 * save.STARS_PER_AIRPORT + dt_k] = 1 if dt_k < 2 else 0
+	main._show_menu()
+	main.select_airport(0)
+	main.open_detail(2)
+	main.hud.skip_animations()
+	var dt_art = main.hud._art
+	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 2 and Airports.current == 2 and main.airfield.selected == 2 and dt_art.det_on, "a card tap opens the detail screen of that airport (the field behind is that airport)")
+	check(main.airport == 0 and save.selected_airport == 0, "...and does not start a shift or select it")
+	check(dt_art.btn_id.has("back") and dt_art.btn_id.has("airport:2") and not dt_art.btn_id.has("noeng:2") and dt_art.btn_text[dt_art.btn_id.find("airport:2")] == "Fly here", "it has a back button and a large Fly here button (no No engines switch before three stars)")
+	var dt_fly = dt_art.btn_rect[dt_art.btn_id.find("airport:2")]
+	check(dt_fly.size.x > 800.0 and dt_fly.size.y >= 120.0 and dt_fly.position.y > 1280.0, "...the button is big and in the lower third (%s)" % str(dt_fly))
+	var dt_land = dt_art.det["land"]
+	check(dt_land.size() == 3 and dt_land[0] >= 1 and dt_land[0] < dt_land[1] and dt_land[1] < dt_land[2] and int(dt_art.det["stars"]) == 2 and int(dt_art.det["coins"][0]) > 0, "...three stars, each with what it needs to land (%s)" % str(dt_land))
+	main.detail_t = 1.0
+	main._update_camera()
+	var dt_vp = main.get_viewport().get_visible_rect().size
+	var dt_in = true
+	for dt_r in Airports.rw_count():
+		for dt_e in 2:
+			for dt_pt in [Airports.end_threshold(dt_r, dt_e), Airports.end_far(dt_r, dt_e)]:
+				var dt_sc = main.camera.unproject_position(Vector3(dt_pt.x, 0.0, dt_pt.y))
+				if dt_sc.y > dt_vp.y * 0.667 - 10.0 or dt_sc.y < 0.0 or dt_sc.x < 0.0 or dt_sc.x > dt_vp.x:
+					dt_in = false
+	check(dt_in, "the whole field fits in the top two thirds of the screen")
+	await process_frame
+	await process_frame
+	check(main.diorama.active, "the live airport runs the menu's autopilot traffic")
+	var dt_size0 = main.camera.size
+	main._touch_down(0, Vector2(300.0, 600.0))
+	main._touch_down(1, Vector2(700.0, 600.0))
+	main._touch_down(2, Vector2(540.0, 1700.0))
+	check(main._dt_touch.size() == 2, "fingers on the live field are tracked (one in the lower third is the interface's)")
+	main.detail_gesture(1, Vector2(900.0, 600.0))
+	main._update_camera()
+	check(main.detail_zoom < 0.9 and main.camera.size < dt_size0 - 0.5, "a pinch zooms in (%.2f)" % main.detail_zoom)
+	main._touch_up(1, Vector2(900.0, 600.0))
+	var dt_pan0 = main.detail_pan.x
+	main.detail_gesture(0, Vector2(200.0, 600.0))
+	check(main.detail_pan.x > dt_pan0 + 0.05, "a drag pans the view (%s)" % str(main.detail_pan))
+	main._touch_up(0, Vector2(200.0, 600.0))
+	main._touch_up(2, Vector2(540.0, 1700.0))
+	for dt_k in 40:
+		main._process(0.1)
+	check(absf(main.detail_zoom - 1.0) < 0.01 and main.detail_pan.length() < 0.02, "let go, the view returns to the default (zoom %.3f, pan %s)" % [main.detail_zoom, str(main.detail_pan)])
+	# a locked airport: the same screen, view only
+	save.unlocks["all_airports"] = false
+	save.reset_all()
+	main._show_select()
+	main._on_button("locked:4")
+	var dt_lart = main.hud._art
+	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 4 and not dt_lart.btn_id.has("airport:4") and not dt_lart.btn_id.has("noeng:4") and int(dt_lart.det["lock"]) > 0, "a locked airport opens the same screen in view-only mode, with its unlock requirement instead of Fly here")
+	main._on_button("back")
+	check(main.screen == main.SCREEN_SELECT and Airports.current == main.airport, "Back returns to the list, and the field behind is the selected airport again")
+	# the No engines switch and Fly here
+	save.unlocks["all_airports"] = true
+	for dt_k in 3:
+		save.stars[2 * save.STARS_PER_AIRPORT + dt_k] = 1
+	main.open_detail(2)
+	check(main.hud._art.btn_id.has("noeng:2"), "with three stars the detail screen offers No engines")
+	main._on_button("airport:2")
+	check(main.screen == main.SCREEN_PLAY and main.airport == 2 and main.airfield.selected == 2 and is_equal_approx(main.detail_t, 0.0), "Fly here starts a shift at that airport, in the shift's own view")
+	save.unlocks["all_airports"] = false
+	save.reset_all()
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")

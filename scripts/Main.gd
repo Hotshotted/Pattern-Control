@@ -13,6 +13,7 @@ const SCREEN_UPGRADES := 4
 const SCREEN_SHOP := 5
 const SCREEN_AD := 6
 const SCREEN_PAUSE := 7
+const SCREEN_DETAIL := 8         # one airport's detail screen (see open_detail)
 
 const HEADER_DONE := "SHIFT\nCOMPLETE"
 
@@ -205,6 +206,17 @@ const IDLE_BUILD_AFTER_MS := 2000
 var _idle_since_ms := 0
 var _idle_transitions := 0
 var wanted_airport := -1               # an airport the player picked that is still being built
+# The airport detail screen: the live airport in the top two thirds (zoomed out to fit), pinch to zoom and drag to pan, it eases back when let go.
+const DETAIL_FACTOR := 1.5            # the camera's size on the detail screen, x the shift's (so the whole field fits in two thirds of the screen)
+const DETAIL_ZOOM_MIN := 0.45         # how far a pinch zooms in (x the default size)...
+const DETAIL_ZOOM_MAX := 1.12         # ...and out
+var detail_airport := -1
+var _wanted_detail := false           # the airport being built is for its detail screen (not to be selected)
+var detail_t := 0.0                    # 0 = the shift's view, 1 = the detail screen's
+var detail_zoom := 1.0
+var detail_pan := Vector2.ZERO         # the view's centre, in world units from the default
+var _dt_touch := {}                    # finger index -> position, for fingers down on the live view
+var _dt_dist := 0.0
 func _idle_build() -> void:
 	var busy := _warming or screen == SCREEN_PLAY or screen == SCREEN_PAUSE or hud.logo_active()
 	airfield.bg_paused = busy
@@ -220,10 +232,14 @@ func _idle_build() -> void:
 			var a := wanted_airport
 			wanted_airport = -1
 			hud.set_loading_airport(-1)
-			select_airport(a)
-			Airports.current = airport
-			airfield.select(airport)
-			_show_select() if screen == SCREEN_SELECT else _show_menu()
+			if _wanted_detail:
+				_wanted_detail = false
+				open_detail(a)
+			else:
+				select_airport(a)
+				Airports.current = airport
+				airfield.select(airport)
+				_show_select() if screen == SCREEN_SELECT else _show_menu()
 		return
 	if screen == SCREEN_MENU and now - _idle_since_ms >= 600 and not hud.transitioning() and not _priming_busy:
 		_prime_panels()
@@ -358,6 +374,11 @@ func _boot_to_menu() -> void:
 var fixed_seed := -1                # >= 0: restart() seeds every random stream from it (tools/economy_sim.gd)
 
 func restart() -> void:
+	detail_t = 0.0
+	detail_zoom = 1.0
+	detail_pan = Vector2.ZERO
+	detail_airport = -1
+	_dt_touch.clear()
 	Boot.mark("shift started")
 	screen = SCREEN_PLAY
 	_tick_next = 0.0
@@ -646,12 +667,17 @@ func _process(raw_delta: float) -> void:
 		sfx.set_music(false)
 	sfx.set_menu_music(not _warming and screen != SCREEN_PLAY and screen != SCREEN_PAUSE and screen != SCREEN_AD)
 	view_size = lerpf(view_size, Tuning.view_size(), 1.0 - exp(-raw_delta * 3.0))   # the radar re-frames the view smoothly
+	detail_t = move_toward(detail_t, 1.0 if screen == SCREEN_DETAIL else 0.0, raw_delta / 0.4)
+	if _dt_touch.is_empty():              # (let go: the view eases back to the default one)
+		var back_k := 1.0 - exp(-raw_delta * 7.0)
+		detail_zoom = lerpf(detail_zoom, 1.0, back_k)
+		detail_pan = detail_pan.lerp(Vector2.ZERO, back_k)
 	_update_camera()
 	traffic.half_w = view_size * 0.5
 	traffic.half_h = _half_height()
 	diorama.traffic.half_w = traffic.half_w
 	diorama.traffic.half_h = traffic.half_h
-	diorama.active = screen == SCREEN_MENU and not _warming
+	diorama.active = (screen == SCREEN_MENU or screen == SCREEN_DETAIL) and not _warming
 	if screen == SCREEN_AD:
 		_tick_ad(raw_delta)
 	if _warming or not alive or screen == SCREEN_PAUSE:
@@ -1291,6 +1317,11 @@ func _touch_down(index: int, pos: Vector2) -> void:
 	if screen == SCREEN_OVER and not hud.results_revealed():
 		hud.skip_animations()         # a tap on the empty screen finishes the reveal; the buttons do the rest
 		return
+	if screen == SCREEN_DETAIL:
+		if pos.y < get_viewport().get_visible_rect().size.y * 0.667:
+			_dt_touch[index] = pos          # (a finger on the live field: it pans, two of them pinch)
+			_dt_dist = _dt_fingers_dist()
+		return
 	if screen == SCREEN_MENU or screen == SCREEN_OVER:
 		return
 	if screen != SCREEN_PLAY or not alive or _drag_index != -1:
@@ -1327,18 +1358,16 @@ func _on_button(id: String) -> void:
 		var ne_i := int(id.substr(6))
 		Save.no_engines_at[ne_i] = 0 if Save.no_engines_at[ne_i] != 0 else 1
 		Save.write_file()
-		_show_select()
+		if screen == SCREEN_DETAIL:
+			_show_detail()
+		else:
+			_show_select()
 	elif id == "noeng_bad":
 		Save.no_engines_bad = not Save.no_engines_bad
 		Save.write_file()
 		_show_menu()
-	elif id.begins_with("pick:"):
-		if not request_airport(int(id.substr(5))):
-			return                    # (its scenery is still being built: the card says so, and this carries on when it is there)
-		select_airport(int(id.substr(5)))
-		Airports.current = airport
-		airfield.select(airport)
-		_show_select()
+	elif id.begins_with("pick:") or id.begins_with("locked:"):
+		open_detail(int(id.get_slice(":", 1)))
 	elif id == "airport_prev" or id == "airport_next":
 		_cycle_airport(-1 if id == "airport_prev" else 1)
 	elif id == "upgrades":
@@ -1377,12 +1406,16 @@ func _on_button(id: String) -> void:
 		show_ad("Reward: double your coins", func(): _double_coins(), SCREEN_OVER)
 	elif id.begins_with("upg:"):
 		buy_upgrade(id.substr(4))
+	elif id == "back" and screen == SCREEN_DETAIL:
+		close_detail()
 	elif id == "back" or id == "menu":
 		_show_menu()
 	elif id.begins_with("airport:"):
 		daily_mode = false
 		bad_mode = false
 		select_airport(int(id.substr(8)))
+		Airports.current = airport
+		airfield.select(airport)
 		begin_shift()
 	# Buying is judged by whether it cost anything.
 	if id.begins_with("upg:"):
@@ -1720,6 +1753,45 @@ func _cycle_airport(dir: int) -> void:
 	airfield.show_active(wind)
 	_show_menu()
 
+## An airport card was tapped: its detail screen (the tests call this directly). A locked airport opens the same screen, view only.
+## Its scenery is built first if it is not there yet (the card says "Loading...").
+func open_detail(i: int) -> void:
+	i = clampi(i, 0, Airports.COUNT - 1)
+	if not airfield.is_built(i):
+		_wanted_detail = true
+		request_airport(i)
+		return
+	detail_airport = i
+	Airports.current = i                # (the field behind follows: it is idle there, with the same autopilot traffic as the menu's)
+	airfield.select(i)
+	airfield.show_active(wind)
+	_dt_touch.clear()
+	_dt_dist = 0.0
+	screen = SCREEN_DETAIL
+	alive = false
+	_show_detail()
+
+func close_detail() -> void:
+	detail_airport = -1
+	Airports.current = airport
+	airfield.select(airport)
+	airfield.show_active(wind)
+	_show_select()
+
+func _show_detail() -> void:
+	var i := detail_airport
+	var th := Tuning.star_thresholds(i)
+	var pay := maxf(Ramp.mean_pay(i), 1.0)
+	var need := PackedInt32Array()
+	for k in 3:
+		need.append(maxi(ceili(float(th[k]) / pay), 1))
+	hud.show_detail({
+		"i": i, "name": Airports.airport_name(i), "tag": Airports.tag(i), "open": Save.airport_open(i), "lock": Airports.unlock_stars(i),
+		"stars": Save.stars_of(i), "best": Save.best_for(i), "coins": th, "land": need,
+		"no_engines": Save.no_engines_at[i] != 0, "no_engines_ok": Save.stars_of(i) >= 3 and Save.airport_open(i),
+		"no_engines_mult": Tuning.no_engines_pay_mult,
+	})
+
 func _show_select() -> void:
 	screen = SCREEN_SELECT
 	alive = false
@@ -1732,7 +1804,42 @@ func _show_select() -> void:
 		best.append(Save.best_for(i))
 	hud.show_select(Save.stars_total(), open, stars, best, airport, Save.no_engines_at)
 
+## The distance between two fingers on the detail view (0 with fewer).
+func _dt_fingers_dist() -> float:
+	if _dt_touch.size() < 2:
+		return 0.0
+	var ks := _dt_touch.keys()
+	return (_dt_touch[ks[0]] as Vector2).distance_to(_dt_touch[ks[1]])
+
+## Fingers on the detail view: one pans, two pinch (and pan with their midpoint). `detail_zoom` and `detail_pan` follow them.
+func detail_gesture(index: int, pos: Vector2) -> void:
+	if not _dt_touch.has(index):
+		return
+	var vp := get_viewport().get_visible_rect().size
+	var before: Vector2 = _dt_touch[index]
+	var s_now := view_size * DETAIL_FACTOR * detail_zoom
+	var per_px := s_now / vp.x                              # world units per pixel across
+	var n_before := _dt_touch.size()
+	var mid0 := Vector2.ZERO
+	for q in _dt_touch.values():
+		mid0 += q / float(n_before)
+	_dt_touch[index] = pos
+	var mid1 := Vector2.ZERO
+	for q in _dt_touch.values():
+		mid1 += q / float(n_before)
+	var d := (mid1 - mid0) * per_px
+	detail_pan -= Vector2(d.x, d.y / cos(deg_to_rad(Tuning.camera_tilt_deg)))
+	if n_before >= 2:
+		var dist := _dt_fingers_dist()
+		if _dt_dist > 20.0 and dist > 20.0:
+			detail_zoom = clampf(detail_zoom * _dt_dist / dist, DETAIL_ZOOM_MIN, DETAIL_ZOOM_MAX)
+		_dt_dist = dist
+	detail_pan = Vector2(clampf(detail_pan.x, -4.0, 4.0), clampf(detail_pan.y, -7.0, 7.0))
+
 func _touch_move(index: int, pos: Vector2) -> void:
+	if screen == SCREEN_DETAIL:
+		detail_gesture(index, pos)
+		return
 	if _slider_drag >= 0:
 		_set_volume(_slider_drag, hud.slider_set(_slider_drag, pos.x))
 		return
@@ -1774,6 +1881,8 @@ func feed_drag(w: Vector2) -> void:
 		_cancel_drag()
 
 func _touch_up(index: int, pos: Vector2) -> void:
+	if _dt_touch.erase(index):
+		_dt_dist = _dt_fingers_dist()
 	var pressed_id := hud.pressed_id()
 	hud.release()
 	if pressed_id != "" and screen != SCREEN_PLAY and hud.button_at(pos) == pressed_id:
@@ -1824,10 +1933,16 @@ func _update_camera() -> void:
 	camera.h_offset = shake_offset.x
 	camera.v_offset = shake_offset.y
 	var tilt := deg_to_rad(Tuning.camera_tilt_deg)
-	camera.size = view_size
+	var k := smoothstep(0.0, 1.0, detail_t)
+	var size_now := view_size * lerpf(1.0, DETAIL_FACTOR * detail_zoom, k)
+	camera.size = size_now
 	camera.near = Tuning.camera_near
 	camera.far = Tuning.camera_near + (Tuning.camera_far - Tuning.camera_near) * (256.0 if DebugFlags.lowz_enabled() else 1.0)
 	camera.position = Vector3(0, cos(tilt), sin(tilt)) * 30.0
+	if k > 0.0:        # the detail screen: the field sits in the top two thirds (the camera moves south), shifted by the player's pan
+		var vp := get_viewport().get_visible_rect().size
+		var down := vp.y / 6.0 * (size_now / vp.x) / cos(tilt)
+		camera.position += Vector3(detail_pan.x * k, 0.0, (down + detail_pan.y) * k)
 	camera.rotation = Vector3(-(PI / 2 - tilt), 0, 0)
 
 ## The screen spans z = -half .. +half (stretched slightly by the camera tilt).

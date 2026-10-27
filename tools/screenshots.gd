@@ -51,6 +51,28 @@ func _initialize() -> void:
 			for name in airports_arg.split(","):
 				var idx := _airport_index(name)
 				await _cozy_shots(save, idx, "_" + name)
+	elif only == "detail":
+		save.coins = 240
+		save.stars[2 * save.STARS_PER_AIRPORT] = 1
+		save.stars[2 * save.STARS_PER_AIRPORT + 1] = 1
+		save.best_coins[2] = 120
+		for idx in [2, 4]:
+			main.open_detail(idx)
+			for i in 90:
+				await process_frame
+			await _shot("detail_%d" % idx)
+		save.unlocks["all_airports"] = true
+		for k in 3:
+			save.stars[2 * save.STARS_PER_AIRPORT + k] = 1
+		main.open_detail(2)
+		for i in 60:
+			await process_frame
+		main.detail_zoom = 0.6
+		main.detail_pan = Vector2(1.2, -1.0)
+		main._dt_touch[0] = Vector2(100, 100)
+		for i in 10:
+			await process_frame
+		await _shot("detail_zoomed")
 	elif only == "layout":
 		for idx in Airports.COUNT:
 			if airports_arg == "" or airports_arg.split(",").has(str(idx)) or airports_arg.split(",").has(Airports.airport_name(idx).to_lower().replace(" ", "_")):
