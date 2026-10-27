@@ -122,6 +122,7 @@ func _ready() -> void:
 	_update_camera()
 	overlay.traffic = traffic
 	overlay.wind = wind
+	overlay.airfield = airfield
 	traffic.wind = wind
 	airfield.wind = wind
 	airfield.traffic = traffic

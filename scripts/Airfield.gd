@@ -23,6 +23,9 @@ class AirportScene:
 	var occupied: Array = []            # [centre, radius] of what is built on the field (kept clear of upgrade props, tufts, ...)
 	var thr_mats: Array[StandardMaterial3D] = []   # runway * 2 + end
 	var thr_colors: Array[Color] = []
+	var chev_mats: Array[StandardMaterial3D] = []     # the approach chevrons on the ground, one material per runway end (runway * 2 + end)
+	var chev_cols: Array[Color] = []
+	var chev_mix := PackedFloat32Array()              # 1 = in use for the wind (full colour), 0 = unlit grey; it fades between over SWING_SECONDS
 	var thr_labels: Array[Label3D] = []      # the runway numbers, runway * 2 + end
 	var glow_born: Array[int] = []
 	var active: Array[bool] = []
@@ -96,6 +99,8 @@ var _sock_deg := 0.0
 # Wind you can always see: thin cream streaks drift across the field the way the air is going, the grass leans, the trees sway, the pond ripples.
 const STREAKS := 12
 const SWING_SECONDS := 1.2
+const CHEV_OFF := Color(0.62, 0.64, 0.68)        # an approach chevron nobody lands toward: desaturated grey
+const CHEV_OFF_ALPHA := 0.35
 var _st_mm: MultiMesh
 var _st_node: MultiMeshInstance3D
 var _st_mat: StandardMaterial3D
@@ -866,8 +871,12 @@ func _runway(v: AirportScene, i: int) -> void:
 ## together toward it (Airports.approach_chevrons). Each arm is a thin box; what is logged in `v.chevrons` is read back from the built
 ## arms (the V's pointing direction), so the test checks what is really on the ground.
 func _chevrons(v: AirportScene, i: int, col: Color) -> void:
-	var chev := Prim.mat(col.lerp(v.base_ground, 0.15))
 	for e in 2:
+		var chev := Prim.mat(col.lerp(v.base_ground, 0.15))
+		chev.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		v.chev_mats.append(chev)
+		v.chev_cols.append(chev.albedo_color)
+		v.chev_mix.append(1.0)
 		for c in Airports.approach_chevrons(i, e):
 			var u: Vector2 = c["dir"]
 			var side := Vector2(-u.y, u.x)
@@ -1660,6 +1669,26 @@ func show_active(w: Wind) -> void:
 		for e in 2:
 			cur.active[r * 2 + e] = w.is_active(r, e)
 
+## How lit the approach chevrons at runway `r` end `e` are right now: 1 = full colour (in use for the wind), 0 = unlit.
+func chevron_mix(r: int, e: int) -> float:
+	return cur.chev_mix[r * 2 + e] if cur != null and r * 2 + e < cur.chev_mix.size() else 1.0
+
+var _chev_for: AirportScene = null
+func _fade_chevrons(delta: float) -> void:
+	var snap := _chev_for != cur
+	_chev_for = cur
+	var step := 1.0 if snap else delta / SWING_SECONDS
+	for k in cur.chev_mats.size():
+		var target := 1.0 if cur.active[k] else 0.0
+		cur.chev_mix[k] = move_toward(cur.chev_mix[k], target, step)
+		var mix := cur.chev_mix[k]
+		var c: Color = cur.chev_cols[k]
+		var m := cur.chev_mats[k]
+		var out := CHEV_OFF.lerp(c, mix)
+		out.a = lerpf(CHEV_OFF_ALPHA, 1.0, mix)
+		if not m.albedo_color.is_equal_approx(out):
+			m.albedo_color = out
+
 ## The pre-warm draws every airport at once; afterwards only the current one stays visible.
 func show_all(on: bool) -> void:
 	for i in variants.size():
@@ -1673,6 +1702,7 @@ func reset() -> void:
 	for v in variants:
 		if v != null:
 			v.glow_born.fill(0)
+	_chev_for = null          # (the chevrons snap to the new shift's wind, no fade)
 	_ramp_clear()
 	_last_from = -1.0
 	_gust_t = 0.0
@@ -1696,6 +1726,7 @@ func _process(delta: float) -> void:
 		Prim.paint(m, cur.thr_colors[k] if on else Color(0.38, 0.39, 0.42))
 		Prim.glow(m, (0.45 if on else 0.0) + flash)
 		cur.thr_labels[k].modulate = (cur.thr_colors[k].lerp(Color.WHITE, 0.12) if on else Color(0.62, 0.63, 0.66))
+	_fade_chevrons(delta)
 	if DebugFlags.life_enabled():
 		_animate_ground(delta, now)
 		_animate_life(delta)

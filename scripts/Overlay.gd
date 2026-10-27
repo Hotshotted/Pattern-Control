@@ -9,6 +9,7 @@ const RIPPLES := 8
 
 var traffic: Traffic
 var wind: Wind
+var airfield: Airfield                 # (its chevron_mix says how lit each end's approach guide is while it fades)
 var camera: Camera3D
 var xf := Transform2D.IDENTITY       # world (x, z) -> viewport pixels
 var inv := Transform2D.IDENTITY
@@ -265,21 +266,25 @@ func _draw_runway_markers(t: float) -> void:
 				var r := Tuning.approach_radius * (1.0 + 0.08 * pulse if hot else 1.0)
 				_c.draw_arc(thr, r, 0.0, TAU, 40, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.18), 0.14)
 				_c.draw_arc(thr, r, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.95 if hot else 0.7), 0.08)
-				# Approach funnel: two dashed lines opening out behind the threshold, with chevrons (it stops short of the interface).
-				var fl := _funnel_len(i, e, thr, dir)
-				var far := thr - dir * fl
-				var spread := 0.35 + 1.4 * fl / 3.4
+			# Approach funnel: two dashed lines opening out behind the threshold, with chevrons (it stops short of the interface).
+			var mix := airfield.chevron_mix(i, e) if airfield != null else (1.0 if active else 0.0)
+			var fl := _funnel_len(i, e, thr, dir)
+			var far := thr - dir * fl
+			var spread := 0.35 + 1.4 * fl / 3.4
+			if mix > 0.01:
 				for s in [-1.0, 1.0]:
-					_c.draw_dashed_line(thr + side * s * 0.35, far + side * s * spread, Color(col.r, col.g, col.b, 0.55), 0.07, 0.25)
-				var chevs := Airports.approach_chevrons(i, e)
-				for k in chevs.size():
-					if float(chevs[k]["dist"]) > fl + 0.05:
-						continue
-					var c: Vector2 = chevs[k]["pos"]
-					var cd: Vector2 = chevs[k]["dir"]
-					var a := 0.25 + 0.55 * clampf(1.0 - absf(fmod(t * 1.5, 3.0) - k), 0.0, 1.0)       # (the pulse runs in toward the threshold)
-					_c.draw_line(c - side * 0.3, c + cd * 0.3, Color(col.r, col.g, col.b, a), 0.09)
-					_c.draw_line(c + side * 0.3, c + cd * 0.3, Color(col.r, col.g, col.b, a), 0.09)
+					_c.draw_dashed_line(thr + side * s * 0.35, far + side * s * spread, Color(col.r, col.g, col.b, 0.55 * mix), 0.07, 0.25)
+			var chevs := Airports.approach_chevrons(i, e)
+			for k in chevs.size():
+				if float(chevs[k]["dist"]) > fl + 0.05:
+					continue
+				var c: Vector2 = chevs[k]["pos"]
+				var cd: Vector2 = chevs[k]["dir"]
+				var a := 0.25 + 0.55 * clampf(1.0 - absf(fmod(t * 1.5, 3.0) - k), 0.0, 1.0)       # (the pulse runs in toward the threshold)
+				var cc := Airfield.CHEV_OFF.lerp(col, mix)                                          # (unlit grey when the end is not in use)
+				cc.a = lerpf(Airfield.CHEV_OFF_ALPHA, a, mix)
+				_c.draw_line(c - side * 0.3, c + cd * 0.3, cc, 0.09)
+				_c.draw_line(c + side * 0.3, c + cd * 0.3, cc, 0.09)
 			if changing and sin(t * 9.0) > 0.0:
 				_c.draw_arc(thr, Tuning.approach_radius + 0.25, 0.0, TAU, 40, Color(1, 0.95, 0.4, 0.9), 0.1)
 

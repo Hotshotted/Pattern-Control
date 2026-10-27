@@ -5425,6 +5425,39 @@ func _initialize() -> void:
 	Airports.current = 0
 	check(tx_ok, "a landing rolls out to the point before its turn-off, on the runway, not to the far end")
 
+	print("30. Approach chevrons at ends nobody lands toward are unlit")
+	main.select_airport(2)
+	main.restart()
+	main.traffic.auto_spawn = false
+	var cv_af = main.airfield
+	main.wind.from_deg = 0.0
+	main.wind.refresh()
+	cv_af.show_active(main.wind)
+	cv_af._process(0.01)
+	var cv_ok := true
+	var cv_on := 0
+	var cv_off := 0
+	for cv_r in Airports.rw_count():
+		for cv_e in 2:
+			var cv_m = cv_af.cur.chev_mats[cv_r * 2 + cv_e]
+			if main.wind.is_active(cv_r, cv_e):
+				cv_on += 1
+				cv_ok = cv_ok and is_equal_approx(cv_m.albedo_color.a, 1.0) and cv_m.albedo_color.s > 0.2
+			else:
+				cv_off += 1
+				cv_ok = cv_ok and is_equal_approx(cv_m.albedo_color.a, 0.35) and cv_m.albedo_color.s < 0.12 and not cv_m.emission_enabled
+	check(cv_on > 0 and cv_off > 0 and cv_ok, "chevrons on the ends in use keep their colour, the others are grey at 35%% with no glow (%d lit, %d unlit)" % [cv_on, cv_off])
+	main.wind.from_deg = 180.0
+	main.wind.refresh()
+	cv_af.show_active(main.wind)
+	cv_af._process(0.6)
+	var cv_mid = cv_af.chevron_mix(0, 0)
+	check(cv_mid > 0.2 and cv_mid < 0.8, "a wind shift fades them over 1.2 s: halfway the mix is %.2f" % cv_mid)
+	cv_af._process(0.7)
+	var cv_a0 = cv_af.cur.chev_mats[0].albedo_color.a
+	var cv_a1 = cv_af.cur.chev_mats[1].albedo_color.a
+	check(is_equal_approx(minf(cv_a0, cv_a1), 0.35) and is_equal_approx(maxf(cv_a0, cv_a1), 1.0), "...and after 1.2 s the active and inactive ends have swapped")
+
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
 	if failures.is_empty():
