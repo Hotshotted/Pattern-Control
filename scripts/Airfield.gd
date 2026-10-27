@@ -72,6 +72,7 @@ class AirportScene:
 	var patch_mat: StandardMaterial3D        # the darker mown patches
 	var trunk_mat: StandardMaterial3D
 	var tree_styles: Array = [[], [], []]   # per tree style: the holders to show
+	var chevrons: Array = []            # the approach guides as built: {rw, end, pos, dir (the way the V points)}
 	var strips: Array = []              # taxiway strips [from, to] (world x, z): ground vehicles drive along them
 	var veh: Array[Node3D] = []         # ground vehicles
 	var veh_strip := PackedInt32Array()
@@ -848,19 +849,7 @@ func _runway(v: AirportScene, i: int) -> void:
 		await _slice()
 		Prim.box(root, Vector3(0.09, 0.14, 0.36), Vector3(0, 0.07, (k - 2) * 1.0), white, false)
 		await _slice()
-	# Approach chevrons in the runway's colour: three Vs on the grass before each end, pointing at the runway.
-	var chev := Prim.mat(col.lerp(v.base_ground, 0.15))
-	await _slice()
-	for e in 2:
-		await _slice()
-		var sg := 1.0 if e == 0 else -1.0
-		await _slice()
-		for k in 3:
-			await _slice()
-			for sd in [-1.0, 1.0]:
-				await _slice()
-				var arm := Prim.box(root, Vector3(0.5, 0.03, 0.09), Vector3(sd * 0.2, 0.02, sg * (len * 0.5 + 0.95 + k * 0.42) + sg * 0.1), chev, false)
-				arm.rotation.y = deg_to_rad(sg * sd * 32.0)
+	await _chevrons(v, i, col)
 	Prim.lift(root)       # runways are drawn above the fog
 	await _slice()
 	# Rubber streaks in the touchdown zones (20% black), and the runway numbers (cream, 80%).
@@ -912,6 +901,36 @@ func _runway(v: AirportScene, i: int) -> void:
 		await _slice()
 		Models.papi(root, Vector2(sdx * (w * 0.5 + 0.4), sg * (len * 0.5 - 2.7)), sdx)
 		await _slice()
+
+## The approach guide on the grass before each runway end: three Vs in the runway's colour whose points face the threshold, closer
+## together toward it (Airports.approach_chevrons). Each arm is a thin box; what is logged in `v.chevrons` is read back from the built
+## arms (the V's pointing direction), so the test checks what is really on the ground.
+func _chevrons(v: AirportScene, i: int, col: Color) -> void:
+	var chev := Prim.mat(col.lerp(v.base_ground, 0.15))
+	for e in 2:
+		for c in Airports.approach_chevrons(i, e):
+			var u: Vector2 = c["dir"]
+			var side := Vector2(-u.y, u.x)
+			var apex: Vector2 = (c["pos"] as Vector2) + u * 0.12
+			var outers: Array[Vector2] = []
+			var apexes: Array[Vector2] = []
+			for sd in [-1.0, 1.0]:
+				var arm_v: Vector2 = -u * 0.22 + side * sd * 0.36            # from the point back and out
+				var mid := apex + arm_v * 0.5
+				var arm := Prim.box(v.root, Vector3(arm_v.length() + 0.08, 0.03, 0.09), Vector3(mid.x, 0.02, mid.y), chev, false)
+				arm.rotation.y = atan2(-arm_v.y, arm_v.x)
+				Prim.lift(arm)
+				var ax := Vector2(arm.transform.basis.x.x, arm.transform.basis.x.z).normalized()
+				var half := (arm_v.length() + 0.08) * 0.5
+				var e1 := mid + ax * half
+				var e2 := mid - ax * half
+				var near_e := e1 if absf((e1 - c["pos"]).dot(side)) < absf((e2 - c["pos"]).dot(side)) else e2
+				apexes.append(near_e)
+				outers.append(e2 if near_e == e1 else e1)
+				await _slice()
+			var tip := (apexes[0] + apexes[1]) * 0.5
+			var tail := (outers[0] + outers[1]) * 0.5
+			v.chevrons.append({"rw": i, "end": e, "pos": c["pos"], "dir": (tip - tail).normalized()})
 
 ## A parallel taxiway beside each runway that has room for one: asphalt strip, yellow centre dashes and two stubs to the
 ## runway. All of it lies on the ground, under everything that moves.

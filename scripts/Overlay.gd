@@ -271,13 +271,15 @@ func _draw_runway_markers(t: float) -> void:
 				var spread := 0.35 + 1.4 * fl / 3.4
 				for s in [-1.0, 1.0]:
 					_c.draw_dashed_line(thr + side * s * 0.35, far + side * s * spread, Color(col.r, col.g, col.b, 0.55), 0.07, 0.25)
-				for k in 3:
-					if 1.5 + k * 0.7 > fl + 0.05:
+				var chevs := Airports.approach_chevrons(i, e)
+				for k in chevs.size():
+					if float(chevs[k]["dist"]) > fl + 0.05:
 						continue
-					var c := thr - dir * (1.5 + k * 0.7)
-					var a := 0.25 + 0.55 * clampf(1.0 - absf(fmod(t * 1.5, 3.0) - k), 0.0, 1.0)
-					_c.draw_line(c - side * 0.3, c + dir * 0.3, Color(col.r, col.g, col.b, a), 0.09)
-					_c.draw_line(c + side * 0.3, c + dir * 0.3, Color(col.r, col.g, col.b, a), 0.09)
+					var c: Vector2 = chevs[k]["pos"]
+					var cd: Vector2 = chevs[k]["dir"]
+					var a := 0.25 + 0.55 * clampf(1.0 - absf(fmod(t * 1.5, 3.0) - k), 0.0, 1.0)       # (the pulse runs in toward the threshold)
+					_c.draw_line(c - side * 0.3, c + cd * 0.3, Color(col.r, col.g, col.b, a), 0.09)
+					_c.draw_line(c + side * 0.3, c + cd * 0.3, Color(col.r, col.g, col.b, a), 0.09)
 			if changing and sin(t * 9.0) > 0.0:
 				_c.draw_arc(thr, Tuning.approach_radius + 0.25, 0.0, TAU, 40, Color(1, 0.95, 0.4, 0.9), 0.1)
 

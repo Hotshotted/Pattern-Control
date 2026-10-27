@@ -206,6 +206,18 @@ static func end_dir(i: int, e: int) -> Vector2:
 	var h := deg_to_rad(end_heading_deg(i, e))
 	return Vector2(sin(h), -cos(h))
 
+## The approach guide in front of a runway end: three chevrons on the extended centreline, each a V whose point is toward the threshold,
+## closer together as they near it. `pos` is where a chevron stands, `dir` the way its point faces (always toward the threshold).
+const CHEVRON_DIST := [3.1, 2.1, 1.3]          # behind the threshold, farthest first (gaps 1.0, 0.8)
+
+static func approach_chevrons(i: int, e: int) -> Array:
+	var thr := end_threshold(i, e)
+	var dir := end_dir(i, e)
+	var out: Array = []
+	for d in CHEVRON_DIST:
+		out.append({"pos": thr - dir * float(d), "dir": dir, "dist": float(d)})
+	return out
+
 ## The approach end of end `e`: where a path must finish to land there (planes land away from it).
 static func end_threshold(i: int, e: int) -> Vector2:
 	return rw_center(i) - end_dir(i, e) * rw_length(i) * 0.5

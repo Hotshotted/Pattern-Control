@@ -5238,6 +5238,7 @@ func _initialize() -> void:
 	# The airport card: only with three stars.
 	save.reset_all()
 	main._show_menu()
+	main.select_airport(0)          # (Bad Pilot Day moved the selection to its own airport, which depends on the date)
 	main._show_select()
 	main.hud.skip_animations()
 	check(main.hud._art.btn_id.find("noeng:%d" % main.airport) < 0, "an airport with fewer than three stars has no No engines switch")
@@ -5267,6 +5268,38 @@ func _initialize() -> void:
 	save.reset_all()
 	main.restart()
 	tr.auto_spawn = false
+
+	print("27. The approach guides point in")
+	var ch_bad := []
+	var ch_n := 0
+	var ch_spacing := true
+	for ch_a in Airports.COUNT:
+		Airports.current = ch_a
+		var ch_v = main.airfield.variants[ch_a]
+		if ch_v == null:
+			main.airfield.ensure(ch_a)
+			ch_v = main.airfield.variants[ch_a]
+		check(ch_v.chevrons.size() == Airports.rw_count() * 2 * 3, "%s: three approach chevrons at each runway end are on the ground (%d)" % [Airports.airport_name(ch_a), ch_v.chevrons.size()])
+		for ch in ch_v.chevrons:
+			var ch_thr = Airports.end_threshold(ch["rw"], ch["end"])
+			var ch_want = (ch_thr - ch["pos"]).normalized()
+			var ch_deg = rad_to_deg(ch["dir"].angle_to(ch_want))
+			ch_n += 1
+			if absf(ch_deg) > 10.0:
+				ch_bad.append("%s %d/%d (%.0f deg)" % [Airports.airport_name(ch_a), ch["rw"], ch["end"], ch_deg])
+		for ch_r in Airports.rw_count():
+			for ch_e in 2:
+				var ch_list = Airports.approach_chevrons(ch_r, ch_e)
+				var ch_g1 = ch_list[0]["dist"] - ch_list[1]["dist"]
+				var ch_g2 = ch_list[1]["dist"] - ch_list[2]["dist"]
+				if not (ch_g1 > ch_g2 and ch_g2 > 0.0):
+					ch_spacing = false
+				for ch2 in ch_list:
+					if absf(rad_to_deg(ch2["dir"].angle_to((Airports.end_threshold(ch_r, ch_e) - ch2["pos"]).normalized()))) > 10.0:
+						ch_bad.append("data %d/%d" % [ch_r, ch_e])
+	Airports.current = 0
+	check(ch_n > 0 and ch_bad.is_empty(), "every approach chevron, as built at every runway end of every airport, points within 10 degrees of toward its threshold (%d checked) %s" % [ch_n, str(ch_bad.slice(0, 4))])
+	check(ch_spacing, "...and they get closer together toward the threshold")
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
