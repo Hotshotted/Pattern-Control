@@ -51,6 +51,10 @@ func _initialize() -> void:
 			for name in airports_arg.split(","):
 				var idx := _airport_index(name)
 				await _cozy_shots(save, idx, "_" + name)
+	elif only == "layout":
+		for idx in Airports.COUNT:
+			if airports_arg == "" or airports_arg.split(",").has(str(idx)) or airports_arg.split(",").has(Airports.airport_name(idx).to_lower().replace(" ", "_")):
+				await _layout_shots(save, idx)
 	elif only == "polish":
 		await _game_feel_shots(save)
 	else:
@@ -369,6 +373,51 @@ func _cozy_shots(save, ap: int, tag: String) -> void:
 	tr.run_time = main.get_node("/root/Tuning").par_eff() - 4.0
 	main.step(1.0 / 60.0)
 	await _shot("%s%s_results" % [prefix, tag])
+
+## The layout shots (docs/screens/layout_<airport>_{menu,shift,results}.png): the menu, mid-shift with aircraft taxiing along the
+## graph (landed on every runway end and stepped on a few seconds) and parked, and the results card.
+func _layout_shots(save, ap: int) -> void:
+	var tag := Airports.airport_name(ap).to_lower().replace(" ", "_")
+	save.coins = 240
+	for k in 6:
+		save.stars[k] = 2
+	save.unlocks["all_airports"] = true
+	main.select_airport(ap)
+	main._show_menu()
+	for i in 240:
+		await process_frame
+	await _shot("layout_%s_menu" % tag)
+	main.select_airport(ap)
+	main.restart()
+	var tr = main.traffic
+	tr.auto_spawn = false
+	tr.grace_until = 9999.0
+	var types := [2, 3, 2, 4, 2, 3, 2, 3]
+	var n := 0
+	for r in Airports.rw_count():
+		for e in 2:
+			main.airfield.begin_taxi(types[n % types.size()], 0, r, e, false, n % 3)
+			n += 1
+			for i in 50:
+				main.airfield.step_taxi(1.0 / 20.0)
+				main.step(1.0 / 60.0)
+	for i in 20:
+		main.airfield.step_taxi(1.0 / 20.0)
+	main.shift.on_landed(3, 14, 0)
+	main.shift.on_landed(3, 14, 0)
+	main.hud.set_shift(main.shift)
+	await _shot("layout_%s_shift" % tag)
+	tr.release_all()
+	main._show_menu()
+	main.restart()
+	tr.auto_spawn = false
+	for k in 12:
+		main.shift.on_landed(3, 14, 0)
+	main.shift.fine(40, "conflict")
+	main.hud.set_shift(main.shift)
+	tr.run_time = main.get_node("/root/Tuning").par_eff() - 4.0
+	main.step(1.0 / 60.0)
+	await _shot("layout_%s_results" % tag)
 
 ## The game-feel polish: a mid-shift with aircraft taxiing and parked on the ramp, and the results card (docs/screens/polish_<n>_*.png).
 func _game_feel_shots(save) -> void:

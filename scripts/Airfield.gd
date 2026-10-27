@@ -311,7 +311,7 @@ func _build_scene(v: AirportScene) -> void:
 	for d in Airports.decor():
 		var m := Prim.mat(d["color"])
 		if d["shape"] == "disc":
-			Prim.cyl(root, d["r"], d["r"], 0.06, d["sides"], Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
+			Prim.cyl(root, d["r"], d["r"], 0.02, d["sides"], Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
 		else:
 			Prim.box(root, Vector3(d["size"].x, 0.04, d["size"].y), Vector3(d["pos"].x, d["y"], d["pos"].y), m, false)
 		await _slice()
@@ -825,8 +825,16 @@ func _runway(v: AirportScene, i: int) -> void:
 		for k in bars:
 			var bx := (float(k) - float(bars - 1) * 0.5) * ((w - 0.34) / float(bars - 1))
 			Prim.box(root, Vector3(0.07, 0.012, 0.36), Vector3(bx, y, sg * (len * 0.5 - 0.3)), white, false)
+		var aim := minf(3.2, len * 0.5 - 0.8)          # (a short runway has none: its number and the far end's would meet)
 		for sd in [-1.0, 1.0]:
-			Prim.box(root, Vector3(0.1, 0.012, 0.7), Vector3(sd * w * 0.24, y, sg * (len * 0.5 - 3.2)), white, false)
+			var hr: float = deg_to_rad(hdg)
+			var at: Vector2 = Airports.rw_center(i) + Vector2(cos(hr), sin(hr)) * sd * w * 0.24 - Vector2(sin(hr), -cos(hr)) * sg * (len * 0.5 - aim)
+			var covered := false
+			for j in Airports.rw_count():
+				if j != i and Taxi.in_box(at, Taxi.rw_box(j, 0.5)):
+					covered = true
+			if aim >= 2.3 and not covered:
+				Prim.box(root, Vector3(0.1, 0.012, 0.7), Vector3(sd * w * 0.24, y, sg * (len * 0.5 - aim)), white, false)
 		await _slice()
 		var num := posmod(roundi((hdg + 180.0 * e) / 10.0), 36)
 		var lab := Label3D.new()
@@ -845,7 +853,7 @@ func _runway(v: AirportScene, i: int) -> void:
 		Models.papi(root, Vector2(sdx * (w * 0.5 + 0.4), sg * (len * 0.5 - 2.7)), sdx)
 		await _slice()
 	# the dashed centreline, between the aiming blocks, skipping what another runway covers
-	for run in Taxi.clear_runs(i, 0.0, -(len * 0.5 - 4.2), len * 0.5 - 4.2, 0.1):
+	for run in Taxi.clear_runs(i, 0.0, -(len * 0.5 - 2.4), len * 0.5 - 2.4, 0.1):
 		var z: float = run[0] + 0.15
 		while z + 0.3 <= float(run[1]) + 0.02:
 			Prim.box(root, Vector3(0.07, 0.012, 0.3), Vector3(0, y, z + 0.15), white, false)
@@ -888,9 +896,17 @@ func _chevrons(v: AirportScene, i: int, col: Color) -> void:
 func _flat(parent: Node3D, tris: PackedVector2Array, y: float, m: StandardMaterial3D) -> MeshInstance3D:
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
-	for p in tris:
-		verts.append(Vector3(p.x, y, p.y))
-		norms.append(Vector3.UP)
+	for k in range(0, tris.size() - 2, 3):
+		var a := tris[k]
+		var b := tris[k + 1]
+		var c := tris[k + 2]
+		if (b - a).cross(c - a) < 0.0:          # one winding for all of them (a back face is lit from below)
+			var t := b
+			b = c
+			c = t
+		for q in [a, b, c]:
+			verts.append(Vector3(q.x, y, q.y))
+			norms.append(Vector3.UP)
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -949,7 +965,7 @@ func _pavement(v: AirportScene) -> void:
 		return
 	var pal: Dictionary = PALETTE[Airports.style()]
 	var grey := Prim.mat(pal["apron"])
-	var yellow := Prim.mat(Color("e6c35a"))
+	var yellow := Prim.mat(Color("f2cf4e"))
 	var tris := PackedVector2Array()
 	for e in n["edges"]:
 		_quad(tris, Taxi.pos(n, e[0]), Taxi.pos(n, e[1]), Taxi.WIDTH * 0.5)
@@ -976,8 +992,7 @@ func _pavement(v: AirportScene) -> void:
 				continue
 			_fan(tris, Taxi.fillet(p, rs[a], rs[b], Taxi.FILLET))
 		await _slice()
-	var pave := _flat(v.root, tris, 0.034, grey)
-	Prim.lift(pave)
+	_flat(v.root, tris, 0.034, grey)
 	# the yellow centrelines
 	var ltris := PackedVector2Array()
 	for pl in Taxi.lines(n):
@@ -1007,10 +1022,8 @@ func _pavement(v: AirportScene) -> void:
 					_quad(holds, a0, a0 + side * Taxi.WIDTH / 10.0, 0.012)
 		signs.append([h, side, String(e[2])])
 	await _slice()
-	var marks := _flat(v.root, ltris, 0.04, yellow)
-	Prim.lift(marks)
-	var hm := _flat(v.root, holds, 0.041, yellow)
-	Prim.lift(hm)
+	_flat(v.root, ltris, 0.04, yellow)
+	_flat(v.root, holds, 0.041, yellow)
 	# the taxiway signs: a black letter on a yellow plate on a short post, beside the hold-short line
 	for sg in signs:
 		var h: Vector2 = sg[0]
