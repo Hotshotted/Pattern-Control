@@ -538,6 +538,36 @@ func _initialize() -> void:
 	main.step(1.0 / 60.0)
 	check(not main.alive and main.over_header == main.HEADER_DONE and main.hud._over.visible, "the shift ends at the clock")
 	check(save.coins == coins0 and main.shift.stars() == 0, "...earning no coins and no stars (%d -> %d)" % [coins0, save.coins])
+	# The pay floor: a completed shift pays at least 25% of its gross; fines cut the pay down to it and no further.
+	var payfl = Shift.new()
+	payfl.reset([1, 50, 100])
+	payfl.on_landed(2, 100, 20)
+	payfl.set_finish(10.0, 25.0, 6)
+	check(payfl.gross() == 210 and payfl.kept() == 52 and payfl.keep_fraction == 0.25, "the floor is 25%% of the gross (landing pay + bonuses + early bonus): %d of %d" % [payfl.kept(), payfl.gross()])
+	payfl.fine(100, "conflict")
+	check(payfl.payout() == payfl.balance() and not payfl.is_protected(), "a small fine comes straight off the pay (%d)" % payfl.payout())
+	payfl.fine(400, "crash")
+	check(payfl.balance() < 0 and payfl.payout() == payfl.kept() and payfl.is_protected(), "a huge fine cannot take the pay under the floor (net %d, pay %d)" % [payfl.balance(), payfl.payout()])
+	check(not payfl.star_reached(1) and payfl.crashes == 1, "...but the net still counts against the stars")
+	payfl.reset([1, 50, 100])
+	check(payfl.payout() == 0 and not payfl.is_protected(), "a shift with nothing earned pays nothing")
+	# On the results card: "Shift pay protected" when the floor is what pays.
+	main.restart()
+	tr.auto_spawn = false
+	earn_coins(main, 120)
+	main.shift.fine(900, "conflict")
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.par_eff() + 0.01
+	main.step(1.0 / 30.0)
+	check(main.shift.is_protected() and main.shift.payout() == main.shift.kept() and main.last_result["reason"].contains("Shift pay protected"), "the results list says the shift pay was protected")
+	check(main.hud._art.res_protected == main.shift.kept() - main.shift.balance() and main.hud._art.res_protected > 0, "...and the results card shows it (+%d from the floor)" % main.hud._art.res_protected)
+	# Abandoning a shift pays nothing.
+	main.restart()
+	tr.auto_spawn = false
+	var coins_ab = save.coins
+	earn_coins(main, 150)
+	main._on_button("quit")
+	check(main.screen == main.SCREEN_MENU and save.coins == coins_ab, "leaving a shift from the pause menu pays nothing (%d -> %d)" % [coins_ab, save.coins])
 	# Landing in time saves it.
 	main.restart()
 	set_wind(main, 0.0)
@@ -2558,20 +2588,20 @@ func _initialize() -> void:
 	tr.auto_spawn = false
 	# Shift bookkeeping on its own.
 	var sh = Shift.new()
-	sh.reset([50, 100, 160], 0.5)
+	sh.reset([50, 100, 160], 0.25)
 	sh.on_landed(MEDIUM, 100, 30)
-	check(sh.kept() == 50 and sh.balance() == 130 and sh.payout() == 130, "a clean shift pays everything: net 130, kept 50")
+	check(sh.kept() == 32 and sh.balance() == 130 and sh.payout() == 130, "a clean shift pays everything: net 130, floor 32 (25%% of the 130 gross)")
 	sh.fine(60, "conflict")
-	check(sh.balance() == 70 and sh.payout() == 70, "fines come off the bonuses and the other half of landing pay first (net 70)")
+	check(sh.balance() == 70 and sh.payout() == 70, "fines come off the pay first (net 70)")
 	sh.fine(400, "conflict")
-	check(sh.balance() == -330 and sh.payout() == 50 and sh.stars() == 0, "a disaster still pays the guaranteed half of landing pay (50), and earns no stars")
+	check(sh.balance() == -330 and sh.payout() == 32 and sh.stars() == 0, "a disaster still pays the floor (32), and earns no stars")
 	sh.set_overtime(30.0, 4)
-	check(sh.payout() == 50 and sh.balance() == -330 - 120, "overtime cannot cut into the guaranteed share either")
-	sh.reset([50, 100, 160], 0.5)
+	check(sh.payout() == 32 and sh.balance() == -330 - 120, "overtime cannot cut into the floor either")
+	sh.reset([50, 100, 160], 0.25)
 	sh.on_landed(MEDIUM, 100, 0)
 	sh.on_landed(MEDIUM, 25, 0)
-	check(sh.kept() == 62, "the guaranteed share rounds down (62 of 125)")
-	check(tuning.landing_keep_fraction == 0.5, "the guaranteed share is a Tuning value (50%%)")
+	check(sh.kept() == 31, "the floor rounds down (31 of 125)")
+	check(tuning.landing_keep_fraction == 0.25, "the floor share is a Tuning value (25%%)")
 	# A failed shift in the real game: lots of landings, then conflicts.
 	var coins_before = save.coins
 	earn_coins(main, 100)
@@ -2584,9 +2614,10 @@ func _initialize() -> void:
 	tr.spawn_until = 0.0
 	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
-	check(main.last_result["payout"] == earned_l / 2 and save.coins == coins_before + earned_l / 2, "a failed shift still pays the guaranteed half of landing pay (%d)" % (earned_l / 2))
+	var floor_l = main.shift.kept()
+	check(floor_l == earned_l / 4 and main.last_result["payout"] == floor_l and save.coins == coins_before + floor_l, "a failed shift still pays the floor, a quarter of the gross (%d)" % floor_l)
 	var body = main.hud._over_body.text
-	check(body.contains("Landings earned +%d" % earned_l) and body.contains("Fines -%d" % (6 * int(tuning.fine_conflict))) and body.contains("Guaranteed kept %d" % (earned_l / 2)) and body.contains("Net total (stars) %d" % main.shift.balance()) and body.contains("Total paid +%d" % (earned_l / 2)), "the results show landings earned, fines, kept and the total")
+	check(body.contains("Landings earned +%d" % earned_l) and body.contains("Fines -%d" % (6 * int(tuning.fine_conflict))) and body.contains("Pay floor (25%% of gross) %d" % floor_l) and body.contains("Shift pay protected +%d" % (floor_l - main.shift.balance())) and body.contains("Net total (stars) %d" % main.shift.balance()) and body.contains("Total paid +%d" % floor_l), "the results show landings earned, fines, the floor, the protected note and the total")
 	# A raised share is respected.
 	tuning.landing_keep_fraction = 0.8
 	main.restart()
@@ -4404,7 +4435,7 @@ func _initialize() -> void:
 	var after = snapshot(main)
 	check(same_world(base, after), "4 whole runs created nothing new  [%s]" % describe(after))
 	check(save.best_for(main.airport) == best_seen, "the best score is remembered (%d)" % save.best_for(main.airport))
-	check(main.hud._over_body.text.contains("Landings earned +%d" % main.shift.earned) and main.hud._over_body.text.contains("Guaranteed kept %d" % main.shift.kept()), "the results details list landings earned, fines, kept and the total")
+	check(main.hud._over_body.text.contains("Landings earned +%d" % main.shift.earned) and main.hud._over_body.text.contains("of gross) %d" % main.shift.kept()), "the results details list landings earned, fines, the pay floor and the total")
 	# The PLAY AGAIN button restarts in place; a tap on the empty results screen only skips the reveal.
 	var empty_tap = Vector2(540, 60)
 	main.hud._art.res_t = 0.0

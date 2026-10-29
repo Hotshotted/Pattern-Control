@@ -58,7 +58,7 @@ const ENTRIES := [
 	["intro_timer_scale", "First shift: timers longer (x)", 1.0, 2.5, 0.05],
 	["beat_quiet_lead", "Intro beat: quiet before (s)", 0.0, 12.0, 0.5],
 	["beat_gap", "Intro beat: quiet after (s)", 0.0, 30.0, 0.5],
-	["landing_keep_fraction", "Guaranteed share of landing pay", 0.0, 1.0, 0.05],
+	["landing_keep_fraction", "Guaranteed share of gross pay", 0.0, 1.0, 0.05],
 	["pay_glider", "Pay: glider", 0.0, 100.0, 1.0],
 	["pay_heli", "Pay: helicopter", 0.0, 100.0, 1.0],
 	["pay_small", "Pay: small plane", 0.0, 100.0, 1.0],

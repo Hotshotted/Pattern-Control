@@ -1206,8 +1206,10 @@ func _reason_text() -> String:
 		"Ramp|%s" % airfield.ramp.summary(),
 		"Go-arounds|%d warned · %d cancelled" % [traffic.go_around_warns, traffic.go_around_cancels],
 		"Net total (stars)|%d" % shift.balance(),
-		"Guaranteed kept|%d" % shift.kept(),
+		"Pay floor (%d%% of gross)|%d" % [roundi(Tuning.landing_keep_fraction * 100.0), shift.kept()],
 	]
+	if shift.is_protected():
+		lines.append("Shift pay protected|+%d" % (shift.kept() - shift.balance()))
 	return "\n".join(lines) + _daily_note
 
 ## Fill in the results screen from `last_result`; the rewarded offers show until one has been used.

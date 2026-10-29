@@ -94,6 +94,7 @@ class Art extends Control:
 	var res_chips := PackedInt32Array([0, 0, 0])   # results: landings, early clear, fines
 	var res_sub := ""                # results: "Grass Strip · 14 landed"
 	var res_unlock := ""             # results: a new airport opened (shown as a card)
+	var res_protected := 0           # results: coins the pay floor added (0 = the net was above the floor)
 	var pause_card := Rect2()        # the sheet behind the pause menu's sliders
 	var _pts := PackedVector2Array()
 	var _p3 := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
@@ -1131,6 +1132,10 @@ class Art extends Control:
 			var colr := C_TEXT if j == 0 else (Style.SUCCESS_DARK if j == 1 else Color("b8322a"))
 			var sign := "+" if v >= 0 and j < 2 else ("" if j < 2 else "\u2212")
 			draw_string(Style.display(), Vector2(cr.position.x, cr.position.y + 80.0), "%s%d" % [sign, absi(v)], HORIZONTAL_ALIGNMENT_CENTER, cr.size.x, 54, colr)
+		if res_protected > 0:        # the fines took the net under the floor: the floor pays instead
+			var pr := Rect2(card.position.x + 45.0, card.position.y + 470.0 * s2, card.size.x - 90.0, 84.0)
+			draw_style_box(_sb_chip, pr)
+			ptext("Shift pay protected", Vector2(pr.position.x, pr.get_center().y + 12.0), SZ_M, Style.SUCCESS_DARK, HORIZONTAL_ALIGNMENT_CENTER, pr.size.x)
 		# A new airport opened with this shift.
 		if res_unlock != "":
 			var ur := Rect2(cx - 465.0, 1370.0 * s2 + top, 930.0, 130.0)
@@ -2352,6 +2357,7 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	_art.res_chips[0] = shift.earned + shift.bonus
 	_art.res_chips[1] = shift.time_bonus
 	_art.res_chips[2] = shift.fines + shift.overtime_penalty
+	_art.res_protected = shift.kept() - shift.balance() if shift.is_protected() else 0
 	var sub_extra := (" \u00b7 " + ramp_note) if ramp_note != "" else ((" \u00b7 cleared %d s early" % shift.early_seconds) if shift.early_seconds > 0 else "")
 	_art.res_sub = "%s \u00b7 %d landed%s" % [Airports.airport_name(), shift.landed, sub_extra]
 	_art.res_unlock = ""

@@ -1,7 +1,7 @@
 class_name Shift
 extends RefCounted
 ## One timed shift at an airport: the coin balance (landings pay, fines deduct), the three star thresholds and
-## how far along they are. The balance may go negative during a shift; the payout floors at zero. Pure
+## how far along they are. The balance may go negative during a shift; the payout never falls below a share of the gross. Pure
 ## bookkeeping, no engine objects, so it can be tested on its own. Created once; reset per shift.
 
 var thresholds := PackedInt32Array([0, 0, 0])   # coins needed for 1, 2 and 3 stars
@@ -22,13 +22,13 @@ var time_bonus := 0              # coins for clearing the sky before par
 var early_seconds := 0
 var overtime_penalty := 0        # coins lost to overtime (grows live after par)
 var overtime_seconds := 0
-var keep_fraction := 0.5         # the share of landing pay that is always kept, whatever the fines
+var keep_fraction := 0.25        # the share of the gross (landing pay, bonuses, early bonus) that a completed shift always pays, whatever the fines
 var just_stars := 0              # bitmask: stars reached by the latest call (for the "STAR!" feedback)
 
 func _init() -> void:
 	landed_by_type.resize(16)
 
-func reset(star_thresholds: Array, keep: float = 0.5) -> void:
+func reset(star_thresholds: Array, keep: float = 0.25) -> void:
 	keep_fraction = keep
 	for i in 3:
 		thresholds[i] = star_thresholds[i]
@@ -65,14 +65,22 @@ func set_finish(t: float, par: float, rate: int) -> void:
 	early_seconds = maxi(floori(par - t), 0)
 	time_bonus = early_seconds * rate
 
-## The guaranteed part: a fixed share of the landing pay, kept no matter the fines or overtime.
-func kept() -> int:
-	return floori(earned * keep_fraction)
+## Everything the shift earned before fines and overtime.
+func gross() -> int:
+	return earned + bonus + time_bonus
 
-## What actually gets paid out. Fines and overtime come off everything above the guaranteed share (the
-## bonuses and the rest of the landing pay), never below it. Stars use balance(), the net after fines.
+## The guaranteed part: a fixed share of the gross, paid no matter the fines or overtime.
+func kept() -> int:
+	return floori(gross() * keep_fraction)
+
+## What actually gets paid out: the net after fines and overtime, but never less than the guaranteed share.
+## Stars use balance() (the net), so fines and crashes still count against them.
 func payout() -> int:
 	return maxi(balance(), kept())
+
+## The floor is what pays: the fines took the net below the guaranteed share ("Shift pay protected").
+func is_protected() -> bool:
+	return kept() > balance()
 
 ## Stars reached by the current balance.
 func stars() -> int:
