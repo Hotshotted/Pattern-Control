@@ -1,0 +1,101 @@
+name: Gate calibration
+
+# Measures the CI timing gates (tools/web_boot_check.js, tools/web_panel_check.js) on ten fresh runners, each with its reference workload
+# (tools/web_ref.js), and optionally the same measurement of an older commit on the same runner (an A/B: `compare`). The ratios of the ten
+# runs are what tools/gate_history.json holds (tools/gate_history.py turns the log lines into it). Run by hand: Actions > Gate calibration.
+# It builds and measures only; it deploys nothing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      compare:
+        description: "An older commit to measure on the same runner as this one (empty = none)"
+        required: false
+        default: ""
+
+env:
+  GODOT_VERSION: "4.5-stable"
+  GODOT_TEMPLATE_DIR: "4.5.stable"
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Godot (headless editor)
+        run: |
+          BASE=https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}
+          curl -fsSL -o godot.zip $BASE/Godot_v${GODOT_VERSION}_linux.x86_64.zip
+          unzip -q godot.zip
+          sudo mv Godot_v${GODOT_VERSION}_linux.x86_64 /usr/local/bin/godot
+
+      - name: Cache web export templates
+        id: tpl-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates/${{ env.GODOT_TEMPLATE_DIR }}
+          key: godot-web-templates-${{ env.GODOT_VERSION }}
+
+      - name: Download export templates
+        if: steps.tpl-cache.outputs.cache-hit != 'true'
+        run: |
+          BASE=https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}
+          curl -fsSL -o templates.tpz $BASE/Godot_v${GODOT_VERSION}_export_templates.tpz
+          mkdir -p tpl ~/.local/share/godot/export_templates/${GODOT_TEMPLATE_DIR}
+          unzip -q templates.tpz 'templates/web_nothreads_*' 'templates/version.txt' -d tpl
+          mv tpl/templates/* ~/.local/share/godot/export_templates/${GODOT_TEMPLATE_DIR}/
+          rm -rf tpl templates.tpz
+
+      - name: Export this commit
+        run: |
+          godot --headless --import || true
+          mkdir -p build/web
+          godot --headless --export-release "Web" build/web/index.html
+          cp assets/fonts/BowlbyOneSC.ttf build/web/BowlbyOneSC.ttf
+          mkdir -p build/web/audio && cp assets/audio/loops/*.wav build/web/audio/
+
+      - name: Export the older commit
+        if: inputs.compare != ''
+        run: |
+          git worktree add ../old ${{ inputs.compare }}
+          cd ../old
+          godot --headless --import || true
+          mkdir -p build/web
+          godot --headless --export-release "Web" build/web/index.html
+          cp assets/fonts/BowlbyOneSC.ttf build/web/BowlbyOneSC.ttf
+          mkdir -p build/web/audio && cp assets/audio/loops/*.wav build/web/audio/
+
+      - name: Measure
+        timeout-minutes: 40
+        run: |
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/pw" playwright-core
+          export NODE_PATH="$RUNNER_TEMP/pw/node_modules"
+          for i in 1 2 3; do
+            REPORT=boot_$i.json QUERY=perf THROTTLE=4 node tools/web_boot_check.js build/web "$CHROME"
+            if [ -n "${{ inputs.compare }}" ]; then
+              REPORT=old_$i.json QUERY=perf THROTTLE=4 node tools/web_boot_check.js ../old/build/web "$CHROME"
+            fi
+          done
+          for i in 1 2 3; do
+            REPORT=panel_$i.json THROTTLE=4 node tools/web_panel_check.js build/web "$CHROME"
+          done
+          python3 tools/median_gate.py --label boot boot_1.json boot_2.json boot_3.json | tee gate_boot.txt
+          python3 tools/median_gate.py --label panel panel_1.json panel_2.json panel_3.json | tee gate_panel.txt
+          if [ -n "${{ inputs.compare }}" ]; then
+            python3 tools/median_gate.py --label old old_1.json old_2.json old_3.json | tee gate_old.txt
+          fi
+
+      # The last lines of the log, small enough to read from the end of it.
+      - name: Result
+        run: |
+          echo "CAL n=${{ matrix.n }} sha=${GITHUB_SHA::7}"
+          grep -h "^GATE_DATA" gate_boot.txt gate_panel.txt gate_old.txt 2>/dev/null | sed 's/^/CAL /'

@@ -116,8 +116,10 @@ jobs:
           NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_wind_check.js build/web "$CHROME"
 
       # Start-up and frame cost, at a 4x CPU slowdown: every start-up step is logged (the numbers are in the job log), the game's own
-      # build must stay short and no frame of a shift may spend over 33 ms in the game's own code (rendering is the browser's: this
-      # runner draws in software, so only the game's share is judged).
+      # build must stay short and the worst frame of a shift in the game's own code (rendering is the browser's: this runner draws in
+      # software, so only the game's share is judged) is gated as a RATIO to a reference workload timed first in the same browser
+      # (tools/web_ref.js; a shared runner's speed moves the raw milliseconds by half), limited to 1.25 x the worst ratio of the last
+      # ten green runs (tools/gate_history.json). The raw milliseconds stay in the log.
       - name: Start-up and frame check
         timeout-minutes: 20
         run: |
@@ -125,10 +127,11 @@ jobs:
           for i in 1 2 3; do
             REPORT=boot_$i.json QUERY=perf THROTTLE=4 LIMIT_BUILD_MS=9000 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_boot_check.js build/web "$CHROME"
           done
-          python3 tools/median_gate.py 33 boot_1.json boot_2.json boot_3.json
+          python3 tools/median_gate.py --history tools/gate_history.json --label boot boot_1.json boot_2.json boot_3.json
 
       # Opening a panel must not stutter: Airports, Upgrades and the Hangar from the menu, the pause menu and the results card from a
-      # shift, each at a 4x CPU slowdown, three runs; the median worst frame of each may not pass 33 ms in the game's own code.
+      # shift, each at a 4x CPU slowdown, three runs; the median worst frame of each, as a ratio to the reference workload (see above),
+      # may not pass its limit.
       - name: Panel open check
         timeout-minutes: 20
         run: |
@@ -136,7 +139,7 @@ jobs:
           for i in 1 2 3; do
             REPORT=panel_$i.json THROTTLE=4 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_panel_check.js build/web "$CHROME"
           done
-          python3 tools/median_gate.py 33 panel_1.json panel_2.json panel_3.json
+          python3 tools/median_gate.py --history tools/gate_history.json --label panel panel_1.json panel_2.json panel_3.json
 
       - uses: actions/upload-pages-artifact@v3
         with:

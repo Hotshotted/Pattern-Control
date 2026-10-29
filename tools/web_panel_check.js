@@ -8,6 +8,7 @@ const http = require('http');
 let playwright;
 try { playwright = require('playwright-core'); } catch (e) { playwright = require('playwright'); }
 const { chromium } = playwright;
+const { measureReference } = require('./web_ref.js');
 
 const root = path.resolve(process.argv[2] || 'build/web');
 const chrome = process.argv[3] || process.env.CHROME_PATH || '/opt/pw-browsers/chromium';
@@ -30,6 +31,13 @@ srv.listen(0, async () => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     const page = await context.newPage();
     const cdp = await context.newCDPSession(page);
+    // the reference workload first (see tools/web_ref.js): a second, blank page under the same slowdown times a fixed piece of work
+    const refPage = await context.newPage();
+    const refCdp = await context.newCDPSession(refPage);
+    await refCdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });
+    const refBefore = await measureReference(refPage);
+    console.log(`REFERENCE workload under ${THROTTLE}x before the run: ${refBefore.ms.toFixed(1)} ms (runs ${refBefore.all.map(x => x.toFixed(0)).join(', ')})`);
+    await page.bringToFront();
     const errors = [];
     page.on('pageerror', e => errors.push(String(e)));
     await page.goto(`http://localhost:${port}/index.html?perf`);
@@ -84,7 +92,14 @@ srv.listen(0, async () => {
     { const fr = await framesIn(t2, 1300); const worst = fr.reduce((m, f) => Math.max(m, f.script), 0); const w = fr.slice().sort((a, b) => b.script - a.script)[0]; results.push(['Results', worst, fr.length, w ? w.what : '']); if (!MEDIAN && worst > LIMIT) fail(`Results: a frame spent ${worst.toFixed(1)} ms in the game's own code: ${w.what}`); }
     console.log(`PANELS under a ${THROTTLE}x CPU slowdown: the slowest frame of the game's own code while each opens (limit ${LIMIT} ms)`);
     for (const r of results) console.log(`  ${r[0].padEnd(10)} ${r[1].toFixed(1).padStart(6)} ms   (${r[2]} logged frames)  ${r[1] > 8 ? r[3] : ''}`);
-    if (process.env.REPORT) require('fs').writeFileSync(process.env.REPORT, JSON.stringify(Object.fromEntries(results.map(r => [r[0], r[1]]))));
+    if (process.env.REPORT) {
+      await page.goto('about:blank');
+      const refAfter = await measureReference(refPage);       // (the game is out of the way: the gate divides by the mean of the two)
+      console.log(`REFERENCE workload under ${THROTTLE}x after the run: ${refAfter.ms.toFixed(1)} ms (runs ${refAfter.all.map(x => x.toFixed(0)).join(', ')})`);
+      const refMs = (refBefore.ms + refAfter.ms) / 2;
+      for (const r of results) console.log(`GATE ${r[0]}: ${r[1].toFixed(1)} ms raw / reference ${refMs.toFixed(1)} ms = ratio ${(r[1] / refMs).toFixed(3)}`);
+      require('fs').writeFileSync(process.env.REPORT, JSON.stringify({ ref_ms: refMs, ref_before: refBefore.ms, ref_after: refAfter.ms, values: Object.fromEntries(results.map(r => [r[0], r[1]])) }));
+    }
     if (errors.length) fail('page errors: ' + errors.join(' | '));
   } catch (e) {
     fail(String(e && e.stack || e));
