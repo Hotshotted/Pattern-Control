@@ -1,0 +1,106 @@
+{
+ "headroom": 1.25,
+ "note": "Median-of-3 ratio (frame ms / reference ms) of ten fresh runners at commit a2d65b9 (Gate calibration workflow, run 2). Limit per name = max of the last ten x headroom. Refresh with tools/gate_history.py.",
+ "runs": [
+  {
+   "shift frame": 0.274,
+   "shift mean": 0.0991,
+   "Airports": 0.086,
+   "Hangar": 0.0809,
+   "Pause": 0.1703,
+   "Pause (again)": 0.2003,
+   "Results": 0.2736,
+   "Upgrades": 0.1123
+  },
+  {
+   "shift frame": 0.3572,
+   "shift mean": 0.1,
+   "Airports": 0.0728,
+   "Hangar": 0.1051,
+   "Pause": 0.1517,
+   "Pause (again)": 0.2756,
+   "Results": 0.2621,
+   "Upgrades": 0.0725
+  },
+  {
+   "shift frame": 0.4907,
+   "shift mean": 0.0932,
+   "Airports": 0.0764,
+   "Hangar": 0.0838,
+   "Pause": 0.1152,
+   "Pause (again)": 0.205,
+   "Results": 0.2971,
+   "Upgrades": 0.0667
+  },
+  {
+   "shift frame": 0.3828,
+   "shift mean": 0.1007,
+   "Airports": 0.078,
+   "Hangar": 0.0817,
+   "Pause": 0.1297,
+   "Pause (again)": 0.2155,
+   "Results": 0.2881,
+   "Upgrades": 0.1237
+  },
+  {
+   "shift frame": 0.5725,
+   "shift mean": 0.1232,
+   "Airports": 0.1317,
+   "Hangar": 0.0826,
+   "Pause": 0.2177,
+   "Pause (again)": 0.2111,
+   "Results": 0.5629,
+   "Upgrades": 0.122
+  },
+  {
+   "shift frame": 0.5301,
+   "shift mean": 0.1137,
+   "Airports": 0.0788,
+   "Hangar": 0.0989,
+   "Pause": 0.134,
+   "Pause (again)": 0.2524,
+   "Results": 0.337,
+   "Upgrades": 0.0872
+  },
+  {
+   "shift frame": 0.4015,
+   "shift mean": 0.0993,
+   "Airports": 0.0847,
+   "Hangar": 0.085,
+   "Pause": 0.1167,
+   "Pause (again)": 0.2219,
+   "Results": 0.2861,
+   "Upgrades": 0.1137
+  },
+  {
+   "shift frame": 0.4255,
+   "shift mean": 0.1076,
+   "Airports": 0.1074,
+   "Hangar": 0.1007,
+   "Pause": 0.1246,
+   "Pause (again)": 0.2136,
+   "Results": 0.2882,
+   "Upgrades": 0.089
+  },
+  {
+   "shift frame": 0.4217,
+   "shift mean": 0.1004,
+   "Airports": 0.0842,
+   "Hangar": 0.1548,
+   "Pause": 0.1176,
+   "Pause (again)": 0.215,
+   "Results": 0.3888,
+   "Upgrades": 0.3033
+  },
+  {
+   "shift frame": 0.4109,
+   "shift mean": 0.0956,
+   "Airports": 0.0814,
+   "Hangar": 0.0982,
+   "Pause": 0.1154,
+   "Pause (again)": 0.193,
+   "Results": 0.2517,
+   "Upgrades": 0.0891
+  }
+ ]
+}
