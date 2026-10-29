@@ -1621,11 +1621,20 @@ func shop_pick(kind: String, i: int) -> bool:
 func _daily_bonus(streak_days: int) -> int:
 	return Tuning.daily_bonus_coins + Tuning.daily_streak_coins * mini(streak_days, 7)
 
+## The airport of a daily challenge: one of the open airports, chosen by the day number (`offset` keeps the
+## Bad Pilot Day's airport apart from the daily shift's). With every airport open this is `(day + offset) % 6`.
+func daily_airport(offset: int) -> int:
+	var open: Array[int] = []
+	for i in Airports.COUNT:
+		if Save.airport_open(i):
+			open.append(i)
+	return open[(Save.today() + offset) % open.size()] if not open.is_empty() else 0
+
 ## Today's seeded shift: the airport and the arrivals are the same for everyone today.
 func start_daily() -> void:
 	daily_mode = true
 	bad_mode = false
-	airport = Save.today() % Airports.COUNT
+	airport = daily_airport(0)
 	begin_shift()
 
 ## Bad Pilot Day: a second daily challenge. Every aircraft is a student pilot, go-arounds are very likely and every
@@ -1633,7 +1642,7 @@ func start_daily() -> void:
 func start_bad_day() -> void:
 	daily_mode = true
 	bad_mode = true
-	airport = (Save.today() + 3) % Airports.COUNT
+	airport = daily_airport(3)
 	begin_shift()
 
 ## The star thresholds of this shift (Bad Pilot Day pays more, so it asks for more).

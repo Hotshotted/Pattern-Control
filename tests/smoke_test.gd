@@ -1798,6 +1798,47 @@ func _initialize() -> void:
 		same_seq = same_seq and runs_seen[0][0][k] == runs_seen[1][0][k]
 	check(same_seq, "the same day gives the same arrivals and wind (first %d arrivals identical)" % n_cmp)
 	check(runs_seen[0][0] != runs_seen[2][0], "a different day gives different arrivals")
+	# The daily shift and Bad Pilot Day only pick airports the player has open.
+	var dq_bad = 0
+	var dq_miss = 0
+	for dq_stars in [0, 2, 5, 8, 11, 14, 18]:
+		save.reset_all()
+		for dq_k in dq_stars:
+			save.stars[dq_k] = 1
+		var dq_open = {}
+		for dq_i in Airports.COUNT:
+			if save.airport_open(dq_i):
+				dq_open[dq_i] = true
+		var dq_daily = {}
+		var dq_bad_day = {}
+		for dq_day in 12:
+			save.day_override = 20000 + dq_day
+			save.ads["since"] = 0
+			main.start_daily()
+			dq_daily[main.airport] = true
+			if not dq_open.has(main.airport) or main.bad_mode:
+				dq_bad += 1
+			save.ads["since"] = 0
+			main.start_bad_day()
+			dq_bad_day[main.airport] = true
+			if not dq_open.has(main.airport) or not main.bad_mode:
+				dq_bad += 1
+		if dq_daily.size() != dq_open.size() or dq_bad_day.size() != dq_open.size():
+			dq_miss += 1
+	check(dq_bad == 0, "the daily shift and Bad Pilot Day never pick a locked airport (%d bad picks over 7 star levels x 12 days)" % dq_bad)
+	check(dq_miss == 0, "...and over twelve days they visit every open airport")
+	save.reset_all()
+	save.day_override = 20000
+	main.start_daily()
+	check(main.airport == 0, "a new player (no stars) gets the Grass Strip for the daily shift")
+	main.start_bad_day()
+	check(main.airport == 0, "...and for Bad Pilot Day")
+	save.unlocks["all_airports"] = true
+	save.day_override = 20000
+	main.start_daily()
+	check(main.airport == 20000 % 6, "with every airport open the daily airport is still day %% 6 (%d)" % main.airport)
+	main.start_bad_day()
+	check(main.airport == (20000 + 3) % 6, "...and Bad Pilot Day's (day + 3) %% 6")
 	# Daily rewards and streak (the shift is completed with fake landings).
 	var streaks = []
 	var coin_gain = []
