@@ -106,12 +106,14 @@ srv.listen(0, async () => {
     const over = fr.filter(x => x > 33.4).length;
     const procs = await page.evaluate(() => (window.__procs || []).slice());
     let shiftWorst = null;
+    let shiftMean = null;
     if (procs.length) {
       const worst = Math.max(...procs.map(x => x[1]));
       const over = procs.reduce((a, x) => a + x[2], 0);
       const mean = procs.reduce((a, x) => a + x[0], 0) / procs.length;
       console.log(`GAME CODE per frame (every _process, no rendering) at ${THROTTLE}x: mean ${mean.toFixed(1)} ms, worst ${worst.toFixed(1)} ms, ${over} frames over 33 ms (${procs.length * 30} frames)`);
       shiftWorst = worst;
+      shiftMean = mean;
       if (LIMIT_FRAME_MS && worst > LIMIT_FRAME_MS) fail(`the game's own code took ${worst.toFixed(1)} ms in one frame (limit ${LIMIT_FRAME_MS})`);
     } else console.log('(no game-code timings: run with QUERY=perf)');
     // ?perf logs every frame over 50 ms with how long the game simulated it: the engine's delta clamp (1/20 s) shows here
@@ -126,7 +128,8 @@ srv.listen(0, async () => {
     const refMs = (refBefore.ms + refAfter.ms) / 2;
     if (shiftWorst !== null) {
       console.log(`GATE shift frame: ${shiftWorst.toFixed(1)} ms raw / reference ${refMs.toFixed(1)} ms = ratio ${(shiftWorst / refMs).toFixed(3)}`);
-      if (process.env.REPORT) require('fs').writeFileSync(process.env.REPORT, JSON.stringify({ ref_ms: refMs, ref_before: refBefore.ms, ref_after: refAfter.ms, values: { 'shift frame': shiftWorst } }));
+      console.log(`GATE shift mean: ${shiftMean.toFixed(2)} ms raw / reference ${refMs.toFixed(1)} ms = ratio ${(shiftMean / refMs).toFixed(4)}`);
+      if (process.env.REPORT) require('fs').writeFileSync(process.env.REPORT, JSON.stringify({ ref_ms: refMs, ref_before: refBefore.ms, ref_after: refAfter.ms, values: { 'shift frame': shiftWorst, 'shift mean': shiftMean } }));
     }
   } catch (e) {
     fail(String(e && e.stack || e));
