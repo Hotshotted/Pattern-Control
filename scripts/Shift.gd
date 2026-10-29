@@ -4,7 +4,7 @@ extends RefCounted
 ## how far along they are. The balance may go negative during a shift; the payout never falls below a share of the gross. Pure
 ## bookkeeping, no engine objects, so it can be tested on its own. Created once; reset per shift.
 
-var thresholds := PackedInt32Array([0, 0, 0])   # coins needed for 1, 2 and 3 stars
+var thresholds := PackedInt32Array([0, 0, 0])   # star 1: landings to finish the shift with; stars 2 and 3: net coins
 var landed := 0
 var landed_by_type := PackedInt32Array()
 var landed_vip := 0              # VIP flights landed with their bonus intact
@@ -82,17 +82,20 @@ func payout() -> int:
 func is_protected() -> bool:
 	return kept() > balance()
 
-## Stars reached by the current balance.
+## Stars reached so far. Star 1 is for finishing the shift with enough landings (thresholds[0]); stars 2 and 3 are skill:
+## the net coins after fines (thresholds[1], thresholds[2]). A star needs the ones before it.
 func stars() -> int:
-	var b := balance()
 	var n := 0
 	for i in 3:
-		if b >= thresholds[i]:
-			n += 1
+		if not star_reached(i):
+			break
+		n += 1
 	return n
 
 func star_reached(i: int) -> bool:
-	return balance() >= thresholds[i]
+	if i == 0:
+		return landed >= thresholds[0]
+	return star_reached(i - 1) and balance() >= thresholds[i]
 
 func on_landed(type: int, base: int, extra: int, vip: bool = false, emergency: bool = false, student: bool = false) -> void:
 	var before := stars()
@@ -132,8 +135,9 @@ func refund_biggest() -> int:
 
 func _note_stars(before: int) -> void:
 	just_stars = 0
+	var now := stars()
 	for i in 3:
-		if balance() >= thresholds[i] and before <= i:
+		if i >= before and i < now:
 			just_stars |= 1 << i
 
 static func type_name(type: int) -> String:

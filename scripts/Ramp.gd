@@ -35,13 +35,17 @@ static func mean_pay(i: int = -1) -> float:
 		pay += float(mix[t]) * Tuning.landing_pay(int(t))
 	return pay / maxf(total, 0.0001)
 
-## The shift's cost: the coins it must earn to break even (the first star's threshold). The hangar holds as many aircraft as it takes
-## to pay it: the number of average landings that cover the cost.
+## The landings that earn the first star (finish the shift with this many): the hangar holds exactly that many aircraft, so
+## "Hangar full" is the first star.
+static func star_landings(i: int = -1) -> int:
+	return maxi(int(Tuning.star_thresholds(i)[0]), 1)
+
+## What those landings pay at an average fare, in coins.
 static func shift_cost(i: int = -1) -> int:
-	return int(Tuning.star_thresholds(i)[0])
+	return floori(float(star_landings(i)) * mean_pay(i))
 
 static func capacity(i: int = -1) -> int:
-	return maxi(ceili(float(shift_cost(i)) / mean_pay(i)), 1)
+	return star_landings(i)
 
 func reset(cap_: int, over_slots_: int, dock_slots_: int, heli_slots_: int, tie_slots_: int = TIES) -> void:
 	cap = cap_

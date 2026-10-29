@@ -60,7 +60,7 @@ static func _build() -> void:
 			"tower": Vector2(3.4, -2.4), "windsock": Vector2(2.5, 2.3), "apron": {"center": Vector2(3.55, -1.6), "s": 1.0},
 			"ground": Color("b2db78"),
 			"mix": {S: 0.25, M: 0.35, J: 0.2, H: 0.2},
-			"unlock_stars": 5, "weather": ["crosswind", "fog"],
+			"unlock_stars": 4, "weather": ["crosswind", "fog"],
 		},
 		{   # 4: terrain no-fly zones
 			"style": "alpine", "name": "Mountain Field", "tag": "Keep clear of the mountains",
@@ -78,7 +78,7 @@ static func _build() -> void:
 			"tower": Vector2(0.0, 3.2), "windsock": Vector2(-3.7, -1.0), "apron": {"center": Vector2(4.09, 1.9), "s": 0.55},
 			"ground": Color("b0cf86"),
 			"mix": {S: 0.3, M: 0.35, G: 0.35},
-			"unlock_stars": 8, "weather": ["storm", "fog"],
+			"unlock_stars": 7, "weather": ["storm", "fog"],
 		},
 		{   # 5: an island in the water, with a seaplane lane
 			"style": "coastal", "name": "Island", "tag": "Water landing lane",
@@ -91,7 +91,7 @@ static func _build() -> void:
 			"tower": Vector2(0.0, 0.3), "windsock": Vector2(-3.4, -1.6), "apron": {"center": Vector2(4.14, -1.0), "s": 0.6},
 			"ground": Color("5db8e0"), "water": true,
 			"mix": {S: 0.2, M: 0.25, J: 0.3, P: 0.25},
-			"unlock_stars": 11, "weather": ["storm", "crosswind", "fog"],
+			"unlock_stars": 10, "weather": ["storm", "crosswind", "fog"],
 		},
 		{   # 6: long runways and multiples of everything
 			"name": "International", "tag": "Everything, all at once",
@@ -106,7 +106,7 @@ static func _build() -> void:
 			"tower": Vector2(2.6, -2.6), "windsock": Vector2(4.3, 8.1), "apron": {"center": Vector2(3.78, -0.4), "s": 0.7},
 			"ground": Color("b6dc7a"),
 			"mix": {S: 0.1, M: 0.25, J: 0.3, H: 0.15, P: 0.2},
-			"unlock_stars": 14, "weather": ["storm", "crosswind", "fog"],
+			"unlock_stars": 13, "weather": ["storm", "crosswind", "fog"],
 		},
 	]
 	for k in _defs.size():

@@ -1649,7 +1649,7 @@ func start_bad_day() -> void:
 func _thresholds() -> Array:
 	var th := Tuning.star_thresholds().duplicate()
 	if bad_mode:
-		for i in th.size():
+		for i in range(1, th.size()):         # (star 1 is a landing count: students go around, but it stays the same)
 			th[i] = roundi(th[i] * Tuning.bad_day_threshold_mult)
 	return th
 
@@ -1793,8 +1793,8 @@ func _show_detail() -> void:
 	var i := detail_airport
 	var th := Tuning.star_thresholds(i)
 	var pay := maxf(Ramp.mean_pay(i), 1.0)
-	var need := PackedInt32Array()
-	for k in 3:
+	var need := PackedInt32Array([int(th[0])])         # star 1 is a landing count; stars 2 and 3 are net coins (with the clean landings that pay it)
+	for k in range(1, 3):
 		need.append(maxi(ceili(float(th[k]) / pay), 1))
 	hud.show_detail({
 		"i": i, "name": Airports.airport_name(i), "tag": Airports.tag(i), "open": Save.airport_open(i), "lock": Airports.unlock_stars(i),

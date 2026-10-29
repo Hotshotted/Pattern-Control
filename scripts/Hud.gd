@@ -36,7 +36,9 @@ class Art extends Control:
 	var show_play := false
 	var balance := 0                 # the shift's coin total (the target; `bar_shown` rolls towards it)
 	var bar_shown := 0.0
-	var thresholds := PackedInt32Array([0, 0, 0])   # coins for 1, 2, 3 stars
+	var thresholds := PackedInt32Array([0, 0, 0])   # star 1: landings; stars 2 and 3: net coins
+	var star_on := PackedByteArray([0, 0, 0])       # which stars the shift has reached right now
+	var landed := 0                                 # landings so far (the count toward star 1)
 	var wind_toward := 0.0
 	var wind_shown := 0.0               # the arrow's drawn direction: it turns smoothly to wind_toward
 	var wind_text := "000"
@@ -881,15 +883,19 @@ class Art extends Control:
 		if not locked:
 			var best_txt := "Best %d" % int(d["best"]) if int(d["best"]) > 0 else "No best yet"
 			draw_string(Style.text(), Vector2(card.end.x - 40.0 - 220.0, y0 + 80.0), best_txt, HORIZONTAL_ALIGNMENT_RIGHT, 220.0, 32, C_SOFT)
-		# the three stars: lit if earned, each with what it takes (landings at an average fare, and the coins behind that)
+		# the three stars: lit if earned, each with what it takes (star 1: a landing count; stars 2 and 3: net coins after fines)
 		var col_w := wide / 3.0
 		for k in 3:
 			var cx := x0 + col_w * (float(k) + 0.5)
 			var have: bool = k < int(d["stars"]) and not locked
 			glyph("star" if have else "star_off", Vector2(cx, y0 + 200.0), 30.0)
-			ptext("Land %d" % int(d["land"][k]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
-			glyph("coin", Vector2(cx - 34.0, y0 + 304.0), 13.0, Color(1, 1, 1, 1.0))
-			draw_string(Style.text(), Vector2(cx - 14.0, y0 + 314.0), str(int(d["coins"][k])), HORIZONTAL_ALIGNMENT_LEFT, col_w * 0.5, 24, C_SOFT)
+			if k == 0:        # star 1: land enough aircraft and finish the shift
+				ptext("Land %d" % int(d["land"][0]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
+				draw_string(Style.text(), Vector2(cx - col_w * 0.5, y0 + 314.0), "and finish the shift", HORIZONTAL_ALIGNMENT_CENTER, col_w, 24, C_SOFT)
+			else:             # stars 2 and 3: the net coins after fines
+				ptext("Net %d" % int(d["coins"][k]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
+				glyph("coin", Vector2(cx - 34.0, y0 + 304.0), 13.0, Color(1, 1, 1, 1.0))
+				draw_string(Style.text(), Vector2(cx - 14.0, y0 + 314.0), "after fines", HORIZONTAL_ALIGNMENT_LEFT, col_w * 0.5, 24, C_SOFT)
 		if locked:
 			var pill := Rect2(x0, size.y - 250.0, wide, 100.0)
 			draw_style_box(_sb_lockpill, pill)
@@ -961,8 +967,8 @@ class Art extends Control:
 		if f > 0.0:
 			draw_style_box(_sb_fill, Rect2(x0 - 2.0, y - 1.0, maxf(w * f + 4.0, 16.0), 16.0))
 		for i in 3:
-			var x := x0 + w * float(thresholds[i]) / top
-			var lit := balance >= thresholds[i]
+			var x := x0 + w * (0.07 if i == 0 else float(thresholds[i]) / top)     # (star 1 counts landings, so it sits near the start)
+			var lit := star_on[i] != 0
 			var c := Vector2(x, y + 7.0)
 			var k := star_t[i] / 0.6 if star_t[i] >= 0.0 else 1.0
 			if k < 1.0:
@@ -973,6 +979,8 @@ class Art extends Control:
 				_sparks(c, k, 22.0, 60.0, 8, Style.ACCENT)
 			else:
 				glyph("star" if lit else "star_off", c, 24.0 if lit else 20.0)
+			if i == 0 and not lit and thresholds[0] > 0:        # the landings still to go for the first star
+				ptext("%d/%d" % [landed, thresholds[0]], Vector2(x - 60.0, y + 58.0), 22, C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, 120.0)
 
 	## The wind card (top-right): a cream card with an arrow showing where the air is going and its direction number.
 	func _draw_wind() -> void:
@@ -2716,6 +2724,8 @@ func reset_for_run(_best_coins: int) -> void:
 	_coin_shown = 0.0
 	_art.bar_shown = 0.0
 	_star_lit.fill(false)
+	_art.star_on.fill(0)
+	_art.landed = 0
 	_art.star_t.fill(-1.0)
 	_art.cf_on.fill(0)
 	set_landed(0)
@@ -2811,9 +2821,11 @@ func set_shift(shift: Shift) -> void:
 	_coin_target = bal
 	_art.balance = bal
 	_score.add_theme_color_override("font_color", C_RED if bal < 0 else Color.WHITE)
+	_art.landed = shift.landed
 	for i in 3:
 		_art.thresholds[i] = shift.thresholds[i]
-		var lit := bal >= shift.thresholds[i]
+		var lit := shift.star_reached(i)
+		_art.star_on[i] = 1 if lit else 0
 		if lit and not _star_lit[i] and _art.show_play:
 			_art.star_t[i] = 0.0
 			star_reached.emit(i)
@@ -3131,7 +3143,7 @@ func begin_prewarm() -> void:
 	_best.text = "0123456789"
 	_over_head.text = "0123456789"
 	_over_body.text = "Landings earned +0123456789   Bonuses +0123456789   Fines -0123456789\nTotal paid +0123456789 coins  (bank 0123456789)"
-	_art.thresholds[0] = 100
+	_art.thresholds[0] = 4
 	_art.thresholds[1] = 200
 	_art.thresholds[2] = 300
 	_art.balance = 150

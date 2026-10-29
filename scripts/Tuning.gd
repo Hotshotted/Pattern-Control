@@ -298,7 +298,7 @@ var outline_thickness := 0.03
 ##   wind           how often the wind shifts (1 = normal, bigger = rarer, 0 = it never shifts)
 ##   weather_first / wind_first   no weather / wind shift before this many seconds into a shift
 ##   fines          multiplies every fine (conflict / diversion / terrain / storm)
-##   stars          net coins for 1, 2 and 3 stars
+##   stars          [landings that earn star 1 (finish the shift with this many), net coins for star 2, net coins for star 3]
 ##   beats          [[seconds, aircraft type], ...]: a new mechanic arrives alone at about this time
 ##                  (types: 0 glider, 1 helicopter, 2 small, 3 medium, 4 jet, 5 seaplane)
 ## Today's (pre-profile) intensity was: 12 planes, 5.0 -> 1.7 s, ramp 0.83, speed 1, timer 1, specials 1.
