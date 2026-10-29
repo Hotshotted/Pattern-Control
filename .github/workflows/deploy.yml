@@ -130,16 +130,16 @@ jobs:
           python3 tools/median_gate.py --history tools/gate_history.json --label boot boot_1.json boot_2.json boot_3.json
 
       # Opening a panel must not stutter: Airports, Upgrades and the Hangar from the menu, the pause menu and the results card from a
-      # shift, each at a 4x CPU slowdown, three runs; the median worst frame of each, as a ratio to the reference workload (see above),
+      # shift, each at a 4x CPU slowdown, five runs; the median worst frame of each, as a ratio to the reference workload (see above),
       # may not pass its limit.
       - name: Panel open check
         timeout-minutes: 20
         run: |
           CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
-          for i in 1 2 3; do
+          for i in 1 2 3 4 5; do
             REPORT=panel_$i.json THROTTLE=4 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_panel_check.js build/web "$CHROME"
           done
-          python3 tools/median_gate.py --history tools/gate_history.json --label panel panel_1.json panel_2.json panel_3.json
+          python3 tools/median_gate.py --history tools/gate_history.json --label panel panel_1.json panel_2.json panel_3.json panel_4.json panel_5.json
 
       - uses: actions/upload-pages-artifact@v3
         with:
