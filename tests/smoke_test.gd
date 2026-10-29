@@ -59,7 +59,7 @@ func earn_coins(main: Node, coins: int) -> void:
 	f.pos = Vector2.ZERO
 	f.type = 3
 	var guard = 0
-	while main.shift.balance() < coins and guard < 500:
+	while (main.shift.balance() < coins or main.shift.landed < main.shift.thresholds[0]) and guard < 500:     # (and enough landings for the first star)
 		main.traffic.run_time += 10.0     # outside the quick-succession window: flat pay
 		main._on_landed(f)
 		guard += 1
@@ -622,23 +622,26 @@ func _initialize() -> void:
 	main.traffic.run_time += 10.0
 	main._on_landed(fake)
 	check(main.streak == 1 and main.shift.bonus == int(tuning.streak_bonus_coins), "a slow landing resets the streak")
-	# Stars come from the coin thresholds.
+	# Stars: star 1 is for finishing with enough landings; stars 2 and 3 are the net coins after fines.
 	main.restart()
 	tr.auto_spawn = false
-	earn_coins(main, sth9[0])
-	check(main.shift.stars() == 1 and main.shift.star_reached(0), "reaching the first threshold earns one star")
+	main.shift.bonus += sth9[2] + 50             # coins without the landings...
+	check(main.shift.stars() == 0 and not main.shift.star_reached(0), "coins alone earn no star: the first one is for landings (%d needed)" % sth9[0])
+	for lk in sth9[0] - 1:
+		main.shift.on_landed(3, 0, 0)
+	check(main.shift.stars() == 0, "...%d landings are not enough" % (sth9[0] - 1))
+	main._on_landed(fake)
+	check(main.shift.stars() == 3 and main.shift.star_reached(0), "the last landing for the first star also lifts the net over stars 2 and 3 here (three stars)")
 	var star_pop = false
 	for l in main.hud._pop_labels:
 		if l.visible and l.text == "STAR!":
 			star_pop = true
-	check(star_pop, "a STAR! popup shows when a threshold is crossed")
-	earn_coins(main, sth9[2])
-	check(main.shift.stars() == 3, "reaching the third threshold earns three stars")
-	# Fines subtract and can drop a star again.
+	check(star_pop, "a STAR! popup shows when a star is reached")
+	# Fines subtract from the net and can drop stars 2 and 3 again, but not the first.
 	main.shift.fine(500, "conflict")
-	check(main.shift.stars() < 3 and main.shift.balance() < sth9[2], "a big fine takes the balance back under a threshold")
+	check(main.shift.stars() == 1 and main.shift.balance() < sth9[1], "a big fine takes the net back under stars 2 and 3; the landing star stays (%d)" % main.shift.stars())
 	main.shift.refund_biggest()
-	check(main.shift.stars() == 3, "...and refunding it restores the stars")
+	check(main.shift.stars() == 3, "...and refunding it restores them")
 	var payout_expect = main.shift.payout()
 	tr.spawn_until = 0.0
 	tr.run_time = tuning.par_eff() - 0.01
@@ -2273,7 +2276,7 @@ func _initialize() -> void:
 	fk2.student = true
 	main._on_landed(fk2)
 	check(main.shift.earned == roundi(tuning.pay_medium * tuning.student_pay_mult * tuning.bad_day_pay_mult), "every Bad Pilot Day landing pays big (%d vs %d for an ordinary one)" % [main.shift.earned, tuning.pay_medium])
-	check(main.shift.thresholds[0] == roundi(tuning.star_thresholds()[0] * tuning.bad_day_threshold_mult), "...and its star thresholds are higher")
+	check(main.shift.thresholds[0] == tuning.star_thresholds()[0] and main.shift.thresholds[1] == roundi(tuning.star_thresholds()[1] * tuning.bad_day_threshold_mult) and main.shift.thresholds[2] == roundi(tuning.star_thresholds()[2] * tuning.bad_day_threshold_mult), "...and its net-coin star thresholds are higher (the landing count for star 1 is not)")
 	var streaks_b = []
 	var bonus_b = []
 	var stars_b = save.stars_total()
@@ -2650,15 +2653,15 @@ func _initialize() -> void:
 	for k in 6:
 		main._apply_fine(int(tuning.fine_conflict), "conflict", "CONFLICT", Vector2.ZERO)
 	check(main.shift.balance() < 0, "six conflicts push the net negative (%d)" % main.shift.balance())
-	check(main.shift.stars() == 0, "...and stars use the net: none")
+	check(main.shift.stars() == 1, "...star 1 is for the landings, but stars 2 and 3 use the net: none")
 	tr.release_all()
 	tr.spawn_until = 0.0
 	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
 	var floor_l = main.shift.kept()
-	check(floor_l == earned_l / 4 and main.last_result["payout"] == floor_l and save.coins == coins_before + floor_l, "a failed shift still pays the floor, a quarter of the gross (%d)" % floor_l)
+	check(floor_l == earned_l / 4 and main.last_result["payout"] == floor_l and save.coins == coins_before + floor_l + int(tuning.coins_first_star_bonus), "a failed shift still pays the floor, a quarter of the gross (%d), plus the first-star bonus for its landings" % floor_l)
 	var body = main.hud._over_body.text
-	check(body.contains("Landings earned +%d" % earned_l) and body.contains("Fines -%d" % (6 * int(tuning.fine_conflict))) and body.contains("Pay floor (25%% of gross) %d" % floor_l) and body.contains("Shift pay protected +%d" % (floor_l - main.shift.balance())) and body.contains("Net total (stars) %d" % main.shift.balance()) and body.contains("Total paid +%d" % floor_l), "the results show landings earned, fines, the floor, the protected note and the total")
+	check(body.contains("Landings earned +%d" % earned_l) and body.contains("Fines -%d" % (6 * int(tuning.fine_conflict))) and body.contains("Pay floor (25%% of gross) %d" % floor_l) and body.contains("Shift pay protected +%d" % (floor_l - main.shift.balance())) and body.contains("Net total (stars) %d" % main.shift.balance()) and body.contains("Total paid +%d" % (floor_l + int(tuning.coins_first_star_bonus))), "the results show landings earned, fines, the floor, the protected note and the total")
 	# A raised share is respected.
 	tuning.landing_keep_fraction = 0.8
 	main.restart()
@@ -2694,8 +2697,9 @@ func _initialize() -> void:
 	for ai in range(1, Airports.COUNT):
 		var pa = tuning.profile(ai - 1)
 		var pb = tuning.profile(ai)
-		mono = mono and pb["max_planes"] >= pa["max_planes"] and pb["spawn_start"] <= pa["spawn_start"] and pb["spawn_min"] <= pa["spawn_min"] and pb["speed"] >= pa["speed"] and pb["timer"] <= pa["timer"] and pb["stars"][2] > pa["stars"][2] and pb["fines"] >= pa["fines"]
-	check(mono, "difficulty only steps up: more traffic, faster pace, faster aircraft, shorter timers, higher stars and fines")
+		var steps_up = pb["max_planes"] >= pa["max_planes"] and pb["spawn_start"] <= pa["spawn_start"] and pb["spawn_min"] <= pa["spawn_min"] and pb["speed"] >= pa["speed"] and pb["timer"] <= pa["timer"]
+		mono = mono and (steps_up or ai == 3) and pb["stars"][2] >= pa["stars"][2] and pb["fines"] >= pa["fines"]       # (Mountain Field trades volume for terrain)
+	check(mono, "difficulty only steps up: more traffic, faster pace, faster aircraft, shorter timers (Mountain Field aside), higher stars and fines")
 	var pg = tuning.profile(0)
 	var pc = tuning.profile(1)
 	check(pg["max_planes"] <= 3 and pc["max_planes"] <= 4 and pg["specials"] == 0.0 and pg["weather"] == 0.0 and pg["wind"] == 0.0 and pc["weather"] == 0.0 and pc["wind"] > 0.0, "Grass Strip: at most 3 aircraft, no specials, no weather, no wind shifts; County: at most 4, gentle wind shifts, no weather")
@@ -2704,7 +2708,7 @@ func _initialize() -> void:
 		slow_only = slow_only and tuning.type_speed_class(k) == 0
 	check(slow_only and pg["speed"] < 1.0 and pg["timer"] > 1.0, "Grass Strip has slow aircraft only, at a gentle speed (x%.2f), with long timers (x%.2f)" % [pg["speed"], pg["timer"]])
 	var pm = tuning.profile(3)
-	check(pm["max_planes"] >= 10 and pm["speed"] == 1.0 and pm["timer"] == 1.0 and pm["weather"] == 1.0 and pm["wind"] == 1.0, "Mountain Field is where today's full intensity is reached")
+	check(pm["max_planes"] <= tuning.profile(4)["max_planes"] and pm["weather"] == 1.0 and pm["wind"] == 1.0 and pm["fines"] <= 0.5, "Mountain Field trades volume for terrain: calmer traffic and small fines, weather and wind at full strength")
 	check(tuning.profile(5)["max_planes"] > pm["max_planes"] and tuning.profile(5)["speed"] > 1.0 and tuning.profile(5)["timer"] < 1.0, "International goes beyond it")
 	# Densities: nobody plays, and the field still never holds more than the cap.
 	var peak = []
@@ -2766,10 +2770,10 @@ func _initialize() -> void:
 	# Fines scale with the airport.
 	main.select_airport(0)
 	Airports.current = 0
-	check(tuning.fine_amount(tuning.fine_conflict) == roundi(tuning.fine_conflict * 0.4) and tuning.fine_amount(tuning.fine_conflict) < 50, "Grass Strip fines are small (conflict %d)" % tuning.fine_amount(tuning.fine_conflict))
+	check(tuning.fine_amount(tuning.fine_conflict) == roundi(tuning.fine_conflict * tuning.profile(0)["fines"]) and tuning.fine_amount(tuning.fine_conflict) < 50, "Grass Strip fines are small (conflict %d)" % tuning.fine_amount(tuning.fine_conflict))
 	main.select_airport(3)
 	Airports.current = 3
-	check(tuning.fine_amount(tuning.fine_conflict) == int(tuning.fine_conflict), "...and full size from Mountain Field on")
+	check(tuning.fine_amount(tuning.fine_conflict) == roundi(tuning.fine_conflict * tuning.profile(3)["fines"]) and tuning.profile(5)["fines"] >= tuning.profile(3)["fines"] and tuning.profile(3)["fines"] >= tuning.profile(0)["fines"], "...and they never get smaller from airport to airport")
 	# The first shift at an airport is gentler.
 	save.reset_all()
 	save.unlocks["all_airports"] = true
@@ -3446,12 +3450,13 @@ func _initialize() -> void:
 	var r_stars_seen = []
 	var r_star_cb = func(i): r_stars_seen.append(i)
 	main.hud.star_reached.connect(r_star_cb)
-	while main.shift.balance() < r_thr0:
+	while main.shift.landed < r_thr0:
 		main.shift.on_landed(3, 14, 0)
 	main.hud.set_shift(main.shift)
-	check(r_stars_seen == [0] and main.hud._art.star_t[0] == 0.0, "crossing a threshold lights its star with a burst")
+	check(r_stars_seen.size() >= 1 and r_stars_seen[0] == 0 and main.hud._art.star_t[0] == 0.0, "reaching the landings for the first star lights it with a burst")
+	var r_seen_n = r_stars_seen.size()
 	main.hud.set_shift(main.shift)
-	check(r_stars_seen == [0], "...once")
+	check(r_stars_seen.size() == r_seen_n, "...once")
 	main.hud._process(0.3)
 	check(main.hud._art.star_t[0] > 0.2, "...the star pops and sparks for a moment")
 	main.hud._process(1.0)
@@ -5590,7 +5595,7 @@ func _initialize() -> void:
 	var dt_fly = dt_art.btn_rect[dt_art.btn_id.find("airport:2")]
 	check(dt_fly.size.x > 800.0 and dt_fly.size.y >= 120.0 and dt_fly.position.y > 1280.0, "...the button is big and in the lower third (%s)" % str(dt_fly))
 	var dt_land = dt_art.det["land"]
-	check(dt_land.size() == 3 and dt_land[0] >= 1 and dt_land[0] < dt_land[1] and dt_land[1] < dt_land[2] and int(dt_art.det["stars"]) == 2 and int(dt_art.det["coins"][0]) > 0, "...three stars, each with what it needs to land (%s)" % str(dt_land))
+	check(dt_land.size() == 3 and dt_land[0] >= 1 and dt_land[1] >= 1 and dt_land[1] <= dt_land[2] and int(dt_art.det["stars"]) == 2 and int(dt_art.det["coins"][0]) > 0, "...three stars, each with what it needs to land (%s)" % str(dt_land))
 	main.detail_t = 1.0
 	main._update_camera()
 	var dt_vp = main.get_viewport().get_visible_rect().size

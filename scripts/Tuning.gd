@@ -304,17 +304,17 @@ var outline_thickness := 0.03
 ## Today's (pre-profile) intensity was: 12 planes, 5.0 -> 1.7 s, ramp 0.83, speed 1, timer 1, specials 1.
 var airport_profiles := [
 	{"name": "Grass Strip", "shift": 45, "max_planes": 3, "spawn_start": 7.0, "spawn_min": 4.4, "ramp": 0.9, "speed": 0.75, "timer": 1.5,
-		"specials": 0.0, "weather": 0.0, "wind": 0.0, "weather_first": 999.0, "wind_first": 999.0, "fines": 0.4, "stars": [15, 35, 55], "beats": [[5.0, 0]]},
+		"specials": 0.0, "weather": 0.0, "wind": 0.0, "weather_first": 999.0, "wind_first": 999.0, "fines": 0.3, "stars": [2, 40, 70], "beats": [[5.0, 0]]},
 	{"name": "County", "shift": 60, "max_planes": 4, "spawn_start": 6.5, "spawn_min": 4.0, "ramp": 0.9, "speed": 0.85, "timer": 1.35,
-		"specials": 0.3, "weather": 0.0, "wind": 2.2, "weather_first": 999.0, "wind_first": 35.0, "fines": 0.6, "stars": [30, 60, 90], "beats": [[5.0, 2]]},
+		"specials": 0.3, "weather": 0.0, "wind": 2.2, "weather_first": 999.0, "wind_first": 35.0, "fines": 0.3, "stars": [2, 30, 90], "beats": [[5.0, 2]]},
 	{"name": "Regional", "shift": 75, "max_planes": 6, "spawn_start": 6.0, "spawn_min": 3.2, "ramp": 0.85, "speed": 0.92, "timer": 1.2,
-		"specials": 0.6, "weather": 1.6, "wind": 1.5, "weather_first": 50.0, "wind_first": 38.0, "fines": 0.8, "stars": [50, 100, 150], "beats": [[5.0, 1], [24.0, 4]]},
-	{"name": "Mountain Field", "shift": 75, "max_planes": 10, "spawn_start": 5.2, "spawn_min": 2.2, "ramp": 0.83, "speed": 1.0, "timer": 1.0,
-		"specials": 1.0, "weather": 1.0, "wind": 1.0, "weather_first": 45.0, "wind_first": 35.0, "fines": 1.0, "stars": [65, 130, 200], "beats": [[5.0, 2]]},
+		"specials": 0.6, "weather": 1.6, "wind": 1.5, "weather_first": 50.0, "wind_first": 38.0, "fines": 0.35, "stars": [5, 60, 160], "beats": [[5.0, 1], [24.0, 4]]},
+	{"name": "Mountain Field", "shift": 75, "max_planes": 6, "spawn_start": 6.5, "spawn_min": 3.8, "ramp": 0.83, "speed": 0.92, "timer": 1.4,
+		"specials": 1.0, "weather": 1.0, "wind": 1.0, "weather_first": 45.0, "wind_first": 35.0, "fines": 0.35, "stars": [3, 70, 150], "beats": [[5.0, 2]]},
 	{"name": "Island", "shift": 90, "max_planes": 12, "spawn_start": 4.8, "spawn_min": 1.9, "ramp": 0.8, "speed": 1.05, "timer": 0.95,
-		"specials": 1.1, "weather": 0.85, "wind": 0.8, "weather_first": 40.0, "wind_first": 32.0, "fines": 1.0, "stars": [100, 200, 300], "beats": [[5.0, 5]]},
+		"specials": 1.1, "weather": 0.85, "wind": 0.8, "weather_first": 40.0, "wind_first": 32.0, "fines": 0.45, "stars": [6, 25, 300], "beats": [[5.0, 5]]},
 	{"name": "International", "shift": 90, "max_planes": 14, "spawn_start": 4.2, "spawn_min": 1.5, "ramp": 0.75, "speed": 1.12, "timer": 0.9,
-		"specials": 1.5, "weather": 0.7, "wind": 0.6, "weather_first": 35.0, "wind_first": 30.0, "fines": 1.0, "stars": [115, 230, 340], "beats": [[5.0, 1], [22.0, 5], [40.0, 4]]},
+		"specials": 1.5, "weather": 0.7, "wind": 0.6, "weather_first": 35.0, "wind_first": 30.0, "fines": 0.45, "stars": [7, 75, 350], "beats": [[5.0, 1], [22.0, 5], [40.0, 4]]},
 ]
 ## An airport's first shift is gentler: arrivals this much further apart, timers this much longer.
 var intro_spawn_scale := 1.3
