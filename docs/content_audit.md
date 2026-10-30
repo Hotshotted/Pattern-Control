@@ -20,18 +20,18 @@ Nothing in the game was changed for this audit. The only file added is this one.
 
 ### 1.1 Airports
 
-Six airports. Each opens when the player's total stars across all airports reach the unlock number. Star thresholds are in **net coins** for one shift (1, 2 and 3 stars).
+Six airports. Each opens when the player's total stars across all airports reach the unlock number. **Star 1** is for finishing the shift with at least that many landings; **stars 2 and 3** are for the shift's **net coins** (after fines). A star needs the ones before it. (Tables in sections 1 to 5 describe the game after balance phase 1 where they say so; the economy numbers in sections 2 to 4 are the original audit, kept as the baseline. Section 6 has the before and after.)
 
-| # | Airport | Tag | Runways | Pads | Water lanes | Mountains | Opens at | Shift | Max planes | Spawn gap (start → end) | Stars (net coins) |
+| # | Airport | Tag | Runways | Pads | Water lanes | Mountains | Opens at | Shift | Max planes | Spawn gap (start → end) | Stars: landings / net coins / net coins |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 0 | Grass Strip | One runway, both directions | 1 | 0 | 0 | 0 | 0 stars | 45 s | 3 | 7.0 → 4.4 s | 15 / 35 / 55 |
-| 1 | County | Crossing runways | 2 | 0 | 0 | 0 | 2 stars | 60 s | 4 | 6.5 → 4.0 s | 30 / 60 / 90 |
-| 2 | Regional | Parallel runways + helipad | 2 | 1 | 0 | 0 | 5 stars | 75 s | 6 | 6.0 → 3.2 s | 50 / 100 / 150 |
-| 3 | Mountain Field | Keep clear of the mountains | 2 | 0 | 0 | 5 | 8 stars | 75 s | 10 | 5.2 → 2.2 s | 65 / 130 / 200 |
-| 4 | Island | Water landing lane | 2 | 0 | 1 | 0 | 11 stars | 90 s | 12 | 4.8 → 1.9 s | 100 / 200 / 300 |
-| 5 | International | Everything, all at once | 3 | 2 | 2 | 0 | 14 stars | 90 s | 14 | 4.2 → 1.5 s | 115 / 230 / 340 |
+| 0 | Grass Strip | One runway, both directions | 1 | 0 | 0 | 0 | 0 stars | 45 s | 3 | 7.0 → 4.4 s | 2 / 40 / 70 |
+| 1 | County | Crossing runways | 2 | 0 | 0 | 0 | 2 stars | 60 s | 4 | 6.5 → 4.0 s | 2 / 15 / 45 |
+| 2 | Regional | Parallel runways + helipad | 2 | 1 | 0 | 0 | 4 stars | 75 s | 6 | 6.0 → 3.2 s | 4 / 15 / 40 |
+| 3 | Mountain Field | Keep clear of the mountains | 2 | 0 | 0 | 5 | 7 stars | 75 s | 6 | 6.5 → 3.8 s | 3 / 25 / 160 |
+| 4 | Island | Water landing lane | 2 | 0 | 1 | 0 | 10 stars | 90 s | 12 | 4.8 → 1.9 s | 6 / 35 / 345 |
+| 5 | International | Everything, all at once | 3 | 2 | 2 | 0 | 13 stars | 90 s | 14 | 4.2 → 1.5 s | 6 / 125 / 360 |
 
-18 stars exist in total; the last airport opens at 14, so 4 stars are never needed to progress.
+18 stars exist in total; the last airport opens at 13, so 5 stars are never needed to progress.
 
 **Traffic mix** (share of arrivals):
 
@@ -44,7 +44,7 @@ Six airports. Each opens when the player's total stars across all airports reach
 | Island | 20% | 25% | 30% | | | 25% |
 | International | 10% | 25% | 30% | | 15% | 20% |
 
-**Other per-airport tuning.** Plane speed ×0.75, 0.85, 0.92, 1.0, 1.05, 1.12 (in airport order). Timer length ×1.5, 1.35, 1.2, 1.0, 0.95, 0.9. Special-aircraft rate ×0, 0.3, 0.6, 1.0, 1.1, 1.5. Fine scale ×0.4, 0.6, 0.8, 1.0, 1.0, 1.0. Scripted beats: Grass a glider at 5 s; County a small plane at 5 s; Regional a helicopter at 5 s and a jet at 24 s; Mountain a small plane at 5 s; Island a seaplane at 5 s; International a helicopter at 5 s, a seaplane at 22 s and a jet at 40 s.
+**Other per-airport tuning.** Plane speed ×0.75, 0.85, 0.92, 0.92, 1.05, 1.12 (in airport order). Timer length ×1.5, 1.35, 1.2, 1.4, 0.95, 0.9 (Mountain Field is calmer than before: 6 aircraft, slower spawns, longer timers). Special-aircraft rate ×0, 0.3, 0.6, 1.0, 1.1, 1.5. Fine scale ×0.3, 0.3, 0.35, 0.35, 0.45, 0.45. Scripted beats: Grass a glider at 5 s; County a small plane at 5 s; Regional a helicopter at 5 s and a jet at 24 s; Mountain a small plane at 5 s; Island a seaplane at 5 s; International a helicopter at 5 s, a seaplane at 22 s and a jet at 40 s.
 
 **Runways in play.** The wind decides the active runway. First wind change / strength: Grass none; County 35 s / ×2.2; Regional 38 s / ×1.5; Mountain 35 s / ×1.0; Island 32 s / ×0.8; International 30 s / ×0.6. Wind then shifts every 55 s down to 28 s, with an 8 s warning.
 
@@ -74,7 +74,7 @@ Six airports. Each opens when the player's total stars across all airports reach
 | Diversion (timer runs out) | −20 × scale |
 | Hazard (mountain) | −50 × scale |
 | First time a star is earned | +100 per star (up to +1,800 once) |
-| Floor | the player keeps 50% of landing pay even when net is negative |
+| Pay floor | a completed shift always pays at least 25% of its gross (landing pay + bonuses + early bonus); fines and overtime cut the pay down to that floor and no further. Stars still use the net. The results card says "Shift pay protected" when the floor is what pays. A shift left from the pause menu pays nothing. |
 
 ### 1.3 Upgrades
 
@@ -110,8 +110,8 @@ Cosmetics total 4,400 coins. Everything purchasable (upgrades + cosmetics) is **
 | Mode | How it works | Gate |
 |---|---|---|
 | Regular shift | Pick an airport, play its shift, earn stars and coins. | Airport unlock (stars). |
-| Daily shift | One seeded shift per day. Airport is `day % 6`. No permanent stars, but at least 1 star completes it. Bonus 75 + 13 × min(streak, 7) coins; streak resets after a missed day; keeps its own best. | None found: `start_daily()` (`Main.gd:1623`) does not check that the day's airport is open. |
-| Bad Pilot Day | Same daily shape with its own streak and best. Airport is `(day + 3) % 6`. Every arrival is a student, go-around floor 0.6, landing pay ×1.5, star thresholds ×2.5, bonus ×2. | None found: `start_bad_day()` (`Main.gd:1631`) does not check the airport is open. |
+| Daily shift | One seeded shift per day. Airport is one of the open airports, picked by the day (`day % 6` when all six are open). No permanent stars, but at least 1 star completes it. Bonus 75 + 13 × min(streak, 7) coins; streak resets after a missed day; keeps its own best. | Open airports only (fixed in balance phase 1; before it, the airport could be locked). |
+| Bad Pilot Day | Same daily shape with its own streak and best. Airport is one of the open airports, picked by `day + 3` (`(day + 3) % 6` when all six are open). Every arrival is a student, go-around floor 0.6, landing pay ×1.5, net-coin star thresholds ×2.5 (the landing count for star 1 is the same), bonus ×2. | Open airports only. |
 | No engines | Optional per airport: nobody can go around. Landing pay ×2. Also a switch for Bad Pilot Day. | The airport must have 3 stars. |
 | Intro shift | The first shift at an airport spawns fewer planes with longer timers. | Automatic. |
 
@@ -119,7 +119,7 @@ One-time tips cover dragging a path, gliders, helicopters, jets, seaplanes, emer
 
 ### 1.6 Unlocks and what gates them
 
-- **Airports:** total stars 0, 2, 5, 8, 11, 14.
+- **Airports:** total stars 0, 2, 4, 7, 10, 13.
 - **Upgrades, cosmetics:** coins only. Nothing is stars-gated, nothing is airport-gated.
 - **No engines:** 3 stars at that airport.
 - **Daily and Bad Pilot Day:** available every day; each can be done once per day.
@@ -321,7 +321,7 @@ The poor bot has spent 25 minutes with two airports and about 6 purchases. The g
 | Cosmetics | 0 | 0 | 0 to 1 |
 
 - **Daily bonus weight.** About 300 coins over three days is a third of the poor bot's earnings and about 5% of the good bot's. It is the only thing that pays a returning player.
-- **Daily shift airport.** It is `day % 6` with no lock check, so a new player can be given International (when `day % 6 = 5`) with 0 stars. With no upgrades even the good bot nets −136 there.
+- **Daily shift airport.** (Audited before the fix.) It was `day % 6` with no lock check, so a new player could be given International with 0 stars; with no upgrades even the good bot netted −136 there. It now picks among the open airports.
 - **After three days.** The good bot has bought all upgrades and starts on cosmetics. The poor bot has seen two airports and 7 of 18 upgrade levels. The average bot's outcome depends on where it plays: 4 airports or 2.
 - **Total in 3 days vs total content.** Everything costs 9,920 coins. By day 3 the bots have earned 9% to 58% of that (the 100-coin first-star bonuses are included in these totals).
 
