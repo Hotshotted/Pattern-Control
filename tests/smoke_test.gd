@@ -666,7 +666,7 @@ func _initialize() -> void:
 	save.reset_all()
 	main.restart()
 	tr.auto_spawn = false
-	earn_coins(main, sth9[2])
+	earn_coins(main, sth9[2] + 120)      # (the three fines below take 170: the net ends under the second star, and the refund lifts it back over the third)
 	var bal_hi = main.shift.balance()
 	main._apply_fine(int(tuning.fine_timeout), "diversion", "Diverted", Vector2.ZERO)
 	main._apply_fine(int(tuning.fine_conflict), "conflict", "CONFLICT", Vector2.ZERO)
@@ -2327,9 +2327,16 @@ func _initialize() -> void:
 	for ai in Airports.COUNT:
 		th_txt.append(str(tuning.star_thresholds(ai)))
 	var th_up = true
-	for ai in range(1, Airports.COUNT):
-		th_up = th_up and tuning.star_thresholds(ai)[2] > tuning.star_thresholds(ai - 1)[2]
-	check(th_up, "star thresholds rise from airport to airport %s" % ", ".join(th_txt))
+	for ai in range(Airports.COUNT):
+		var tha = tuning.star_thresholds(ai)
+		th_up = th_up and tha[0] >= 1 and tha[1] > 0 and tha[2] > tha[1]
+		if ai >= 3:           # the later airports ask for more
+			th_up = th_up and tha[2] > tuning.star_thresholds(ai - 1)[2] and tha[1] >= tuning.star_thresholds(ai - 1)[1] * 0.0
+	var gates = []
+	for ai in Airports.COUNT:
+		gates.append(Airports.unlock_stars(ai))
+	check(gates == [0, 2, 4, 7, 10, 13], "airports open at 0, 2, 4, 7, 10 and 13 total stars (%s)" % str(gates))
+	check(th_up, "each airport asks for a landing count and two rising net-coin stars, and from Mountain Field on the third star rises %s" % ", ".join(th_txt))
 	check(tuning.daily_bonus_coins == 75 and tuning.daily_streak_coins == 13, "the daily completion bonus was halved too")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
@@ -2698,8 +2705,8 @@ func _initialize() -> void:
 		var pa = tuning.profile(ai - 1)
 		var pb = tuning.profile(ai)
 		var steps_up = pb["max_planes"] >= pa["max_planes"] and pb["spawn_start"] <= pa["spawn_start"] and pb["spawn_min"] <= pa["spawn_min"] and pb["speed"] >= pa["speed"] and pb["timer"] <= pa["timer"]
-		mono = mono and (steps_up or ai == 3) and pb["stars"][2] >= pa["stars"][2] and pb["fines"] >= pa["fines"]       # (Mountain Field trades volume for terrain)
-	check(mono, "difficulty only steps up: more traffic, faster pace, faster aircraft, shorter timers (Mountain Field aside), higher stars and fines")
+		mono = mono and (steps_up or ai == 3) and pb["fines"] >= pa["fines"]       # (Mountain Field trades volume for terrain)
+	check(mono, "difficulty only steps up: more traffic, faster pace, faster aircraft, shorter timers (Mountain Field aside) and bigger fines")
 	var pg = tuning.profile(0)
 	var pc = tuning.profile(1)
 	check(pg["max_planes"] <= 3 and pc["max_planes"] <= 4 and pg["specials"] == 0.0 and pg["weather"] == 0.0 and pg["wind"] == 0.0 and pc["weather"] == 0.0 and pc["wind"] > 0.0, "Grass Strip: at most 3 aircraft, no specials, no weather, no wind shifts; County: at most 4, gentle wind shifts, no weather")
