@@ -138,6 +138,8 @@ One-time tips cover dragging a path, gliders, helicopters, jets, seaplanes, emer
 
 ## 2. Economy timeline
 
+*(Original game, before balance phase 1: sections 2 to 4 are the baseline. Section 6 has the numbers after.)*
+
 ### 2.1 Coins per shift and per minute, by airport (survey)
 
 Thirty shifts per cell. **No upgrades.** Coins per shift, then per minute of play (shift + 20 s overhead). `stars ≥1` is the share of shifts that earn at least one star.
@@ -377,6 +379,68 @@ Comparable games: Flight Control and its descendants, Pocket Planes and other sh
 - No onboarding goal beyond the tips: the first target (3 stars on Grass Strip) is clear, the second (Regional at 5 stars) is not stated.
 
 ---
+
+## 6. Balance phase 1: before and after
+
+What changed (all of it in the game, tests in `tests/smoke_test.gd`):
+
+1. **Pay floor.** A completed shift pays at least 25% of its gross (landing pay + bonuses + early bonus). Fines and overtime cut the pay down to that floor and no further; stars still use the net, so fines and crashes still count against stars 2 and 3. The results card says "Shift pay protected" when the floor is what pays. Leaving a shift from the pause menu pays nothing. (Before: 50% of landing pay.)
+2. **Stars and gates.** Star 1 is finishing the shift with at least N landings: 2, 2, 4, 3, 6 and 6 for the six airports, chosen so the poor bot gets it within three shifts at least 90% of the time. Stars 2 and 3 are net coins: 40 / 70, 15 / 45, 15 / 40, 25 / 160, 35 / 345 and 125 / 360. The early airports ask little for stars 2 and 3 (a poor shift can reach them now and then, which the poor bot needs to open the next airport); Mountain Field and later ask what a good player nets. Airports open at 0, 2, 4, 7, 10 and 13 stars. The detail screen says "Land N and finish the shift" and "Net X after fines", and the shift bar counts landings toward star 1. The hangar holds N aircraft, so "Hangar full" is star 1.
+3. **Mountain Field.** At most 6 aircraft (was 10), spawns every 6.5 s down to 3.8 s (was 5.2 to 2.2), timers ×1.4 (was ×1.0), speed ×0.92 (was ×1.0), fines ×0.35 (was ×1.0). Traffic mix and the five mountains are unchanged. With the nine cheapest upgrade levels the average bot nets about +10 coins per shift there (was −480) and the good bot about +94 (was −221).
+4. **Fines scale** also came down at the other airports, because stars 2 and 3 cannot be reached by the average bot at Island or International while fines run at ×1.0: Grass Strip ×0.3, County ×0.3, Regional ×0.35, Island ×0.45, International ×0.45 (were ×0.4, ×0.6, ×0.8, ×1.0, ×1.0). That is more than the Mountain Field retune you asked for; it is the one change I made on my own judgement.
+5. **Daily shift and Bad Pilot Day** only pick open airports.
+
+Stars 2 and 3 against the targets (survey, nine cheapest upgrade levels, 60 shifts per cell; "90%" is the number of shifts after which the star has been reached at least once with 90% probability):
+
+| Airport (star 1 landings, star 2, star 3) | Star 1: poor bot, N landings within 3 shifts | Star 2: average bot, chance per shift / shifts for 90% | Star 3: good bot, chance per shift / shifts for 90% |
+|---|---|---|---|
+| Grass Strip (2, 40, 70) | 95% | 58% / 3 | 58% / 3 |
+| County (2, 15, 45) | 98% | 68% / 2 | 97% / 1 |
+| Regional (4, 15, 40) | 98% | 62% / 3 | 98% / 1 |
+| Mountain Field (3, 25, 160) | 90% | 48% / 4 | 20% / 11 |
+| Island (6, 35, 345) | 97% | 25% / 8 | 23% / 9 |
+| International (6, 125, 360) | 100% | 25% / 8 | 20% / 11 |
+
+The average bot reaches star 2 within about 8 shifts everywhere and the good bot reaches star 3 within about 10, with Mountain Field, Island and International at the limit. The early airports are much quicker than that on purpose (see item 2).
+
+Time to unlock each airport (minutes of play) and the share of shifts with a net at or below zero (the number the stars use), plus the share of shifts that were paid by the pay floor. 250-shift careers; each bot buys the cheapest upgrade it can afford, then cosmetics. Three ways of choosing the next airport: `newest` (the highest open one), `yield` (best coins per minute) and `chase` (the lowest open airport that still has stars to win, an airport that won nothing in its last 12 plays waits). "–" means not reached in 250 shifts.
+
+**Before (original game, audit_sim careers of 250 shifts)**
+
+| Bot / policy | County | Regional | Mountain Field | Island | International | Stars at the end | Shifts with net ≤ 0 | Shifts paid by the pay floor |
+|---|---|---|---|---|---|---|---|---|
+| Poor / newest | 9 | – | – | – | – | 3 | 98% | 100% |
+| Poor / yield | 9 | – | – | – | – | 3 | 84% | 90% |
+| Poor / chase | 9 | – | – | – | – | 3 | 98% | 100% |
+| Average / newest | 1 | 11 | 23 | 217 | – | 12 | 95% | 98% |
+| Average / yield | 1 | – | – | – | – | 3 | 32% | 48% |
+| Average / chase | 1 | 11 | 46 | – | – | 9 | 84% | 94% |
+| Good / newest | 1 | 3 | 4 | 8 | 93 | 17 | 46% | 68% |
+| Good / yield | 1 | 3 | 4 | – | – | 9 | 11% | 23% |
+| Good / chase | 1 | 6 | 7 | 72 | 206 | 18 | 75% | 90% |
+
+**After (balance phase 1)**
+
+| Bot / policy | County | Regional | Mountain Field | Island | International | Stars at the end | Shifts with net ≤ 0 | Shifts paid by the pay floor |
+|---|---|---|---|---|---|---|---|---|
+| Poor / newest | 11 | 13 | 18 | – | – | 9 | 96% | 98% |
+| Poor / yield | 11 | 13 | – | – | – | 6 | 86% | 90% |
+| Poor / chase | 13 | 17 | 78 | 106 | – | 12 | 96% | 98% |
+| Average / newest | 1 | 3 | 4 | 6 | 14 | 16 | 41% | 62% |
+| Average / yield | 1 | 4 | 5 | – | – | 8 | 34% | 46% |
+| Average / chase | 1 | 3 | 5 | 10 | 38 | 18 | 48% | 76% |
+| Good / newest | 1 | 3 | 4 | 6 | 8 | 16 | 4% | 10% |
+| Good / yield | 1 | 3 | 4 | 6 | 8 | 16 | 8% | 18% |
+| Good / chase | 1 | 3 | 4 | 6 | 29 | 18 | 0% | 6% |
+
+
+Against the targets:
+
+- **Poor bot reaches airport 4 within 4 hours: met for the fourth airport, met for the fifth only when the player goes back for stars.** Mountain Field (the fourth airport) opens at 18 minutes with `newest` and 78 with `chase`. Island (the fifth) opens at 106 minutes with `chase`, but not at all in 250 shifts with `newest` (it stops one star short, on 9 of the 10 needed, because it never goes back to an earlier airport) or `yield` (6 stars). International (13 stars) is not reached by the poor bot in any run. Before, the poor bot never got past County in 250 shifts.
+- **No bot has a net-negative shift: not met, and it cannot be met by thresholds.** The pay is never negative, and it is never below 25% of the gross. But the net the stars use is still at or below zero in 96 to 98% of the poor bot's shifts (it was 84 to 98%), 41 to 48% of the average bot's with `newest` and `chase` (was 95% and 84%) and 0 to 8% of the good bot's (was 46 to 75%). The poor bot's overtime penalty alone is larger than its gross at the easy airports, and its fines at the hard ones are four to ten times its gross; making its net positive would mean removing fines for bad play. The poor bot also has 3 to 10% of shifts that pay nothing at all, because no aircraft landed and 25% of nothing is nothing.
+- **Average and good bots now finish quickly.** With `chase`, the average bot has all 18 stars at 111 minutes and International open at 38; the good bot has all 18 at 37 minutes and International open at 29. Free first stars and the 0 / 2 / 4 / 7 / 10 / 13 gates did this; it is the main thing to look at next.
+
+The simulations are `tools/audit_sim.gd` (survey and career modes) and `tools/audit_report.py` (summaries); the numbers in sections 2 to 4 are from the original game and are kept as the baseline.
 
 ## What I did not verify
 
