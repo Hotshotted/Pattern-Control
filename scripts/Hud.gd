@@ -906,12 +906,12 @@ class Art extends Control:
 				draw_circle(Vector2(r.position.x + 62.0, cy13), 29.0, tc13)
 				if st == 2:
 					glyph("check", Vector2(r.position.x + 62.0, cy13), 17.0, Color.WHITE)
-				var tw13 := r.size.x - 120.0 - 190.0
+				var tw13 := r.size.x - 120.0 - 250.0
 				var fs13 := Style.fit_size(btn_text[k], SZ_M, 28, tw13)
 				ptext(btn_text[k], Vector2(r.position.x + 120.0, cy13 - 4.0), fs13, ink, HORIZONTAL_ALIGNMENT_LEFT, tw13)
 				draw_string(Style.body(), Vector2(r.position.x + 120.0, cy13 + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, Style.fit_size(btn_sub[k], SZ_S, 17, tw13), C_SOFT)
-				glyph("coin", Vector2(r.end.x - 160.0, cy13), 18.0)
-				ptext("+%d" % btn_cost[k], Vector2(r.end.x - 130.0, cy13 + 12.0), SZ_M, C_GOLD_TXT if st != 2 else ink, HORIZONTAL_ALIGNMENT_LEFT, 110.0)
+				glyph("coin", Vector2(r.end.x - 218.0, cy13), 18.0)
+				ptext("+%d" % btn_cost[k], Vector2(r.end.x - 188.0, cy13 + 12.0), SZ_M, C_GOLD_TXT if st != 2 else ink, HORIZONTAL_ALIGNMENT_LEFT, 160.0)
 			16:     # a compact cosmetic card (two to a row): a picture or swatch, the name, and one line (the price, or where a locked item comes from)
 				var locked16 := btn_lock[k] > 0 and st == 1
 				panel(_sb_gold if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
@@ -924,10 +924,11 @@ class Art extends Control:
 					draw_circle(pc + Vector2(0, -8.0), 25.0, btn_tint[k])
 				var tw16 := r.size.x - 120.0 - 24.0
 				ptext(btn_text[k], Vector2(r.position.x + 120.0, r.position.y + 54.0), Style.fit_size(btn_text[k], 30, 22, tw16), ink, HORIZONTAL_ALIGNMENT_LEFT, tw16)
-				if locked16:
-					glyph("lock", Vector2(r.position.x + 134.0, r.position.y + 94.0), 11.0, C_SOFT)
-				var sw16 := tw16 - (32.0 if locked16 else 0.0)
-				draw_string(Style.body(), Vector2(r.position.x + (152.0 if locked16 else 120.0), r.position.y + 102.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, sw16, Style.fit_size(btn_sub[k], 22, 14, sw16), C_SOFT if st != 1 or locked16 else C_QUIET)
+				if locked16:       # where it comes from, on up to two lines
+					glyph("lock", Vector2(r.position.x + 134.0, r.position.y + 84.0), 11.0, C_SOFT)
+					draw_multiline_string(Style.body(), Vector2(r.position.x + 152.0, r.position.y + 90.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16 - 32.0, 20, 2, C_SOFT)
+				else:
+					draw_string(Style.body(), Vector2(r.position.x + 120.0, r.position.y + 102.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16, 22, C_SOFT if st != 1 else C_QUIET)
 			14:     # the menu's goals card: "Daily goals", the streak, and three dots for the three goals
 				panel(_sb_normal, r, _sheen_s)
 				glyph("sun", Vector2(r.position.x + 52.0, r.get_center().y), 26.0, ink)
@@ -982,10 +983,10 @@ class Art extends Control:
 		draw_string(Style.body(), Vector2(x0, y0 + 124.0), tag_txt, HORIZONTAL_ALIGNMENT_LEFT, wide - 360.0, 27, C_SOFT)
 		if not locked and d.has("rank"):         # mastery: the rank, its name, a bar to the next one and the landings (under the tab chips)
 			var mx := card.end.x - 40.0 - 320.0
-			ptext("Rank %d  \u00b7  %s" % [int(d["rank"]), Mastery.rank_name(int(d["rank"]))], Vector2(mx, y0 + 114.0), 28, C_GOLD_TXT if int(d["rank"]) >= Mastery.MAX_RANK else C_TEXT, HORIZONTAL_ALIGNMENT_RIGHT, 320.0)
-			_mastery_bar(Rect2(mx, y0 + 126.0, 320.0, 18.0), float(d["frac"]), int(d["rank"]))
+			ptext("Rank %d  \u00b7  %s" % [int(d["rank"]), Mastery.rank_name(int(d["rank"]))], Vector2(mx, y0 + 108.0), 28, C_GOLD_TXT if int(d["rank"]) >= Mastery.MAX_RANK else C_TEXT, HORIZONTAL_ALIGNMENT_RIGHT, 320.0)
+			_mastery_bar(Rect2(mx, y0 + 118.0, 320.0, 16.0), float(d["frac"]), int(d["rank"]))
 			var mtxt := "%d landings  \u00b7  top rank" % int(d["landings"]) if int(d["need"]) <= 0 else "%d / %d to rank %d" % [int(d["into"]), int(d["need"]), int(d["rank"]) + 1]
-			draw_string(Style.text(), Vector2(mx, y0 + 168.0), mtxt, HORIZONTAL_ALIGNMENT_RIGHT, 320.0, 22, C_SOFT)
+			draw_string(Style.text(), Vector2(mx, y0 + 154.0), mtxt, HORIZONTAL_ALIGNMENT_RIGHT, 320.0, 22, C_SOFT)
 		var tab := int(d.get("tab", 0))
 		# the three stars: lit if earned, each with what it takes (star 1: a landing count; stars 2 and 3: net coins after fines)
 		var col_w := wide / 3.0
