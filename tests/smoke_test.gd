@@ -6143,7 +6143,7 @@ func _initialize() -> void:
 	check(not main.toast_queue.is_empty() or not main.toast_results.is_empty(), "a rank-up makes a toast")
 	main._show_select()
 	var ms_ci = main.hud._art.btn_id.find("pick:1")
-	check(main.hud._art.btn_pips[ms_ci] == 5 and main.hud._art.btn_badge[ms_ci] == 100, "the airport card carries the rank (5) and its progress")
+	check(ms_ci >= 0 and main.hud._art.btn_pips[ms_ci] == 5 and main.hud._art.btn_badge[ms_ci] == 100, "the airport card carries the rank (5) and its progress (%d: %d / %d, mastery %d)" % [ms_ci, main.hud._art.btn_pips[maxi(ms_ci, 0)], main.hud._art.btn_badge[maxi(ms_ci, 0)], save.mastery_landings(1)])
 	main.open_detail(1)
 	check(int(main.hud._art.det["rank"]) == 5 and int(main.hud._art.det["need"]) == 0 and int(main.hud._art.det["landings"]) >= Mastery.THRESHOLDS[1][4], "the detail screen carries the rank, the progress and the landings")
 	main.close_detail()
