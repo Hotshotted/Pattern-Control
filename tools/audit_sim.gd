@@ -18,8 +18,10 @@ var ONLY_BOTS := ["poor", "average", "good"]
 var ONLY_AIRPORTS := [0, 1, 2, 3, 4, 5]
 var FPS := 60                     # the simulated frame rate: every step is 1 / FPS s (the autopilot still acts at 10 Hz)
 var UP := 0
+var _ach_seen := {}
 var GOALS := 0                    # goals=1: the career plays one SESSION-minute session a day and the daily goals are on (their coins are counted)
 var SESSION := 20.0
+var PROG := 1                      # prog=0 switches mastery and achievements off (the phase 1 to 3 careers)
 var GUNIT := -1.0                  # gunit=X: the goals' reward factor (Tuning.goal_unit) for the run
 var IMP := 0                      # imp=N: every improvement of the airport being surveyed at level N
 var UPHALF := false              # up=half: the nine cheapest upgrade levels (about half of the 18)
@@ -101,6 +103,8 @@ func _initialize() -> void:
 			UPHALF = true
 		elif a.begins_with("goals="):
 			GOALS = int(a.substr(6))
+		elif a.begins_with("prog="):
+			PROG = int(a.substr(5))
 		elif a.begins_with("gunit="):
 			GUNIT = float(a.substr(6))
 		elif a.begins_with("session="):
@@ -452,6 +456,8 @@ func _progress(who: String, policy: String) -> void:
 	rng.seed = hash(who) + 7
 	var minutes := 0.0
 	main.goals_enabled = GOALS == 1
+	main.progress_enabled = PROG == 1
+	_ach_seen = {}
 	if GUNIT >= 0.0:
 		root.get_node("Tuning").goal_unit = GUNIT
 	save.day_override = 100000 if GOALS == 1 else -1
@@ -466,6 +472,10 @@ func _progress(who: String, policy: String) -> void:
 	var all_bought := -1.0
 	var all_cos := -1.0
 	var all_stars := -1.0
+	var all_rank5 := -1.0
+	var ach_last := -1.0
+	var prev_paid := PackedInt32Array([0, 0, 0, 0, 0, 0])
+	var prev_ach := 0
 	var cos_list := []
 	for k in Cosmetics.THEME_COUNT:
 		if Cosmetics.THEMES[k]["cost"] > 0:
@@ -494,7 +504,7 @@ func _progress(who: String, policy: String) -> void:
 					if score > best:
 						best = score
 						ap = i
-		if policy == "chase":
+		if policy == "chase" or policy == "grind":
 			# a player after the next airport: the lowest open airport that still has stars to win, but an airport where the last
 			# 12 plays won nothing waits until the others have gone dry too
 			var cand: Array[int] = []
@@ -513,6 +523,13 @@ func _progress(who: String, policy: String) -> void:
 				if all_dry:
 					dry_runs.clear()
 					ap = cand[0]
+			elif policy == "grind":        # every star won: play where mastery is furthest from rank 5
+				var worst := 2.0
+				for i in open:
+					var fr := float(save.mastery_landings(i)) / float(Mastery.THRESHOLDS[i][4])
+					if fr < worst:
+						worst = fr
+						ap = i
 		if GOALS == 1 and minutes >= next_day_at:
 			save.day_override += 1
 			next_day_at += SESSION
@@ -600,6 +617,26 @@ func _progress(who: String, policy: String) -> void:
 			if save.airport_open(i) and not opened.has(i):
 				opened[i] = minutes
 				print("EVENT %s %s %.1f unlock %s shift=%d stars=%d" % [who, policy, minutes, Airports.airport_name(i), n + 1, save.stars_total()])
+		for i in Airports.COUNT:
+			if save.mastery_paid[i] > prev_paid[i]:
+				for rr in range(prev_paid[i] + 1, save.mastery_paid[i] + 1):
+					print("EVENT %s %s %.1f rank %s %d shift=%d" % [who, policy, minutes, Airports.airport_name(i).replace(" ", "_"), rr, n + 1])
+				prev_paid[i] = save.mastery_paid[i]
+		if all_rank5 < 0.0:
+			var every5 := true
+			for i in Airports.COUNT:
+				if save.mastery_paid[i] < Mastery.MAX_RANK:
+					every5 = false
+			if every5:
+				all_rank5 = minutes
+				print("EVENT %s %s %.1f all-rank5 shift=%d" % [who, policy, minutes, n + 1])
+		if save.achievements.size() > prev_ach:
+			for aid in save.achievements.keys():
+				if int(save.achievements[aid]) >= 0 and not _ach_seen.has(aid):
+					_ach_seen[aid] = true
+					print("EVENT %s %s %.1f ach %s shift=%d" % [who, policy, minutes, aid, n + 1])
+			prev_ach = save.achievements.size()
+			ach_last = minutes
 		var all_up_now := true
 		for id in Upgrades.IDS:
 			if save.upgrade_level(id) < Upgrades.MAX_LEVEL:
@@ -642,5 +679,5 @@ func _progress(who: String, policy: String) -> void:
 		print("CAREER %s %s n=%d ap=%d landed=%d spawned=%d earned=%d bonus=%d tbonus=%d fines=%d ot=%d net=%d paid=%d stars=%d new_stars=%d gain=%d bank=%d cheapest=%d end_t=%.1f min=%.2f conf=%d div=%d crash=%d goalc=%d bought=%s" % [who, policy, n + 1, ap, s.landed, _spawned, s.earned, s.bonus, s.time_bonus, s.fines, s.overtime_penalty, s.balance(), s.payout(), s.stars(), save.stars_total() - stars_before, gain, save.coins, cheapest if cheapest < (1 << 30) else -1, main.traffic.run_time, minutes, s.conflicts, s.diversions, s.crashes, main.goal_coins_total, "+".join(bought)])
 		if all_bought >= 0.0 and all_stars >= 0.0:
 			break
-	print("DONE %s %s shifts=%d minutes=%.1f all_upgrades=%.1f all_improvements=%.1f all_bought=%.1f all_cosmetics=%.1f all_stars=%.1f" % [who, policy, main.shift.landed if false else 0, minutes, all_up, all_imp, all_bought, all_cos, all_stars])
+	print("DONE %s %s shifts=%d minutes=%.1f all_upgrades=%.1f all_improvements=%.1f all_bought=%.1f all_cosmetics=%.1f all_stars=%.1f all_rank5=%.1f ach=%d ach_last=%.1f" % [who, policy, main.shift.landed if false else 0, minutes, all_up, all_imp, all_bought, all_cos, all_stars, all_rank5, save.achievements.size(), ach_last])
 	save.reset_all()
