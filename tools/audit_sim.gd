@@ -18,6 +18,7 @@ var ONLY_BOTS := ["poor", "average", "good"]
 var ONLY_AIRPORTS := [0, 1, 2, 3, 4, 5]
 var FPS := 60                     # the simulated frame rate: every step is 1 / FPS s (the autopilot still acts at 10 Hz)
 var UP := 0
+var IMP := 0                      # imp=N: every improvement of the airport being surveyed at level N
 var UPHALF := false              # up=half: the nine cheapest upgrade levels (about half of the 18)
 const HALF_LEVELS := {"comms": 2, "holding": 2, "turnoffs": 2, "tower": 1, "radar": 1, "approach": 1}
 var PROGRESS := ""
@@ -95,6 +96,8 @@ func _initialize() -> void:
 			TOTALS = true
 		elif a == "up=half":
 			UPHALF = true
+		elif a.begins_with("imp="):
+			IMP = int(a.substr(4))
 		elif a.begins_with("up="):
 			UP = int(a.substr(3))
 		elif a.begins_with("progress="):
@@ -130,6 +133,10 @@ func _survey() -> void:
 			save.unlocks["all_airports"] = true
 			for uid in Upgrades.IDS:
 				save.upgrades[uid] = int(HALF_LEVELS[uid]) if UPHALF else UP
+			if IMP > 0:
+				save.improvements = {str(ap): {}}
+				for iid in Improvements.IDS:
+					save.improvements[str(ap)][iid] = IMP
 			rng.seed = hash(who) + 100 * ap + 3
 			var dist := [0, 0, 0, 0]
 			var tot_land := 0
@@ -145,7 +152,7 @@ func _survey() -> void:
 			var intro_stars := 0
 			for n in SURVEY_SHIFTS:
 				var r := _play_shift(skill, ap, n, who)
-				print("AUD %s %d %d %d landed=%d spawned=%d earned=%d bonus=%d tbonus=%d fines=%d ot=%d net=%d paid=%d stars=%d end_t=%.1f conf=%d div=%d crash=%d" % [who, ap, (9 if UPHALF else UP), n, r["landed"], r["spawned"], r["earned_only"], r["bonus_only"], r["tbonus"], r["fines"], r["ot"], r["net"], r["paid"], r["stars"], r["end_t"], r["conflicts"], r["diversions"], r["crashes"]])
+				print("AUD %s %d %d %d landed=%d spawned=%d earned=%d bonus=%d tbonus=%d fines=%d ot=%d net=%d paid=%d stars=%d end_t=%.1f conf=%d div=%d crash=%d" % [who, ap, (9 if UPHALF else UP) + 100 * IMP, n, r["landed"], r["spawned"], r["earned_only"], r["bonus_only"], r["tbonus"], r["fines"], r["ot"], r["net"], r["paid"], r["stars"], r["end_t"], r["conflicts"], r["diversions"], r["crashes"]])
 				dist[r["stars"]] += 1
 				if TOTALS:
 					print("SHIFT %s %d %d net=%d coins=%d paid=%d landed=%d" % [who, ap, n, r["net"], r["coins"], r["paid"], r["landed"]])
@@ -440,6 +447,8 @@ func _progress(who: String, policy: String) -> void:
 	var dry_runs := {}
 	var up_done := {}
 	var all_up := -1.0
+	var all_imp := -1.0
+	var all_bought := -1.0
 	var all_cos := -1.0
 	var all_stars := -1.0
 	var cos_list := []
@@ -523,23 +532,42 @@ func _progress(who: String, policy: String) -> void:
 			dry_runs[ap] = 0
 		else:
 			dry_runs[ap] = int(dry_runs.get(ap, 0)) + 1
-		# purchases
+		# purchases: the cheapest thing it can afford, among the Tower upgrades and the improvements of every open airport; cosmetics when all of those are bought
 		var bought := []
 		var progress := true
 		while progress:
 			progress = false
+			var best_kind := ""
 			var best_id := ""
+			var best_ap := -1
 			var best_cost := 1 << 30
 			for id in Upgrades.IDS:
 				var c := Upgrades.cost(id, save.upgrade_level(id))
 				if c >= 0 and c < best_cost:
 					best_cost = c
 					best_id = id
+					best_kind = "tower"
+			for ia in Airports.COUNT:
+				if not save.airport_open(ia):
+					continue
+				for iid in Improvements.IDS:
+					var ci := Improvements.cost(ia, iid, save.imp_level(ia, iid))
+					if ci >= 0 and ci < best_cost:
+						best_cost = ci
+						best_id = iid
+						best_ap = ia
+						best_kind = "imp"
 			if best_id != "" and save.coins >= best_cost:
-				save.buy_upgrade(best_id)
-				var key := "%s L%d" % [Upgrades.upgrade_name(best_id), save.upgrade_level(best_id)]
-				bought.append(key)
-				print("EVENT %s %s %.1f upgrade %s shift=%d" % [who, policy, minutes, key, n + 1])
+				if best_kind == "tower":
+					save.buy_upgrade(best_id)
+					var key := "%s L%d" % [Upgrades.upgrade_name(best_id), save.upgrade_level(best_id)]
+					bought.append(key)
+					print("EVENT %s %s %.1f upgrade %s shift=%d" % [who, policy, minutes, key, n + 1])
+				else:
+					save.buy_improvement(best_ap, best_id)
+					var key2 := "%s %s L%d" % [Airports.airport_name(best_ap), Improvements.improvement_name(best_id), save.imp_level(best_ap, best_id)]
+					bought.append(key2)
+					print("EVENT %s %s %.1f improve %s shift=%d" % [who, policy, minutes, key2, n + 1])
 				progress = true
 			elif best_id == "":
 				for cs in cos_list:
@@ -560,6 +588,17 @@ func _progress(who: String, policy: String) -> void:
 		if all_up_now and all_up < 0.0:
 			all_up = minutes
 			print("EVENT %s %s %.1f all-upgrades shift=%d" % [who, policy, minutes, n + 1])
+		var all_imp_now := true
+		for ia in Airports.COUNT:
+			for iid in Improvements.IDS:
+				if save.imp_level(ia, iid) < Improvements.MAX_LEVEL:
+					all_imp_now = false
+		if all_imp_now and all_imp < 0.0:
+			all_imp = minutes
+			print("EVENT %s %s %.1f all-improvements shift=%d" % [who, policy, minutes, n + 1])
+		if all_up_now and all_imp_now and all_bought < 0.0:
+			all_bought = minutes
+			print("EVENT %s %s %.1f all-bought shift=%d" % [who, policy, minutes, n + 1])
 		var all_cos_now := true
 		for cs in cos_list:
 			if not save.owns(cs[0], cs[1]):
@@ -575,8 +614,14 @@ func _progress(who: String, policy: String) -> void:
 			var c2 := Upgrades.cost(id, save.upgrade_level(id))
 			if c2 >= 0:
 				cheapest = mini(cheapest, c2)
+		for ia in Airports.COUNT:
+			if save.airport_open(ia):
+				for iid in Improvements.IDS:
+					var c3 := Improvements.cost(ia, iid, save.imp_level(ia, iid))
+					if c3 >= 0:
+						cheapest = mini(cheapest, c3)
 		print("CAREER %s %s n=%d ap=%d landed=%d spawned=%d earned=%d bonus=%d tbonus=%d fines=%d ot=%d net=%d paid=%d stars=%d new_stars=%d gain=%d bank=%d cheapest=%d end_t=%.1f min=%.2f conf=%d div=%d crash=%d bought=%s" % [who, policy, n + 1, ap, s.landed, _spawned, s.earned, s.bonus, s.time_bonus, s.fines, s.overtime_penalty, s.balance(), s.payout(), s.stars(), save.stars_total() - stars_before, gain, save.coins, cheapest if cheapest < (1 << 30) else -1, main.traffic.run_time, minutes, s.conflicts, s.diversions, s.crashes, "+".join(bought)])
-		if all_up >= 0.0 and all_cos >= 0.0 and all_stars >= 0.0:
+		if all_bought >= 0.0 and all_stars >= 0.0:
 			break
-	print("DONE %s %s shifts=%d minutes=%.1f all_upgrades=%.1f all_cosmetics=%.1f all_stars=%.1f" % [who, policy, main.shift.landed if false else 0, minutes, all_up, all_cos, all_stars])
+	print("DONE %s %s shifts=%d minutes=%.1f all_upgrades=%.1f all_improvements=%.1f all_bought=%.1f all_cosmetics=%.1f all_stars=%.1f" % [who, policy, main.shift.landed if false else 0, minutes, all_up, all_imp, all_bought, all_cos, all_stars])
 	save.reset_all()
