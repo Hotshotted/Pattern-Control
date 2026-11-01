@@ -721,7 +721,7 @@ func _initialize() -> void:
 	save.load_file()
 	check(save.coins == saved_coins and save.stars_total() == saved_stars and save.upgrade_level("test") == 2, "the save round-trips (coins, stars, upgrades)")
 	var raw = FileAccess.open(save.path, FileAccess.READ).get_as_text()
-	check(raw.contains("\"version\":5"), "the save file is versioned (v5)")
+	check(raw.contains("\"version\":6"), "the save file is versioned (v6)")
 	var f1 = FileAccess.open(save.path, FileAccess.WRITE)
 	f1.store_string("{\"version\":1,\"best\":37}")
 	f1 = null
@@ -1905,7 +1905,7 @@ func _initialize() -> void:
 	var card_state = {}
 	for k in main.hud._art.btn_count:
 		card_state[main.hud._art.btn_id[k]] = [main.hud._art.btn_state[k], main.hud._art.btn_sub[k], main.hud._art.btn_icon[k], main.hud._art.btn_rect[k], main.hud._art.btn_cost[k]]
-	check(card_state["theme:0"][1] == "In use" and card_state["theme:1"][4] == 300 and card_state["theme:1"][0] == 0 and card_state["theme:3"][0] == 1, "Classic is equipped, Autumn is for sale, Winter is out of reach")
+	check(card_state["theme:0"][1] == "In use" and card_state["theme:1"][1] == "300 coins" and card_state["theme:1"][0] == 0 and card_state["theme:3"][0] == 1, "Classic is equipped, Autumn is for sale, Winter is out of reach")
 	check(card_state["theme:2"][2] == 102, "theme cards show a colour swatch")
 	main.hud._preview_art()        # (made, and put above the list, while the menu idles in the game)
 	var snap_c = snapshot(main)
@@ -6084,6 +6084,196 @@ func _initialize() -> void:
 	save.day_override = -1
 	save.reset_all()
 	main.goals_enabled = false
+
+	print("34. Mastery, achievements and the new cosmetics")
+	main.progress_enabled = true
+	# Mastery data: rising thresholds, rank 5 about three times rank 3, a livery at rank 3 and a field detail at rank 5 for every airport.
+	var ms_ok = true
+	var ms_ratio_ok = true
+	for ms_a in Airports.COUNT:
+		var ms_t = Mastery.THRESHOLDS[ms_a]
+		for ms_k in range(1, 5):
+			ms_ok = ms_ok and ms_t[ms_k] > ms_t[ms_k - 1]
+		ms_ratio_ok = ms_ratio_ok and absf(float(ms_t[4]) / float(ms_t[2]) - 3.0) < 0.2
+		var ms_r3 = Mastery.cosmetic_for(ms_a, 3)
+		var ms_r5 = Mastery.cosmetic_for(ms_a, 5)
+		ms_ok = ms_ok and ms_r3.begins_with("livery:") and (ms_r5.begins_with("windsock:") or ms_r5.begins_with("hangar:")) and Mastery.cosmetic_for(ms_a, 1) == "" and Mastery.cosmetic_for(ms_a, 4) == ""
+		for ms_c in [ms_r3, ms_r5]:
+			var ms_it = Cosmetics.items(ms_c.get_slice(":", 0))[Cosmetics.index_of(ms_c.get_slice(":", 0), ms_c.get_slice(":", 1))]
+			ms_ok = ms_ok and ms_it["id"] == ms_c.get_slice(":", 1) and Cosmetics.source(ms_it) == "mastery" and int(ms_it["ap"]) == ms_a
+	check(ms_ok, "every airport has five rising mastery ranks and a mastery livery (rank 3) and field detail (rank 5) that name it")
+	check(ms_ratio_ok, "rank 5 takes about three times the landings of rank 3 at every airport")
+	check(Mastery.rank(0, 14) == 0 and Mastery.rank(0, 15) == 1 and Mastery.rank(0, 140) == 3 and Mastery.rank(0, 5000) == 5 and Mastery.progress(0, 15)["rank"] == 1 and absf(Mastery.progress(0, 40)["frac"] - 25.0 / 50.0) < 0.001 and Mastery.progress(0, 420)["need"] == 0, "rank and progress follow the thresholds")
+	# Paying ranks.
+	save.reset_all()
+	var ms_coins0 = save.coins
+	var ms_got_ranks = []
+	var ms_cos = []
+	for ms_n in 140:
+		var ms_r = save.add_mastery_landing(0, 55)
+		ms_got_ranks.append_array(ms_r["ranks"])
+		ms_cos.append_array(ms_r["cosmetics"])
+	check(ms_got_ranks == [1, 2, 3] and ms_cos == ["livery:bee"] and save.owns("livery", "bee") and not save.owns("windsock", "meadow"), "140 landings at Grass Strip reach ranks 1, 2 and 3 once each, and rank 3 gives the Bee Line livery")
+	check(save.coins - ms_coins0 == Mastery.coins_for(0, 1, 55) + Mastery.coins_for(0, 2, 55) + Mastery.coins_for(0, 3, 55), "...and pays the three ranks' coins (%d)" % (save.coins - ms_coins0))
+	for ms_n in 280:
+		ms_got_ranks.append_array(save.add_mastery_landing(0, 55)["ranks"])
+	check(ms_got_ranks == [1, 2, 3, 4, 5] and save.owns("windsock", "meadow") and save.mastery_rank(0) == 5, "420 landings reach rank 5 and give the Meadow windsock")
+	save.write_file()
+	save.load_file()
+	check(save.mastery_landings(0) == 420 and save.mastery_rank(0) == 5 and save.add_mastery_landing(0, 55)["ranks"].is_empty() and save.owns("livery", "bee"), "mastery is saved, and a rank is never paid twice")
+	# In a shift: landings count, the tower plaque appears at rank 5, the cards and the detail screen show the rank.
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(1)
+	main.restart()
+	tr.auto_spawn = false
+	for ms_n in 3:
+		earn_coins(main, 0)
+		main.traffic.run_time += 10.0
+	check(save.mastery_landings(1) >= 1, "landings in a shift count toward the airport's mastery (%d)" % save.mastery_landings(1))
+	check(not main.airfield.plaque_visible(), "no gold plaque on the tower below rank 5")
+	save.mastery[1] = Mastery.THRESHOLDS[1][4] - 1
+	save.mastery_paid[1] = 4
+	earn_coins(main, 0)
+	main.traffic.run_time += 10.0
+	var ms_f = Aircraft.new()
+	ms_f.type = 3
+	main._on_landed(ms_f)
+	check(save.mastery_rank(1) == 5 and main.airfield.plaque_visible(), "rank 5 puts the gold plaque on that airport's tower")
+	check(not main.toast_queue.is_empty() or not main.toast_results.is_empty(), "a rank-up makes a toast")
+	main._show_select()
+	var ms_ci = main.hud._art.btn_id.find("pick:1")
+	check(main.hud._art.btn_pips[ms_ci] == 5 and main.hud._art.btn_badge[ms_ci] == 100, "the airport card carries the rank (5) and its progress")
+	main.open_detail(1)
+	check(int(main.hud._art.det["rank"]) == 5 and int(main.hud._art.det["need"]) == 0 and int(main.hud._art.det["landings"]) >= Mastery.THRESHOLDS[1][4], "the detail screen carries the rank, the progress and the landings")
+	main.close_detail()
+	# Achievements: about thirty, in four groups, three sizes; a third give a cosmetic.
+	var ac_groups = [0, 0, 0, 0]
+	var ac_sizes = [0, 0, 0]
+	var ac_cos = 0
+	var ac_ok = true
+	for ac_a in Achievements.LIST:
+		ac_groups[int(ac_a["g"])] += 1
+		ac_sizes[int(ac_a["s"])] += 1
+		ac_ok = ac_ok and int(ac_a["coins"]) > 0 and str(ac_a["name"]) != "" and str(ac_a["text"]) != ""
+		if ac_a.get("cos", "") != "":
+			ac_cos += 1
+			var ac_it = Cosmetics.items(ac_a["cos"].get_slice(":", 0))[Cosmetics.index_of(ac_a["cos"].get_slice(":", 0), ac_a["cos"].get_slice(":", 1))]
+			ac_ok = ac_ok and Cosmetics.source(ac_it) == "ach" and ac_it["ach"] == ac_a["id"]
+	check(Achievements.count() >= 28 and Achievements.count() <= 34 and ac_groups.min() >= 5 and ac_sizes.min() >= 5 and ac_ok, "%d achievements in four groups %s and three sizes %s" % [Achievements.count(), str(ac_groups), str(ac_sizes)])
+	check(ac_cos >= 9 and ac_cos <= 12, "about a third unlock a cosmetic (%d of %d)" % [ac_cos, Achievements.count()])
+	var ac_cos_items = 0
+	for ac_kind in ["theme", "livery", "windsock", "hangar"]:
+		for ac_it2 in Cosmetics.items(ac_kind):
+			if Cosmetics.source(ac_it2) == "ach":
+				ac_cos_items += 1
+	check(ac_cos_items == ac_cos, "every achievement cosmetic is claimed by exactly one achievement")
+	# The checks: counters, thresholds, paying once.
+	save.reset_all()
+	check(Achievements.check(save.ach_stats(), save.achievements).is_empty(), "a new save has no achievements")
+	save.stat_add("clean_shifts")
+	var ac_new = save.check_achievements()
+	check(ac_new.size() == 1 and ac_new[0]["id"] == "s_clean" and save.achievements.has("s_clean"), "a clean shift earns 'Clean sheet'")
+	var ac_c0 = save.coins
+	check(save.check_achievements().is_empty() and save.coins == ac_c0, "...once")
+	save.mastery[0] = 1
+	check("a_first" in save.check_achievements().map(func(x): return x["id"]), "the first landing earns the first achievement")
+	save.mastery[0] = 1000
+	var ac_ids = save.check_achievements().map(func(x): return x["id"])
+	check(ac_ids.has("a_l100") and ac_ids.has("a_l500") and ac_ids.has("a_l1000") and not ac_ids.has("a_l2500") and save.owns("livery", "lion"), "1,000 landings earn the 100 / 500 / 1,000 ones and the Lion Gold livery")
+	save.stats["fast_hangar"] = 50
+	check(not Achievements.check(save.ach_stats(), save.achievements).has("s_fast_hangar"), "a full hangar in 50 s is not under 45")
+	save.stats["fast_hangar"] = 44
+	check(save.check_achievements().map(func(x): return x["id"]).has("s_fast_hangar") and save.owns("livery", "raven"), "...44 s is, and gives the Raven Night livery")
+	save.goal_streak = {"count": 7, "last": 1, "freezes": 0, "best": 7}
+	check(save.check_achievements().map(func(x): return x["id"]).has("c_streak7"), "a 7-day streak is an achievement")
+	for ac_i in Airports.COUNT:
+		for ac_iid in Improvements.IDS:
+			save.improvements[str(ac_i)] = save.improvements.get(str(ac_i), {})
+			save.improvements[str(ac_i)][ac_iid] = 3
+	var ac_imp = save.check_achievements().map(func(x): return x["id"])
+	check(ac_imp.has("p_imp_one") and ac_imp.has("p_imp_all") and save.owns("hangar", "plum") and save.owns("hangar", "teal"), "every improvement at one airport, then at all six, each with a cosmetic")
+	# Toasts wait for a calm moment.
+	save.reset_all()
+	main.restart()
+	tr.auto_spawn = false
+	main.toast_queue.clear()
+	main._toast("Achievement: test  +10", Color.WHITE)
+	main._drag_plane = Aircraft.new()
+	main._tick_toasts(10.0)
+	check(main.toast_queue.size() == 1, "a toast waits while a path is being drawn")
+	main._drag_plane = null
+	main._tick_toasts(10.0)
+	check(main.toast_queue.is_empty(), "...and shows at the next calm moment")
+	main._toast("Achievement: two  +10", Color.WHITE)
+	main._toast_gap = 0.0
+	var ac_plane = Aircraft.new()
+	ac_plane.ga_pending = true
+	tr.planes.append(ac_plane)
+	main._tick_toasts(10.0)
+	check(main.toast_queue.size() == 1, "...or while a go-around is signalled")
+	tr.planes.erase(ac_plane)
+	tr.release_all()
+	# The achievements sheet and its menu button.
+	save.reset_all()
+	main._show_menu()
+	check(main.hud._art.btn_id.has("ach") and main.hud._art.btn_text[main.hud._art.btn_id.find("ach")] == "Awards", "the menu has an Awards button")
+	main._on_button("ach")
+	check(main.screen == main.SCREEN_ACH and main.hud._select_title.text == "ACHIEVEMENTS" and main.hud._art.btn_id.has("ach_tab:3") and main.hud._art.btn_id.has("ach:a_first"), "it opens the Achievements sheet, with four group tabs")
+	main._on_button("ach_tab:1")
+	check(main.hud._art.btn_id.has("ach:s_nogo") and not main.hud._art.btn_id.has("ach:a_first"), "a tab lists one group")
+	main._on_button("back")
+	# The new cosmetics: sources, locked items, the shop tabs, field details drawn on the field.
+	var cs_new = 0
+	var cs_src = {"shop": 0, "mastery": 0, "ach": 0}
+	for cs_kind in ["theme", "livery", "windsock", "hangar"]:
+		for cs_it in Cosmetics.items(cs_kind):
+			cs_src[Cosmetics.source(cs_it)] += 1
+	check(cs_src["mastery"] == 12 and cs_src["ach"] == 10 and Cosmetics.THEME_COUNT + Cosmetics.LIVERY_COUNT == 26, "sources: %s; 15 more liveries and skins (26 in all), 12 field details" % str(cs_src))
+	check(Cosmetics.source_line(Cosmetics.LIVERIES[8]).begins_with("Mastery: Grass Strip") and Cosmetics.source_line(Cosmetics.LIVERIES[14]).begins_with("Achievement:") and Cosmetics.source_line(Cosmetics.LIVERIES[6]) == "650 coins", "locked items say where they come from (mastery rank, achievement, price)")
+	save.reset_all()
+	main._on_button("shop")
+	main._on_button("shop_tab:1")
+	var cs_cards = {}
+	for cs_k in main.hud._art.btn_count:
+		cs_cards[main.hud._art.btn_id[cs_k]] = [main.hud._art.btn_sub[cs_k], main.hud._art.btn_state[cs_k], main.hud._art.btn_kind[cs_k]]
+	check(cs_cards.size() >= 18 and cs_cards["livery:8"][0].begins_with("Mastery: Grass Strip") and cs_cards["livery:8"][1] == 1 and cs_cards["livery:6"][0] == "650 coins" and cs_cards["livery:0"][0] == "In use" and cs_cards["livery:8"][2] == 16, "the liveries tab lists all 17 in compact cards, a locked one saying its source")
+	main._on_button("livery:8")
+	check(main.preview_kind == "livery" and main.hud.preview_state() == "locked", "a mastery livery opens a preview that says Locked")
+	main._on_button("preview_close")
+	main._on_button("shop_tab:2")
+	check(main.hud._art.btn_id.has("windsock:0") and main.hud._art.btn_id.has("hangar:6"), "the Field tab lists the windsocks and hangar paints")
+	main._on_button("shop_tab:0")
+	check(main.hud._art.btn_id.has("theme:8"), "the skins tab lists all nine")
+	main._on_button("back")
+	# Field details on the airfield.
+	save.reset_all()
+	save.unlocks["windsock:lime"] = true
+	save.unlocks["hangar:cream"] = true
+	main.select_airport(2)
+	main.restart()
+	main.shop_pick("windsock", 1)
+	main.shop_pick("hangar", 1)
+	var fd_sock = main.airfield.cur.sock_mats
+	var fd_roof = (main.airfield.cur.hangar_roofs[0].material_override as StandardMaterial3D).albedo_color
+	check(fd_sock.size() == 2 and (fd_sock[0] as StandardMaterial3D).albedo_color.is_equal_approx(Cosmetics.SOCKS[1]["a"]) and fd_roof.is_equal_approx(Cosmetics.PAINTS[1]["color"]), "an equipped windsock and hangar paint are drawn on the field")
+	main.shop_pick("windsock", 0)
+	main.shop_pick("hangar", 0)
+	check((fd_sock[0] as StandardMaterial3D).albedo_color.is_equal_approx(Cosmetics.SOCKS[0]["a"]), "...and the standard ones put back")
+	# No cosmetic uses a runway colour on a plane's nose, wingtips or fin: liveries only set the fuselage and the stripe, and none is near a runway colour.
+	var rc_ok = true
+	for rc_i in Cosmetics.LIVERY_COUNT:
+		for rc_key in ["body", "stripe"]:
+			var rc_c = Cosmetics.LIVERIES[rc_i][rc_key]
+			if rc_c == null:
+				continue
+			for rc_rc in [Airports.ORANGE, Airports.BLUE, Airports.PINK, Airports.PAD_COLOR, Airports.LANE_COLOR]:
+				if Vector3(rc_c.r - rc_rc.r, rc_c.g - rc_rc.g, rc_c.b - rc_rc.b).length() < 0.3:
+					rc_ok = false
+		rc_ok = rc_ok and not Cosmetics.LIVERIES[rc_i].has("nose") and not Cosmetics.LIVERIES[rc_i].has("tip") and not Cosmetics.LIVERIES[rc_i].has("fin")
+	check(rc_ok, "none of the %d liveries uses a runway colour, and none sets the nose, wingtips or fin" % Cosmetics.LIVERY_COUNT)
+	save.reset_all()
+	main.progress_enabled = false
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
