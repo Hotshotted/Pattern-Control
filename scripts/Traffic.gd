@@ -923,7 +923,7 @@ func _move(p: Aircraft, dt: float, mult: float) -> void:
 				_remove(p)
 				return
 		Aircraft.State.LANDING:
-			p.roll_t += dt / (Tuning.pad_land_seconds if p.tkind == Aircraft.Kind.PAD else Tuning.landing_roll_time)
+			p.roll_t += dt / (Tuning.pad_land_seconds if p.tkind == Aircraft.Kind.PAD else Tuning.landing_roll())
 			var e := 1.0 - (1.0 - minf(p.roll_t, 1.0)) * (1.0 - minf(p.roll_t, 1.0))
 			p.pos = p.roll_from.lerp(roll_target(p), e)
 			p.ground = p.roll_t >= Tuning.touchdown_fraction
@@ -1017,7 +1017,7 @@ func _begin_landing(p: Aircraft) -> bool:
 			return false
 		_start_go_around(p, Approach.Reason.BUSY)
 		return false
-	_busy_until[r] = run_time + Tuning.landing_roll_time + Tuning.runway_clear()
+	_busy_until[r] = run_time + Tuning.landing_roll() + Tuning.runway_clear()
 	_last_td[r] = run_time
 	_occupant[r] = p
 	return true

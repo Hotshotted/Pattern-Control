@@ -1266,16 +1266,16 @@ func _initialize() -> void:
 	check(Upgrades.IDS.size() == 6, "six upgrades")
 	var cost_ok = true
 	for id in Upgrades.IDS:
-		cost_ok = cost_ok and Upgrades.cost(id, 0) < Upgrades.cost(id, 1) and Upgrades.cost(id, 1) < Upgrades.cost(id, 2) and Upgrades.cost(id, 3) == -1
-	check(cost_ok, "each upgrade has three levels and rising costs")
+		cost_ok = cost_ok and Upgrades.cost(id, 0) < Upgrades.cost(id, 1) and Upgrades.cost(id, 1) < Upgrades.cost(id, 2) and Upgrades.cost(id, 2) < Upgrades.cost(id, 3) and Upgrades.cost(id, 3) < Upgrades.cost(id, 4) and Upgrades.cost(id, 5) == -1 and Upgrades.cost(id, 3) >= 2 * Upgrades.cost(id, 2) * 0.9
+	check(cost_ok, "each upgrade has five levels and rising costs (levels 4 and 5 cost far more than level 3)")
 	check(not save.buy_upgrade("radar") and save.upgrade_level("radar") == 0, "can't buy without the coins")
 	save.add_coins(Upgrades.cost("radar", 0) + 7)
 	var c_before = save.coins
 	check(save.buy_upgrade("radar") and save.upgrade_level("radar") == 1 and save.coins == c_before - Upgrades.cost("radar", 0), "buying takes exactly the price and raises the level")
 	save.add_coins(100000)
-	save.buy_upgrade("radar")
-	save.buy_upgrade("radar")
-	check(save.upgrade_level("radar") == 3 and not save.buy_upgrade("radar"), "a maxed upgrade can't be bought again")
+	for lk in 4:
+		save.buy_upgrade("radar")
+	check(save.upgrade_level("radar") == 5 and not save.buy_upgrade("radar"), "a maxed upgrade (level 5) can't be bought again")
 	save.upgrades = {}
 	# Effects.
 	main.select_airport(2)
@@ -1373,6 +1373,28 @@ func _initialize() -> void:
 			tr.release_all()
 	check(float(aligned3) / maxf(total3, 1) > float(aligned0) / maxf(total0, 1) + 0.35 and float(aligned3) / maxf(total3, 1) > 0.6, "Approach Control: arrivals lined up with the active runway %d%% -> %d%%" % [100 * aligned0 / maxf(total0, 1), 100 * aligned3 / maxf(total3, 1)])
 	save.upgrades = {}
+	# Levels 4 and 5: each still helps, a little less than the one before.
+	var ladder_ok = true
+	var msgs = []
+	var series = {
+		"comms": func(): return tuning.timer_mult(), "holding": func(): return 1.0 / tuning.hold_drain(), "tower": func(): return tuning.traffic_spawn_mult(),
+		"radar": func(): return tuning.view_size(), "approach": func(): return tuning.approach_bias(), "turnoffs": func(): return 1.0 / (tuning.landing_roll() + tuning.runway_clear())}
+	for id in series:
+		var vals = []
+		for lv in 6:
+			save.upgrades[id] = lv
+			vals.append(series[id].call())
+		save.upgrades = {}
+		var steps_ok = true
+		for lv in range(1, 6):
+			steps_ok = steps_ok and vals[lv] > vals[lv - 1]
+		steps_ok = steps_ok and (vals[5] - vals[3]) < 2.0 * (vals[3] - vals[2]) * 1.5 and (vals[4] - vals[3]) > 0.0
+		ladder_ok = ladder_ok and steps_ok
+		msgs.append("%s %.2f/%.2f/%.2f" % [id, vals[3], vals[4], vals[5]])
+	check(ladder_ok, "levels 4 and 5 of every Tower upgrade help, with smaller steps than the first three (%s)" % ", ".join(msgs))
+	save.upgrades["turnoffs"] = 5
+	check(is_equal_approx(tuning.landing_roll(), tuning.landing_roll_time * 0.7) and is_equal_approx(tuning.runway_clear(), tuning.runway_clear_seconds * 0.06), "Fast Turnoffs level 5: the roll is 30%% shorter and the runway clears in %.2f s" % tuning.runway_clear())
+	save.upgrades = {}
 	# Visible on the airport.
 	main.airfield.show_upgrades()
 	var any_vis = false
@@ -1381,6 +1403,8 @@ func _initialize() -> void:
 	check(not any_vis, "with no upgrades none of their scenery shows")
 	var vis_ok = true
 	var counts = {}
+	var vis_t3 = {}
+	var vis_t5 = {}
 	for a_i in 6:
 		main.select_airport(a_i)
 		main.restart()
@@ -1391,12 +1415,19 @@ func _initialize() -> void:
 			save.upgrades[id] = 3
 			main.airfield.show_upgrades()
 			var c3 = main.airfield.upgrade_nodes_visible(id)
-			if not (c1 >= 1 and c3 > c1):
-				print("     upgrade scenery: airport %d %s level1=%d level3=%d" % [a_i + 1, id, c1, c3])
-			vis_ok = vis_ok and c1 >= 1 and c3 > c1
+			save.upgrades[id] = 5
+			main.airfield.show_upgrades()
+			var c5 = main.airfield.upgrade_nodes_visible(id)
+			if not (c1 >= 1 and c3 > c1 and c5 >= c3):
+				print("     upgrade scenery: airport %d %s level1=%d level3=%d level5=%d" % [a_i + 1, id, c1, c3, c5])
+			vis_ok = vis_ok and c1 >= 1 and c3 > c1 and c5 >= c3
 			counts[id] = c3
+			vis_t3[id] = int(vis_t3.get(id, 0)) + c3
+			vis_t5[id] = int(vis_t5.get(id, 0)) + c5
 		save.upgrades = {}
-	check(vis_ok, "at every airport each upgrade adds scenery that grows with its level %s" % str(counts))
+	for id in Upgrades.IDS:
+		vis_ok = vis_ok and int(vis_t5[id]) > int(vis_t3[id])
+	check(vis_ok, "at every airport each upgrade adds scenery that grows with its level, and levels 4 and 5 add more %s" % str(counts))
 	main.select_airport(2)
 	main.restart()
 	# The shop screen.
@@ -1409,7 +1440,7 @@ func _initialize() -> void:
 	check(ids_menu.has("upgrades") and ids_menu.has("airports"), "the menu has Airports and Upgrades buttons")
 	save.add_coins(100)
 	main._on_button("upgrades")
-	check(main.screen == main.SCREEN_UPGRADES and main.hud._select.visible and main.hud._select_title.text == "UPGRADES", "the upgrade shop opens")
+	check(main.screen == main.SCREEN_UPGRADES and main.hud._select.visible and main.hud._select_title.text == "TOWER", "the Tower (upgrade shop) opens")
 	var cards2 = {}
 	for k in main.hud._art.btn_count:
 		cards2[main.hud._art.btn_id[k]] = [main.hud._art.btn_rect[k], main.hud._art.btn_state[k], main.hud._art.btn_stars[k]]
@@ -1943,7 +1974,7 @@ func _initialize() -> void:
 	tp2.debug_buttons["unlock_all"].pressed.emit()
 	check(save.airport_open(5), "debug: unlock all airports")
 	tp2.debug_buttons["max_upgrades"].pressed.emit()
-	check(save.upgrade_level("radar") == 3 and save.upgrade_level("turnoffs") == 3 and main.airfield.upgrade_nodes_visible("comms") >= 1, "debug: max upgrades (and their scenery)")
+	check(save.upgrade_level("radar") == 5 and save.upgrade_level("turnoffs") == 5 and main.airfield.upgrade_nodes_visible("comms") >= 1, "debug: max upgrades (and their scenery)")
 	main.restart()
 	tr.auto_spawn = false
 	tp2.debug_buttons["force_wind"].pressed.emit()

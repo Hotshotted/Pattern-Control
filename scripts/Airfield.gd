@@ -1973,8 +1973,8 @@ func _upgrade_props(v: AirportScene) -> void:
 	await _slice()
 	var dark := Prim.mat(Color(0.2, 0.22, 0.26))
 	await _slice()
-	# Radar: up to three turning dishes around the tower.
-	var spots := await _find_spots(tower, 3, 0.35, 0.8, [ar + 0.5, ar + 0.9, ar + 1.3, 1.2, 1.6, 2.1])
+	# Radar: up to five turning dishes around the tower.
+	var spots := await _find_spots(tower, 5, 0.35, 0.8, [ar + 0.5, ar + 0.9, ar + 1.3, 1.2, 1.6, 2.1])
 	await _slice()
 	for k in spots.size():
 		await _slice()
@@ -2003,7 +2003,7 @@ func _upgrade_props(v: AirportScene) -> void:
 		v.ups.append([holder, "radar", k + 1])
 		await _slice()
 	# Better Comms: radio masts with blinking beacons.
-	spots = await _find_spots(tower, 3, 0.3, 0.8, [ar + 1.5, ar + 1.9, ar + 2.3, 2.4, 2.9, 3.4])
+	spots = await _find_spots(tower, 5, 0.3, 0.8, [ar + 1.5, ar + 1.9, ar + 2.3, 2.4, 2.9, 3.4])
 	await _slice()
 	for k in spots.size():
 		await _slice()
@@ -2033,8 +2033,8 @@ func _upgrade_props(v: AirportScene) -> void:
 		await _slice()
 		v.ups.append([holder, "comms", k + 1])
 		await _slice()
-	# Tower Staff: a terminal annex, then a bigger one, then a flag.
-	spots = await _find_spots(tower, 3, 0.55, 1.0, [ar + 0.9, ar + 1.3, ar + 1.7, 1.9, 2.4, 2.9])
+	# Tower Staff: a terminal annex, then a bigger one, then a flag, then two more of each.
+	spots = await _find_spots(tower, 5, 0.55, 1.0, [ar + 0.9, ar + 1.3, ar + 1.7, 1.9, 2.4, 2.9])
 	await _slice()
 	for k in spots.size():
 		await _slice()
@@ -2044,7 +2044,7 @@ func _upgrade_props(v: AirportScene) -> void:
 		await _slice()
 		root.add_child(holder)
 		await _slice()
-		if k == 2:
+		if k == 2 or k == 4:
 			Prim.cyl(holder, 0.03, 0.03, 1.1, 4, Vector3(0, 0.55, 0), metal, false)
 			await _slice()
 			Prim.box(holder, Vector3(0.5, 0.3, 0.03), Vector3(0.25, 0.95, 0), Prim.mat(Color(0.9, 0.2, 0.2)), false)
@@ -2072,7 +2072,7 @@ func _upgrade_props(v: AirportScene) -> void:
 	await _slice()
 	for p in fix_pos:
 		await _slice()
-		if placed >= 6 or not _spot_free(p, 0.3, 8.6) or in_strip(p, 0.25):
+		if placed >= 10 or not _spot_free(p, 0.3, 8.6) or in_strip(p, 0.25):
 			continue
 		var near_other := false
 		await _slice()
@@ -2096,7 +2096,7 @@ func _upgrade_props(v: AirportScene) -> void:
 		await _slice()
 		placed += 1
 		await _slice()
-	# Approach Control: rows of approach lights behind every runway end (3, 6, then 9 of them).
+	# Approach Control: rows of approach lights behind every runway end (3 more each level, up to 15).
 	var light := Prim.mat(Color(1.0, 0.95, 0.7))
 	await _slice()
 	light.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -2111,14 +2111,14 @@ func _upgrade_props(v: AirportScene) -> void:
 			await _slice()
 			var side := Vector2(-dir.y, dir.x)
 			await _slice()
-			for k in 9:
+			for k in 15:
 				await _slice()
 				var p := thr - dir * (0.9 + k * 0.42) + side * (0.0 if k % 3 == 0 else (0.3 if k % 3 == 1 else -0.3))
 				if not _spot_free(p, 0.1, 8.0):
 					continue
 				var node := Prim.box(root, Vector3(0.14, 0.1, 0.14), Vector3(p.x, 0.05, p.y), light, false)
 				v.ups.append([node, "approach", 1 + k / 3])
-	# Fast Turnoffs: angled exit taxiways off each runway (2, 4, then 6).
+	# Fast Turnoffs: angled exit taxiways off each runway (2 more each level, up to 10).
 	var taxi := Prim.mat(Tuning.runway_asphalt.lightened(0.05))
 	await _slice()
 	for r in Airports.rw_count():
@@ -2135,7 +2135,7 @@ func _upgrade_props(v: AirportScene) -> void:
 		await _slice()
 		var w := Airports.rw_width(r)
 		await _slice()
-		for k in 6:
+		for k in 10:
 			await _slice()
 			var sx := 1.0 if k % 2 == 0 else -1.0
 			await _slice()

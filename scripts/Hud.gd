@@ -175,7 +175,7 @@ class Art extends Control:
 	var btn_icon := PackedInt32Array()       # -1: none, 0..5: an animal pilot portrait, 100+: a theme's colour swatch
 	var btn_kind := PackedInt32Array()
 	var btn_glyph := PackedStringArray()
-	var btn_pips := PackedInt32Array()       # -1: none, else upgrade level (three pips)
+	var btn_pips := PackedInt32Array()       # -1: none, else upgrade level (five pips)
 	var btn_cost := PackedInt32Array()       # -1: none, 0: "MAX", else a price (coin icon + number)
 	var btn_badge := PackedInt32Array()      # round buttons: 0 none, >0 a streak number, -1 a tick (done today)
 	var btn_lock := PackedInt32Array()       # cards: >0 a locked card showing a padlock and this many stars needed
@@ -847,10 +847,10 @@ class Art extends Control:
 					ptext("Needs %d" % btn_lock[k], Vector2(rx - 214.0, cy + 11.0), SZ_S, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_LEFT, 140.0)
 					glyph("star", Vector2(rx - 38.0, cy), 20.0)
 				if btn_pips[k] >= 0:
-					for i in 3:
-						var pc := Vector2(rx - 130.0 + i * 36.0, cy - 36.0)
-						draw_circle(pc, 14.0, Style.INK)
-						draw_circle(pc, 11.0, C_GOLD if i < btn_pips[k] else Color(0.86, 0.78, 0.62))
+					for i in Upgrades.MAX_LEVEL:
+						var pc := Vector2(rx - 146.0 + i * 30.0, cy - 36.0)
+						draw_circle(pc, 12.0, Style.INK)
+						draw_circle(pc, 9.5, C_GOLD if i < btn_pips[k] else Color(0.86, 0.78, 0.62))
 				if btn_cost[k] > 0:
 					var cc2 := Vector2(rx - 190.0, cy + 26.0)
 					glyph("coin", cc2, 16.0, Color(1, 1, 1, 1.0 if st != 1 else 0.5))
@@ -2614,13 +2614,13 @@ func show_list(title: String, coins: int, tabs: Array, cards: Array) -> void:
 			y += 176.0
 		_art.queue_redraw())
 
-## The upgrade shop: a card per upgrade with an icon, its name, one line of effect, level pips and the next price.
+## The Tower (the upgrade shop): a card per upgrade with an icon, its name, one line of effect, level pips and the next price.
 func show_upgrades(coins: int, levels: PackedInt32Array) -> void:
 	if not priming:
 		_go("upgrades")
 		_hide_all_screens()
 		_select.visible = true
-		_select_title.text = "UPGRADES"
+		_select_title.text = "TOWER"
 	_use_panel("upgrades", _sig([coins, levels]), func() -> void:
 		_set_header(0, "coin", coins)
 		var vp := get_viewport().get_visible_rect().size
@@ -2683,7 +2683,7 @@ func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _
 	_art.add_button("airports", "Airports", row2, 0, "", -1, -1, {"kind": 0, "glyph": "airport"})
 	_art.add_button("bad", "Bad pilot day", Rect2(row2.position.x + 464.0, row2.position.y, 436.0, 150.0), 0, "", -1, -1, {"kind": 0, "glyph": "bad"})
 	_art.add_button("noeng_bad", "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(row2.position.x + 464.0 + 70.0, row2.position.y - 50.0, 366.0, 44.0), 2 if bad_no_engines else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
-	var items := [["upgrades", "Upgrades", "upgrades", 0], ["shop", "Hangar", "hangar", 0], ["daily", "Daily", "sun", -1 if daily_done else (daily_streak if daily_streak > 0 else -2)]]
+	var items := [["upgrades", "Tower", "upgrades", 0], ["shop", "Hangar", "hangar", 0], ["daily", "Daily", "sun", -1 if daily_done else (daily_streak if daily_streak > 0 else -2)]]
 	for k in items.size():
 		_art.add_button(items[k][0], items[k][1], Rect2(vp.x - 36.0 - Style.safe_right - 130.0, 150.0 + Style.safe_top + k * 176.0, 130.0, 160.0), 0, "", -1, -1, {"kind": 7, "glyph": items[k][2], "badge": items[k][3]})
 	_art.queue_redraw()

@@ -374,33 +374,53 @@ func weather_first_eff() -> float:
 func upg(id: String) -> int:
 	return Save.upgrade_level(id)
 
+## The effect of a Tower upgrade in "levels": the first three are worth one each, the last two a little less each (so level 5 of the
+## traffic upgrades is worth about 3.9 levels, not 5). Every effect below is its per-level value times this.
+const UPG_EFFECT := {
+	"radar": [0.0, 1.0, 2.0, 3.0, 3.5, 3.9],
+	"approach": [0.0, 1.0, 2.0, 3.0, 3.5, 3.8],
+	"tower": [0.0, 1.0, 2.0, 3.0, 3.5, 3.9],
+	"comms": [0.0, 1.0, 2.0, 3.0, 3.6, 4.2],
+	"holding": [0.0, 1.0, 2.0, 3.0, 3.5, 3.8],
+}
+## Fast Turnoffs: the runway's clear time as a share of normal, and (levels 4 and 5) the share of the landing roll left.
+const TURNOFF_CLEAR := [1.0, 0.7, 0.4, 0.1, 0.08, 0.06]
+const TURNOFF_ROLL := [1.0, 1.0, 1.0, 1.0, 0.85, 0.7]
+
+func upg_e(id: String) -> float:
+	return float(UPG_EFFECT[id][clampi(upg(id), 0, 5)])
+
 func timer_mult() -> float:
-	return (1.0 + upg_comms_timer * upg("comms")) * float(profile()["timer"]) * (intro_timer_scale if intro_active else 1.0)
+	return (1.0 + upg_comms_timer * upg_e("comms")) * float(profile()["timer"]) * (intro_timer_scale if intro_active else 1.0)
 
 func hold_drain() -> float:
-	return hold_drain_mult * (1.0 - upg_holding_drain * upg("holding"))
+	return hold_drain_mult * (1.0 - upg_holding_drain * upg_e("holding"))
 
 func hold_radius_eff() -> float:
-	return hold_radius * (1.0 - upg_holding_radius * upg("holding"))
+	return hold_radius * (1.0 - upg_holding_radius * upg_e("holding"))
 
 func runway_clear() -> float:
-	return runway_clear_seconds * (1.0 - upg_turnoff_clear * upg("turnoffs"))
+	return runway_clear_seconds * float(TURNOFF_CLEAR[clampi(upg("turnoffs"), 0, 5)])
+
+## How long an aircraft rolls on the runway after touching down.
+func landing_roll() -> float:
+	return landing_roll_time * float(TURNOFF_ROLL[clampi(upg("turnoffs"), 0, 5)])
 
 func traffic_speed_mult() -> float:
-	return 1.0 - upg_tower_speed * upg("tower")
+	return 1.0 - upg_tower_speed * upg_e("tower")
 
 func traffic_spawn_mult() -> float:
-	return 1.0 + upg_tower_spawn * upg("tower")
+	return 1.0 + upg_tower_spawn * upg_e("tower")
 
 func approach_bias() -> float:
-	return upg_approach_bias * upg("approach")
+	return minf(upg_approach_bias * upg_e("approach"), 0.95)
 
 func entry_lead() -> float:
-	return entry_warning_seconds + upg_radar_lead * upg("radar")
+	return entry_warning_seconds + upg_radar_lead * upg_e("radar")
 
 ## World units visible across the screen width: the radar zooms out.
 func view_size() -> float:
-	return ortho_size * (1.0 + upg_radar_zoom * upg("radar"))
+	return ortho_size * (1.0 + upg_radar_zoom * upg_e("radar"))
 
 ## How far up the traffic ramp we are, 0..1: it always reaches the full, busy finish by the time spawning stops.
 func spawn_progress(t: float) -> float:
