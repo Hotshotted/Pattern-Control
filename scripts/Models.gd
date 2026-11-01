@@ -51,7 +51,7 @@ static func block(p: Node3D, size: Vector3, at: Vector3, c: Color) -> MeshInstan
 	return _box(p, size, at, c)
 
 ## The hangar: walls, a rust roof with a lighter ridge line, and an open door on the south side.
-static func hangar(p: Node3D, at: Vector2, s: float = 1.0, roof: Color = RUST, wall: Color = Color("e8e1d2")) -> Node3D:
+static func hangar(p: Node3D, at: Vector2, s: float = 1.0, roof: Color = RUST, wall: Color = Color("e8e1d2"), roofs: Array = []) -> Node3D:
 	var n := Node3D.new()
 	n.position = Vector3(at.x, 0.0, at.y)
 	p.add_child(n)
@@ -59,7 +59,7 @@ static func hangar(p: Node3D, at: Vector2, s: float = 1.0, roof: Color = RUST, w
 	var d := 0.95 * s
 	cast(n, Vector2.ZERO, w, d, 0.5 * s, 0.03)
 	block(n, Vector3(w, 0.4, d), Vector3(0, 0.2, 0), wall)
-	block(n, Vector3(w + 0.08, 0.06, d + 0.08), Vector3(0, 0.43, 0), roof)
+	roofs.append(block(n, Vector3(w + 0.08, 0.06, d + 0.08), Vector3(0, 0.43, 0), roof))
 	_box(n, Vector3(w + 0.08, 0.03, 0.06), Vector3(0, 0.47, 0), roof.lightened(0.3))                           # the ridge
 	for k in [-1.0, 1.0]:
 		_box(n, Vector3(w + 0.06, 0.012, 0.025), Vector3(0, 0.465, k * d * 0.26), roof.darkened(0.2))      # roof seams

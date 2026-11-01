@@ -966,6 +966,13 @@ func roll_target(p: Aircraft) -> Vector2:
 		return Airports.land_far(p.tkind, p.runway, p.land_end)
 	return Taxi.stop_point(p.runway, p.land_end, p.speed_class)
 
+## Is any aircraft about to go around (signalled, not yet climbing out)?
+func go_around_pending_any() -> bool:
+	for p in planes:
+		if p.ga_pending:
+			return true
+	return false
+
 ## Is anything on locked final to runway `r`, or rolling out on it? (A taxiing aircraft waits at the hold-short line for that to end.)
 func runway_in_use(r: int) -> bool:
 	for p in planes:

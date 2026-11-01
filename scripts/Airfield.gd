@@ -30,6 +30,9 @@ class AirportScene:
 	var glow_born: Array[int] = []
 	var active: Array[bool] = []
 	var sock: Node3D
+	var sock_mats: Array = []           # the windsock's two stripe materials (a cosmetic recolours them)
+	var hangar_roofs: Array = []        # the roof meshes of the hangar and its bays (a cosmetic repaints them)
+	var plaque: Node3D                  # the gold plaque on the tower (mastery rank 5)
 	var ups: Array = []                 # [node, upgrade id, level it appears at]
 	var imps: Array = []                # [node, improvement id, level it appears at]: this airport's own improvements
 	var farm_at := Vector2.ZERO         # the fuel farm (the improvement adds tanks beside it)
@@ -383,6 +386,9 @@ func _dress(v: AirportScene) -> void:
 		u[0].visible = Save.upgrade_level(u[1]) >= u[2]
 	for u in v.imps:
 		u[0].visible = Save.imp_level(v.airport, u[1]) >= u[2]
+	_apply_details_to(v)
+	if v.plaque != null:
+		v.plaque.visible = Save.mastery_rank(v.airport) >= Mastery.MAX_RANK
 
 ## A very faint static texture on the grass, and only on the grass (the ground mesh: runways, taxiways, aprons, buildings and water are
 ## separate meshes with none): a tileable blotchy noise that darkens the colour by 0-3%, baked to assets/textures/grass.png (see
@@ -1363,11 +1369,12 @@ func _ramp(v: AirportScene) -> void:
 	await _slice()
 	var pal: Dictionary = PALETTE[v.style]
 	await _slice()
-	Models.tower(root, tp, beacons)
+	var tower_node := Models.tower(root, tp, beacons)
 	await _slice()
 	v.beacons.append_array(beacons)
+	v.plaque = _plaque(tower_node)
 	await _slice()
-	Models.hangar(root, c + Vector2(-0.7, -1.0) * s, s, pal["hangar"], pal["wall"])
+	Models.hangar(root, c + Vector2(-0.7, -1.0) * s, s, pal["hangar"], pal["wall"], v.hangar_roofs)
 	await _slice()
 	Models.fbo(root, c + Vector2(-0.65, 0.1) * s, s, pal["fbo"], pal["wall2"])
 	await _slice()
@@ -1655,6 +1662,7 @@ func _windsock(v: AirportScene, at: Vector3) -> void:
 	var orange := Prim.mat(Color("ff6a3d"))
 	await _slice()
 	var white := Prim.mat(Color(0.97, 0.97, 0.95))
+	v.sock_mats = [orange, white]
 	await _slice()
 	var radii := [0.22, 0.17, 0.12, 0.07]
 	await _slice()
@@ -2190,7 +2198,7 @@ func _improvement_props(v: AirportScene) -> void:
 	var bays := await _imp_spots(tower, 3, 0.55, 1.0, [ar + 1.0, ar + 1.5, ar + 2.0, 2.2, 2.7, 3.2])
 	for k in bays.size():
 		await _slice()
-		var bay := Models.hangar(root, bays[k], 0.62, pal["hangar"], pal["wall"])
+		var bay := Models.hangar(root, bays[k], 0.62, pal["hangar"], pal["wall"], v.hangar_roofs)
 		bay.rotation.y = 0.0 if k % 2 == 0 else PI * 0.5
 		v.imps.append([bay, "hangar", k + 1])
 	# Runway lights: a line of lights along each edge of every runway (every fourth at level 1, every other one at level 2, all at level 3).
@@ -2265,6 +2273,45 @@ func _improvement_props(v: AirportScene) -> void:
 				Prim.box(holder, Vector3(0.05, 0.06, 0.05), Vector3(-0.18, 0.06, ez * 0.55), glow, false)
 				Prim.box(holder, Vector3(0.05, 0.06, 0.05), Vector3(0.18, 0.06, ez * 0.55), glow, false)
 			v.imps.append([holder, "exit", k + 1])
+
+## A small gold plaque on the tower's front wall: it appears at mastery rank 5 (a gold plate with a darker frame and a little star).
+func _plaque(tower_node: Node3D) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(0.0, 0.26, 0.37)
+	n.visible = false
+	tower_node.add_child(n)
+	Prim.box(n, Vector3(0.26, 0.15, 0.02), Vector3(0, 0, 0), Prim.mat(Color("7a5a14")), false)
+	var gold := Prim.mat(Color("f2c230"))
+	Prim.box(n, Vector3(0.22, 0.11, 0.025), Vector3(0, 0, 0.004), gold, false)
+	Prim.box(n, Vector3(0.05, 0.05, 0.03), Vector3(0, 0, 0.012), Prim.mat(Color("fff0b0")), false)
+	return n
+
+## Is the gold plaque showing on the tower of the airport the field is showing now?
+func plaque_visible() -> bool:
+	return cur != null and cur.plaque != null and cur.plaque.visible
+
+## Show the gold plaque on every tower whose airport is at mastery rank 5.
+func show_mastery() -> void:
+	for v in variants:
+		if v != null and v.plaque != null:
+			v.plaque.visible = Save.mastery_rank(v.airport) >= Mastery.MAX_RANK
+
+## The equipped windsock colours and hangar paint, on every airport that is built.
+func apply_details() -> void:
+	for v in variants:
+		if v != null:
+			_apply_details_to(v)
+
+func _apply_details_to(v: AirportScene) -> void:
+	var sk: Dictionary = Cosmetics.SOCKS[Cosmetics.index_of("windsock", Save.equipped_id("windsock"))]
+	if v.sock_mats.size() == 2:
+		(v.sock_mats[0] as StandardMaterial3D).albedo_color = sk["a"]
+		(v.sock_mats[1] as StandardMaterial3D).albedo_color = sk["b"]
+	var pt: Dictionary = Cosmetics.PAINTS[Cosmetics.index_of("hangar", Save.equipped_id("hangar"))]
+	var base: Color = PALETTE[v.style]["hangar"]
+	var paint: Color = base if pt["color"] == null else pt["color"]
+	for m in v.hangar_roofs:
+		((m as MeshInstance3D).material_override as StandardMaterial3D).albedo_color = paint
 
 ## Show each upgrade's scenery that has been bought (called at start-up and after a purchase).
 func show_upgrades() -> void:

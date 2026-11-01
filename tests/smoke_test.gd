@@ -170,6 +170,7 @@ func _initialize() -> void:
 
 	print("1. boot and the visible pre-warm")
 	var main: Node = load("res://scenes/main.tscn").instantiate()
+	main.progress_enabled = false   # (mastery and achievements likewise: section 34)
 	main.goals_enabled = false      # (the daily goals have their own section, 33: elsewhere their rewards would change the coin counts)
 	root.add_child(main)
 	current_scene = main
@@ -1882,11 +1883,11 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	# Cosmetics data.
-	check(Cosmetics.THEME_COUNT == 5 and Cosmetics.LIVERY_COUNT == 6, "five themes and six liveries")
+	check(Cosmetics.THEME_COUNT == 9 and Cosmetics.LIVERY_COUNT == 17 and Cosmetics.THEMES.size() == 9 and Cosmetics.LIVERIES.size() == 17, "nine airport skins and seventeen liveries")
 	var animals = {}
-	for i in 6:
+	for i in Cosmetics.LIVERY_COUNT:
 		animals[Cosmetics.LIVERIES[i]["animal"]] = true
-	check(animals.size() == 6 and Cosmetics.THEMES[0]["cost"] == 0 and Cosmetics.LIVERIES[0]["cost"] == 0, "each livery has its own animal pilot; the defaults are free")
+	check(animals.size() == Cosmetics.LIVERY_COUNT and Cosmetics.THEMES[0]["cost"] == 0 and Cosmetics.LIVERIES[0]["cost"] == 0, "each livery has its own animal pilot; the defaults are free")
 	check(save.owns("theme", "classic") and save.owns("livery", "standard") and not save.owns("theme", "winter"), "the default theme and livery are owned from the start")
 	# The shop.
 	save.add_coins(520)
@@ -3066,13 +3067,13 @@ func _initialize() -> void:
 	var menu_words = true
 	for k in art.btn_count:
 		menu_words = menu_words and (art.btn_kind[k] == 14 or (words_ok.call(art.btn_text[k]) and art.btn_sub[k] == ""))
-	check(menu_words and art.btn_count <= 8, "menu: short labels, no descriptions (%d buttons)" % art.btn_count)
+	check(menu_words and art.btn_count <= 9, "menu: short labels, no descriptions (%d buttons)" % art.btn_count)
 	var round_n = 0
 	for k in art.btn_count:
 		if art.btn_kind[k] == 7:
 			round_n += 1
 			menu_words = menu_words and art.btn_glyph[k] != ""
-	check(round_n == 2 and menu_words, "menu: Tower and Hangar are two small round icon buttons (the goals card has its own line)")
+	check(round_n == 3 and menu_words, "menu: Tower, Hangar and Awards are three small round icon buttons (the goals card has its own line)")
 	check(not main.hud._score.visible and not main.hud._best.visible, "menu: no leftover shift numbers behind it")
 	check(not main.hud._ad.visible, "menu: nothing else is covering it")
 	# The three text sizes: every label in the interface uses one of them.
@@ -4436,7 +4437,7 @@ func _initialize() -> void:
 	var sc_kinds = {}
 	for sc_k in sc_art.btn_count:
 		sc_kinds[sc_art.btn_id[sc_k]] = [sc_art.btn_kind[sc_k], sc_art.btn_text[sc_k]]
-	check(sc_kinds["play"] == [2, "Start shift"] and sc_kinds["airports"] == [0, "Airports"] and sc_kinds["bad"] == [0, "Bad pilot day"] and sc_kinds["upgrades"][0] == 7 and sc_kinds["shop"] == [7, "Hangar"] and sc_kinds["goals"][0] == 14 and sc_art.btn_count == 8 and sc_kinds["airports_tag"][0] == 9, "the menu: Start shift (orange), Airports and Bad pilot day (cream), and two small round buttons under the goals card")
+	check(sc_kinds["play"] == [2, "Start shift"] and sc_kinds["airports"] == [0, "Airports"] and sc_kinds["bad"] == [0, "Bad pilot day"] and sc_kinds["upgrades"][0] == 7 and sc_kinds["shop"] == [7, "Hangar"] and sc_kinds["goals"][0] == 14 and sc_art.btn_count == 9 and sc_kinds["airports_tag"][0] == 9, "the menu: Start shift (orange), Airports and Bad pilot day (cream), and three small round buttons, with the goals card under the title")
 	main.select_airport(0)
 	main._on_button("airport_next")
 	check(main.airport == 1 and Airports.current == 1 and main.screen == main.SCREEN_MENU, "the next arrow moves to the next airport and the field behind the menu follows")

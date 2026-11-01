@@ -145,8 +145,9 @@ var dusk_strength := 0.6            # ...and counts this much as bad light at th
 ## The first completed daily shift of a day pays this, plus this much per day of streak (up to 7 days).
 var daily_bonus_coins := 75
 var daily_streak_coins := 13
-## The daily goals pay a multiple of an average shift's pay at the best open airport (see Goals.unit_for): this is the factor on it.
-var goal_unit := 1.0
+## The daily goals pay 1x, 2x and 4x a unit, and the unit is an average shift's pay at the best open airport (Goals.unit_for) times this factor.
+## 0.4 makes the goals add about a fifth to an average player's coins in a 20-minute daily session (see docs/content_audit.md).
+var goal_unit := 0.4
 
 ## The fake "Ad playing" screen lasts this long (no real ads yet). An interstitial comes between shifts at most
 ## once per this many finished shifts.

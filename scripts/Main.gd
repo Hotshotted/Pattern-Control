@@ -13,6 +13,7 @@ const SCREEN_UPGRADES := 4
 const SCREEN_SHOP := 5
 const SCREEN_AD := 6
 const SCREEN_PAUSE := 7
+const SCREEN_ACH := 10           # the Achievements sheet
 const SCREEN_GOALS := 9          # today's three goals, the chest and the streak
 const SCREEN_DETAIL := 8         # one airport's detail screen (see open_detail)
 
@@ -264,6 +265,14 @@ func _prime_panels() -> void:
 		best.append(Save.best_for(i))
 	# (`priming` is on only while a panel is being laid out, never across a frame: a tap in between is a real one)
 	hud.priming = true
+	var ranks := []
+	var pcts := []
+	for i in Airports.COUNT:
+		var mp := Mastery.progress(i, Save.mastery_landings(i))
+		ranks.append(mp["rank"])
+		pcts.append(roundi(float(mp["frac"]) * 100.0))
+	hud.mastery_ranks = ranks
+	hud.mastery_pcts = pcts
 	hud.show_select(Save.stars_total(), open, stars, best, airport, Save.no_engines_at)
 	hud.priming = false
 	await get_tree().process_frame
@@ -399,6 +408,8 @@ func restart() -> void:
 	_last_land_t = -100.0
 	_results_ad_used = false
 	_paid_payout = 0
+	hangar_full_t = -1.0
+	toast_results = []
 	goal_go_arounds = 0
 	goal_locked_run = 0
 	goal_max_locked = 0
@@ -543,6 +554,26 @@ func _streak_line() -> String:
 		t += "  \u00b7  %d freeze%s" % [int(ss["freezes"]), "" if int(ss["freezes"]) == 1 else "s"]
 	return t
 
+## The Achievements sheet, one group at a time.
+func _show_achievements() -> void:
+	screen = SCREEN_ACH
+	alive = false
+	var st := Save.ach_stats()
+	var items: Array = []
+	for a in Achievements.in_group(ach_tab):
+		var done := Save.achievements.has(a["id"])
+		var pr := Achievements.progress(a, st)
+		var sub: String = a["text"]
+		if done:
+			sub += "  \u00b7  done"
+		elif a.has("ge") and int(a["ge"]) > 1:
+			sub += "  \u00b7  %d / %d" % [pr["value"], pr["target"]]
+		if a.get("cos", "") != "":
+			sub += "  \u00b7  + " + _cosmetic_name(a["cos"])
+		items.append({"id": a["id"], "name": a["name"], "sub": sub, "coins": int(a["coins"]), "size": int(a["s"]), "done": done})
+	Save.stats["ach_seen"] = Save.achievements.size()
+	hud.show_achievements({"tabs": Achievements.GROUP_NAMES, "tab": ach_tab, "items": items, "coins": Save.coins, "done": Save.achievements.size()})
+
 ## The goals sheet.
 func _show_goals() -> void:
 	screen = SCREEN_GOALS
@@ -570,6 +601,91 @@ func reroll_goal(i: int) -> bool:
 		_show_goals()
 	return ok
 
+# ---------- Mastery, achievements and their toasts ----------
+
+## A landing: the airport's mastery, and the counters the achievements read.
+func _on_progress_landing(p: Aircraft) -> void:
+	var r := Save.add_mastery_landing(airport, Goals.AVG_PAY[clampi(airport, 0, 5)])
+	for rank in r["ranks"]:
+		var line := "%s: rank %d, %s  +%d" % [Airports.airport_name(airport), rank, Mastery.rank_name(rank), Mastery.coins_for(airport, rank, Goals.AVG_PAY[clampi(airport, 0, 5)])]
+		var cid := Mastery.cosmetic_for(airport, rank)
+		if cid != "":
+			line += "  \u00b7  new: " + _cosmetic_name(cid)
+		_toast(line, Color(0.55, 0.85, 1.0))
+		if rank >= Mastery.MAX_RANK:
+			airfield.show_mastery()
+	if p.emergency:
+		Save.stat_add("emergencies")
+	Save.stat_max("quick_best", streak)
+	Save.stat_max("locked_best", goal_locked_run)
+	if no_engines and p.type == Aircraft.Type.GLIDER:
+		Save.stat_add("noeng_landings")
+		if airport == 5:
+			Save.stat_add("noeng_intl")
+	if hangar_full_t < 0.0 and shift.landed >= Ramp.star_landings():
+		hangar_full_t = traffic.run_time
+		if hangar_full_t < float(Save.stats.get("fast_hangar", 9999)):
+			Save.stats["fast_hangar"] = int(ceil(hangar_full_t))
+	_check_achievements()
+
+## The shift is over: its counters.
+func _on_progress_shift_end() -> void:
+	Save.stat_add("shifts")
+	if goal_go_arounds == 0 and shift.landed >= 4:
+		Save.stat_add("nogo_shifts")
+	if shift.fines == 0 and shift.landed >= 6:
+		Save.stat_add("clean_shifts")
+	if shift.stars() >= 3:
+		Save.stat_add("three_star_shifts")
+	Save.stat_max("net_best", shift.balance())
+	if goal_weather and shift.stars() >= 1:
+		Save.stat_add("weather_shifts")
+	if bad_mode and shift.stars() >= 1:
+		Save.stat_add("bad_stars")
+	_check_achievements()
+
+## Pay and announce any achievement that has just been met (several can follow each other: a cosmetic can complete a collection).
+func _check_achievements() -> void:
+	if not progress_enabled:
+		return
+	for guard in 4:
+		var got := Save.check_achievements()
+		if got.is_empty():
+			return
+		for g in got:
+			var a := Achievements.def(g["id"])
+			var line := "Achievement: %s  +%d" % [a["name"], int(g["coins"])]
+			if g["cosmetic"] != "":
+				line += "  \u00b7  new: " + _cosmetic_name(g["cosmetic"])
+			_toast(line, Color(1.0, 0.85, 0.3))
+
+func _cosmetic_name(cid: String) -> String:
+	var kind := cid.get_slice(":", 0)
+	var id := cid.get_slice(":", 1)
+	return str(Cosmetics.items(kind)[Cosmetics.index_of(kind, id)]["name"])
+
+## Queue a toast; it shows at the next calm moment (see _tick_toasts), or on the results card.
+func _toast(text: String, color: Color) -> void:
+	toast_queue.append({"text": text, "color": color})
+	toast_results.append(text)
+
+## In a shift a toast waits until no path is being drawn and nothing is about to happen (no alert, no go-around signalled); a few seconds apart.
+func _tick_toasts(delta: float) -> void:
+	_toast_gap = maxf(_toast_gap - delta, 0.0)
+	if toast_queue.is_empty() or screen != SCREEN_PLAY or _toast_gap > 0.0:
+		return
+	if _drag_plane != null or _drag_active or traffic.go_around_pending_any():
+		return
+	var worst := 0.0
+	for p in traffic.planes:
+		if p.active():
+			worst = maxf(worst, p.warn)
+	if worst > 0.3:
+		return
+	var t: Dictionary = toast_queue.pop_front()
+	hud.post_banner(t["text"], t["color"], "star", 3.2)
+	_toast_gap = 3.4
+
 func _show_menu() -> void:
 	preview_kind = ""
 	Boot.mark("menu shown")
@@ -581,6 +697,8 @@ func _show_menu() -> void:
 	bad_mode = false
 	hud.mode = ""
 	_goals_for_hud()
+	_check_achievements()
+	hud.ach_unseen = Save.achievements.size() > int(Save.stats.get("ach_seen", 0))
 	hud.bad_streak = Save.daily_streak("bad")
 	hud.bad_done = Save.daily_done_today("bad")
 	airfield.progress = -1.0
@@ -811,6 +929,7 @@ func step(delta: float) -> void:
 		return
 	traffic.step(delta)
 	airfield.step_taxi(delta)
+	_tick_toasts(delta)
 	var worst := 0.0
 	for p in traffic.planes:
 		if p.active():
@@ -946,6 +1065,8 @@ func _on_landed(p: Aircraft) -> void:
 	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
 	goal_locked_run = goal_locked_run + 1 if p.locked else 0
 	goal_max_locked = maxi(goal_max_locked, goal_locked_run)
+	if progress_enabled:
+		_on_progress_landing(p)
 	_goal_event({"t": "land", "ap": airport, "type": p.type, "emergency": p.emergency, "vip": vip_paid, "student": p.student, "no_engines": no_engines, "streak": streak})
 	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
@@ -1243,6 +1364,8 @@ func _end_shift() -> void:
 	_stinger_later("clear_sky" if shift.balance() >= 0 else "fine")
 	var gained := _settle()
 	_goal_event({"t": "shift", "ap": airport, "landed": shift.landed, "go_arounds": goal_go_arounds, "fines": shift.fines, "stars": shift.stars(), "net": shift.balance(), "hangar_full": shift.landed >= Ramp.star_landings(), "locked_run": goal_max_locked, "weather": goal_weather, "bad": bad_mode})
+	if progress_enabled:
+		_on_progress_shift_end()
 	if not daily_mode:
 		Save.submit_best(airport, shift.landed)
 	Save.shifts_played += 1
@@ -1268,6 +1391,12 @@ var _daily_note := ""
 
 # What the daily goals watch during a shift.
 var goal_coins_total := 0              # (everything the goals have paid since the game started: the sims read it)
+var ach_tab := 0
+var toast_queue: Array = []             # [{"text", "color"}] waiting for a calm moment (an achievement, a mastery rank)
+var toast_results: Array[String] = []   # ...what happened this shift, listed on the results card
+var _toast_gap := 0.0
+var hangar_full_t := -1.0               # when this shift's hangar filled (star 1's landings), for 'a full hangar in under 45 s'
+var progress_enabled := true            # (the tests switch mastery and achievements off like the goals, to keep coin counts exact)
 var goals_enabled := true              # (the tests switch the goals off so their coin counts stay exact)
 var goal_go_arounds := 0
 var goal_locked_run := 0
@@ -1357,6 +1486,15 @@ func _reason_text() -> String:
 func _show_results(doubled: bool) -> void:
 	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
 	hud.ramp_note = airfield.ramp.summary() if airfield.ramp_active or airfield.ramp.landed > 0 else ""
+	var extra_lines: Array[String] = []
+	if goal_streak_text != "":
+		extra_lines.append(goal_streak_text)
+	if goal_chest > 0:
+		extra_lines.append("Bonus chest  +%d" % goal_chest)
+	for tl in toast_results:
+		extra_lines.append(tl)
+	hud.goal_extra = "\n".join(extra_lines.slice(0, 4))
+	toast_queue.clear()
 	hud.show_results(HEADER_DONE, last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_coins_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], doubled)
 	hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
 	var unlocked: Array = last_result.get("unlocked", [])
@@ -1529,6 +1667,10 @@ func _on_button(id: String) -> void:
 		open_preview("theme", int(id.substr(6)))
 	elif id.begins_with("livery:"):
 		open_preview("livery", int(id.substr(7)))
+	elif id.begins_with("windsock:"):
+		open_preview("windsock", int(id.substr(9)))
+	elif id.begins_with("hangar:"):
+		open_preview("hangar", int(id.substr(7)))
 	elif id == "preview_close" or id == "preview_scrim":
 		close_preview()
 	elif id.begins_with("pv_mode:"):
@@ -1538,6 +1680,11 @@ func _on_button(id: String) -> void:
 		_preview_tap()
 	elif id == "goals":
 		_show_goals()
+	elif id == "ach":
+		_show_achievements()
+	elif id.begins_with("ach_tab:"):
+		ach_tab = int(id.substr(8))
+		_show_achievements()
 	elif id.begins_with("greroll:"):
 		reroll_goal(int(id.substr(8)))
 	elif id == "bad":
@@ -1570,7 +1717,7 @@ func _on_button(id: String) -> void:
 	# Buying is judged by whether it cost anything.
 	if id.begins_with("upg:"):
 		sfx.play("buy" if Save.coins < coins_before else "error")
-	elif id.begins_with("theme:") or id.begins_with("livery:"):
+	elif id.begins_with("theme:") or id.begins_with("livery:") or id.begins_with("windsock:") or id.begins_with("hangar:"):
 		sfx.play("buy" if Save.coins < coins_before else "toggle")
 
 ## Each kind of tap has its own sound: forward, back, a small toggle, the confirm of a reward. (Purchases sound
@@ -1578,11 +1725,11 @@ func _on_button(id: String) -> void:
 func _ui_sound(id: String) -> String:
 	if id == "back" or id == "menu" or id == "quit" or id == "restart" or id == "resume":
 		return "back"
-	if id == "details" or id.begins_with("shop_tab:") or id.begins_with("dtab:") or id.begins_with("noeng") or id.begins_with("greroll:"):
+	if id == "details" or id.begins_with("shop_tab:") or id.begins_with("dtab:") or id.begins_with("noeng") or id.begins_with("greroll:") or id.begins_with("ach_tab:"):
 		return "toggle"
 	if id == "unlock_ok" or id.begins_with("ad_"):
 		return "unlock"
-	if id.begins_with("upg:") or id.begins_with("imp:") or id.begins_with("theme:") or id.begins_with("livery:"):
+	if id.begins_with("upg:") or id.begins_with("imp:") or id.begins_with("theme:") or id.begins_with("livery:") or id.begins_with("windsock:") or id.begins_with("hangar:"):
 		return ""
 	return "tap"
 
@@ -1629,6 +1776,7 @@ func apply_cosmetics() -> void:
 	var ti := Cosmetics.theme_index(Save.equipped_id("theme"))
 	var li := Cosmetics.livery_index(Save.equipped_id("livery"))
 	airfield.apply_theme(ti)
+	airfield.apply_details()
 	var t: Dictionary = Cosmetics.THEMES[ti]
 	_env.background_color = t["bg"]
 	_env.ambient_light_color = t["ambient"]
@@ -1637,35 +1785,48 @@ func apply_cosmetics() -> void:
 	traffic.set_livery(li)
 	diorama.traffic.set_livery(li)
 
-## The Hangar's tabs and cards for the tab that is up.
+## The Hangar's tabs and cards for the tab that is up. Tab 0 airport skins, 1 liveries, 2 field details (windsocks, then hangar paints). A card says
+## where its item comes from while it is locked: its price in coins, a mastery rank, or an achievement.
 func _shop_args() -> Array:
 	var cards: Array = []
-	var kind := "theme" if shop_tab == 0 else "livery"
-	var n := Cosmetics.THEME_COUNT if shop_tab == 0 else Cosmetics.LIVERY_COUNT
-	for i in n:
-		var d: Dictionary = Cosmetics.THEMES[i] if shop_tab == 0 else Cosmetics.LIVERIES[i]
-		var owned := Save.owns(kind, d["id"])
-		var state := 0
-		var sub := ""
-		var cost := -1
-		if Save.equipped_id(kind) == d["id"]:
-			state = 2
-			sub = "In use"
-		elif owned:
-			sub = "Owned"
-		else:
-			cost = d["cost"]
-			state = 0 if Save.coins >= d["cost"] else 1
-		cards.append({"id": "%s:%d" % [kind, i], "title": d["name"], "sub": sub, "state": state, "icon": (100 + i) if shop_tab == 0 else d["animal"], "cost": cost})
+	var kinds: Array = [["theme"], ["livery"], ["windsock", "hangar"]][clampi(shop_tab, 0, 2)]
+	for kind in kinds:
+		var list: Array = Cosmetics.items(kind)
+		for i in list.size():
+			var d: Dictionary = list[i]
+			var owned := Save.owns(kind, d["id"])
+			var state := 0
+			var sub := ""
+			var cost := -1
+			if Save.equipped_id(kind) == d["id"]:
+				state = 2
+				sub = "In use"
+			elif owned:
+				sub = "Owned"
+			elif Cosmetics.source(d) == "shop":
+				cost = d["cost"]
+				state = 0 if Save.coins >= d["cost"] else 1
+				sub = "%d coins" % cost
+			else:
+				state = 1
+				sub = Cosmetics.source_line(d)
+			var card := {"id": "%s:%d" % [kind, i], "title": d["name"], "sub": sub, "state": state, "cost": -1, "locked": not owned and Cosmetics.source(d) != "shop"}
+			match kind:
+				"theme": card["icon"] = 100 + i
+				"livery": card["icon"] = d["animal"]
+				"windsock": card["swatch"] = [d["a"], d["b"]]
+				_: card["swatch"] = [d["color"] if d["color"] != null else Color("e2654a"), Color("e8e1d2")]
+			cards.append(card)
 	return [[
-		{"id": "shop_tab:0", "title": "THEMES", "selected": shop_tab == 0},
-		{"id": "shop_tab:1", "title": "LIVERIES", "selected": shop_tab == 1}], cards]
+		{"id": "shop_tab:0", "title": "SKINS", "selected": shop_tab == 0},
+		{"id": "shop_tab:1", "title": "LIVERIES", "selected": shop_tab == 1},
+		{"id": "shop_tab:2", "title": "FIELD", "selected": shop_tab == 2}], cards]
 
 func _show_shop() -> void:
 	screen = SCREEN_SHOP
 	alive = false
 	var sh := _shop_args()
-	hud.show_list("SHOP", Save.coins, sh[0], sh[1])
+	hud.show_list("SHOP", Save.coins, sh[0], sh[1], true)
 
 # ---------- The preview sheet: nothing is bought without it ----------
 # A card opens a sheet over the list. Owned things have one "Equip" button. Things for sale have "Buy for N", which spends only when held
@@ -1698,7 +1859,7 @@ func close_preview() -> void:
 		_show_shop()
 
 func _preview_item() -> Dictionary:
-	return Cosmetics.THEMES[preview_i] if preview_kind == "theme" else Cosmetics.LIVERIES[preview_i]
+	return Cosmetics.items(preview_kind)[preview_i]
 
 func _preview_args() -> Dictionary:
 	var d := _preview_item()
@@ -1708,12 +1869,19 @@ func _preview_args() -> Dictionary:
 		state = "equipped"
 	elif owned:
 		state = "bought" if preview_bought else "owned"
+	elif Cosmetics.source(d) != "shop":
+		state = "locked"
 	elif Save.coins < d["cost"]:
 		state = "need"
 	var rw: Color = Airports.rw_color(0) if Airports.rw_count() > 0 else Airports.ORANGE
+	var sub := "Airport skin"
+	match preview_kind:
+		"livery": sub = d["pilot"]
+		"windsock": sub = "Windsock colours, on every airport"
+		"hangar": sub = "Hangar paint, on every airport"
 	return {"kind": preview_kind, "index": preview_i, "name": d["name"], "state": state, "price": d["cost"], "balance": Save.coins, "need": maxi(d["cost"] - Save.coins, 0),
-		"sub": (d["pilot"] if preview_kind == "livery" else "Airport skin"), "mode": preview_mode, "airport": airport, "theme": preview_i if preview_kind == "theme" else 0,
-		"current_theme": Cosmetics.theme_index(Save.equipped_id("theme")), "livery": d if preview_kind == "livery" else {}, "runway": rw}
+		"sub": sub, "source": Cosmetics.source_line(d), "mode": preview_mode, "airport": airport, "theme": preview_i if preview_kind == "theme" else 0,
+		"current_theme": Cosmetics.theme_index(Save.equipped_id("theme")), "livery": d if preview_kind == "livery" else {}, "detail": d if preview_kind in ["windsock", "hangar"] else {}, "runway": rw}
 
 func _refresh_preview() -> void:
 	if preview_kind == "":
@@ -1766,11 +1934,11 @@ func _tick_preview(delta: float) -> void:
 
 ## Tap a shop card: equip it if owned, otherwise buy (and equip) it.
 func shop_pick(kind: String, i: int) -> bool:
-	var d: Dictionary = Cosmetics.THEMES[i] if kind == "theme" else Cosmetics.LIVERIES[i]
+	var d: Dictionary = Cosmetics.items(kind)[i]
 	var ok := false
 	if Save.owns(kind, d["id"]):
 		ok = Save.equip(kind, d["id"])
-	else:
+	elif Cosmetics.source(d) == "shop":
 		ok = Save.buy_cosmetic(kind, d["id"], d["cost"])
 		if ok:
 			hud.flash(Color(0.6, 1.0, 0.7))
@@ -1956,7 +2124,9 @@ func _show_detail() -> void:
 	var imps := []
 	for iid in Improvements.IDS:
 		imps.append({"id": iid, "name": Improvements.improvement_name(iid), "level": Save.imp_level(i, iid), "price": Improvements.cost(i, iid, Save.imp_level(i, iid))})
+	var mp := Mastery.progress(i, Save.mastery_landings(i))
 	hud.show_detail({
+		"rank": mp["rank"], "into": mp["into"], "need": mp["need"], "frac": mp["frac"], "landings": Save.mastery_landings(i),
 		"tab": detail_tab, "imps": imps, "bank": Save.coins, "hangar": Ramp.capacity(i),
 		"i": i, "name": Airports.airport_name(i), "tag": Airports.tag(i), "open": Save.airport_open(i), "lock": Airports.unlock_stars(i),
 		"stars": Save.stars_of(i), "best": Save.best_for(i), "coins": th, "land": need,

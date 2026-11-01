@@ -3,12 +3,12 @@ extends Node
 ## Registered as the autoload `Save`. Version 1 held only the best score; version 2 was the airport game
 ## (coins, stars per airport, best landings, upgrades, unlocks, tips seen, the daily shift); version 3 has the
 ## timed-shift economy (best coin payout per airport) and the Bad Pilot Day record; version 4 the airport improvements
-## (levels per airport, bought on its detail screen); version 5 the daily goals and the login streak. Older saves migrate on
+## (levels per airport, bought on its detail screen); version 5 the daily goals and the login streak; version 6 the airport mastery (landings per airport), lifetime stats and achievements. Older saves migrate on
 ## load: stars, coins, upgrades and unlocks carry over untouched, best landings stay as they were, and the
 ## new best-coins records start at zero. Unknown or missing fields fall back to defaults, so adding a field
 ## never breaks an old save.
 
-const VERSION := 5
+const VERSION := 6
 const AIRPORT_SLOTS := 6
 const STARS_PER_AIRPORT := 3
 
@@ -26,6 +26,10 @@ var tips_seen := {}                  # aircraft-type tips already shown
 var bad_day := {}                    # Bad Pilot Day: the same fields, its own best and streak (version 3)
 var goals := {}                      # today's three daily goals: {"day", "list", "chest"} (version 5)
 var goal_streak := {}                # the daily-goal streak: {"count", "last", "freezes", "best"} (version 5)
+var mastery := PackedInt32Array()    # landings made at each airport, ever (version 6)
+var mastery_paid := PackedInt32Array()   # the highest mastery rank already paid at each airport
+var stats := {}                      # lifetime counters the achievements read (version 6)
+var achievements := {}               # achievement id -> the day it was earned (version 6)
 var shifts_played := 0
 var no_engines_at := PackedByteArray()  # the "No engines" challenge switched on, per airport (it only counts at three stars)
 var no_engines_bad := false            # ...and for Bad Pilot Day
@@ -47,6 +51,10 @@ func _defaults() -> void:
 	best.fill(0)
 	best_coins.resize(AIRPORT_SLOTS)
 	best_coins.fill(0)
+	mastery.resize(AIRPORT_SLOTS)
+	mastery.fill(0)
+	mastery_paid.resize(AIRPORT_SLOTS)
+	mastery_paid.fill(0)
 	airport_plays.resize(AIRPORT_SLOTS)
 	airport_plays.fill(0)
 	no_engines_at.resize(AIRPORT_SLOTS)
@@ -60,6 +68,8 @@ func _defaults() -> void:
 	bad_day = {}
 	goals = {}
 	goal_streak = {}
+	stats = {}
+	achievements = {}
 	shifts_played = 0
 	selected_airport = 0
 	sound_volume = 0.8
@@ -91,6 +101,14 @@ func load_file() -> void:
 	var bc: Array = data.get("best_coins", [])      # (absent in a version 2 save: the records start fresh)
 	for i in mini(bc.size(), best_coins.size()):
 		best_coins[i] = int(bc[i])
+	var ml: Array = data.get("mastery", [])
+	for i in mini(ml.size(), mastery.size()):
+		mastery[i] = int(ml[i])
+	var mp: Array = data.get("mastery_paid", [])
+	for i in mini(mp.size(), mastery_paid.size()):
+		mastery_paid[i] = int(mp[i])
+	stats = _dict(data.get("stats"))
+	achievements = _dict(data.get("achievements"))
 	var ap: Array = data.get("airport_plays", [])
 	for i in mini(ap.size(), airport_plays.size()):
 		airport_plays[i] = int(ap[i])
@@ -122,7 +140,7 @@ func write_file() -> void:
 		f.store_string(JSON.stringify({
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
 			"upgrades": upgrades, "improvements": improvements, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
-			"bad_day": bad_day, "goals": goals, "streak": goal_streak, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
+			"bad_day": bad_day, "goals": goals, "streak": goal_streak, "mastery": Array(mastery), "mastery_paid": Array(mastery_paid), "stats": stats, "achievements": achievements, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
 			"sound_volume": sound_volume, "music_volume": music_volume, "ambience_volume": ambience_volume,
 		}))
 
@@ -168,6 +186,102 @@ func daily_complete(coins_made: int, kind: String = "bad") -> int:
 func daily_note_score(coins_made: int, kind: String = "bad") -> void:
 	var rec := record(kind)
 	rec["best"] = maxi(coins_made, int(rec.get("best", 0)))
+
+# ---------- Airport mastery ----------
+
+func mastery_landings(airport: int) -> int:
+	return mastery[clampi(airport, 0, AIRPORT_SLOTS - 1)]
+
+func mastery_rank(airport: int) -> int:
+	return Mastery.rank(airport, mastery_landings(airport))
+
+## One more landing at `airport`. Returns what a new rank paid: {"ranks": [ranks reached], "coins": n, "cosmetics": ["kind:id", ...]} (empty ranks: nothing new).
+func add_mastery_landing(airport: int, avg_pay: int) -> Dictionary:
+	var a := clampi(airport, 0, AIRPORT_SLOTS - 1)
+	mastery[a] += 1
+	var out := {"ranks": [], "coins": 0, "cosmetics": []}
+	var r := Mastery.rank(a, mastery[a])
+	while mastery_paid[a] < r:
+		mastery_paid[a] += 1
+		var rr: int = mastery_paid[a]
+		out["ranks"].append(rr)
+		var c := Mastery.coins_for(a, rr, avg_pay)
+		out["coins"] += c
+		add_coins(c)
+		var cid := Mastery.cosmetic_for(a, rr)
+		if cid != "":
+			unlocks[cid] = true
+			out["cosmetics"].append(cid)
+	return out
+
+func mastery_total_landings() -> int:
+	var n := 0
+	for v in mastery:
+		n += v
+	return n
+
+# ---------- Achievements ----------
+
+func stat_add(key: String, n: int = 1) -> void:
+	stats[key] = int(stats.get(key, 0)) + n
+
+func stat_max(key: String, v: int) -> void:
+	stats[key] = maxi(int(stats.get(key, 0)), v)
+
+## The numbers the achievements read: the counters kept as the game is played, and what the save itself says.
+func ach_stats() -> Dictionary:
+	var st: Dictionary = stats.duplicate()
+	st["landings"] = mastery_total_landings()
+	st["fast_hangar"] = int(stats.get("fast_hangar", 9999))
+	st["stars"] = stars_total()
+	var open_n := 0
+	var full_n := 0
+	var rank5 := 0
+	for i in AIRPORT_SLOTS:
+		if airport_open(i):
+			open_n += 1
+		var all3 := true
+		for iid in Improvements.IDS:
+			if imp_level(i, iid) < Improvements.MAX_LEVEL:
+				all3 = false
+		if all3:
+			full_n += 1
+		if mastery_rank(i) >= Mastery.MAX_RANK:
+			rank5 += 1
+	st["airports_open"] = open_n
+	st["imp_full_one"] = 1 if full_n >= 1 else 0
+	st["imp_full_all"] = 1 if full_n >= AIRPORT_SLOTS else 0
+	var tmax := true
+	for uid in Upgrades.IDS:
+		if upgrade_level(uid) < Upgrades.MAX_LEVEL:
+			tmax = false
+	st["tower_max"] = 1 if tmax else 0
+	st["rank5"] = rank5
+	var lv := 0
+	for l in Cosmetics.LIVERIES:
+		if owns("livery", l["id"]):
+			lv += 1
+	var th := 0
+	for t in Cosmetics.THEMES:
+		if owns("theme", t["id"]):
+			th += 1
+	st["liveries"] = lv
+	st["themes"] = th
+	st["streak_best"] = int(goal_streak.get("best", 0))
+	return st
+
+## Check every achievement now; pay and record the new ones. Returns [{"id", "coins", "cosmetic"}].
+func check_achievements() -> Array:
+	var out: Array = []
+	for id in Achievements.check(ach_stats(), achievements):
+		var a := Achievements.def(id)
+		achievements[id] = today()
+		add_coins(int(a["coins"]))
+		var cid: String = a.get("cos", "")
+		if cid != "":
+			unlocks[cid] = true
+		out.append({"id": id, "coins": int(a["coins"]), "cosmetic": cid})
+	return out
 
 # ---------- Daily goals and the streak ----------
 
@@ -233,7 +347,7 @@ func goal_event(ev: Dictionary, ctx: Dictionary) -> Dictionary:
 # ---------- Cosmetics ----------
 
 func owns(kind: String, id: String) -> bool:
-	return unlocks.has(kind + ":" + id) or (kind == "theme" and id == "classic") or (kind == "livery" and id == "standard")
+	return unlocks.has(kind + ":" + id) or (kind == "theme" and id == "classic") or (id == "standard" and kind != "theme")
 
 func equipped_id(kind: String) -> String:
 	return str(equipped.get(kind, "classic" if kind == "theme" else "standard"))

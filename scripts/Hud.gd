@@ -167,7 +167,7 @@ class Art extends Control:
 
 	# Buttons / cards (fixed pool; set per screen). state: 0 normal, 1 disabled, 2 accent.
 	# kind: 0 plain button, 1 card (icon, name, one line, pips / stars / cost), 2 the primary button, 3 round icon button, 4 small chip.
-	const MAX_BTN := 14
+	const MAX_BTN := 40
 	var btn_rect: Array[Rect2] = []
 	var btn_id := PackedStringArray()
 	var btn_text := PackedStringArray()
@@ -182,6 +182,7 @@ class Art extends Control:
 	var btn_badge := PackedInt32Array()      # round buttons: 0 none, >0 a streak number, -1 a tick (done today)
 	var btn_lock := PackedInt32Array()       # cards: >0 a locked card showing a padlock and this many stars needed
 	var btn_tint := PackedColorArray()       # colour tiles / card icons: the tile colour (alpha 0 = default)
+	var btn_tint2 := PackedColorArray()      # compact cosmetic cards: the second swatch colour (a windsock's second stripe, a hangar's wall)
 	var btn_map := PackedInt32Array()        # cards: -1 none, else an airport index: its mini-map is drawn as the icon
 	var btn_count := 0
 
@@ -193,6 +194,7 @@ class Art extends Control:
 		for a in [btn_state, btn_stars, btn_icon, btn_kind, btn_pips, btn_cost, btn_badge, btn_lock, btn_map]:
 			a.resize(MAX_BTN)
 		btn_tint.resize(MAX_BTN)
+		btn_tint2.resize(MAX_BTN)
 		_pts.resize(10)
 		fc_pos.resize(10)
 		cf_pos.resize(CONFETTI)
@@ -689,6 +691,7 @@ class Art extends Control:
 		btn_badge[k] = int(opts.get("badge", 0))
 		btn_lock[k] = int(opts.get("lock", 0))
 		btn_tint[k] = opts.get("tint", Color(0, 0, 0, 0))
+		btn_tint2[k] = opts.get("tint2", Color(0, 0, 0, 0))
 		btn_map[k] = int(opts.get("map", -1))
 		btn_count += 1
 		queue_redraw()
@@ -909,6 +912,21 @@ class Art extends Control:
 				draw_string(Style.body(), Vector2(r.position.x + 120.0, cy13 + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, SZ_S, C_SOFT)
 				glyph("coin", Vector2(r.end.x - 190.0, cy13), 18.0)
 				ptext("+%d" % btn_cost[k], Vector2(r.end.x - 160.0, cy13 + 12.0), SZ_M, C_GOLD_TXT if st != 2 else ink, HORIZONTAL_ALIGNMENT_LEFT, 140.0)
+			16:     # a compact cosmetic card (two to a row): a picture or swatch, the name, and one line (the price, or where a locked item comes from)
+				var locked16 := btn_lock[k] > 0 and st == 1
+				panel(_sb_gold if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
+				var pc := Vector2(r.position.x + 62.0, r.get_center().y)
+				if btn_icon[k] >= 0:
+					_draw_icon(btn_icon[k], pc, 40.0)
+				else:
+					draw_circle(pc, 43.0, Style.INK)
+					draw_circle(pc, 39.0, btn_tint2[k])
+					draw_circle(pc + Vector2(0, -8.0), 25.0, btn_tint[k])
+				var tw16 := r.size.x - 120.0 - 24.0
+				ptext(btn_text[k], Vector2(r.position.x + 120.0, r.position.y + 54.0), Style.fit_size(btn_text[k], 30, 22, tw16), ink, HORIZONTAL_ALIGNMENT_LEFT, tw16)
+				if locked16:
+					glyph("lock", Vector2(r.position.x + 134.0, r.position.y + 94.0), 11.0, C_SOFT)
+				draw_string(Style.body(), Vector2(r.position.x + (152.0 if locked16 else 120.0), r.position.y + 102.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16 - (32.0 if locked16 else 0.0), 22, C_SOFT if st != 1 or locked16 else C_QUIET)
 			14:     # the menu's goals card: "Daily goals", the streak, and three dots for the three goals
 				panel(_sb_normal, r, _sheen_s)
 				glyph("sun", Vector2(r.position.x + 52.0, r.get_center().y), 26.0, ink)
@@ -961,6 +979,12 @@ class Art extends Control:
 		ptext(d["name"], Vector2(x0, y0 + 84.0), nfs, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_LEFT, wide - 360.0)
 		var tag_txt: String = d["tag"] + ((" \u00b7 Best %d" % int(d["best"])) if (not locked and int(d["best"]) > 0) else "")
 		draw_string(Style.body(), Vector2(x0, y0 + 124.0), tag_txt, HORIZONTAL_ALIGNMENT_LEFT, wide - 360.0, 27, C_SOFT)
+		if not locked and d.has("rank"):         # mastery: the rank, its name, a bar to the next one and the landings
+			var mx := card.end.x - 40.0 - 320.0
+			ptext("Rank %d  \u00b7  %s" % [int(d["rank"]), Mastery.rank_name(int(d["rank"]))], Vector2(mx, y0 + 70.0), 30, C_GOLD_TXT if int(d["rank"]) >= Mastery.MAX_RANK else C_TEXT, HORIZONTAL_ALIGNMENT_RIGHT, 320.0)
+			_mastery_bar(Rect2(mx, y0 + 88.0, 320.0, 20.0), float(d["frac"]), int(d["rank"]))
+			var mtxt := "%d landings  \u00b7  top rank" % int(d["landings"]) if int(d["need"]) <= 0 else "%d / %d to rank %d" % [int(d["into"]), int(d["need"]), int(d["rank"]) + 1]
+			draw_string(Style.text(), Vector2(mx, y0 + 134.0), mtxt, HORIZONTAL_ALIGNMENT_RIGHT, 320.0, 22, C_SOFT)
 		var tab := int(d.get("tab", 0))
 		# the three stars: lit if earned, each with what it takes (star 1: a landing count; stars 2 and 3: net coins after fines)
 		var col_w := wide / 3.0
@@ -985,6 +1009,13 @@ class Art extends Control:
 			draw_string(Style.display(), Vector2(pill.position.x + 108.0, pill.get_center().y + 14.0), "Unlock with %d %s" % [int(d["lock"]), "star" if int(d["lock"]) == 1 else "stars"], HORIZONTAL_ALIGNMENT_LEFT, pill.size.x - 160.0, 40, Color.WHITE)
 			glyph("star", Vector2(pill.end.x - 60.0, pill.get_center().y), 24.0)
 
+	## A thin progress bar (mastery): a dark track, a fill (gold at the top rank) and a pip for each rank.
+	func _mastery_bar(r: Rect2, frac: float, rank: int) -> void:
+		draw_rect(r, Style.INK)
+		var inner := r.grow(-2.0)
+		draw_rect(inner, Color(0.86, 0.78, 0.62))
+		draw_rect(Rect2(inner.position, Vector2(inner.size.x * clampf(frac, 0.0, 1.0), inner.size.y)), C_GOLD if rank >= Mastery.MAX_RANK else Style.PRIMARY)
+
 	## An airport's card on the Airports screen: a top-down vignette, the name in the display face, the best shift and three stars; the selected
 	## card wears an orange ring (its "Fly here" button is its own button); a locked airport is dimmed under a dark "Unlock with N stars" pill.
 	func _draw_airport_card(k: int, r: Rect2, st: int) -> void:
@@ -1005,6 +1036,10 @@ class Art extends Control:
 				glyph("star" if i < btn_stars[k] else "star_off", Vector2(tx + 24.0 + i * 58.0, r.end.y - 52.0), 21.0)
 			if btn_cost[k] > 0:
 				draw_string(Style.text(), Vector2(tx + 200.0, r.end.y - 42.0), "Best %d" % btn_cost[k], HORIZONTAL_ALIGNMENT_LEFT, 200.0, 26, C_SOFT)
+			if btn_pips[k] >= 0:         # the mastery rank and how far to the next
+				var mr := Rect2(r.end.x - 300.0, r.end.y - 58.0, 250.0, 16.0)
+				draw_string(Style.text(), Vector2(mr.position.x, mr.position.y - 12.0), "Rank %d  \u00b7  %s" % [btn_pips[k], Mastery.rank_name(btn_pips[k])], HORIZONTAL_ALIGNMENT_LEFT, 250.0, 24, C_GOLD_TXT if btn_pips[k] >= Mastery.MAX_RANK else C_SOFT)
+				_mastery_bar(mr, float(btn_badge[k]) / 100.0, btn_pips[k])
 		else:
 			var pill := Rect2(vig.position.x + 6.0, vig.get_center().y - 30.0, vig.size.x - 12.0, 60.0)
 			draw_style_box(_sb_lockpill, pill)
@@ -1241,8 +1276,11 @@ class Art extends Control:
 						rsum += int(res_goals[q]["reward"])
 				ptext("+%d" % rsum, Vector2(gr.end.x - 190.0, gr.get_center().y + 12.0), 32, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_RIGHT, 150.0)
 				glyph("coin", Vector2(gr.end.x - 30.0, gr.get_center().y), 14.0)
-			if res_goals_extra != "":
-				draw_string(Style.body(), Vector2(cx - 465.0, (1180.0 + mini(res_goals.size(), 2) * 98.0) * s2 + top + 6.0), res_goals_extra, HORIZONTAL_ALIGNMENT_CENTER, 930.0, SZ_S, C_SOFT)
+		if res_goals_extra != "":
+			var ex_lines := res_goals_extra.split("\n")
+			var ex_y := (1180.0 + mini(res_goals.size(), 2) * 98.0) * s2 + top + 6.0
+			for li in mini(ex_lines.size(), 4):
+				draw_string(Style.body(), Vector2(cx - 465.0, ex_y + li * 32.0), ex_lines[li], HORIZONTAL_ALIGNMENT_CENTER, 930.0, SZ_S, C_SOFT)
 		# A new airport opened with this shift.
 		if res_unlock != "":
 			var ur := Rect2(cx - 465.0, 1370.0 * s2 + top, 930.0, 130.0)
@@ -1276,6 +1314,8 @@ class Art extends Control:
 			draw_set_transform(st.get_center() * (1.0 - ok_pop), 0.0, Vector2(ok_pop, ok_pop))
 		if pv["kind"] == "livery":
 			_draw_livery_stage(st)
+		elif pv["kind"] == "windsock" or pv["kind"] == "hangar":
+			_draw_detail_stage(st)
 		else:
 			_draw_theme_stage(st)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -1292,6 +1332,9 @@ class Art extends Control:
 				ptext(line, Vector2(card.position.x, y + 84.0), 40, C_SOFT if pv["state"] == "buy" else C_RED, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
 			"bought":
 				ptext("Balance %s" % fmt_int(pv["balance"]), Vector2(card.position.x, y + 64.0), 40, C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
+			"locked":
+				glyph("lock", Vector2(cx, y + 10.0), 26.0, C_SOFT)
+				ptext(str(pv["source"]), Vector2(card.position.x + 30.0, y + 76.0), 34, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x - 60.0)
 			_:
 				ptext("In use" if pv["state"] == "equipped" else "Yours", Vector2(card.position.x, y + 40.0), SZ_M, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
 
@@ -1310,6 +1353,27 @@ class Art extends Control:
 		var s := Style.ease_out_back(clampf(pv_ok_t / 0.3, 0.0, 1.0))
 		draw_circle(c, 110.0 * s, Color(Style.SUCCESS, 0.92 * a))
 		glyph("check", c, 62.0 * s, Color(1, 1, 1, a))
+
+	## A windsock on its pole, or the hangar, in the item's colours.
+	func _draw_detail_stage(st: Rect2) -> void:
+		_sb_stage.bg_color = Color("a6cf74")
+		draw_style_box(_sb_stage, st)
+		var d: Dictionary = pv["detail"]
+		var c := st.get_center()
+		if pv["kind"] == "windsock":
+			var pole := Rect2(c.x - 220.0, c.y - 220.0, 16.0, 420.0)
+			draw_rect(pole, Color(0.8, 0.8, 0.82))
+			var sway := sin(pv_t * 1.6) * 14.0
+			for n in 3:
+				var x0 := c.x - 204.0 + n * 150.0
+				var h0 := 150.0 - n * 36.0
+				var col: Color = d["a"] if n % 2 == 0 else d["b"]
+				draw_colored_polygon(PackedVector2Array([Vector2(x0, c.y - 210.0 + n * 10.0 + sway * n * 0.1), Vector2(x0 + 150.0, c.y - 190.0 + n * 18.0 + sway * (n + 1) * 0.2), Vector2(x0 + 150.0, c.y - 190.0 + n * 18.0 + h0 * 0.9 - n * 10.0 + sway * (n + 1) * 0.2), Vector2(x0, c.y - 210.0 + n * 10.0 + h0 + sway * n * 0.1)]), col)
+		else:
+			var wall := Rect2(c.x - 280.0, c.y - 40.0, 560.0, 240.0)
+			draw_rect(wall, Color("e8e1d2"))
+			draw_rect(Rect2(wall.position.x - 20.0, wall.position.y - 70.0, wall.size.x + 40.0, 80.0), d["color"] if d["color"] != null else Color("e2654a"))
+			draw_rect(Rect2(c.x - 120.0, c.y + 20.0, 240.0, 180.0), Color("3a2c2a"))
 
 	func _draw_livery_stage(st: Rect2) -> void:
 		_sb_stage.bg_color = Color("a6cf74")
@@ -1592,6 +1656,9 @@ var _wind_secs := -1
 var _wind_inited := false
 var _wind_posted := false
 var _last_bal := 0
+var mastery_ranks: Array = []        # per airport: mastery rank (the Airports screen's cards show it)
+var mastery_pcts: Array = []         # ...and the progress to the next rank, 0..100
+var ach_unseen := false              # the menu's Awards button wears a red dot while there are achievements not looked at yet
 var goals_done := 0                  # the menu's goals card: goals finished today, the streak line, and a red dot while none is done
 var goals_line := ""
 var goal_note: Array = []            # the goals the shift just finished (the results card lists them)
@@ -1807,7 +1874,7 @@ func _update_coins(delta: float) -> void:
 
 const SLIDE := 140.0
 ## How far into the flow each screen is: going deeper slides in from the right, coming back from the left.
-const DEPTH := {"menu": 0.0, "select": 1.0, "detail": 1.5, "upgrades": 1.0, "goals": 1.0, "list": 1.0, "play": 2.0, "results": 3.0, "pause": 2.5, "ad": 2.5}
+const DEPTH := {"menu": 0.0, "select": 1.0, "detail": 1.5, "upgrades": 1.0, "goals": 1.0, "achievements": 1.0, "list": 1.0, "play": 2.0, "results": 3.0, "pause": 2.5, "ad": 2.5}
 const POP_KINDS := ["results", "pause", "ad"]
 var _tr_t := 99.0
 var transition_count := 0
@@ -2193,6 +2260,9 @@ func show_preview(p: Dictionary) -> void:
 			label = "Buy for %s" % Art.fmt_int(p["price"])
 		"need":
 			label = "Need %s more" % Art.fmt_int(p["need"])
+			bst = 1
+		"locked":
+			label = "Locked"
 			bst = 1
 		"bought", "owned":
 			label = "Equip"
@@ -2674,7 +2744,7 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 		_hide_all_screens()
 		_select.visible = true
 		_select_title.text = "AIRPORTS"
-	_use_panel("select", _sig([total_stars, open, stars, _best_scores, selected, no_engines, Tuning.no_engines_pay_mult]), func() -> void:
+	_use_panel("select", _sig([total_stars, open, stars, _best_scores, selected, no_engines, Tuning.no_engines_pay_mult, mastery_ranks, mastery_pcts]), func() -> void:
 		_set_header(0, "star", total_stars)
 		var vp := get_viewport().get_visible_rect().size
 		_art.clear_buttons()
@@ -2683,7 +2753,7 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 			var r := Rect2(40.0, 150.0 + Style.safe_top + i * 252.0, vp.x - 80.0, 236.0)
 			if open[i] != 0:
 				var best := _best_scores[i] if i < _best_scores.size() else 0
-				_art.add_button("pick:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, Airports.tag(i), stars[i], -1, {"kind": 1, "map": i, "cost": maxi(best, 0)})
+				_art.add_button("pick:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, Airports.tag(i), stars[i], -1, {"kind": 1, "map": i, "cost": maxi(best, 0), "pips": int(mastery_ranks[i]) if i < mastery_ranks.size() else -1, "badge": int(mastery_pcts[i]) if i < mastery_pcts.size() else 0})
 				pass             # (tapping a card opens its detail screen: Fly here and the No engines switch are there)
 			else:
 				_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, Airports.tag(i), -1, -1, {"kind": 1, "map": i, "lock": Airports.unlock_stars(i)})
@@ -2707,13 +2777,13 @@ func set_loading_airport(i: int) -> void:
 		popup("Loading %s..." % Airports.airport_name(i), Color(1.0, 0.9, 0.6), get_viewport().get_visible_rect().size * Vector2(0.5, 0.45))
 
 ## A generic list screen: optional tab chips, then cards {id, title, sub, state, stars, icon, cost}, then Back.
-func show_list(title: String, coins: int, tabs: Array, cards: Array) -> void:
+func show_list(title: String, coins: int, tabs: Array, cards: Array, compact: bool = false) -> void:
 	if not priming:
 		_go("list:" + title)
 		_hide_all_screens()
 		_select.visible = true
 		_select_title.text = title
-	_use_panel("shop", _sig([title, coins, tabs, cards]), func() -> void:
+	_use_panel("shop", _sig([title, coins, tabs, cards, compact]), func() -> void:
 		_set_header(0, "coin", coins)
 		var vp := get_viewport().get_visible_rect().size
 		_art.clear_buttons()
@@ -2724,6 +2794,16 @@ func show_list(title: String, coins: int, tabs: Array, cards: Array) -> void:
 			for k in tabs.size():
 				_art.add_button(tabs[k]["id"], tabs[k]["title"], Rect2(40.0 + k * (w + 20.0), y, w, 90.0), 2 if tabs[k]["selected"] else 0)
 			y += 120.0
+		if compact:          # two columns of small cards: a picture, the name and one line (a price, or where it comes from)
+			var cw := (vp.x - 80.0 - 16.0) * 0.5
+			for n in cards.size():
+				var c: Dictionary = cards[n]
+				var rc := Rect2(40.0 + (n % 2) * (cw + 16.0), y + (n / 2) * 146.0, cw, 130.0)
+				var tint: Color = Color(0, 0, 0, 0)
+				var sw: Array = c.get("swatch", [])
+				_art.add_button(c["id"], c["title"], rc, c["state"], c["sub"], -1, c.get("icon", -1), {"kind": 16, "lock": 1 if c.get("locked", false) else 0, "tint": sw[0] if not sw.is_empty() else tint, "tint2": sw[1] if not sw.is_empty() else tint})
+			_art.queue_redraw()
+			return
 		for c in cards:
 			_art.add_button(c["id"], c["title"], Rect2(40.0, y, vp.x - 80.0, 160.0), c["state"], c["sub"], c.get("stars", -1), c.get("icon", -1), {"kind": 1, "cost": c.get("cost", -1), "glyph": c.get("glyph", "")})
 			y += 176.0
@@ -2783,12 +2863,35 @@ func show_goals(v: Dictionary) -> void:
 		_art.add_button("streak", v["streak_title"], Rect2(40.0, y, vp.x - 80.0, 200.0), 0, v["streak_sub"], -1, -1, {"kind": 15, "pips": int(v["week_pos"])})
 		_art.queue_redraw())
 
+## The Achievements sheet: four group tabs, then a card per achievement (done ones in gold) with its progress and reward.
+func show_achievements(v: Dictionary) -> void:
+	if not priming:
+		_go("achievements")
+		_hide_all_screens()
+		_select.visible = true
+		_select_title.text = "ACHIEVEMENTS"
+	_use_panel("achievements", _sig([v]), func() -> void:
+		_set_header(0, "coin", int(v["coins"]))
+		var vp := get_viewport().get_visible_rect().size
+		_art.clear_buttons()
+		_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+		var y := 130.0 + Style.safe_top
+		var tabs: Array = v["tabs"]
+		var w := (vp.x - 80.0 - 12.0 * (tabs.size() - 1)) / tabs.size()
+		for k in tabs.size():
+			_art.add_button("ach_tab:%d" % k, tabs[k], Rect2(40.0 + k * (w + 12.0), y, w, 84.0), 2 if k == int(v["tab"]) else 0)
+		y += 106.0
+		for it in v["items"]:
+			_art.add_button("ach:" + it["id"], it["name"], Rect2(40.0, y, vp.x - 80.0, 134.0), 2 if it["done"] else 0, it["sub"], -1, int(it["coins"]), {"kind": 13, "pips": int(it["size"])})
+			y += 148.0
+		_art.queue_redraw())
+
 ## The id of the enabled button under `pos` ("" if none).
 func button_at(pos: Vector2) -> String:
 	var k := _art.button_at(pos)
 	if k < 0:
 		return ""
-	if _art.btn_state[k] == 1 and not (_art.btn_id[k].begins_with("theme:") or _art.btn_id[k].begins_with("livery:") or _art.btn_id[k].begins_with("locked:")):
+	if _art.btn_state[k] == 1 and not (_art.btn_id[k].begins_with("theme:") or _art.btn_id[k].begins_with("livery:") or _art.btn_id[k].begins_with("windsock:") or _art.btn_id[k].begins_with("hangar:") or _art.btn_id[k].begins_with("locked:")):
 		return ""             # (a shop card is dimmed when it is out of reach, but it still opens its preview: "Need 480 more"; so does a locked airport's card, view only)
 	return _art.btn_id[k]
 
@@ -2826,7 +2929,7 @@ func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _
 	_art.add_button("airports", "Airports", row2, 0, "", -1, -1, {"kind": 0, "glyph": "airport"})
 	_art.add_button("bad", "Bad pilot day", Rect2(row2.position.x + 464.0, row2.position.y, 436.0, 150.0), 0, "", -1, -1, {"kind": 0, "glyph": "bad"})
 	_art.add_button("noeng_bad", "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(row2.position.x + 464.0 + 70.0, row2.position.y - 50.0, 366.0, 44.0), 2 if bad_no_engines else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
-	var items := [["upgrades", "Tower", "upgrades", 0], ["shop", "Hangar", "hangar", 0]]
+	var items := [["upgrades", "Tower", "upgrades", 0], ["shop", "Hangar", "hangar", 0], ["ach", "Awards", "star", -2 if ach_unseen else 0]]
 	for k in items.size():
 		_art.add_button(items[k][0], items[k][1], Rect2(vp.x - 36.0 - Style.safe_right - 130.0, 150.0 + Style.safe_top + k * 176.0, 130.0, 160.0), 0, "", -1, -1, {"kind": 7, "glyph": items[k][2], "badge": items[k][3]})
 	_art.queue_redraw()
