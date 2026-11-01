@@ -265,14 +265,7 @@ func _prime_panels() -> void:
 		best.append(Save.best_for(i))
 	# (`priming` is on only while a panel is being laid out, never across a frame: a tap in between is a real one)
 	hud.priming = true
-	var ranks := []
-	var pcts := []
-	for i in Airports.COUNT:
-		var mp := Mastery.progress(i, Save.mastery_landings(i))
-		ranks.append(mp["rank"])
-		pcts.append(roundi(float(mp["frac"]) * 100.0))
-	hud.mastery_ranks = ranks
-	hud.mastery_pcts = pcts
+	_mastery_for_hud()
 	hud.show_select(Save.stars_total(), open, stars, best, airport, Save.no_engines_at)
 	hud.priming = false
 	await get_tree().process_frame
@@ -2134,9 +2127,20 @@ func _show_detail() -> void:
 		"no_engines_mult": Tuning.no_engines_pay_mult,
 	})
 
+func _mastery_for_hud() -> void:
+	var ranks := []
+	var pcts := []
+	for i in Airports.COUNT:
+		var mp := Mastery.progress(i, Save.mastery_landings(i))
+		ranks.append(mp["rank"])
+		pcts.append(roundi(float(mp["frac"]) * 100.0))
+	hud.mastery_ranks = ranks
+	hud.mastery_pcts = pcts
+
 func _show_select() -> void:
 	screen = SCREEN_SELECT
 	alive = false
+	_mastery_for_hud()
 	var open := PackedByteArray()
 	var stars := PackedInt32Array()
 	var best := PackedInt32Array()
