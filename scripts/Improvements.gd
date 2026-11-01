@@ -14,11 +14,11 @@ const IDS := ["hangar", "rwlights", "applights", "fuel", "exit"]
 
 ## Prices of levels 1, 2 and 3 at the first airport; a later airport multiplies them (AIRPORT_COST).
 const DATA := {
-	"hangar": {"name": "Hangar bay", "text": "More room, and a fee for each", "costs": [200, 400, 800]},
-	"rwlights": {"name": "Runway lights", "text": "Fewer go-arounds in bad light", "costs": [150, 300, 600]},
-	"applights": {"name": "Approach lights", "text": "Paths snap on from further", "costs": [150, 300, 600]},
-	"fuel": {"name": "Fuel farm", "text": "Longer timers", "costs": [200, 400, 800]},
-	"exit": {"name": "Extra exit", "text": "Short rollout, quick taxi", "costs": [250, 500, 1000]},
+	"hangar": {"name": "Hangar bay", "text": "More room, and a fee for each", "costs": [140, 280, 560]},
+	"rwlights": {"name": "Runway lights", "text": "Fewer go-arounds in bad light", "costs": [105, 210, 420]},
+	"applights": {"name": "Approach lights", "text": "Paths snap on from further", "costs": [105, 210, 420]},
+	"fuel": {"name": "Fuel farm", "text": "Longer timers", "costs": [140, 280, 560]},
+	"exit": {"name": "Extra exit", "text": "Short rollout, quick taxi", "costs": [175, 350, 700]},
 }
 
 ## How much dearer an airport's improvements are than the first airport's. (Dearer, but the airport earns more per minute, so they pay back sooner.)
