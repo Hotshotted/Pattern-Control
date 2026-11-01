@@ -44,8 +44,13 @@ static func star_landings(i: int = -1) -> int:
 static func shift_cost(i: int = -1) -> int:
 	return floori(float(star_landings(i)) * mean_pay(i))
 
+## The hangar's places: the star-1 landing count plus the bays bought at the airport.
 static func capacity(i: int = -1) -> int:
-	return star_landings(i)
+	return star_landings(i) + bays(i)
+
+## The extra places the airport's hangar bays give.
+static func bays(i: int = -1) -> int:
+	return int(Tuning.imp_hangar_bays) * Save.imp_level(i if i >= 0 else Airports.current, "hangar")
 
 func reset(cap_: int, over_slots_: int, dock_slots_: int, heli_slots_: int, tie_slots_: int = TIES) -> void:
 	cap = cap_

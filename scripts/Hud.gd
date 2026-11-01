@@ -466,6 +466,24 @@ class Art extends Control:
 			"holding":
 				draw_arc(c, r * 0.7, PI * 0.2, PI * 1.9, 20, col, w * 1.4)
 				tri(c + Vector2(r * 0.75, -r * 0.05), c + Vector2(r * 0.2, -r * 0.15), c + Vector2(r * 0.65, -r * 0.7), col)
+			"rwlights":      # runway lights: two rows of lamps
+				for q in 4:
+					var qy := -r * 0.75 + q * r * 0.5
+					draw_circle(c + Vector2(-r * 0.45, qy), r * 0.14, col)
+					draw_circle(c + Vector2(r * 0.45, qy), r * 0.14, col)
+			"applights":      # approach lights: lamps converging on the runway
+				for q in 4:
+					var qy2 := r * 0.8 - q * r * 0.5
+					var qx := r * (0.15 + 0.2 * q)
+					draw_circle(c + Vector2(-qx, qy2), r * 0.13, col)
+					draw_circle(c + Vector2(qx, qy2), r * 0.13, col)
+			"fuel":      # a fuel tank
+				draw_rect(Rect2(c.x - r * 0.6, c.y - r * 0.45, r * 1.2, r * 1.1), col)
+				draw_circle(c + Vector2(0, -r * 0.45), r * 0.6, col)
+				draw_rect(Rect2(c.x - r * 0.6, c.y + r * 0.05, r * 1.2, r * 0.18), Color(Style.INK, col.a * 0.5))
+			"exit":      # an exit taxiway branching off a runway
+				draw_line(c + Vector2(-r * 0.4, r * 0.95), c + Vector2(-r * 0.4, -r * 0.95), col, w * 1.4)
+				draw_line(c + Vector2(-r * 0.4, r * 0.3), c + Vector2(r * 0.7, -r * 0.7), col, w * 1.4)
 			"turnoffs":
 				draw_line(c + Vector2(0, r * 0.95), c + Vector2(0, -r * 0.2), col, w * 1.4)
 				draw_line(c + Vector2(0, -r * 0.2), c + Vector2(-r * 0.7, -r * 0.9), col, w * 1.4)
@@ -779,6 +797,22 @@ class Art extends Control:
 				ptext(btn_text[k], Vector2(x0, r.get_center().y + SZ_S * 0.35), SZ_S, ink)
 				if btn_sub[k] != "":
 					ptext(btn_sub[k], Vector2(x0 + tw2 + 16.0, r.get_center().y + SZ_S * 0.35), SZ_S, C_GOLD_TXT)
+			12:     # an improvement chip on the airport detail screen: icon, name, level pips, the next price
+				panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r, _sheen_s)
+				var cx12 := r.get_center().x
+				glyph(btn_glyph[k], Vector2(cx12, r.position.y + 36.0), 24.0, ink)
+				var nfs12 := Style.fit_size(btn_text[k], 24, 16, r.size.x - 12.0)
+				ptext(btn_text[k], Vector2(r.position.x + 6.0, r.position.y + 90.0), nfs12, ink, HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 12.0)
+				for q12 in Improvements.MAX_LEVEL:
+					var pc12 := Vector2(cx12 + (q12 - 1) * 26.0, r.position.y + 112.0)
+					draw_circle(pc12, 10.0, Style.INK)
+					draw_circle(pc12, 7.5, C_GOLD if q12 < btn_pips[k] else Color(0.86, 0.78, 0.62))
+				if btn_cost[k] > 0:
+					var tw12 := text_width(str(btn_cost[k]), SZ_S)
+					glyph("coin", Vector2(cx12 - tw12 * 0.5 - 4.0, r.position.y + 146.0), 13.0, Color(1, 1, 1, 1.0 if st != 1 else 0.5))
+					ptext(str(btn_cost[k]), Vector2(cx12 - tw12 * 0.5 + 16.0, r.position.y + 156.0), SZ_S, ink)
+				else:
+					ptext("MAX", Vector2(r.position.x, r.position.y + 156.0), SZ_S, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
 			10:     # the sheet's buy button: orange, with a fill that runs across it while it is held
 				var face10 := Rect2(r.position.x, r.position.y, r.size.x, r.size.y - Style.LIP)
 				if st == 1:
@@ -879,23 +913,25 @@ class Art extends Control:
 		var wide := card.size.x - 80.0
 		var nfs := Style.fit_size(d["name"], 64, 36, wide - 230.0)
 		ptext(d["name"], Vector2(x0, y0 + 84.0), nfs, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_LEFT, wide - 230.0)
-		draw_string(Style.body(), Vector2(x0, y0 + 124.0), d["tag"], HORIZONTAL_ALIGNMENT_LEFT, wide - 230.0, 27, C_SOFT)
-		if not locked:
-			var best_txt := "Best %d" % int(d["best"]) if int(d["best"]) > 0 else "No best yet"
-			draw_string(Style.text(), Vector2(card.end.x - 40.0 - 220.0, y0 + 80.0), best_txt, HORIZONTAL_ALIGNMENT_RIGHT, 220.0, 32, C_SOFT)
+		var tag_txt: String = d["tag"] + ((" \u00b7 Best %d" % int(d["best"])) if (not locked and int(d["best"]) > 0) else "")
+		draw_string(Style.body(), Vector2(x0, y0 + 124.0), tag_txt, HORIZONTAL_ALIGNMENT_LEFT, wide - 230.0, 27, C_SOFT)
+		var tab := int(d.get("tab", 0))
 		# the three stars: lit if earned, each with what it takes (star 1: a landing count; stars 2 and 3: net coins after fines)
 		var col_w := wide / 3.0
-		for k in 3:
-			var cx := x0 + col_w * (float(k) + 0.5)
-			var have: bool = k < int(d["stars"]) and not locked
-			glyph("star" if have else "star_off", Vector2(cx, y0 + 200.0), 30.0)
-			if k == 0:        # star 1: land enough aircraft and finish the shift
-				ptext("Land %d" % int(d["land"][0]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
-				draw_string(Style.text(), Vector2(cx - col_w * 0.5, y0 + 314.0), "and finish the shift", HORIZONTAL_ALIGNMENT_CENTER, col_w, 24, C_SOFT)
-			else:             # stars 2 and 3: the net coins after fines
-				ptext("Net %d" % int(d["coins"][k]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
-				glyph("coin", Vector2(cx - 34.0, y0 + 304.0), 13.0, Color(1, 1, 1, 1.0))
-				draw_string(Style.text(), Vector2(cx - 14.0, y0 + 314.0), "after fines", HORIZONTAL_ALIGNMENT_LEFT, col_w * 0.5, 24, C_SOFT)
+		if tab == 0 or locked:
+			for k in 3:
+				var cx := x0 + col_w * (float(k) + 0.5)
+				var have: bool = k < int(d["stars"]) and not locked
+				glyph("star" if have else "star_off", Vector2(cx, y0 + 200.0), 30.0)
+				if k == 0:        # star 1: land enough aircraft and finish the shift
+					ptext("Land %d" % int(d["land"][0]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
+					draw_string(Style.text(), Vector2(cx - col_w * 0.5, y0 + 314.0), "and finish the shift", HORIZONTAL_ALIGNMENT_CENTER, col_w, 24, C_SOFT)
+				else:             # stars 2 and 3: the net coins after fines
+					ptext("Net %d" % int(d["coins"][k]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
+					glyph("coin", Vector2(cx - 34.0, y0 + 304.0), 13.0, Color(1, 1, 1, 1.0))
+					draw_string(Style.text(), Vector2(cx - 14.0, y0 + 314.0), "after fines", HORIZONTAL_ALIGNMENT_LEFT, col_w * 0.5, 24, C_SOFT)
+		if not locked:         # the hangar: its places and the landings after which the shift is in profit
+			draw_string(Style.text(), Vector2(x0, y0 + 372.0), "Hangar %d, profit after %d landings" % [int(d["hangar"]), int(d["land"][0])], HORIZONTAL_ALIGNMENT_CENTER, wide, 28, C_TEXT)
 		if locked:
 			var pill := Rect2(x0, size.y - 250.0, wide, 100.0)
 			draw_style_box(_sb_lockpill, pill)
@@ -2550,6 +2586,18 @@ func show_detail(info: Dictionary) -> void:
 			if bool(info["no_engines_ok"]):
 				_art.add_button("noeng:%d" % i, "No engines \u00d7%s" % str(snappedf(float(info["no_engines_mult"]), 0.1)), Rect2(vp.x - 40.0 - 330.0, y0 + 118.0 - 26.0, 330.0, 52.0), 2 if bool(info["no_engines"]) else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
 			_art.add_button("airport:%d" % i, "Fly here", Rect2(40.0, vp.y - 250.0 - Style.safe_bottom, vp.x - 80.0, 130.0), 0, "", -1, -1, {"kind": 2})
+			var tab := int(info.get("tab", 0))
+			_art.add_button("dtab:0", "Stars", Rect2(vp.x - 40.0 - 150.0 - 12.0 - 130.0, y0 + 26.0, 130.0, 52.0), 2 if tab == 0 else 0, "", -1, -1, {"kind": 4, "glyph": "star"})
+			_art.add_button("dtab:1", "Improve", Rect2(vp.x - 40.0 - 150.0, y0 + 26.0, 150.0, 52.0), 2 if tab == 1 else 0, "", -1, -1, {"kind": 4, "glyph": "upgrades"})
+			if tab == 1:
+				var imps: Array = info["imps"]
+				var gap := 10.0
+				var cw := (vp.x - 36.0 - 80.0 - gap * (imps.size() - 1)) / imps.size()
+				for k in imps.size():
+					var im: Dictionary = imps[k]
+					var price: int = im["price"]
+					var st := 2 if price < 0 else (1 if int(info["bank"]) < price else 0)
+					_art.add_button("imp:%d:%s" % [i, im["id"]], im["name"], Rect2(18.0 + 40.0 + k * (cw + gap), y0 + 150.0, cw, 176.0), st, "", -1, -1, {"kind": 12, "glyph": im["id"], "pips": int(im["level"]), "cost": maxi(price, 0)})
 		_art.queue_redraw())
 
 ## The airport select screen: one big card per airport, with just its name, stars and lock state.

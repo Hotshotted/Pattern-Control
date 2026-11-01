@@ -52,6 +52,7 @@ var hz_vel := PackedVector2Array()        # storm cells drift
 var hz_count := 0
 var fog_amount := 0.0                     # 0..1, how thick the fog is right now
 var fog_target := 0.0
+var event_active := false                  # a weather event is running (Main sets it): runway lights help then
 
 var _busy_until := PackedFloat32Array()   # per runway: run time until it is free
 var _last_td := PackedFloat32Array()      # per runway: run time of the last touchdown there
@@ -648,7 +649,7 @@ func _try_snap(p: Aircraft, last: Vector2, raw: Vector2) -> bool:
 			var rel := raw - thr
 			var u := -rel.dot(dir)
 			var lat := absf(rel.dot(Vector2(-dir.y, dir.x)))
-			if u < Tuning.snap_min_reach or u > Tuning.snap_reach or lat > Tuning.snap_radius:
+			if u < Tuning.snap_min_reach or u > Tuning.snap_reach or lat > Tuning.snap_radius_eff():
 				continue
 			if move.length() > 0.05 and move.normalized().dot(dir) < 0.35:
 				continue
@@ -827,6 +828,7 @@ func release_all() -> void:
 	go_around_cancels = 0
 	fog_amount = 0.0
 	fog_target = 0.0
+	event_active = false
 	_busy_until.fill(0.0)
 	_last_td.fill(-1000.0)
 	for i in 8:
@@ -1036,6 +1038,7 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 	approach.evaluate(p, arrive - _last_td[p.runway], wind.from_deg if wind != null else -1.0)
 	# Fog makes a POOR approach a little riskier; a clean one has no chance to multiply, so it is unaffected.
 	var chance := minf(approach.chance * lerpf(1.0, Tuning.fog_poor_go_around_mult, fog_amount), Tuning.go_around_max)
+	chance *= Tuning.light_go_around_mult(Tuning.bad_light(fog_amount, event_active, run_time / maxf(Tuning.par_eff(), 1.0)))      # (runway lights: fewer go-arounds in fog, weather and at dusk)
 	if p.student:
 		if all_students:
 			chance = minf(chance * Tuning.bad_day_go_around_mult + Tuning.bad_day_go_around_floor, Tuning.go_around_max)

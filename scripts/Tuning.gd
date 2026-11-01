@@ -130,6 +130,17 @@ var upg_holding_drain := 0.20       # holding drains this much slower per level.
 var upg_holding_radius := 0.12      # ...and circles this much tighter
 var upg_turnoff_clear := 0.30       # runways clear this much faster per level
 
+# ---------- Airport improvements (effect per level; the level is the current airport's, from the save) ----------
+var imp_hangar_bays := 2            # hangar places per level of "Hangar bay"...
+var imp_hangar_fee := 0.30          # ...and a landing that parks in one of the new places pays this share of its landing pay as a fee
+var imp_light_cut := 0.20           # "Runway lights": go-arounds this much rarer per level in fog, storms, crosswinds and at dusk
+var imp_snap := 0.30                # "Approach lights": the path snap radius this much bigger per level
+var imp_fuel_timer := 0.08          # "Fuel farm": timers this much longer per level
+var imp_exit_roll := 0.12           # "Extra exit": the landing roll this much shorter per level...
+var imp_exit_taxi := 0.10           # ...and the taxi this much faster
+var dusk_from := 0.65               # the light turns to dusk over the last third of the shift (shift progress where it starts)
+var dusk_strength := 0.6            # ...and counts this much as bad light at the very end
+
 # ---------- Daily shift and ad stubs ----------
 ## The first completed daily shift of a day pays this, plus this much per day of streak (up to 7 days).
 var daily_bonus_coins := 75
@@ -390,8 +401,12 @@ const TURNOFF_ROLL := [1.0, 1.0, 1.0, 1.0, 0.85, 0.7]
 func upg_e(id: String) -> float:
 	return float(UPG_EFFECT[id][clampi(upg(id), 0, 5)])
 
+## The level of one of the current airport's improvements.
+func imp(id: String) -> int:
+	return Save.imp_level(Airports.current, id)
+
 func timer_mult() -> float:
-	return (1.0 + upg_comms_timer * upg_e("comms")) * float(profile()["timer"]) * (intro_timer_scale if intro_active else 1.0)
+	return (1.0 + upg_comms_timer * upg_e("comms")) * (1.0 + imp_fuel_timer * imp("fuel")) * float(profile()["timer"]) * (intro_timer_scale if intro_active else 1.0)
 
 func hold_drain() -> float:
 	return hold_drain_mult * (1.0 - upg_holding_drain * upg_e("holding"))
@@ -404,7 +419,25 @@ func runway_clear() -> float:
 
 ## How long an aircraft rolls on the runway after touching down.
 func landing_roll() -> float:
-	return landing_roll_time * float(TURNOFF_ROLL[clampi(upg("turnoffs"), 0, 5)])
+	return landing_roll_time * float(TURNOFF_ROLL[clampi(upg("turnoffs"), 0, 5)]) * (1.0 - imp_exit_roll * imp("exit"))
+
+## How fast aircraft taxi, relative to normal.
+func taxi_speed_mult() -> float:
+	return 1.0 + imp_exit_taxi * imp("exit")
+
+## The path snap radius (Approach lights widen it).
+func snap_radius_eff() -> float:
+	return snap_radius * (1.0 + imp_snap * imp("applights"))
+
+## How bad the light is, 0 (clear day) to 1 (thick fog, a storm or a closing crosswind): fog and weather events count in full, dusk (the last
+## third of the shift) up to `dusk_strength`.
+func bad_light(fog: float, event: bool, shift_progress: float) -> float:
+	var dusk := smoothstep(dusk_from, 1.0, shift_progress) * dusk_strength
+	return maxf(fog, maxf(1.0 if event else 0.0, dusk))
+
+## Runway lights: the share of a go-around chance left in this light.
+func light_go_around_mult(bad: float) -> float:
+	return 1.0 - imp_light_cut * imp("rwlights") * bad
 
 func traffic_speed_mult() -> float:
 	return 1.0 - upg_tower_speed * upg_e("tower")

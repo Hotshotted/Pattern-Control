@@ -2,12 +2,13 @@ extends Node
 ## Everything that persists, in one versioned file (on the web, user:// lives in the browser's IndexedDB).
 ## Registered as the autoload `Save`. Version 1 held only the best score; version 2 was the airport game
 ## (coins, stars per airport, best landings, upgrades, unlocks, tips seen, the daily shift); version 3 has the
-## timed-shift economy (best coin payout per airport) and the Bad Pilot Day record. Older saves migrate on
+## timed-shift economy (best coin payout per airport) and the Bad Pilot Day record; version 4 the airport improvements
+## (levels per airport, bought on its detail screen). Older saves migrate on
 ## load: stars, coins, upgrades and unlocks carry over untouched, best landings stay as they were, and the
 ## new best-coins records start at zero. Unknown or missing fields fall back to defaults, so adding a field
 ## never breaks an old save.
 
-const VERSION := 3
+const VERSION := 4
 const AIRPORT_SLOTS := 6
 const STARS_PER_AIRPORT := 3
 
@@ -17,7 +18,8 @@ var coins := 0
 var stars := PackedInt32Array()      # AIRPORT_SLOTS * 3 flags
 var best := PackedInt32Array()       # best landings per airport
 var best_coins := PackedInt32Array() # best shift payout per airport (version 3)
-var upgrades := {}                   # upgrade id -> level
+var upgrades := {}                   # Tower upgrade id -> level (0 to 5)
+var improvements := {}               # airport index (as text) -> {improvement id -> level 0 to 3} (version 4)
 var unlocks := {}                    # cosmetic id -> true (airport themes, liveries)
 var equipped := {}                   # slot -> id
 var tips_seen := {}                  # aircraft-type tips already shown
@@ -50,6 +52,7 @@ func _defaults() -> void:
 	no_engines_at.fill(0)
 	no_engines_bad = false
 	upgrades = {}
+	improvements = {}
 	unlocks = {}
 	equipped = {}
 	tips_seen = {}
@@ -94,6 +97,7 @@ func load_file() -> void:
 		no_engines_at[i] = 1 if int(ne[i]) != 0 else 0
 	no_engines_bad = bool(data.get("no_engines_bad", false))
 	upgrades = _dict(data.get("upgrades"))
+	improvements = _dict(data.get("improvements"))
 	unlocks = _dict(data.get("unlocks"))
 	equipped = _dict(data.get("equipped"))
 	tips_seen = _dict(data.get("tips_seen"))
@@ -114,7 +118,7 @@ func write_file() -> void:
 	if f != null:
 		f.store_string(JSON.stringify({
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
-			"upgrades": upgrades, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
+			"upgrades": upgrades, "improvements": improvements, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
 			"daily": daily, "bad_day": bad_day, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
 			"sound_volume": sound_volume, "music_volume": music_volume, "ambience_volume": ambience_volume,
 		}))
@@ -256,6 +260,35 @@ func buy_upgrade(id: String) -> bool:
 
 func upgrade_level(id: String) -> int:
 	return int(upgrades.get(id, 0))
+
+## The level of one of an airport's improvements (0 = not bought).
+func imp_level(airport: int, id: String) -> int:
+	var d = improvements.get(str(airport))
+	return clampi(int(d.get(id, 0)), 0, Improvements.MAX_LEVEL) if d is Dictionary else 0
+
+## Buy the next level of an airport's improvement. Returns false (and changes nothing) if the airport is closed, it is maxed or too dear.
+func buy_improvement(airport: int, id: String) -> bool:
+	if airport < 0 or airport >= AIRPORT_SLOTS or not airport_open(airport):
+		return false
+	var lvl := imp_level(airport, id)
+	var price := Improvements.cost(airport, id, lvl)
+	if price < 0 or coins < price:
+		return false
+	coins -= price
+	var d = improvements.get(str(airport))
+	if not (d is Dictionary):
+		d = {}
+		improvements[str(airport)] = d
+	d[id] = lvl + 1
+	write_file()
+	return true
+
+## How many improvement levels an airport has (0 to 15).
+func imp_total(airport: int) -> int:
+	var n := 0
+	for id in Improvements.IDS:
+		n += imp_level(airport, id)
+	return n
 
 func reset_all() -> void:
 	_defaults()

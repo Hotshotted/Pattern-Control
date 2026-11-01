@@ -719,7 +719,7 @@ func _initialize() -> void:
 	save.load_file()
 	check(save.coins == saved_coins and save.stars_total() == saved_stars and save.upgrade_level("test") == 2, "the save round-trips (coins, stars, upgrades)")
 	var raw = FileAccess.open(save.path, FileAccess.READ).get_as_text()
-	check(raw.contains("\"version\":3"), "the save file is versioned (v3)")
+	check(raw.contains("\"version\":4"), "the save file is versioned (v4)")
 	var f1 = FileAccess.open(save.path, FileAccess.WRITE)
 	f1.store_string("{\"version\":1,\"best\":37}")
 	f1 = null
@@ -1470,6 +1470,210 @@ func _initialize() -> void:
 	main.airfield.show_upgrades()
 	main._show_menu()
 	main.select_airport(2)
+
+	print("9e2. airport improvements")
+	var RampX = load("res://scripts/Ramp.gd")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	# The list: five at every airport, three levels each, dearer at the later airports.
+	var imp_ok = Improvements.IDS.size() == 5 and Improvements.MAX_LEVEL == 3
+	for iid in Improvements.IDS:
+		for ia in Airports.COUNT:
+			imp_ok = imp_ok and Improvements.cost(ia, iid, 0) < Improvements.cost(ia, iid, 1) and Improvements.cost(ia, iid, 1) < Improvements.cost(ia, iid, 2) and Improvements.cost(ia, iid, 3) == -1
+			if ia > 0:
+				imp_ok = imp_ok and Improvements.cost(ia, iid, 0) > Improvements.cost(ia - 1, iid, 0)
+	check(imp_ok, "five improvements with three levels at every airport; the later the airport, the dearer (%d to %d coins in all)" % [Improvements.total_cost(0), Improvements.total_cost(5)])
+	# Buying: per airport, with coins, saved.
+	save.add_coins(100000)
+	var imp_c0 = save.coins
+	check(save.buy_improvement(2, "fuel") and save.imp_level(2, "fuel") == 1 and save.imp_level(1, "fuel") == 0 and save.coins == imp_c0 - Improvements.cost(2, "fuel", 0), "an improvement is bought for one airport only, at exactly its price")
+	save.buy_improvement(2, "fuel")
+	save.buy_improvement(2, "fuel")
+	check(save.imp_level(2, "fuel") == 3 and not save.buy_improvement(2, "fuel"), "a maxed improvement can't be bought again")
+	save.reset_all()
+	check(not save.buy_improvement(3, "hangar") and save.imp_level(3, "hangar") == 0, "nothing is bought without the coins or at a closed airport")
+	save.unlocks["all_airports"] = true
+	save.add_coins(100000)
+	save.buy_improvement(4, "exit")
+	save.buy_improvement(0, "hangar")
+	save.write_file()
+	save.improvements = {}
+	save.load_file()
+	check(save.imp_level(4, "exit") == 1 and save.imp_level(0, "hangar") == 1 and save.imp_total(4) == 1, "the improvements are saved")
+	# Hangar bay: more places and a fee for the landings that use them.
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(0)
+	Airports.current = 0
+	var bay_n = RampX.star_landings(0)
+	check(RampX.capacity(0) == bay_n, "no bays: the hangar holds the break-even landings (%d)" % bay_n)
+	save.improvements = {"0": {"hangar": 2}}
+	check(RampX.capacity(0) == bay_n + 2 * int(tuning.imp_hangar_bays) and RampX.capacity(1) == RampX.star_landings(1), "Hangar bay level 2: %d more places at this airport only" % (2 * int(tuning.imp_hangar_bays)))
+	main.restart()
+	tr.auto_spawn = false
+	check(main.airfield.ramp.cap == RampX.capacity(0), "...and the hangar on the field really has them (%d)" % main.airfield.ramp.cap)
+	var hf_fake = Aircraft.new()
+	hf_fake.runway = 0
+	hf_fake.pos = Vector2.ZERO
+	hf_fake.type = 3
+	var hf_fee = roundi(tuning.landing_pay(3) * tuning.imp_hangar_fee)
+	var hf_got = []
+	for hk in RampX.capacity(0) + 1:
+		main.traffic.run_time += 10.0
+		var b_before = main.shift.bonus
+		main._on_landed(hf_fake)
+		hf_got.append(main.shift.bonus - b_before)
+	var hf_ok = true
+	for hk in hf_got.size():
+		var in_bay = hk >= bay_n and hk < RampX.capacity(0)
+		hf_ok = hf_ok and hf_got[hk] == (hf_fee if in_bay else 0)
+	check(hf_ok and hf_fee > 0, "landings %d to %d each pay a hangar fee of %d, the others none %s" % [bay_n + 1, RampX.capacity(0), hf_fee, str(hf_got)])
+	save.improvements = {}
+	# The detail screen says it: Hangar N, profit after M landings.
+	main._show_menu()
+	main.open_detail(0)
+	check(int(main.hud._art.det["hangar"]) == bay_n and int(main.hud._art.det["land"][0]) == bay_n, "the detail screen: Hangar %d, profit after %d landings" % [main.hud._art.det["hangar"], main.hud._art.det["land"][0]])
+	# Runway lights: fewer go-arounds in fog, weather and at dusk, none to gain in clear daylight.
+	var rl_clear = tuning.light_go_around_mult(0.0)
+	save.improvements = {"0": {"rwlights": 3}}
+	check(rl_clear == 1.0 and absf(tuning.light_go_around_mult(1.0) - (1.0 - 3.0 * tuning.imp_light_cut)) < 0.0001 and tuning.light_go_around_mult(1.0) < tuning.light_go_around_mult(0.4) and tuning.light_go_around_mult(0.0) == 1.0, "Runway lights: go-arounds x%.2f in full bad light, x1 in clear daylight" % tuning.light_go_around_mult(1.0))
+	check(tuning.bad_light(0.0, false, 0.2) == 0.0 and tuning.bad_light(1.0, false, 0.2) == 1.0 and tuning.bad_light(0.0, true, 0.2) == 1.0 and tuning.bad_light(0.0, false, 1.0) > 0.4 and tuning.bad_light(0.0, false, 1.0) < 1.0, "fog and weather events are bad light; the end of the shift is dusk")
+	save.improvements = {}
+	# ...really, on a poor approach in fog.
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	Airports.current = 2
+	main.restart()
+	tr.auto_spawn = false
+	set_wind(main, 0.0)
+	var rl_thr = Airports.end_threshold(0, 0)
+	var rl_h = deg_to_rad(Airports.land_heading_deg(Aircraft.Kind.RUNWAY, 0, 0))
+	var rl_d = Vector2(sin(rl_h), -cos(rl_h))
+	var rl_n = Vector2(-rl_d.y, rl_d.x)
+	var rl_chance = []
+	var rl_gm = tuning.go_around_max
+	tuning.go_around_max = 0.98
+	for lv in [0, 3]:
+		save.improvements = {"2": {"rwlights": lv}}
+		tr.fog_amount = 1.0
+		tr.fog_target = 1.0
+		var rp = tr.place(0, rl_thr + rl_d * -1.5 + rl_n * -1.5, atan2(rl_d.x, -rl_d.y), MEDIUM)
+		rp.push(rl_thr + rl_d * -1.0 + rl_n * -1.0)
+		rp.push(rl_thr + rl_d * -0.5 + rl_n * -0.5)
+		rp.push(rl_thr)
+		rp.push(Airports.end_far(0, 0))
+		rp.cleared = true
+		rp.land_end = 0
+		tr.step(1.0 / 60.0)
+		rl_chance.append(rp.ga_chance)
+		tr.release_all()
+	tuning.go_around_max = rl_gm
+	check(rl_chance[0] > 0.05 and absf(rl_chance[1] - rl_chance[0] * (1.0 - 3.0 * tuning.imp_light_cut)) < 0.02, "a poor approach in fog goes around with chance %.2f; with runway lights level 3 only %.2f" % [rl_chance[0], rl_chance[1]])
+	tr.fog_amount = 0.0
+	tr.fog_target = 0.0
+	save.improvements = {}
+	# Approach lights: the path snaps onto the final from further to the side.
+	var al_e = 0 if main.wind.is_active(0, 0) else 1
+	var al_thr = Airports.end_threshold(0, al_e)
+	var al_h = deg_to_rad(Airports.land_heading_deg(Aircraft.Kind.RUNWAY, 0, al_e))
+	var al_d = Vector2(sin(al_h), -cos(al_h))
+	var al_n = Vector2(-al_d.y, al_d.x)
+	var al_snapped = []
+	for lv in [0, 3]:
+		save.improvements = {"2": {"applights": lv}}
+		var ap_ = tr.place(0, al_thr - al_d * 3.0 + al_n * 1.2, atan2(al_d.x, -al_d.y), MEDIUM)
+		ap_.push(ap_.pos)
+		var al_raw = al_thr - al_d * 1.8 + al_n * (tuning.snap_radius * 1.4)
+		al_snapped.append(tr.extend_path(ap_, al_raw, al_raw) and ap_.cleared)
+		tr.release_all()
+	save.improvements = {"2": {"applights": 3}}
+	check(not al_snapped[0] and al_snapped[1] and absf(tuning.snap_radius_eff() - tuning.snap_radius * (1.0 + 3.0 * tuning.imp_snap)) < 0.0001, "Approach lights level 3: a path %.2f to the side snaps (radius %.2f -> %.2f), without them it doesn't" % [tuning.snap_radius * 1.4, tuning.snap_radius, tuning.snap_radius_eff()])
+	save.improvements = {}
+	# Fuel farm: longer timers.
+	var ff_base = tuning.type_timer(MEDIUM) * tuning.timer_mult()
+	var ff0 = tr.place(0, Vector2(-3, 0), 0.0, MEDIUM)
+	save.improvements = {"2": {"fuel": 3}}
+	var ff3 = tr.place(1, Vector2(3, 0), 0.0, MEDIUM)
+	check(is_equal_approx(ff0.timer_max, ff_base) and is_equal_approx(ff3.timer_max, ff_base * (1.0 + 3.0 * tuning.imp_fuel_timer)), "Fuel farm level 3: arrivals start with timers +%d%% (%.1f -> %.1f s)" % [roundi(300.0 * tuning.imp_fuel_timer), ff0.timer_max, ff3.timer_max])
+	save.improvements = {}
+	tr.release_all()
+	# Extra exit: a shorter rollout (the runway frees sooner) and a faster taxi.
+	var ex_busy0 = tuning.landing_roll() + tuning.runway_clear()
+	save.improvements = {"2": {"exit": 3}}
+	var ex_busy3 = tuning.landing_roll() + tuning.runway_clear()
+	check(ex_busy3 < ex_busy0 and is_equal_approx(tuning.landing_roll(), tuning.landing_roll_time * (1.0 - 3.0 * tuning.imp_exit_roll)) and is_equal_approx(tuning.taxi_speed_mult(), 1.0 + 3.0 * tuning.imp_exit_taxi), "Extra exit level 3: the runway is busy %.2f s instead of %.2f, and the taxi is %.1fx faster" % [ex_busy3, ex_busy0, tuning.taxi_speed_mult()])
+	var ex_a = tr.place(0, Airports.end_threshold(0, 0), 0.0, MEDIUM)
+	ex_a.push(ex_a.pos)
+	ex_a.push(Airports.end_far(0, 0))
+	ex_a.cleared = true
+	ex_a.land_end = 0
+	tr.step(1.0 / 60.0)
+	check(absf((tr._busy_until[0] - tr.run_time) - ex_busy3) < 0.05, "...and the runway really is busy for only that long")
+	save.improvements = {}
+	tr.release_all()
+	# They show on the field, in each airport's style, growing with their level.
+	var imp_vis_ok = true
+	var imp_counts = {}
+	for a_i in Airports.COUNT:
+		main.select_airport(a_i)
+		Airports.current = a_i
+		main.restart()
+		save.improvements = {}
+		main.airfield.show_upgrades()
+		for iid in Improvements.IDS:
+			imp_vis_ok = imp_vis_ok and main.airfield.improvement_nodes_visible(iid) == 0
+		for iid in Improvements.IDS:
+			save.improvements = {str(a_i): {iid: 1}}
+			main.airfield.show_upgrades()
+			var v1 = main.airfield.improvement_nodes_visible(iid)
+			save.improvements = {str(a_i): {iid: 2}}
+			main.airfield.show_upgrades()
+			var v2 = main.airfield.improvement_nodes_visible(iid)
+			save.improvements = {str(a_i): {iid: 3}}
+			main.airfield.show_upgrades()
+			var v3 = main.airfield.improvement_nodes_visible(iid)
+			if not (v1 >= 1 and v2 > v1 and v3 > v2):
+				print("     improvement scenery: airport %d %s %d/%d/%d" % [a_i, iid, v1, v2, v3])
+			imp_vis_ok = imp_vis_ok and v1 >= 1 and v2 > v1 and v3 > v2
+			imp_counts[iid] = v3
+			var others = 0
+			for oid in Improvements.IDS:
+				if oid != iid:
+					others += main.airfield.improvement_nodes_visible(oid)
+			imp_vis_ok = imp_vis_ok and others == 0
+		save.improvements = {}
+	check(imp_vis_ok, "at every airport each improvement is nothing before it is bought and then shows on the field, more with each level %s" % str(imp_counts))
+	main.airfield.show_upgrades()
+	# Bought on the detail screen.
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(2)
+	main._show_menu()
+	main.open_detail(2)
+	main.hud.skip_animations()
+	check(not main.hud._art.btn_id.has("imp:2:fuel") and main.hud._art.btn_id.has("dtab:1"), "the detail screen has an Improve tab; the improvements show only on it")
+	main._on_button("dtab:1")
+	main.hud.skip_animations()
+	var det_ids = []
+	for iid in Improvements.IDS:
+		det_ids.append(main.hud._art.btn_id.has("imp:2:%s" % iid))
+	check(not det_ids.has(false) and main.detail_tab == 1, "...five improvement chips, one for each")
+	save.add_coins(Improvements.cost(2, "fuel", 0) - 1)
+	main._show_detail()
+	main.hud.skip_animations()
+	var imp_fk = main.hud._art.btn_id.find("imp:2:fuel")
+	check(main.hud._art.btn_state[imp_fk] == 1, "a chip is dim when it is out of reach")
+	var det_coins0 = save.coins
+	main._on_button("imp:2:fuel")
+	check(save.imp_level(2, "fuel") == 0 and save.coins == det_coins0, "tapping an unaffordable chip buys nothing")
+	save.add_coins(1)
+	main._show_detail()
+	main.hud.skip_animations()
+	main._on_button("imp:2:fuel")
+	main.hud.skip_animations()
+	imp_fk = main.hud._art.btn_id.find("imp:2:fuel")
+	check(save.imp_level(2, "fuel") == 1 and save.coins == 0 and main.hud._art.btn_pips[imp_fk] == 1 and main.airfield.improvement_nodes_visible("fuel") >= 1, "tapping an affordable chip buys it, the pips fill and the new tank stands on the field")
+	check(main.screen == main.SCREEN_DETAIL, "...and the screen stays")
 
 	print("9f. weather events")
 	save.reset_all()

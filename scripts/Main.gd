@@ -211,6 +211,7 @@ const DETAIL_FACTOR := 1.5            # the camera's size on the detail screen, 
 const DETAIL_ZOOM_MIN := 0.45         # how far a pinch zooms in (x the default size)...
 const DETAIL_ZOOM_MAX := 1.12         # ...and out
 var detail_airport := -1
+var detail_tab := 0                    # the detail screen's tab: 0 stars, 1 improvements
 var _wanted_detail := false           # the airport being built is for its detail screen (not to be selected)
 var detail_t := 0.0                    # 0 = the shift's view, 1 = the detail screen's
 var detail_zoom := 1.0
@@ -824,6 +825,12 @@ func _on_landed(p: Aircraft) -> void:
 		extra += Tuning.emergency_bonus_coins
 	elif vip_paid:
 		extra += Tuning.vip_bonus_coins
+	# Hangar bays: a landing that parks in one of the bays bought at this airport (beyond the break-even landings) pays a hangar fee.
+	var hangar_fee := 0
+	var landing_no := shift.landed + 1
+	if landing_no > Ramp.star_landings() and landing_no <= Ramp.capacity():
+		hangar_fee = roundi(base * Tuning.imp_hangar_fee)
+		extra += hangar_fee
 	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
 	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
@@ -857,6 +864,8 @@ func _on_landed(p: Aircraft) -> void:
 	hud.popup(text, tcol, overlay.world_to_screen(land_at) + Vector2(0, -80))
 	if p.low_fuel:
 		hud.popup("Low fuel", Color(1.0, 0.75, 0.3), overlay.world_to_screen(land_at) + Vector2(0, -38))
+	if hangar_fee > 0:
+		hud.popup("Hangar fee +%d" % hangar_fee, Color(0.75, 0.95, 1.0), overlay.world_to_screen(land_at) + Vector2(0, -118))
 	_star_feedback(land_at)
 	if not DebugFlags.off("haptic"):
 		_vibrate(Tuning.haptic_ms)
@@ -1015,6 +1024,7 @@ func _on_weather_warned(_kind: String, text: String) -> void:
 	hud.popup(text, Color(1.0, 0.85, 0.4), Vector2(get_viewport().get_visible_rect().size.x * 0.5, get_viewport().get_visible_rect().size.y * 0.4))
 
 func _on_weather_started(kind: String) -> void:
+	traffic.event_active = true
 	match kind:
 		"storm":
 			var n := 1 + (1 if rng_env.randf() < 0.3 + 0.5 * traffic.run_time / maxf(Tuning.par_eff(), 1.0) else 0)
@@ -1030,6 +1040,7 @@ func _on_weather_started(kind: String) -> void:
 				overlay.ripple(Airports.rw_center(weather.runway), Color(1, 0.3, 0.2), 1.6)
 
 func _on_weather_ended(kind: String) -> void:
+	traffic.event_active = false
 	if kind == "fog":
 		traffic.fog_target = 0.0
 	hud.set_event_banner("")
@@ -1368,6 +1379,11 @@ func _on_button(id: String) -> void:
 		Save.no_engines_bad = not Save.no_engines_bad
 		Save.write_file()
 		_show_menu()
+	elif id.begins_with("dtab:"):
+		detail_tab = int(id.substr(5))
+		_show_detail()
+	elif id.begins_with("imp:"):
+		buy_improvement(int(id.get_slice(":", 1)), id.get_slice(":", 2))
 	elif id.begins_with("pick:") or id.begins_with("locked:"):
 		open_detail(int(id.get_slice(":", 1)))
 	elif id == "airport_prev" or id == "airport_next":
@@ -1430,11 +1446,11 @@ func _on_button(id: String) -> void:
 func _ui_sound(id: String) -> String:
 	if id == "back" or id == "menu" or id == "quit" or id == "restart" or id == "resume":
 		return "back"
-	if id == "details" or id.begins_with("shop_tab:") or id.begins_with("noeng"):
+	if id == "details" or id.begins_with("shop_tab:") or id.begins_with("dtab:") or id.begins_with("noeng"):
 		return "toggle"
 	if id == "unlock_ok" or id.begins_with("ad_"):
 		return "unlock"
-	if id.begins_with("upg:") or id.begins_with("theme:") or id.begins_with("livery:"):
+	if id.begins_with("upg:") or id.begins_with("imp:") or id.begins_with("theme:") or id.begins_with("livery:"):
 		return ""
 	return "tap"
 
@@ -1445,6 +1461,20 @@ func _show_upgrades() -> void:
 	for id in Upgrades.IDS:
 		levels.append(Save.upgrade_level(id))
 	hud.show_upgrades(Save.coins, levels)
+
+## Buy the next level of one of an airport's improvements: coins, saved, and built on the airport (the detail screen's Improve tab).
+func buy_improvement(airport_i: int, id: String) -> bool:
+	if not Save.buy_improvement(airport_i, id):
+		return false
+	airfield.show_upgrades()
+	hud.flash(Color(0.4, 1.0, 0.6))
+	var vp := get_viewport().get_visible_rect().size
+	hud.popup("%s level %d!" % [Improvements.improvement_name(id), Save.imp_level(airport_i, id)], Color(0.6, 1.0, 0.7), Vector2(vp.x * 0.5, vp.y * 0.2))
+	if not DebugFlags.off("haptic"):
+		Input.vibrate_handheld(40)
+	if screen == SCREEN_DETAIL and detail_airport == airport_i:
+		_show_detail()
+	return true
 
 ## Buy the next level of an upgrade: coins, saved, and visible on the airport (the radar re-frames the view).
 func buy_upgrade(id: String) -> bool:
@@ -1778,6 +1808,7 @@ func open_detail(i: int) -> void:
 	airfield.show_active(wind)
 	_dt_touch.clear()
 	_dt_dist = 0.0
+	detail_tab = 0
 	screen = SCREEN_DETAIL
 	alive = false
 	_show_detail()
@@ -1796,7 +1827,11 @@ func _show_detail() -> void:
 	var need := PackedInt32Array([int(th[0])])         # star 1 is a landing count; stars 2 and 3 are net coins (with the clean landings that pay it)
 	for k in range(1, 3):
 		need.append(maxi(ceili(float(th[k]) / pay), 1))
+	var imps := []
+	for iid in Improvements.IDS:
+		imps.append({"id": iid, "name": Improvements.improvement_name(iid), "level": Save.imp_level(i, iid), "price": Improvements.cost(i, iid, Save.imp_level(i, iid))})
 	hud.show_detail({
+		"tab": detail_tab, "imps": imps, "bank": Save.coins, "hangar": Ramp.capacity(i),
 		"i": i, "name": Airports.airport_name(i), "tag": Airports.tag(i), "open": Save.airport_open(i), "lock": Airports.unlock_stars(i),
 		"stars": Save.stars_of(i), "best": Save.best_for(i), "coins": th, "land": need,
 		"no_engines": Save.no_engines_at[i] != 0, "no_engines_ok": Save.stars_of(i) >= 3 and Save.airport_open(i),
