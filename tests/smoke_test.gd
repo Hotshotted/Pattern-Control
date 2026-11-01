@@ -888,7 +888,7 @@ func _initialize() -> void:
 	for k in main.hud._art.btn_count:
 		cards[main.hud._art.btn_id[k]] = main.hud._art.btn_rect[k]
 	check(cards.has("pick:0") and cards.has("locked:1") and cards.has("locked:5") and cards.has("back"), "airport 1 is open, the others show as locked, with a Back button")
-	check(main.hud._art.btn_lock[main.hud._art.btn_id.find("locked:1")] == 2 and main.hud._art.btn_state[main.hud._art.btn_id.find("locked:1")] == 1, "a locked card shows a padlock and the stars it needs")
+	check(main.hud._art.btn_lock[main.hud._art.btn_id.find("locked:1")] == 1 and main.hud._art.btn_state[main.hud._art.btn_id.find("locked:1")] == 1, "a locked card shows a padlock and the stars it needs")
 	var locked_pos = cards["locked:1"].get_center()
 	var sel_locked = main.airport
 	touch(main, 0, true, locked_pos)
@@ -5426,6 +5426,7 @@ func _initialize() -> void:
 
 	print("24. Start-up: only the first airport before the menu, the rest in the idle time; shared meshes; the ramp's models")
 	var lz_script = load("res://scripts/Airfield.gd")
+	root.get_node("Save").selected_airport = 0     # a fresh boot opens on the first airport (earlier tests leave another one selected, and with the 0, 1, 2, 3, 6, 10 gates more of them are open)
 	lz_script.boot_lazy = true
 	var lz_af = lz_script.new()
 	root.add_child(lz_af)
