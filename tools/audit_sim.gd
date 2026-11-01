@@ -18,6 +18,8 @@ var ONLY_BOTS := ["poor", "average", "good"]
 var ONLY_AIRPORTS := [0, 1, 2, 3, 4, 5]
 var FPS := 60                     # the simulated frame rate: every step is 1 / FPS s (the autopilot still acts at 10 Hz)
 var UP := 0
+var GOALS := 0                    # goals=1: the career plays one SESSION-minute session a day and the daily goals are on (their coins are counted)
+var SESSION := 20.0
 var IMP := 0                      # imp=N: every improvement of the airport being surveyed at level N
 var UPHALF := false              # up=half: the nine cheapest upgrade levels (about half of the 18)
 const HALF_LEVELS := {"comms": 2, "holding": 2, "turnoffs": 2, "tower": 1, "radar": 1, "approach": 1}
@@ -96,6 +98,10 @@ func _initialize() -> void:
 			TOTALS = true
 		elif a == "up=half":
 			UPHALF = true
+		elif a.begins_with("goals="):
+			GOALS = int(a.substr(6))
+		elif a.begins_with("session="):
+			SESSION = float(a.substr(8))
 		elif a.begins_with("imp="):
 			IMP = int(a.substr(4))
 		elif a.begins_with("up="):
@@ -210,6 +216,10 @@ func _run_player(who: String, mode: String) -> Dictionary:
 			if save.airport_open(i):
 				ap = i
 				break
+		if GOALS == 1 and minutes >= next_day_at:
+			save.day_override += 1
+			next_day_at += SESSION
+			goal_days += 1
 		main.daily_mode = false
 		main.bad_mode = false
 		main.select_airport(ap)
@@ -442,6 +452,10 @@ func _progress(who: String, policy: String) -> void:
 	save.reset_all()
 	rng.seed = hash(who) + 7
 	var minutes := 0.0
+	main.goals_enabled = GOALS == 1
+	save.day_override = 100000 if GOALS == 1 else -1
+	var next_day_at := SESSION
+	var goal_days := 0
 	var stats := {}
 	var opened := {0: 0.0}
 	var dry_runs := {}
@@ -620,7 +634,7 @@ func _progress(who: String, policy: String) -> void:
 					var c3 := Improvements.cost(ia, iid, save.imp_level(ia, iid))
 					if c3 >= 0:
 						cheapest = mini(cheapest, c3)
-		print("CAREER %s %s n=%d ap=%d landed=%d spawned=%d earned=%d bonus=%d tbonus=%d fines=%d ot=%d net=%d paid=%d stars=%d new_stars=%d gain=%d bank=%d cheapest=%d end_t=%.1f min=%.2f conf=%d div=%d crash=%d bought=%s" % [who, policy, n + 1, ap, s.landed, _spawned, s.earned, s.bonus, s.time_bonus, s.fines, s.overtime_penalty, s.balance(), s.payout(), s.stars(), save.stars_total() - stars_before, gain, save.coins, cheapest if cheapest < (1 << 30) else -1, main.traffic.run_time, minutes, s.conflicts, s.diversions, s.crashes, "+".join(bought)])
+		print("CAREER %s %s n=%d ap=%d landed=%d spawned=%d earned=%d bonus=%d tbonus=%d fines=%d ot=%d net=%d paid=%d stars=%d new_stars=%d gain=%d bank=%d cheapest=%d end_t=%.1f min=%.2f conf=%d div=%d crash=%d goalc=%d bought=%s" % [who, policy, n + 1, ap, s.landed, _spawned, s.earned, s.bonus, s.time_bonus, s.fines, s.overtime_penalty, s.balance(), s.payout(), s.stars(), save.stars_total() - stars_before, gain, save.coins, cheapest if cheapest < (1 << 30) else -1, main.traffic.run_time, minutes, s.conflicts, s.diversions, s.crashes, main.goal_coins_total, "+".join(bought)])
 		if all_bought >= 0.0 and all_stars >= 0.0:
 			break
 	print("DONE %s %s shifts=%d minutes=%.1f all_upgrades=%.1f all_improvements=%.1f all_bought=%.1f all_cosmetics=%.1f all_stars=%.1f" % [who, policy, main.shift.landed if false else 0, minutes, all_up, all_imp, all_bought, all_cos, all_stars])

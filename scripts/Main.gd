@@ -503,6 +503,7 @@ func _goal_event(ev: Dictionary) -> void:
 		if screen == SCREEN_PLAY:
 			hud.popup("Goal done!  +%d" % int(f["reward"]), Color(1.0, 0.85, 0.3), Vector2(get_viewport().get_visible_rect().size.x * 0.5, get_viewport().get_visible_rect().size.y * 0.3))
 	goal_chest += int(r["chest"])
+	goal_coins_total += int(r["coins"])
 	if not (r["streak"] as Dictionary).is_empty():
 		goal_streak_text = _streak_text(r)
 	hud.goal_note = goal_results
@@ -1266,6 +1267,7 @@ func _end_shift() -> void:
 var _daily_note := ""
 
 # What the daily goals watch during a shift.
+var goal_coins_total := 0              # (everything the goals have paid since the game started: the sims read it)
 var goals_enabled := true              # (the tests switch the goals off so their coin counts stay exact)
 var goal_go_arounds := 0
 var goal_locked_run := 0

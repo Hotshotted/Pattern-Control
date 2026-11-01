@@ -720,7 +720,7 @@ func _initialize() -> void:
 	save.load_file()
 	check(save.coins == saved_coins and save.stars_total() == saved_stars and save.upgrade_level("test") == 2, "the save round-trips (coins, stars, upgrades)")
 	var raw = FileAccess.open(save.path, FileAccess.READ).get_as_text()
-	check(raw.contains("\"version\":4"), "the save file is versioned (v4)")
+	check(raw.contains("\"version\":5"), "the save file is versioned (v5)")
 	var f1 = FileAccess.open(save.path, FileAccess.WRITE)
 	f1.store_string("{\"version\":1,\"best\":37}")
 	f1 = null
