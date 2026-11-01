@@ -801,7 +801,9 @@ class Art extends Control:
 				panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r, _sheen_s)
 				var cx12 := r.get_center().x
 				glyph(btn_glyph[k], Vector2(cx12, r.position.y + 36.0), 24.0, ink)
-				var nfs12 := Style.fit_size(btn_text[k], 24, 16, r.size.x - 12.0)
+				var nfs12 := 24
+				while nfs12 > 11 and text_width(btn_text[k], nfs12) > r.size.x - 10.0:
+					nfs12 -= 1
 				ptext(btn_text[k], Vector2(r.position.x + 6.0, r.position.y + 90.0), nfs12, ink, HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 12.0)
 				for q12 in Improvements.MAX_LEVEL:
 					var pc12 := Vector2(cx12 + (q12 - 1) * 26.0, r.position.y + 112.0)
@@ -911,10 +913,10 @@ class Art extends Control:
 		var locked: bool = not bool(d["open"])
 		var x0 := card.position.x + 40.0
 		var wide := card.size.x - 80.0
-		var nfs := Style.fit_size(d["name"], 64, 36, wide - 230.0)
-		ptext(d["name"], Vector2(x0, y0 + 84.0), nfs, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_LEFT, wide - 230.0)
+		var nfs := Style.fit_size(d["name"], 64, 36, wide - 360.0)
+		ptext(d["name"], Vector2(x0, y0 + 84.0), nfs, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_LEFT, wide - 360.0)
 		var tag_txt: String = d["tag"] + ((" \u00b7 Best %d" % int(d["best"])) if (not locked and int(d["best"]) > 0) else "")
-		draw_string(Style.body(), Vector2(x0, y0 + 124.0), tag_txt, HORIZONTAL_ALIGNMENT_LEFT, wide - 230.0, 27, C_SOFT)
+		draw_string(Style.body(), Vector2(x0, y0 + 124.0), tag_txt, HORIZONTAL_ALIGNMENT_LEFT, wide - 360.0, 27, C_SOFT)
 		var tab := int(d.get("tab", 0))
 		# the three stars: lit if earned, each with what it takes (star 1: a landing count; stars 2 and 3: net coins after fines)
 		var col_w := wide / 3.0
@@ -2587,8 +2589,8 @@ func show_detail(info: Dictionary) -> void:
 				_art.add_button("noeng:%d" % i, "No engines \u00d7%s" % str(snappedf(float(info["no_engines_mult"]), 0.1)), Rect2(vp.x - 40.0 - 330.0, y0 + 118.0 - 26.0, 330.0, 52.0), 2 if bool(info["no_engines"]) else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
 			_art.add_button("airport:%d" % i, "Fly here", Rect2(40.0, vp.y - 250.0 - Style.safe_bottom, vp.x - 80.0, 130.0), 0, "", -1, -1, {"kind": 2})
 			var tab := int(info.get("tab", 0))
-			_art.add_button("dtab:0", "Stars", Rect2(vp.x - 40.0 - 150.0 - 12.0 - 130.0, y0 + 26.0, 130.0, 52.0), 2 if tab == 0 else 0, "", -1, -1, {"kind": 4, "glyph": "star"})
-			_art.add_button("dtab:1", "Improve", Rect2(vp.x - 40.0 - 150.0, y0 + 26.0, 150.0, 52.0), 2 if tab == 1 else 0, "", -1, -1, {"kind": 4, "glyph": "upgrades"})
+			_art.add_button("dtab:0", "Stars", Rect2(vp.x - 40.0 - 190.0 - 10.0 - 150.0, y0 + 26.0, 150.0, 52.0), 2 if tab == 0 else 0, "", -1, -1, {"kind": 4, "glyph": "star"})
+			_art.add_button("dtab:1", "Improve", Rect2(vp.x - 40.0 - 190.0, y0 + 26.0, 190.0, 52.0), 2 if tab == 1 else 0, "", -1, -1, {"kind": 4, "glyph": "upgrades"})
 			if tab == 1:
 				var imps: Array = info["imps"]
 				var gap := 10.0

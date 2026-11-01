@@ -73,6 +73,21 @@ func _initialize() -> void:
 		for i in 10:
 			await process_frame
 		await _shot("detail_zoomed")
+	elif only == "improve":        # the detail screen's Improve tab at every airport with nothing bought, level 1 and level 3 of everything
+		save.unlocks["all_airports"] = true
+		save.coins = 5000
+		for idx in Airports.COUNT:
+			for lv in [0, 1, 3]:
+				save.improvements = {str(idx): {}}
+				for iid in Improvements.IDS:
+					save.improvements[str(idx)][iid] = lv
+				main.open_detail(idx)
+				main.detail_tab = 1
+				main._show_detail()
+				main.airfield.show_upgrades()
+				for i in 70:
+					await process_frame
+				await _shot("improve_%d_L%d" % [idx, lv])
 	elif only == "layout":
 		for idx in Airports.COUNT:
 			if airports_arg == "" or airports_arg.split(",").has(str(idx)) or airports_arg.split(",").has(Airports.airport_name(idx).to_lower().replace(" ", "_")):

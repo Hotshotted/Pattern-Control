@@ -2252,17 +2252,18 @@ func _improvement_props(v: AirportScene) -> void:
 		var w := Airports.rw_width(r)
 		for k in 3:
 			await _slice()
-			var sx := 1.0 if (k + r) % 2 == 0 else -1.0
-			var z := len * (0.46 - 0.15 * k) * (1.0 if k % 2 == 0 else -1.0)
+			var out_side := 1.0 if Airports.rw_center(r).x > 0.2 else (-1.0 if Airports.rw_center(r).x < -0.2 else (1.0 if (k + r) % 2 == 0 else -1.0))
+			var along := 1.0 if k % 2 == 0 else -1.0
+			var z := len * (0.44 - 0.12 * k) * along
 			var holder := Node3D.new()
-			holder.position = Vector3(sx * (w * 0.5 + 0.55), 0.0, z)
-			holder.rotation.y = deg_to_rad(sx * 28.0)
+			holder.position = Vector3(out_side * (w * 0.5 + 0.42), 0.0, z)
+			holder.rotation.y = deg_to_rad(out_side * along * 32.0)      # (angled out and away from the runway's end it serves, away from the other runways)
 			rr.add_child(holder)
-			Prim.box(holder, Vector3(0.42, 0.09, 2.3), Vector3(0, 0.045, 0), asphalt)
-			Prim.box(holder, Vector3(0.04, 0.095, 2.1), Vector3(0, 0.05, 0), yellow, false)
+			Prim.box(holder, Vector3(0.3, 0.09, 1.4), Vector3(0, 0.045, 0), asphalt)
+			Prim.box(holder, Vector3(0.03, 0.095, 1.25), Vector3(0, 0.05, 0), yellow, false)
 			for ez in [-1.0, 0.0, 1.0]:
-				Prim.box(holder, Vector3(0.06, 0.06, 0.06), Vector3(-0.25, 0.06, ez * 0.9), glow, false)
-				Prim.box(holder, Vector3(0.06, 0.06, 0.06), Vector3(0.25, 0.06, ez * 0.9), glow, false)
+				Prim.box(holder, Vector3(0.05, 0.06, 0.05), Vector3(-0.18, 0.06, ez * 0.55), glow, false)
+				Prim.box(holder, Vector3(0.05, 0.06, 0.05), Vector3(0.18, 0.06, ez * 0.55), glow, false)
 			v.imps.append([holder, "exit", k + 1])
 
 ## Show each upgrade's scenery that has been bought (called at start-up and after a purchase).
