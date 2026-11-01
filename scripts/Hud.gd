@@ -906,12 +906,12 @@ class Art extends Control:
 				draw_circle(Vector2(r.position.x + 62.0, cy13), 29.0, tc13)
 				if st == 2:
 					glyph("check", Vector2(r.position.x + 62.0, cy13), 17.0, Color.WHITE)
-				var tw13 := r.size.x - 120.0 - 250.0
+				var tw13 := r.size.x - 120.0 - 190.0
 				var fs13 := Style.fit_size(btn_text[k], SZ_M, 28, tw13)
 				ptext(btn_text[k], Vector2(r.position.x + 120.0, cy13 - 4.0), fs13, ink, HORIZONTAL_ALIGNMENT_LEFT, tw13)
-				draw_string(Style.body(), Vector2(r.position.x + 120.0, cy13 + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, SZ_S, C_SOFT)
-				glyph("coin", Vector2(r.end.x - 190.0, cy13), 18.0)
-				ptext("+%d" % btn_cost[k], Vector2(r.end.x - 160.0, cy13 + 12.0), SZ_M, C_GOLD_TXT if st != 2 else ink, HORIZONTAL_ALIGNMENT_LEFT, 140.0)
+				draw_string(Style.body(), Vector2(r.position.x + 120.0, cy13 + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, Style.fit_size(btn_sub[k], SZ_S, 17, tw13), C_SOFT)
+				glyph("coin", Vector2(r.end.x - 160.0, cy13), 18.0)
+				ptext("+%d" % btn_cost[k], Vector2(r.end.x - 130.0, cy13 + 12.0), SZ_M, C_GOLD_TXT if st != 2 else ink, HORIZONTAL_ALIGNMENT_LEFT, 110.0)
 			16:     # a compact cosmetic card (two to a row): a picture or swatch, the name, and one line (the price, or where a locked item comes from)
 				var locked16 := btn_lock[k] > 0 and st == 1
 				panel(_sb_gold if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
@@ -926,7 +926,8 @@ class Art extends Control:
 				ptext(btn_text[k], Vector2(r.position.x + 120.0, r.position.y + 54.0), Style.fit_size(btn_text[k], 30, 22, tw16), ink, HORIZONTAL_ALIGNMENT_LEFT, tw16)
 				if locked16:
 					glyph("lock", Vector2(r.position.x + 134.0, r.position.y + 94.0), 11.0, C_SOFT)
-				draw_string(Style.body(), Vector2(r.position.x + (152.0 if locked16 else 120.0), r.position.y + 102.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16 - (32.0 if locked16 else 0.0), 22, C_SOFT if st != 1 or locked16 else C_QUIET)
+				var sw16 := tw16 - (32.0 if locked16 else 0.0)
+				draw_string(Style.body(), Vector2(r.position.x + (152.0 if locked16 else 120.0), r.position.y + 102.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, sw16, Style.fit_size(btn_sub[k], 22, 14, sw16), C_SOFT if st != 1 or locked16 else C_QUIET)
 			14:     # the menu's goals card: "Daily goals", the streak, and three dots for the three goals
 				panel(_sb_normal, r, _sheen_s)
 				glyph("sun", Vector2(r.position.x + 52.0, r.get_center().y), 26.0, ink)
@@ -979,12 +980,12 @@ class Art extends Control:
 		ptext(d["name"], Vector2(x0, y0 + 84.0), nfs, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_LEFT, wide - 360.0)
 		var tag_txt: String = d["tag"] + ((" \u00b7 Best %d" % int(d["best"])) if (not locked and int(d["best"]) > 0) else "")
 		draw_string(Style.body(), Vector2(x0, y0 + 124.0), tag_txt, HORIZONTAL_ALIGNMENT_LEFT, wide - 360.0, 27, C_SOFT)
-		if not locked and d.has("rank"):         # mastery: the rank, its name, a bar to the next one and the landings
+		if not locked and d.has("rank"):         # mastery: the rank, its name, a bar to the next one and the landings (under the tab chips)
 			var mx := card.end.x - 40.0 - 320.0
-			ptext("Rank %d  \u00b7  %s" % [int(d["rank"]), Mastery.rank_name(int(d["rank"]))], Vector2(mx, y0 + 70.0), 30, C_GOLD_TXT if int(d["rank"]) >= Mastery.MAX_RANK else C_TEXT, HORIZONTAL_ALIGNMENT_RIGHT, 320.0)
-			_mastery_bar(Rect2(mx, y0 + 88.0, 320.0, 20.0), float(d["frac"]), int(d["rank"]))
+			ptext("Rank %d  \u00b7  %s" % [int(d["rank"]), Mastery.rank_name(int(d["rank"]))], Vector2(mx, y0 + 114.0), 28, C_GOLD_TXT if int(d["rank"]) >= Mastery.MAX_RANK else C_TEXT, HORIZONTAL_ALIGNMENT_RIGHT, 320.0)
+			_mastery_bar(Rect2(mx, y0 + 126.0, 320.0, 18.0), float(d["frac"]), int(d["rank"]))
 			var mtxt := "%d landings  \u00b7  top rank" % int(d["landings"]) if int(d["need"]) <= 0 else "%d / %d to rank %d" % [int(d["into"]), int(d["need"]), int(d["rank"]) + 1]
-			draw_string(Style.text(), Vector2(mx, y0 + 134.0), mtxt, HORIZONTAL_ALIGNMENT_RIGHT, 320.0, 22, C_SOFT)
+			draw_string(Style.text(), Vector2(mx, y0 + 168.0), mtxt, HORIZONTAL_ALIGNMENT_RIGHT, 320.0, 22, C_SOFT)
 		var tab := int(d.get("tab", 0))
 		# the three stars: lit if earned, each with what it takes (star 1: a landing count; stars 2 and 3: net coins after fines)
 		var col_w := wide / 3.0
@@ -2852,13 +2853,13 @@ func show_goals(v: Dictionary) -> void:
 		var items: Array = v["items"]
 		for i in items.size():
 			var it: Dictionary = items[i]
-			_art.add_button("goal:%d" % i, it["text"], Rect2(40.0, y, vp.x - 80.0, 150.0), 2 if it["done"] else 0, it["sub"], -1, int(it["reward"]), {"kind": 13, "pips": int(it["tier"])})
+			_art.add_button("goal:%d" % i, it["text"], Rect2(40.0, y, vp.x - 80.0, 150.0), 2 if it["done"] else 0, it["sub"], -1, -1, {"kind": 13, "pips": int(it["tier"]), "cost": int(it["reward"])})
 			if it["can_reroll"]:
 				_art.add_button("greroll:%d" % i, "Reroll", Rect2(vp.x - 40.0 - 200.0, y + 156.0, 200.0, 56.0), 0, "", -1, -1, {"kind": 4})
 				y += 70.0
 			y += 170.0
 		y += 10.0
-		_art.add_button("chest", "Bonus chest: all three", Rect2(40.0, y, vp.x - 80.0, 130.0), 2 if v["chest_done"] else 0, "Finish every goal today", -1, int(v["chest"]), {"kind": 13, "pips": 1})
+		_art.add_button("chest", "Bonus chest: all three", Rect2(40.0, y, vp.x - 80.0, 130.0), 2 if v["chest_done"] else 0, "Finish every goal today", -1, -1, {"kind": 13, "pips": 1, "cost": int(v["chest"])})
 		y += 160.0
 		_art.add_button("streak", v["streak_title"], Rect2(40.0, y, vp.x - 80.0, 200.0), 0, v["streak_sub"], -1, -1, {"kind": 15, "pips": int(v["week_pos"])})
 		_art.queue_redraw())
@@ -2882,7 +2883,7 @@ func show_achievements(v: Dictionary) -> void:
 			_art.add_button("ach_tab:%d" % k, tabs[k], Rect2(40.0 + k * (w + 12.0), y, w, 84.0), 2 if k == int(v["tab"]) else 0)
 		y += 106.0
 		for it in v["items"]:
-			_art.add_button("ach:" + it["id"], it["name"], Rect2(40.0, y, vp.x - 80.0, 134.0), 2 if it["done"] else 0, it["sub"], -1, int(it["coins"]), {"kind": 13, "pips": int(it["size"])})
+			_art.add_button("ach:" + it["id"], it["name"], Rect2(40.0, y, vp.x - 80.0, 134.0), 2 if it["done"] else 0, it["sub"], -1, -1, {"kind": 13, "pips": int(it["size"]), "cost": int(it["coins"])})
 			y += 148.0
 		_art.queue_redraw())
 
@@ -2925,7 +2926,7 @@ func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _
 	# The airport under the title is a button (it opens the Airports screen): it is drawn as one.
 	var tag_y := 250.0 * vp.y / 1920.0 + Style.safe_top + 398.0
 	_art.add_button("airports_tag", airport_name, Rect2(56.0 + Style.safe_left, tag_y, _art.text_width(airport_name, 34) + 250.0, 76.0), 0, "", airport_stars, -1, {"kind": 9})
-	_art.add_button("goals", "Daily goals  %d/3" % goals_done, Rect2(56.0 + Style.safe_left, tag_y + 92.0, 640.0, 108.0), 0, goals_line, goals_done, -1, {"kind": 14, "badge": -2 if goals_done == 0 else 0})
+	_art.add_button("goals", "Daily goals  %d/3" % goals_done, Rect2(56.0 + Style.safe_left, tag_y + 92.0, 700.0, 108.0), 0, goals_line, goals_done, -1, {"kind": 14, "badge": -2 if goals_done == 0 else 0})
 	_art.add_button("airports", "Airports", row2, 0, "", -1, -1, {"kind": 0, "glyph": "airport"})
 	_art.add_button("bad", "Bad pilot day", Rect2(row2.position.x + 464.0, row2.position.y, 436.0, 150.0), 0, "", -1, -1, {"kind": 0, "glyph": "bad"})
 	_art.add_button("noeng_bad", "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(row2.position.x + 464.0 + 70.0, row2.position.y - 50.0, 366.0, 44.0), 2 if bad_no_engines else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})

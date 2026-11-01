@@ -26,12 +26,12 @@ const LIST := [
 	{"id": "a_emerg10", "g": 0, "s": 1, "name": "First responder", "text": "Land 10 emergency aircraft", "k": "emergencies", "ge": 10, "coins": 120},
 	# ----- Skill -----
 	{"id": "s_nogo", "g": 1, "s": 0, "name": "Smooth shift", "text": "Finish a shift with no go-arounds", "k": "nogo_shifts", "ge": 1, "coins": 60},
-	{"id": "s_clean", "g": 1, "s": 0, "name": "Clean sheet", "text": "Finish a shift with no fines (6 landings or more)", "k": "clean_shifts", "ge": 1, "coins": 50},
+	{"id": "s_clean", "g": 1, "s": 0, "name": "Clean sheet", "text": "A shift with no fines (6+ landings)", "k": "clean_shifts", "ge": 1, "coins": 50},
 	{"id": "s_3stars", "g": 1, "s": 0, "name": "Three-star shift", "text": "Earn 3 stars in one shift", "k": "three_star_shifts", "ge": 1, "coins": 80},
 	{"id": "s_locked10", "g": 1, "s": 1, "name": "Locked on", "text": "10 locked finals in a row", "k": "locked_best", "ge": 10, "coins": 200, "cos": "livery:panda"},
 	{"id": "s_fast_hangar", "g": 1, "s": 1, "name": "Quick turnaround", "text": "A full hangar in under 45 seconds", "k": "fast_hangar", "le": 45, "coins": 150, "cos": "livery:raven"},
 	{"id": "s_net300", "g": 1, "s": 1, "name": "Big shift", "text": "Net 300 coins in one shift", "k": "net_best", "ge": 300, "coins": 150},
-	{"id": "s_weather", "g": 1, "s": 1, "name": "Weather pilot", "text": "Earn a star in a shift with a storm, fog or crosswind", "k": "weather_shifts", "ge": 1, "coins": 100},
+	{"id": "s_weather", "g": 1, "s": 1, "name": "Weather pilot", "text": "Earn a star in bad weather", "k": "weather_shifts", "ge": 1, "coins": 100},
 	{"id": "s_noeng", "g": 1, "s": 1, "name": "Dead stick", "text": "Land a glider on No engines", "k": "noeng_landings", "ge": 1, "coins": 120},
 	{"id": "s_noeng_intl", "g": 1, "s": 2, "name": "Silent at International", "text": "Land on No engines at International", "k": "noeng_intl", "ge": 1, "coins": 400, "cos": "windsock:midnight"},
 	# ----- Airports -----

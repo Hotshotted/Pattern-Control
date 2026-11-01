@@ -538,7 +538,7 @@ func _streak_line() -> String:
 	var ss := Goals.streak_state(Save.goal_streak, Save.today())
 	var t := ""
 	if int(ss["count"]) <= 0:
-		t = "Finish a goal to start a streak"
+		t = "No streak yet"
 	elif ss["done_today"]:
 		t = "Streak: day %d done" % ((int(ss["count"]) - 1) % Goals.STREAK_LEN + 1)
 	else:
@@ -584,7 +584,7 @@ func _show_goals() -> void:
 		week_pos = int(ss["count"]) % Goals.STREAK_LEN if int(ss["count"]) % Goals.STREAK_LEN != 0 else 0
 	var nxt := Goals.day_reward(int(ss["next_pos"]), int(ss["count"]) + (0 if ss["done_today"] else 1), int(ctx["unit"]))
 	hud.show_goals({"items": items, "chest": Goals.chest_for(int(ctx["unit"])), "chest_done": bool(Save.goals.get("chest", false)),
-		"streak_title": "Streak  \u00b7  %s" % _streak_line().replace("Streak: ", ""), "streak_sub": "Next: %s" % (("a free cosmetic" if nxt["cosmetic"] else "+%d coins" % int(nxt["coins"]))),
+		"streak_title": "Streak", "streak_sub": "%s  \u00b7  next: %s" % [_streak_line().replace("Streak: ", ""), ("a free cosmetic" if nxt["cosmetic"] else "+%d coins" % int(nxt["coins"]))],
 		"week_pos": week_pos, "coins": Save.coins})
 
 func reroll_goal(i: int) -> bool:
