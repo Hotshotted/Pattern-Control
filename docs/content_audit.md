@@ -484,6 +484,35 @@ Against the targets (the `chase` bot is the one that goes back for stars, so it 
 - **`yield` stalls on stars.** It stays at the best-paying airport and never goes back for stars 2 and 3, so the average bot is stuck on 5 stars and never opens Mountain Field. As in phase 1, this is a bot policy and not a player; a player who reads the stars on the airport card goes back.
 - **The poor bot is much slower than before** (County at 3.0 hours instead of 0.2, Mountain Field at 12.4 hours with `chase`, 8 stars at the end of 14 hours). Star 2 at the first airports now costs 95 / 130 / 170 net coins and the poor bot nets about zero. The 4-hour goal for the poor bot reaching the fourth airport from section 6 is no longer met; this is a consequence of the star retune, flagged here because the request only set targets for the average and good bots.
 
+### 7.1 Unlock gates 0, 1, 2, 3, 6, 10 (fix for the poor bot)
+
+The gates went from 0 / 2 / 4 / 7 / 10 / 13 total stars to **0 / 1 / 2 / 3 / 6 / 10**, so County, Regional and Mountain Field open on star 1s alone (one star each) and only Island (6) and International (10) need stars 2 and 3. Star thresholds and prices are as in 7 above. The detail screen and the airport cards read the gate from the data ("Needs 1", "Unlock with 1 star"); the gate test and two tests that assumed the old gates (locked card, fresh boot) were updated.
+
+Same careers as above (700, 500 and 450 shifts for the average, good and poor bot; `yield` is not run this time). "Before" is the table in 7 (gates 0 / 2 / 4 / 7 / 10 / 13).
+
+| Bot / policy | Gates | County | Regional | Mountain Field | Island | International | All 18 stars | Everything bought | Longest wait with nothing bought |
+|---|---|---|---|---|---|---|---|---|---|
+| Poor / chase | before | 3.0 h | 6.2 h | 12.4 h | – | – | – (8 stars) | – | 43 min |
+| Poor / chase | after | 0.0 h | 0.4 h | 0.8 h | 6.9 h | – | – (7 stars) | – | 46 min |
+| Poor / newest | before | 3.0 h | 7.2 h | – | – | – | – (6 stars) | – | 38 min |
+| Poor / newest | after | 0.0 h | 0.1 h | 0.1 h | – | – | – (5 stars) | – | 37 min |
+| Average / chase | before | 0.0 h | 0.5 h | 1.6 h | 2.5 h | 3.5 h | 7.1 h | 14.2 h | 36 min |
+| Average / chase | after | 0.0 h | 0.0 h | 0.3 h | 0.9 h | 1.6 h | 5.7 h | 14.2 h | 43 min |
+| Average / newest | before | 0.0 h | 0.5 h | 0.5 h | 0.7 h | 4.5 h | – (16 stars) | 14.3 h | 36 min |
+| Average / newest | after | 0.0 h | 0.0 h | 0.1 h | 0.8 h | – | – (9 stars) | – (tower 13.9 h) | 41 min |
+| Good / chase | before | 0.0 h | 0.1 h | 0.5 h | 0.6 h | 0.7 h | 1.2 h | 6.9 h | 24 min |
+| Good / chase | after | 0.0 h | 0.1 h | 0.1 h | 0.5 h | 0.7 h | 1.2 h | 6.6 h | 16 min |
+| Good / newest | before | 0.1 h | 0.1 h | 0.4 h | 0.5 h | 1.2 h | – (16 stars) | 6.6 h | 16 min |
+| Good / newest | after | 0.0 h | 0.1 h | 0.1 h | 0.2 h | – | – (9 stars) | – (tower 6.2 h) | 22 min |
+
+Against the targets:
+
+- **Poor bot reaches Mountain Field within 1 hour on both policies: met.** 0.8 h with `chase` (was 12.4 h) and 6 minutes with `newest` (never reached before). The poor bot still does not get past Island: with `chase` Island opens at 6.9 h, and it ends on 7 stars in about 15 hours. Stars 2 and 3 are untouched, so from there it is the thresholds that hold it.
+- **Average bot's all-stars time within 7 to 12 hours: not met, 5.7 hours** (was 7.1). The earlier gates also held the average bot back while it won stars 2 and 3 at the first airports; with one-star gates it opens Island at 0.9 h and International at 1.6 h and wins the rest in parallel. Stars 2 and 3 and the prices were not to change, so I have not moved it. To get back to 7 hours or more the options are a higher Island or International gate (for example 8 and 12) or higher star 3 at the last two airports; either needs your call.
+- **Everything bought is unchanged** (average 14.2 h, good 6.6 h with `chase`), because coins per hour did not change. The longest wait with nothing to buy for the average bot went from 36 to 43 minutes (a single long gap before the last Tower level 5; run to run it moves by about 5 minutes).
+- **`newest` regressed on stars.** The bot that only plays the newest airport now stops at 9 stars: it reaches Island at 0.8 h, plays there, and never goes back for a star 2 or 3 at the earlier airports, so it never gets the 10 stars International asks for (before, International needed 13 and opened at 4.5 h because it picked up stars on the way). `chase` and a player who reads the cards do not have this problem. It also means "everything bought" is not reached by `newest` (the improvements at International stay unbought).
+- The good bot is unchanged apart from opening Mountain Field earlier.
+
 ## What I did not verify
 
 - Human play. All bot numbers come from autopilots. The star-gate stall (poor bot, average `yield`) depends on those bots not earning a County star, which a person might.
