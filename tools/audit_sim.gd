@@ -453,7 +453,7 @@ func _progress(who: String, policy: String) -> void:
 	var minutes := 0.0
 	main.goals_enabled = GOALS == 1
 	if GUNIT >= 0.0:
-		Tuning.goal_unit = GUNIT
+		root.get_node("Tuning").goal_unit = GUNIT
 	save.day_override = 100000 if GOALS == 1 else -1
 	var next_day_at := SESSION
 	var goal_days := 0
