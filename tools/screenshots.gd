@@ -88,6 +88,46 @@ func _initialize() -> void:
 				for i in 70:
 					await process_frame
 				await _shot("improve_%d_L%d" % [idx, lv])
+	elif only == "phase34":         # the screens of the daily goals, mastery, achievements and the new cosmetics
+		save.unlocks["all_airports"] = true
+		save.coins = 3000
+		save.day_override = 70000
+		save.mastery[1] = 400
+		save.mastery[2] = 700
+		save.mastery_paid[2] = 5
+		main._show_menu()
+		for i in 60:
+			await process_frame
+		await _shot("p4_menu")
+		main._show_goals()
+		for i in 60:
+			await process_frame
+		await _shot("p4_goals")
+		main._show_select()
+		for i in 60:
+			await process_frame
+		await _shot("p4_airports")
+		main.open_detail(2)
+		for i in 60:
+			await process_frame
+		await _shot("p4_detail")
+		main.close_detail()
+		for t in 4:
+			main.ach_tab = t
+			main._show_achievements()
+			for i in 50:
+				await process_frame
+			await _shot("p4_ach_%d" % t)
+		for t in 3:
+			main.shop_tab = t
+			main._show_shop()
+			for i in 50:
+				await process_frame
+			await _shot("p4_shop_%d" % t)
+		main.open_preview("livery", 8)
+		for i in 50:
+			await process_frame
+		await _shot("p4_preview_locked")
 	elif only == "layout":
 		for idx in Airports.COUNT:
 			if airports_arg == "" or airports_arg.split(",").has(str(idx)) or airports_arg.split(",").has(Airports.airport_name(idx).to_lower().replace(" ", "_")):
