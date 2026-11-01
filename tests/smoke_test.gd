@@ -2570,7 +2570,7 @@ func _initialize() -> void:
 	var gates = []
 	for ai in Airports.COUNT:
 		gates.append(Airports.unlock_stars(ai))
-	check(gates == [0, 2, 4, 7, 10, 13], "airports open at 0, 2, 4, 7, 10 and 13 total stars (%s)" % str(gates))
+	check(gates == [0, 1, 2, 3, 6, 10], "airports open at 0, 1, 2, 3, 6 and 10 total stars (%s)" % str(gates))
 	check(th_up, "each airport asks for a landing count and two rising net-coin stars, and from Island on the third star rises %s" % ", ".join(th_txt))
 	check(tuning.daily_bonus_coins == 75 and tuning.daily_streak_coins == 13, "the daily completion bonus was halved too")
 	save.reset_all()

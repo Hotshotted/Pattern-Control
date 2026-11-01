@@ -938,7 +938,7 @@ class Art extends Control:
 			var pill := Rect2(x0, size.y - 250.0, wide, 100.0)
 			draw_style_box(_sb_lockpill, pill)
 			glyph("lock", Vector2(pill.position.x + 62.0, pill.get_center().y), 24.0, Color.WHITE)
-			draw_string(Style.display(), Vector2(pill.position.x + 108.0, pill.get_center().y + 14.0), "Unlock with %d stars" % int(d["lock"]), HORIZONTAL_ALIGNMENT_LEFT, pill.size.x - 160.0, 40, Color.WHITE)
+			draw_string(Style.display(), Vector2(pill.position.x + 108.0, pill.get_center().y + 14.0), "Unlock with %d %s" % [int(d["lock"]), "star" if int(d["lock"]) == 1 else "stars"], HORIZONTAL_ALIGNMENT_LEFT, pill.size.x - 160.0, 40, Color.WHITE)
 			glyph("star", Vector2(pill.end.x - 60.0, pill.get_center().y), 24.0)
 
 	## An airport's card on the Airports screen: a top-down vignette, the name in the display face, the best shift and three stars; the selected
