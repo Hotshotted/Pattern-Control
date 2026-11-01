@@ -1,9 +1,9 @@
 extends SceneTree
 ## Economy audit simulation: three autopilot players (poor, average, good) on the real game. Two modes:
-##   survey   every bot plays `per` shifts at every airport (`up=N` gives every upgrade level N, `up=half` the nine cheapest levels):
+##   survey   every bot plays `per` shifts at every airport (`up=N` gives every upgrade level N, `up=half` the nine cheapest levels, `imp=N` every improvement of the surveyed airport at level N):
 ##            godot --headless --path . --script tools/audit_sim.gd -- fps=60 survey per=60 bots=poor,average,good up=half
 ##            prints one AUD line per shift (landed, coins, fines, net, paid, stars)
-##   career   one bot plays up to `maxs` shifts, buying the cheapest upgrade (then cosmetic) it can afford; `policy` picks the airport:
+##   career   one bot plays up to `maxs` shifts, buying the cheapest Tower upgrade or airport improvement (then cosmetic) it can afford; `policy` picks the airport:
 ##            newest (the highest open one), yield (best coins per minute), chase (the lowest open airport with stars left to win)
 ##            godot --headless --path . --script tools/audit_sim.gd -- fps=60 progress=poor policy=chase maxs=250
 ##            prints CAREER lines (one per shift) and EVENT lines (unlocks, purchases); tools/audit_report.py summarises them

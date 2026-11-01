@@ -442,6 +442,48 @@ Against the targets:
 
 The simulations are `tools/audit_sim.gd` (survey and career modes) and `tools/audit_report.py` (summaries); the numbers in sections 2 to 4 are from the original game and are kept as the baseline.
 
+## 7. Phase 2: tower upgrades, airport improvements, star pacing
+
+What changed (tests in `tests/smoke_test.gd`, sections 9e and 9e2):
+
+1. **Tower** (was "Airport" in the shop): the six upgrades go to 5 levels. Levels 4 and 5 add a little less than level 3 each and cost 2 to 4 times as much (Radar 1,360 / 2,720, Approach Control 1,520 / 3,080, Tower Staff 1,040 / 2,120, Better Comms 615 / 1,230, Holding Fixes 720 / 1,440, Fast Turnoffs 880 / 1,720; levels 1 to 3 are unchanged).
+2. **Airport improvements**: five at every airport, three levels each, bought on the detail screen (Improve tab) and drawn on the field: hangar bay (+2 capacity a level and a fee for each extra landing; the detail screen shows "Hangar N, profit after M landings"), runway lights (−20% go-arounds a level, scaled by fog, any weather event and the last third of the shift), approach lights (+30% path snap radius a level), fuel farm (+8% timer a level), extra exit (−12% rollout and +10% taxi speed a level). Base prices 105 to 700 for the three levels, times 0.5, 0.7, 1.0, 1.4, 1.9 and 2.6 for the six airports, so International costs 5.2 times Grass Strip. A later airport pays more per shift, so its improvements pay back faster there.
+3. **Stars 2 and 3** (star 1 and the gates are untouched): 95 / 155, 130 / 220, 170 / 285, 100 / 165, 235 / 390 and 240 / 400 net coins (were 40 / 70, 15 / 45, 15 / 40, 25 / 160, 35 / 345, 125 / 360). Star 3 is set where the good bot, with the tower fully upgraded and that airport's three improvements all bought, nets enough in about 30% of its shifts (survey: 28 to 30% at every airport).
+
+Time of play, "before" = end of phase 1 (three tower levels, no improvements, 250-shift careers), "after" = this phase (700, 500 and 450 shifts for the average, good and poor bot). The bot buys the cheapest thing it can afford, tower or improvement, at any open airport. "Everything bought" is every tower level and every improvement level at all six airports; cosmetics are not counted.
+
+| Bot / policy | Phase | County | Regional | Mountain Field | Island | International | All 18 stars | Everything bought | Longest wait with nothing bought |
+|---|---|---|---|---|---|---|---|---|---|
+| Average / chase | before | 0.0 h | 0.1 h | 0.1 h | 0.2 h | 0.6 h | 1.8 h | 1.6 h (tower only) | – |
+| Average / chase | after | 0.0 h | 0.5 h | 1.6 h | 2.5 h | 3.5 h | 7.1 h | 14.2 h | 36 min |
+| Average / newest | before | 0.0 h | 0.1 h | 0.1 h | 0.1 h | 0.2 h | – (16 stars) | 1.1 h (tower only) | – |
+| Average / newest | after | 0.0 h | 0.5 h | 0.5 h | 0.7 h | 4.5 h | – (16 stars) | 14.3 h | 36 min |
+| Average / yield | before | 0.0 h | 0.1 h | 0.1 h | – | – | – (8 stars) | 2.0 h (tower only) | – |
+| Average / yield | after | 0.0 h | 0.5 h | – | – | – | – (5 stars) | – (tower 10.1 h) | 63 min |
+| Good / chase | before | 0.0 h | 0.1 h | 0.1 h | 0.1 h | 0.5 h | 0.6 h | 0.7 h (tower only) | – |
+| Good / chase | after | 0.0 h | 0.1 h | 0.5 h | 0.6 h | 0.7 h | 1.2 h | 6.9 h | 24 min |
+| Good / newest | before | 0.0 h | 0.1 h | 0.1 h | 0.1 h | 0.1 h | – (16 stars) | 0.6 h (tower only) | – |
+| Good / newest | after | 0.1 h | 0.1 h | 0.4 h | 0.5 h | 1.2 h | – (16 stars) | 6.6 h | 16 min |
+| Good / yield | before | 0.0 h | 0.1 h | 0.1 h | 0.1 h | 0.1 h | – (16 stars) | 0.7 h (tower only) | – |
+| Good / yield | after | 0.1 h | 0.1 h | 0.1 h | – | – | – (9 stars) | – (tower 6.5 h) | 30 min |
+| Poor / chase | before | 0.2 h | 0.3 h | 1.3 h | 1.8 h | – | – (12 stars) | – | – |
+| Poor / chase | after | 3.0 h | 6.2 h | 12.4 h | – | – | – (8 stars) | – | 43 min |
+| Poor / newest | before | 0.2 h | 0.2 h | 0.3 h | – | – | – (9 stars) | – | – |
+| Poor / newest | after | 3.0 h | 7.2 h | – | – | – | – (6 stars) | – | 38 min |
+| Poor / yield | before | 0.2 h | 0.2 h | – | – | – | – (6 stars) | – | – |
+| Poor / yield | after | 3.0 h | – | – | – | – | – (3 stars) | – | 49 min |
+
+("before" tower times are the section 6 careers, which only had the three-level tower; "–" means not reached in the shifts played.)
+
+Against the targets (the `chase` bot is the one that goes back for stars, so it is the one the star targets apply to):
+
+- **Average bot, all 18 stars in 8 to 12 hours: 7.1 hours, a little short.** Nudging star 3 up 10% would put it in the window but takes the good bot below 30% per shift at the later airports.
+- **Good bot, all 18 stars in 4 to 6 hours: not met, 1.2 hours.** Star 3 at every airport is earned in about 30% of the good bot's shifts once it owns that airport's improvements, but the good bot also reaches it before it owns them, because the survey shifts overlap a lot between a part-upgraded and a fully upgraded airport. The good and average bots differ less than the two targets assume: pushing star 3 high enough to hold the good bot to 4 hours takes the average bot far past 12 hours (the pacing model never finished it), and cuts the good bot's rate with improvements bought to 3 to 28%. I took the average-bot window and the 30% rate and left the good bot's all-stars time as it came out.
+- **Everything bought: average 14.2 hours (target 12 to 15), good 6.9 hours (target 6 to 8): met.** With `newest` the average bot takes 14.3 hours and the good bot 6.6.
+- **Nothing to buy for more than about 30 minutes: good bot met (24 min with `chase`), average bot just over (36 min).** The longest dry spells are the two Tower level-5 prices.
+- **`yield` stalls on stars.** It stays at the best-paying airport and never goes back for stars 2 and 3, so the average bot is stuck on 5 stars and never opens Mountain Field. As in phase 1, this is a bot policy and not a player; a player who reads the stars on the airport card goes back.
+- **The poor bot is much slower than before** (County at 3.0 hours instead of 0.2, Mountain Field at 12.4 hours with `chase`, 8 stars at the end of 14 hours). Star 2 at the first airports now costs 95 / 130 / 170 net coins and the poor bot nets about zero. The 4-hour goal for the poor bot reaching the fourth airport from section 6 is no longer met; this is a consequence of the star retune, flagged here because the request only set targets for the average and good bots.
+
 ## What I did not verify
 
 - Human play. All bot numbers come from autopilots. The star-gate stall (poor bot, average `yield`) depends on those bots not earning a County star, which a person might.
