@@ -20,6 +20,7 @@ var FPS := 60                     # the simulated frame rate: every step is 1 / 
 var UP := 0
 var GOALS := 0                    # goals=1: the career plays one SESSION-minute session a day and the daily goals are on (their coins are counted)
 var SESSION := 20.0
+var GUNIT := -1.0                  # gunit=X: the goals' reward factor (Tuning.goal_unit) for the run
 var IMP := 0                      # imp=N: every improvement of the airport being surveyed at level N
 var UPHALF := false              # up=half: the nine cheapest upgrade levels (about half of the 18)
 const HALF_LEVELS := {"comms": 2, "holding": 2, "turnoffs": 2, "tower": 1, "radar": 1, "approach": 1}
@@ -100,6 +101,8 @@ func _initialize() -> void:
 			UPHALF = true
 		elif a.begins_with("goals="):
 			GOALS = int(a.substr(6))
+		elif a.begins_with("gunit="):
+			GUNIT = float(a.substr(6))
 		elif a.begins_with("session="):
 			SESSION = float(a.substr(8))
 		elif a.begins_with("imp="):
@@ -216,10 +219,6 @@ func _run_player(who: String, mode: String) -> Dictionary:
 			if save.airport_open(i):
 				ap = i
 				break
-		if GOALS == 1 and minutes >= next_day_at:
-			save.day_override += 1
-			next_day_at += SESSION
-			goal_days += 1
 		main.daily_mode = false
 		main.bad_mode = false
 		main.select_airport(ap)
@@ -453,6 +452,8 @@ func _progress(who: String, policy: String) -> void:
 	rng.seed = hash(who) + 7
 	var minutes := 0.0
 	main.goals_enabled = GOALS == 1
+	if GUNIT >= 0.0:
+		Tuning.goal_unit = GUNIT
 	save.day_override = 100000 if GOALS == 1 else -1
 	var next_day_at := SESSION
 	var goal_days := 0
@@ -512,6 +513,10 @@ func _progress(who: String, policy: String) -> void:
 				if all_dry:
 					dry_runs.clear()
 					ap = cand[0]
+		if GOALS == 1 and minutes >= next_day_at:
+			save.day_override += 1
+			next_day_at += SESSION
+			goal_days += 1
 		main.daily_mode = false
 		main.bad_mode = false
 		main.select_airport(ap)
