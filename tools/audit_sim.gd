@@ -677,7 +677,7 @@ func _progress(who: String, policy: String) -> void:
 					if c3 >= 0:
 						cheapest = mini(cheapest, c3)
 		print("CAREER %s %s n=%d ap=%d landed=%d spawned=%d earned=%d bonus=%d tbonus=%d fines=%d ot=%d net=%d paid=%d stars=%d new_stars=%d gain=%d bank=%d cheapest=%d end_t=%.1f min=%.2f conf=%d div=%d crash=%d goalc=%d bought=%s" % [who, policy, n + 1, ap, s.landed, _spawned, s.earned, s.bonus, s.time_bonus, s.fines, s.overtime_penalty, s.balance(), s.payout(), s.stars(), save.stars_total() - stars_before, gain, save.coins, cheapest if cheapest < (1 << 30) else -1, main.traffic.run_time, minutes, s.conflicts, s.diversions, s.crashes, main.goal_coins_total, "+".join(bought)])
-		if all_bought >= 0.0 and all_stars >= 0.0:
+		if all_bought >= 0.0 and all_stars >= 0.0 and (policy != "grind" or all_rank5 >= 0.0):
 			break
 	print("DONE %s %s shifts=%d minutes=%.1f all_upgrades=%.1f all_improvements=%.1f all_bought=%.1f all_cosmetics=%.1f all_stars=%.1f all_rank5=%.1f ach=%d ach_last=%.1f" % [who, policy, main.shift.landed if false else 0, minutes, all_up, all_imp, all_bought, all_cos, all_stars, all_rank5, save.achievements.size(), ach_last])
 	save.reset_all()
