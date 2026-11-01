@@ -491,6 +491,8 @@ func goals_ctx() -> Dictionary:
 
 ## A landing or the end of a shift happened: the goals move along, and what they pay is credited (and noted for the results card).
 func _goal_event(ev: Dictionary) -> void:
+	if not goals_enabled:
+		return
 	var ctx := goals_ctx()
 	var r := Save.goal_event(ev, ctx)
 	if r["finished"].is_empty():
@@ -1264,6 +1266,7 @@ func _end_shift() -> void:
 var _daily_note := ""
 
 # What the daily goals watch during a shift.
+var goals_enabled := true              # (the tests switch the goals off so their coin counts stay exact)
 var goal_go_arounds := 0
 var goal_locked_run := 0
 var goal_max_locked := 0

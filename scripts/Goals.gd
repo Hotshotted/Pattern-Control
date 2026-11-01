@@ -260,7 +260,7 @@ static func apply(day_goals: Dictionary, ev: Dictionary) -> Array:
 			"shift_if":
 				if ev["t"] == "shift" and (int(g["ap"]) < 0 or int(ev["ap"]) == int(g["ap"])):
 					var ok2 := true
-					for c in t["if"]:
+					for c in t.get("if", []):
 						if not _cond(c, ev):
 							ok2 = false
 					if t.get("net", false) and int(ev.get("net", 0)) < int(g.get("x", 0)):

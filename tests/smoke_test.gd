@@ -170,6 +170,7 @@ func _initialize() -> void:
 
 	print("1. boot and the visible pre-warm")
 	var main: Node = load("res://scenes/main.tscn").instantiate()
+	main.goals_enabled = false      # (the daily goals have their own section, 33: elsewhere their rewards would change the coin counts)
 	root.add_child(main)
 	current_scene = main
 	await process_frame
@@ -5860,6 +5861,7 @@ func _initialize() -> void:
 	save.reset_all()
 
 	print("33. Daily goals and the streak")
+	main.goals_enabled = true
 	# The pool: at least 25 templates, all three tiers, each with text.
 	var dg_tier_n = [0, 0, 0]
 	var dg_texts_ok = true
@@ -6080,6 +6082,7 @@ func _initialize() -> void:
 	check(main.hud._art.btn_text[main.hud._art.btn_id.find("goals")].begins_with("Daily goals  1/3") or main.hud._art.btn_text[main.hud._art.btn_id.find("goals")].begins_with("Daily goals  2/3"), "back on the menu the card counts the finished goals")
 	save.day_override = -1
 	save.reset_all()
+	main.goals_enabled = false
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))
 	print("")
