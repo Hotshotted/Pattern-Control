@@ -1893,7 +1893,7 @@ func _initialize() -> void:
 	var menu_ids = []
 	for k in main.hud._art.btn_count:
 		menu_ids.append(main.hud._art.btn_id[k])
-	check(menu_ids.has("shop") and menu_ids.has("daily"), "the menu has Shop and Daily Shift buttons")
+	check(menu_ids.has("shop") and menu_ids.has("goals"), "the menu has Shop and the daily goals card")
 	main._on_button("shop")
 	check(main.screen == main.SCREEN_SHOP and main.hud._select_title.text == "SHOP", "the shop opens")
 	var shop_ids = []
@@ -2007,17 +2007,18 @@ func _initialize() -> void:
 	main.step(1.0 / 60.0)
 	check(main.hud._art.show_result and main.hud._over.visible, "the results screen shows")
 	main._on_button("menu")
-	# Daily shift.
+	# The old Daily Shift is gone (the daily goals replace it); Bad Pilot Day keeps the seeded shift.
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	save.day_override = 20000
 	main._show_menu()
-	var daily_idx = main.hud._art.btn_id.find("daily")
-	check(main.hud._art.btn_kind[daily_idx] == 7 and main.hud._art.btn_text[daily_idx] == "Daily" and main.hud._art.btn_badge[daily_idx] == -2, "the Daily button has a red dot before the first streak")
+	check(main.hud._art.btn_id.find("daily") < 0 and main.hud._art.btn_id.find("goals") >= 0 and main.hud._art.btn_id.find("bad") >= 0, "the menu has a goals card and Bad Pilot Day, and no Daily Shift button")
+	check(not main.has_method("start_daily") and tuning.daily_bonus_coins == 75, "the daily-shift entry point is retired (its bonus numbers stay for Bad Pilot Day)")
 	var runs_seen = []
 	for run_i in 3:
 		save.day_override = 20000 if run_i < 2 else 20001
-		main.start_daily()
+		save.ads["since"] = 0
+		main.start_bad_day()
 		tr.auto_spawn = true
 		var seq = []
 		var wind0 = main.wind.from_deg
@@ -2029,17 +2030,17 @@ func _initialize() -> void:
 		runs_seen.append([seq, wind0, main.airport])
 		for conn in tr.spawned.get_connections():
 			tr.spawned.disconnect(conn["callable"])
-	check(main.daily_mode and runs_seen[0][2] == 20000 % 6 and runs_seen[2][2] == 20001 % 6, "the daily airport depends on the day (%d, %d)" % [runs_seen[0][2], runs_seen[2][2]])
+	check(main.daily_mode and runs_seen[0][2] == (20000 + 3) % 6 and runs_seen[2][2] == (20001 + 3) % 6, "Bad Pilot Day's airport depends on the day (%d, %d)" % [runs_seen[0][2], runs_seen[2][2]])
 	var n_cmp = mini(mini(runs_seen[0][0].size(), runs_seen[1][0].size()), 5)
 	var same_seq = n_cmp >= 4 and runs_seen[0][1] == runs_seen[1][1]
 	for k in n_cmp:
 		same_seq = same_seq and runs_seen[0][0][k] == runs_seen[1][0][k]
 	check(same_seq, "the same day gives the same arrivals and wind (first %d arrivals identical)" % n_cmp)
 	check(runs_seen[0][0] != runs_seen[2][0], "a different day gives different arrivals")
-	# The daily shift and Bad Pilot Day only pick airports the player has open.
+	# Bad Pilot Day only picks airports the player has open.
 	var dq_bad = 0
 	var dq_miss = 0
-	for dq_stars in [0, 2, 5, 8, 11, 14, 18]:
+	for dq_stars in [0, 1, 3, 5, 8, 11, 14, 18]:
 		save.reset_all()
 		for dq_k in dq_stars:
 			save.stars[dq_k] = 1
@@ -2047,63 +2048,31 @@ func _initialize() -> void:
 		for dq_i in Airports.COUNT:
 			if save.airport_open(dq_i):
 				dq_open[dq_i] = true
-		var dq_daily = {}
 		var dq_bad_day = {}
 		for dq_day in 12:
 			save.day_override = 20000 + dq_day
-			save.ads["since"] = 0
-			main.start_daily()
-			dq_daily[main.airport] = true
-			if not dq_open.has(main.airport) or main.bad_mode:
-				dq_bad += 1
 			save.ads["since"] = 0
 			main.start_bad_day()
 			dq_bad_day[main.airport] = true
 			if not dq_open.has(main.airport) or not main.bad_mode:
 				dq_bad += 1
-		if dq_daily.size() != dq_open.size() or dq_bad_day.size() != dq_open.size():
+		if dq_bad_day.size() != dq_open.size():
 			dq_miss += 1
-	check(dq_bad == 0, "the daily shift and Bad Pilot Day never pick a locked airport (%d bad picks over 7 star levels x 12 days)" % dq_bad)
-	check(dq_miss == 0, "...and over twelve days they visit every open airport")
+	check(dq_bad == 0, "Bad Pilot Day never picks a locked airport (%d bad picks over 8 star levels x 12 days)" % dq_bad)
+	check(dq_miss == 0, "...and over twelve days it visits every open airport")
 	save.reset_all()
 	save.day_override = 20000
-	main.start_daily()
-	check(main.airport == 0, "a new player (no stars) gets the Grass Strip for the daily shift")
+	save.ads["since"] = 0
 	main.start_bad_day()
-	check(main.airport == 0, "...and for Bad Pilot Day")
+	check(main.airport == 0, "a new player (no stars) gets the Grass Strip for Bad Pilot Day")
 	save.unlocks["all_airports"] = true
 	save.day_override = 20000
-	main.start_daily()
-	check(main.airport == 20000 % 6, "with every airport open the daily airport is still day %% 6 (%d)" % main.airport)
+	save.ads["since"] = 0
 	main.start_bad_day()
-	check(main.airport == (20000 + 3) % 6, "...and Bad Pilot Day's (day + 3) %% 6")
-	# Daily rewards and streak (the shift is completed with fake landings).
-	var streaks = []
-	var coin_gain = []
-	var bonus_given = []
-	var stars_before = save.stars_total()
-	for day_i in [20000, 20001, 20001, 20003]:
-		save.day_override = day_i
-		main.start_daily()
-		tr.auto_spawn = false
-		var c0 = save.coins
-		earn_coins(main, tuning.star_thresholds()[0])
-		tr.spawn_until = 0.0
-		tr.run_time = tuning.par_eff() + 0.01
-		main.step(1.0 / 60.0)
-		streaks.append(save.daily_streak())
-		var plain = main.shift.payout()
-		coin_gain.append(save.coins - c0)
-		bonus_given.append(save.coins - c0 - plain)
-	check(streaks == [1, 2, 2, 1], "the streak counts consecutive days and resets after a gap %s" % str(streaks))
-	var dbo1 = int(tuning.daily_bonus_coins + tuning.daily_streak_coins)
-	var dbo2 = int(tuning.daily_bonus_coins + 2 * tuning.daily_streak_coins)
-	check(bonus_given == [dbo1, dbo2, 0, dbo1], "bonus coins: %d, %d, none for a repeat, %d again after a gap %s" % [dbo1, dbo2, dbo1, str(bonus_given)])
-	check(save.stars_total() == stars_before, "the daily shift earns no permanent airport stars")
-	check(main.last_result["reason"].contains("Daily bonus") or bonus_given[3] == dbo1, "the results mention the bonus")
+	check(main.airport == (20000 + 3) % 6, "with every airport open Bad Pilot Day's airport is (day + 3) %% 6")
 	save.day_override = -1
 	main._show_menu()
-	check(not main.daily_mode, "back on the menu, the daily mode is off")
+	check(not main.daily_mode, "back on the menu, the seeded mode is off")
 	# Ad stubs: the rewarded fine refund is on the results screen.
 	save.reset_all()
 	save.unlocks["all_airports"] = true
@@ -2191,9 +2160,10 @@ func _initialize() -> void:
 		tp2.debug_buttons[k].pressed.emit()
 		check(main.weather.phase == 1 and main.weather.kind == k, "debug: trigger %s" % k)
 	main.weather.phase = 0
-	save.daily = {"done_day": 5, "streak": 3}
+	save.goals = {"day": 5, "list": []}
+	save.goal_streak = {"count": 3, "last": 5}
 	tp2.debug_buttons["reset_daily"].pressed.emit()
-	check(save.daily.is_empty(), "debug: reset daily")
+	check(save.goals.is_empty() and save.goal_streak.is_empty(), "debug: reset goals")
 	tp2.debug_buttons["reset_save"].pressed.emit()
 	check(save.coins == 0 and save.stars_total() == 0 and save.upgrade_level("radar") == 0 and main.airport == 0, "debug: reset save")
 	save.unlocks["all_airports"] = true
@@ -2515,7 +2485,6 @@ func _initialize() -> void:
 	var streaks_b = []
 	var bonus_b = []
 	var stars_b = save.stars_total()
-	var daily_before = save.daily.duplicate()
 	for day_i in [20100, 20101, 20101, 20103]:
 		save.day_override = day_i
 		main.start_bad_day()
@@ -2531,7 +2500,7 @@ func _initialize() -> void:
 	var b1 = roundi((tuning.daily_bonus_coins + tuning.daily_streak_coins * 1) * tuning.bad_day_bonus_mult)
 	var b2 = roundi((tuning.daily_bonus_coins + tuning.daily_streak_coins * 2) * tuning.bad_day_bonus_mult)
 	check(streaks_b == [1, 2, 2, 1] and bonus_b == [b1, b2, 0, b1], "Bad Pilot Day has its own streak and bonus %s %s" % [str(streaks_b), str(bonus_b)])
-	check(save.daily == daily_before and save.daily_streak("daily") == 0, "...separate from the Daily Shift's record")
+	check(save.goal_streak.is_empty(), "...separate from the daily goals' streak")
 	check(int(save.bad_day.get("best", 0)) >= main.shift.thresholds[0] and save.stars_total() == stars_b, "...its own best score, and no permanent stars")
 	# The menu offers it; Save round trip keeps it.
 	main._show_menu()
@@ -3034,8 +3003,8 @@ func _initialize() -> void:
 	main.restart()
 	check(not tuning.intro_active and tuning.spawn_interval(40.0) < iv_first and absf(iv_first / tuning.spawn_interval(40.0) - tuning.intro_spawn_scale) < 0.01, "replays have the normal pace: arrivals %.2fx further apart in the first shift" % (iv_first / tuning.spawn_interval(40.0)))
 	check(tm_first > tuning.timer_mult() and absf(tm_first / tuning.timer_mult() - tuning.intro_timer_scale) < 0.01, "...and the first shift has longer timers (x%.2f)" % (tm_first / tuning.timer_mult()))
-	main.start_daily()
-	check(not tuning.intro_active and tr.beats.is_empty(), "the daily shifts have no intro easing and no scripted beats")
+	main.start_bad_day()
+	check(not tuning.intro_active and tr.beats.is_empty(), "the seeded shifts have no intro easing and no scripted beats")
 	main._show_menu()
 	# Intro beats: the new mechanic arrives alone, early.
 	save.reset_all()
@@ -3095,14 +3064,14 @@ func _initialize() -> void:
 	check(primaries == ["play"] and big_id == "play", "menu: one primary button (PLAY), and it is the biggest thing on screen")
 	var menu_words = true
 	for k in art.btn_count:
-		menu_words = menu_words and words_ok.call(art.btn_text[k]) and art.btn_sub[k] == ""
+		menu_words = menu_words and (art.btn_kind[k] == 14 or (words_ok.call(art.btn_text[k]) and art.btn_sub[k] == ""))
 	check(menu_words and art.btn_count <= 8, "menu: short labels, no descriptions (%d buttons)" % art.btn_count)
 	var round_n = 0
 	for k in art.btn_count:
 		if art.btn_kind[k] == 7:
 			round_n += 1
 			menu_words = menu_words and art.btn_glyph[k] != ""
-	check(round_n == 3 and menu_words, "menu: Upgrades, Hangar and Daily are three small round icon buttons")
+	check(round_n == 2 and menu_words, "menu: Tower and Hangar are two small round icon buttons (the goals card has its own line)")
 	check(not main.hud._score.visible and not main.hud._best.visible, "menu: no leftover shift numbers behind it")
 	check(not main.hud._ad.visible, "menu: nothing else is covering it")
 	# The three text sizes: every label in the interface uses one of them.
@@ -4466,7 +4435,7 @@ func _initialize() -> void:
 	var sc_kinds = {}
 	for sc_k in sc_art.btn_count:
 		sc_kinds[sc_art.btn_id[sc_k]] = [sc_art.btn_kind[sc_k], sc_art.btn_text[sc_k]]
-	check(sc_kinds["play"] == [2, "Start shift"] and sc_kinds["airports"] == [0, "Airports"] and sc_kinds["bad"] == [0, "Bad pilot day"] and sc_kinds["upgrades"][0] == 7 and sc_kinds["shop"] == [7, "Hangar"] and sc_kinds["daily"][0] == 7 and sc_art.btn_count == 8 and sc_kinds["airports_tag"][0] == 9, "the menu: Start shift (orange), Airports and Bad pilot day (cream), and three small round buttons")
+	check(sc_kinds["play"] == [2, "Start shift"] and sc_kinds["airports"] == [0, "Airports"] and sc_kinds["bad"] == [0, "Bad pilot day"] and sc_kinds["upgrades"][0] == 7 and sc_kinds["shop"] == [7, "Hangar"] and sc_kinds["goals"][0] == 14 and sc_art.btn_count == 8 and sc_kinds["airports_tag"][0] == 9, "the menu: Start shift (orange), Airports and Bad pilot day (cream), and two small round buttons under the goals card")
 	main.select_airport(0)
 	main._on_button("airport_next")
 	check(main.airport == 1 and Airports.current == 1 and main.screen == main.SCREEN_MENU, "the next arrow moves to the next airport and the field behind the menu follows")
@@ -5888,6 +5857,228 @@ func _initialize() -> void:
 	main._on_button("airport:2")
 	check(main.screen == main.SCREEN_PLAY and main.airport == 2 and main.airfield.selected == 2 and is_equal_approx(main.detail_t, 0.0), "Fly here starts a shift at that airport, in the shift's own view")
 	save.unlocks["all_airports"] = false
+	save.reset_all()
+
+	print("33. Daily goals and the streak")
+	# The pool: at least 25 templates, all three tiers, each with text.
+	var dg_tier_n = [0, 0, 0]
+	var dg_texts_ok = true
+	for dg_t in Goals.TEMPLATES:
+		dg_tier_n[int(dg_t["tier"])] += 1
+		dg_texts_ok = dg_texts_ok and str(dg_t["text"]) != "" and Goals.template(dg_t["id"]) == dg_t
+	check(Goals.template_count() >= 25 and dg_tier_n[0] >= 5 and dg_tier_n[1] >= 5 and dg_tier_n[2] >= 5 and dg_texts_ok, "the goal pool has %d templates (%s easy / medium / hard)" % [Goals.template_count(), str(dg_tier_n)])
+	# Goals only ever use airports the player has unlocked, fit their progress, and come as one easy, one medium, one hard.
+	var dg_bad = 0
+	var dg_rank_ok = true
+	var dg_seen = {}
+	var dg_unit_prev = 0
+	for dg_stars in [0, 1, 2, 3, 6, 10, 18]:
+		save.reset_all()
+		for dg_k in dg_stars:
+			save.stars[dg_k] = 1
+		var dg_ctx = main.goals_ctx()
+		for dg_day in 40:
+			var dg_goals = Goals.make_day(20000 + dg_day, dg_ctx)
+			var dg_list = dg_goals["list"]
+			if dg_list.size() != 3 or int(dg_list[0]["tier"]) != 0 or int(dg_list[1]["tier"]) != 1 or int(dg_list[2]["tier"]) != 2:
+				dg_bad += 1
+			var dg_ids = {}
+			for dg_g in dg_list:
+				dg_ids[dg_g["id"]] = true
+				dg_seen[dg_g["id"]] = true
+				var dg_tp = Goals.template(dg_g["id"])
+				if int(dg_g["ap"]) >= 0 and not (dg_ctx["open"] as Array).has(int(dg_g["ap"])):
+					dg_bad += 1
+				if dg_tp.has("type"):
+					var dg_any = false
+					for dg_a in dg_ctx["open"]:
+						if (dg_ctx["types"][dg_a] as Array).has(int(dg_tp["type"])):
+							dg_any = true
+					if not dg_any:
+						dg_bad += 1
+				if dg_tp.get("flag", "") == "no_engines" and not dg_ctx["noeng"]:
+					dg_bad += 1
+				if int(dg_g["n"]) < 1 or int(dg_g["reward"]) <= 0 or Goals.text(dg_g, "X") == "" or Goals.text(dg_g, "X").contains("{"):
+					dg_bad += 1
+			if dg_ids.size() != 3:
+				dg_bad += 1
+			var dg_u = int(dg_ctx["unit"])
+			var dg_r = [int(dg_list[0]["reward"]), int(dg_list[1]["reward"]), int(dg_list[2]["reward"])]
+			dg_rank_ok = dg_rank_ok and absf(float(dg_r[1]) / dg_r[0] - 2.0) < 0.2 and absf(float(dg_r[2]) / dg_r[0] - 4.0) < 0.4 and dg_r[0] <= dg_u + 5
+		dg_rank_ok = dg_rank_ok and int(dg_ctx["unit"]) >= dg_unit_prev
+		dg_unit_prev = int(dg_ctx["unit"])
+	check(dg_bad == 0, "goals never reference a locked airport or an aircraft type the open airports do not bring, and always come as easy / medium / hard (%d bad over 7 progress levels x 40 days)" % dg_bad)
+	check(dg_rank_ok, "rewards scale 1x / 2x / 4x and grow with the best open airport (unit 55 -> %d)" % dg_unit_prev)
+	check(dg_seen.size() >= 20, "over many days the pool is well used (%d different goals seen)" % dg_seen.size())
+	save.reset_all()
+	var dg_new = main.goals_ctx()
+	check(dg_new["open"] == [0] and Goals.make_day(20000, dg_new)["list"][0]["ap"] <= 0, "a new player only gets Grass Strip goals")
+	# A day turns over: the same day gives the same goals; the next day gives new ones.
+	save.reset_all()
+	save.day_override = 30000
+	main.goals_ctx()
+	save.ensure_goals(main.goals_ctx())
+	var dg_today = save.goals.duplicate(true)
+	save.ensure_goals(main.goals_ctx())
+	check(int(dg_today["day"]) == 30000 and save.goals == dg_today, "the same day keeps its goals")
+	save.goals["list"][0]["p"] = 1
+	save.day_override = 30001
+	save.ensure_goals(main.goals_ctx())
+	check(int(save.goals["day"]) == 30001 and int(save.goals["list"][0]["p"]) == 0 and not bool(save.goals["chest"]), "at midnight (the next day number) there are three new goals with no progress")
+	save.day_override = -1
+	var dg_unix = Time.get_unix_time_from_system()
+	var dg_bias = int(Time.get_time_zone_from_system().get("bias", 0))
+	check(absi(save.today() - int(floor((dg_unix + dg_bias * 60.0) / 86400.0))) <= 1, "the day number follows the local clock (%d)" % save.today())
+	# Rerolls: one per goal per day, same tier, a different goal, never after it is done.
+	save.reset_all()
+	save.day_override = 30010
+	var dg_c2 = main.goals_ctx()
+	save.ensure_goals(dg_c2)
+	var dg_before = save.goals["list"].duplicate(true)
+	check(save.reroll_goal(1, dg_c2), "a goal can be rerolled")
+	check(int(save.goals["list"][1]["tier"]) == 1 and save.goals["list"][1]["id"] != dg_before[1]["id"] and save.goals["list"][0] == dg_before[0] and save.goals["list"][2] == dg_before[2], "...it stays the same tier, is a different goal, and the others are untouched")
+	check(not save.reroll_goal(1, dg_c2), "...but only once per goal per day")
+	check(save.reroll_goal(0, dg_c2) and not save.reroll_goal(0, dg_c2), "each goal has its own reroll")
+	save.goals["list"][2]["done"] = true
+	check(not save.reroll_goal(2, dg_c2), "a finished goal cannot be rerolled")
+	save.day_override = 30011
+	save.ensure_goals(dg_c2)
+	check(save.reroll_goal(1, dg_c2), "the next day gives the rerolls back")
+	# Events complete goals: landings by type and flag, quick successions, shift conditions.
+	var dg_rng = RandomNumberGenerator.new()
+	dg_rng.seed = 5
+	var dg_ctx3 = {"open": [0, 1, 2], "types": {0: [2, 0], 1: [2, 3, 0], 2: [2, 3, 4, 1]}, "weather": {0: false, 1: true, 2: true}, "typical": {0: 5, 1: 6, 2: 8}, "t2": {0: 95, 1: 130, 2: 170}, "noeng": true, "unit": 100}
+	var dg_gen = func(id): return Goals.fill(Goals.template(id), dg_ctx3, dg_rng)
+	var dg_day = {"day": 1, "list": [dg_gen.call("e_heli"), dg_gen.call("m_quick3"), dg_gen.call("h_nogo")], "chest": false}
+	dg_day["list"][0]["n"] = 2
+	Goals.apply(dg_day, {"t": "land", "ap": 2, "type": 2, "streak": 1})
+	check(int(dg_day["list"][0]["p"]) == 0, "a small plane does not count toward a helicopter goal")
+	Goals.apply(dg_day, {"t": "land", "ap": 2, "type": 1, "streak": 1})
+	var dg_fin = Goals.apply(dg_day, {"t": "land", "ap": 1, "type": 1, "streak": 2})
+	check(dg_fin == [0] and bool(dg_day["list"][0]["done"]), "two helicopters finish 'Land 2 helicopters'")
+	check(Goals.apply(dg_day, {"t": "land", "ap": 0, "type": 2, "streak": 3}) == [1], "a third landing in quick succession finishes the streak goal")
+	check(Goals.apply(dg_day, {"t": "shift", "ap": 0, "landed": 6, "go_arounds": 1, "fines": 0, "stars": 1}).is_empty(), "a go-around spoils 'no go-arounds'")
+	check(Goals.apply(dg_day, {"t": "shift", "ap": 0, "landed": 6, "go_arounds": 0, "fines": 0, "stars": 1}) == [2], "...and a clean shift finishes it")
+	var dg_day2 = {"day": 1, "list": [dg_gen.call("h_locked3"), dg_gen.call("m_stars2"), dg_gen.call("m_hangar")], "chest": false}
+	dg_day2["list"][2]["ap"] = 1
+	Goals.apply(dg_day2, {"t": "shift", "ap": 0, "landed": 3, "go_arounds": 0, "fines": 0, "stars": 1, "locked_run": 2, "hangar_full": true})
+	check(not bool(dg_day2["list"][0]["done"]) and int(dg_day2["list"][1]["p"]) == 1 and not bool(dg_day2["list"][2]["done"]), "locked finals need three in a row; stars add up across shifts; the hangar must be at the goal's own airport")
+	Goals.apply(dg_day2, {"t": "shift", "ap": 1, "landed": 4, "go_arounds": 0, "fines": 0, "stars": 1, "locked_run": 3, "hangar_full": true})
+	check(bool(dg_day2["list"][0]["done"]) and bool(dg_day2["list"][1]["done"]) and bool(dg_day2["list"][2]["done"]), "...then three locked finals, two stars and a full hangar at the right airport finish all three")
+	var dg_day3 = {"day": 1, "list": [dg_gen.call("h_noeng"), dg_gen.call("e_emerg"), dg_gen.call("h_net")], "chest": false}
+	Goals.apply(dg_day3, {"t": "land", "ap": 0, "type": 0, "no_engines": false})
+	check(not bool(dg_day3["list"][0]["done"]), "a glider landing without the No engines challenge does not count")
+	Goals.apply(dg_day3, {"t": "land", "ap": 0, "type": 0, "no_engines": true})
+	check(bool(dg_day3["list"][0]["done"]), "a glider landing on No engines does")
+	dg_day3["list"][2]["x"] = 150
+	dg_day3["list"][2]["ap"] = 2
+	Goals.apply(dg_day3, {"t": "shift", "ap": 2, "landed": 6, "net": 120, "stars": 1})
+	check(not bool(dg_day3["list"][2]["done"]), "a net under the target does not finish 'Net N coins'")
+	Goals.apply(dg_day3, {"t": "shift", "ap": 2, "landed": 6, "net": 160, "stars": 1})
+	check(bool(dg_day3["list"][2]["done"]), "...a net over it does")
+	# Paying: each goal's reward, the day's first goal moves the streak, all three pay the chest.
+	save.reset_all()
+	save.day_override = 40000
+	var dg_ctx4 = dg_ctx3.duplicate(true)
+	save.goals = {"day": 40000, "list": [dg_gen.call("e_emerg"), dg_gen.call("m_vip"), dg_gen.call("h_nogo")], "chest": false}
+	var dg_c0 = save.coins
+	var dg_r1 = save.goal_event({"t": "land", "ap": 0, "type": 2, "emergency": true}, dg_ctx4)
+	var dg_unit4 = int(dg_ctx4["unit"])
+	var dg_day_pay = int(dg_r1["streak_coins"])
+	check(dg_r1["finished"].size() == 1 and save.coins - dg_c0 == Goals.reward_for(0, dg_unit4) + dg_day_pay and dg_day_pay == Goals.day_reward(1, 1, dg_unit4)["coins"], "finishing a goal pays its reward and the streak's day 1 (%d + %d)" % [Goals.reward_for(0, dg_unit4), dg_day_pay])
+	var dg_c1 = save.coins
+	var dg_r2 = save.goal_event({"t": "land", "ap": 0, "type": 2, "vip": true}, dg_ctx4)
+	check(save.coins - dg_c1 == Goals.reward_for(1, dg_unit4) and (dg_r2["streak"] as Dictionary).is_empty() and int(save.goal_streak["count"]) == 1, "the second goal pays only its own reward and the streak stays on day 1")
+	var dg_c2b = save.coins
+	var dg_r3 = save.goal_event({"t": "shift", "ap": 0, "landed": 6, "go_arounds": 0, "fines": 0, "stars": 1}, dg_ctx4)
+	check(int(dg_r3["chest"]) == Goals.chest_for(dg_unit4) and save.coins - dg_c2b == Goals.reward_for(2, dg_unit4) + Goals.chest_for(dg_unit4), "the third goal also pays the bonus chest (%d)" % Goals.chest_for(dg_unit4))
+	var dg_c3 = save.coins
+	save.goal_event({"t": "shift", "ap": 0, "landed": 6, "go_arounds": 0, "fines": 0, "stars": 1}, dg_ctx4)
+	check(save.coins == dg_c3 and bool(save.goals["chest"]), "...and nothing pays twice")
+	save.write_file()
+	save.load_file()
+	check(int(save.goals["day"]) == 40000 and Goals.done_count(save.goals) == 3 and int(save.goal_streak["count"]) == 1, "the goals and the streak are saved with the game")
+	# The streak over 30 simulated days with gaps (a day counts when at least one goal is finished).
+	var dg_s = {}
+	var dg_played = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 17, 19, 20, 24, 25, 26, 27, 28, 29]
+	var dg_counts = []
+	var dg_fz = []
+	var dg_resets = 0
+	var dg_used = 0
+	for dg_d in dg_played:
+		var dg_res = Goals.streak_advance(dg_s, dg_d)
+		dg_counts.append(int(dg_res["count"]))
+		dg_fz.append(int(dg_s["freezes"]))
+		if dg_res["reset"]:
+			dg_resets += 1
+		dg_used += int(dg_res["freeze_used"])
+	check(dg_counts == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 1, 2, 3, 4, 5, 6], "30 days with gaps: the streak counts up, a freeze covers one missed day, and a gap without a freeze resets it %s" % str(dg_counts))
+	check(dg_fz == [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] and dg_used == 2 and dg_resets == 2, "...one freeze is earned per completed week (cap 2) and spent automatically %s" % str(dg_fz))
+	var dg_st = Goals.streak_state(dg_s, 29)
+	check(dg_st["done_today"] and int(dg_st["count"]) == 6, "the streak card reads day 6, done today")
+	dg_st = Goals.streak_state(dg_s, 30)
+	check(not dg_st["done_today"] and int(dg_st["count"]) == 6 and int(dg_st["next_pos"]) == 7, "the next day it still reads 6 and today would be day 7")
+	dg_st = Goals.streak_state(dg_s, 32)
+	check(int(dg_st["count"]) == 0, "after two missed days with no freeze it reads as lost")
+	var dg_s2 = {"count": 5, "last": 100, "freezes": 1}
+	dg_st = Goals.streak_state(dg_s2, 102)
+	check(dg_st["at_risk"] and int(dg_st["count"]) == 5 and int(dg_st["freezes"]) == 1, "one missed day with a freeze ready is shown as covered")
+	# The week's rewards rise; day 7 is a cosmetic the first time round and more coins after that.
+	var dg_pay = []
+	for dg_p in range(1, 7):
+		dg_pay.append(int(Goals.day_reward(dg_p, dg_p, 100)["coins"]))
+	var dg_rise = true
+	for dg_i in range(1, 6):
+		dg_rise = dg_rise and dg_pay[dg_i] > dg_pay[dg_i - 1]
+	var dg_d7 = Goals.day_reward(7, 7, 100)
+	var dg_d14 = Goals.day_reward(7, 14, 100)
+	check(dg_rise and dg_d7["cosmetic"] and not dg_d14["cosmetic"] and int(dg_d14["coins"]) > dg_pay[5], "days 1 to 6 pay more each day (%s); day 7 is a cosmetic, and later weeks pay %d coins instead" % [str(dg_pay), int(dg_d14["coins"])])
+	save.reset_all()
+	save.day_override = 50000
+	var dg_ctx5 = dg_ctx3.duplicate(true)
+	var dg_cosm = 0
+	for dg_d2 in 8:
+		save.day_override = 50000 + dg_d2
+		save.goals = {"day": 50000 + dg_d2, "list": [dg_gen.call("e_emerg"), dg_gen.call("m_vip"), dg_gen.call("h_nogo")], "chest": false}
+		var dg_rr = save.goal_event({"t": "land", "ap": 0, "type": 2, "emergency": true}, dg_ctx5)
+		if dg_rr["cosmetic"] != "":
+			dg_cosm += 1
+			check(dg_d2 == 6 and save.unlocks.has(dg_rr["cosmetic"]) and int(dg_rr["streak_coins"]) == 0, "day 7 of the first week gives a cosmetic (%s) in place of coins" % dg_rr["cosmetic"])
+	check(dg_cosm == 1 and int(save.goal_streak["freezes"]) == 1, "...once, and the finished week earns a streak freeze")
+	# The menu card, the goals sheet, a reroll from it, and the results card.
+	save.reset_all()
+	save.day_override = 60000
+	main._show_menu()
+	var dg_card = main.hud._art.btn_id.find("goals")
+	check(dg_card >= 0 and main.hud._art.btn_text[dg_card] == "Daily goals  0/3" and main.hud._art.btn_kind[dg_card] == 14 and main.hud._art.btn_badge[dg_card] == -2, "the menu shows the goals card under the title area, with a red dot while none is done")
+	check(main.hud._art.btn_rect[dg_card].position.y > main.hud._art.btn_rect[main.hud._art.btn_id.find("airports_tag")].end.y - 1.0, "...below the airport chip")
+	main._on_button("goals")
+	check(main.screen == main.SCREEN_GOALS and main.hud._select_title.text == "DAILY GOALS", "tapping it opens the goals sheet")
+	var dg_ids2 = []
+	for dg_k in main.hud._art.btn_count:
+		dg_ids2.append(main.hud._art.btn_id[dg_k])
+	check(dg_ids2.has("goal:0") and dg_ids2.has("goal:1") and dg_ids2.has("goal:2") and dg_ids2.has("greroll:0") and dg_ids2.has("chest") and dg_ids2.has("streak") and dg_ids2.has("back"), "the sheet lists three goals each with a reroll, the chest and the streak")
+	var dg_first = save.goals["list"][0]["id"]
+	main._on_button("greroll:0")
+	var dg_ids3 = []
+	for dg_k in main.hud._art.btn_count:
+		dg_ids3.append(main.hud._art.btn_id[dg_k])
+	check(main.screen == main.SCREEN_GOALS and save.goals["list"][0]["id"] != dg_first and not dg_ids3.has("greroll:0") and dg_ids3.has("greroll:1"), "a reroll swaps the goal and uses up that goal's reroll")
+	main._on_button("back")
+	check(main.screen == main.SCREEN_MENU, "Back returns to the menu")
+	save.goals = {"day": 60000, "list": [dg_gen.call("e_emerg"), dg_gen.call("m_vip"), dg_gen.call("h_nogo")], "chest": false}
+	main.select_airport(0)
+	main.restart()
+	tr.auto_spawn = false
+	main._goal_event({"t": "land", "ap": 0, "type": 2, "emergency": true})
+	check(main.goal_results.size() == 1 and Goals.done_count(save.goals) == 1, "a landing in a shift finishes a goal")
+	tr.spawn_until = 0.0
+	tr.run_time = tuning.par_eff() + 0.01
+	main.step(1.0 / 60.0)
+	check(main.screen == main.SCREEN_OVER and main.hud._art.res_goals.size() >= 1 and main.hud._art.res_goals_extra.contains("Day 1"), "the results card lists the goal that was finished, with the streak day")
+	main._show_menu()
+	check(main.hud._art.btn_text[main.hud._art.btn_id.find("goals")].begins_with("Daily goals  1/3") or main.hud._art.btn_text[main.hud._art.btn_id.find("goals")].begins_with("Daily goals  2/3"), "back on the menu the card counts the finished goals")
+	save.day_override = -1
 	save.reset_all()
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://smoke_test_save.json"))

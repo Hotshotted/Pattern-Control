@@ -3,12 +3,12 @@ extends Node
 ## Registered as the autoload `Save`. Version 1 held only the best score; version 2 was the airport game
 ## (coins, stars per airport, best landings, upgrades, unlocks, tips seen, the daily shift); version 3 has the
 ## timed-shift economy (best coin payout per airport) and the Bad Pilot Day record; version 4 the airport improvements
-## (levels per airport, bought on its detail screen). Older saves migrate on
+## (levels per airport, bought on its detail screen); version 5 the daily goals and the login streak. Older saves migrate on
 ## load: stars, coins, upgrades and unlocks carry over untouched, best landings stay as they were, and the
 ## new best-coins records start at zero. Unknown or missing fields fall back to defaults, so adding a field
 ## never breaks an old save.
 
-const VERSION := 4
+const VERSION := 5
 const AIRPORT_SLOTS := 6
 const STARS_PER_AIRPORT := 3
 
@@ -23,8 +23,9 @@ var improvements := {}               # airport index (as text) -> {improvement i
 var unlocks := {}                    # cosmetic id -> true (airport themes, liveries)
 var equipped := {}                   # slot -> id
 var tips_seen := {}                  # aircraft-type tips already shown
-var daily := {}                      # {"done_day": int, "streak": int, "best": int, "best_day": int}
 var bad_day := {}                    # Bad Pilot Day: the same fields, its own best and streak (version 3)
+var goals := {}                      # today's three daily goals: {"day", "list", "chest"} (version 5)
+var goal_streak := {}                # the daily-goal streak: {"count", "last", "freezes", "best"} (version 5)
 var shifts_played := 0
 var no_engines_at := PackedByteArray()  # the "No engines" challenge switched on, per airport (it only counts at three stars)
 var no_engines_bad := false            # ...and for Bad Pilot Day
@@ -56,8 +57,9 @@ func _defaults() -> void:
 	unlocks = {}
 	equipped = {}
 	tips_seen = {}
-	daily = {}
 	bad_day = {}
+	goals = {}
+	goal_streak = {}
 	shifts_played = 0
 	selected_airport = 0
 	sound_volume = 0.8
@@ -101,8 +103,9 @@ func load_file() -> void:
 	unlocks = _dict(data.get("unlocks"))
 	equipped = _dict(data.get("equipped"))
 	tips_seen = _dict(data.get("tips_seen"))
-	daily = _dict(data.get("daily"))
 	bad_day = _dict(data.get("bad_day"))
+	goals = _dict(data.get("goals"))
+	goal_streak = _dict(data.get("streak"))
 	shifts_played = int(data.get("shifts_played", 0))
 	selected_airport = clampi(int(data.get("selected_airport", 0)), 0, AIRPORT_SLOTS - 1)
 	ads = _dict(data.get("ads"))
@@ -119,7 +122,7 @@ func write_file() -> void:
 		f.store_string(JSON.stringify({
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
 			"upgrades": upgrades, "improvements": improvements, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
-			"daily": daily, "bad_day": bad_day, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
+			"bad_day": bad_day, "goals": goals, "streak": goal_streak, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
 			"sound_volume": sound_volume, "music_volume": music_volume, "ambience_volume": ambience_volume,
 		}))
 
@@ -129,27 +132,30 @@ func write_file() -> void:
 func airport_open(i: int) -> bool:
 	return Airports.unlocked(i, stars_total()) or unlocks.has("all_airports") or DebugFlags.airports_enabled()
 
-# ---------- Daily shift and Bad Pilot Day ----------
-# Both are one seeded shift per day with a streak and a best; they keep separate records (daily / bad_day).
+# ---------- Bad Pilot Day ----------
+# One seeded shift per day with a streak and a best (its own record, bad_day). The old Daily Shift was retired for the daily goals.
 
-## Days since 1970 (UTC): the daily shift's id.
+## The day number: days since 1970 by the local clock, so a day turns over at local midnight (the goals, the streak and Bad Pilot Day).
 func today() -> int:
-	return day_override if day_override >= 0 else int(Time.get_unix_time_from_system() / 86400.0)
+	if day_override >= 0:
+		return day_override
+	var bias_minutes := int(Time.get_time_zone_from_system().get("bias", 0))
+	return int(floor((Time.get_unix_time_from_system() + bias_minutes * 60.0) / 86400.0))
 
-func record(kind: String) -> Dictionary:
-	return bad_day if kind == "bad" else daily
+func record(_kind: String) -> Dictionary:
+	return bad_day
 
-func daily_done_today(kind: String = "daily") -> bool:
+func daily_done_today(kind: String = "bad") -> bool:
 	return int(record(kind).get("done_day", -1)) == today()
 
 ## Streak as it would read right now (a missed day resets it).
-func daily_streak(kind: String = "daily") -> int:
+func daily_streak(kind: String = "bad") -> int:
 	var rec := record(kind)
 	var last := int(rec.get("done_day", -100))
 	return int(rec.get("streak", 0)) if last >= today() - 1 else 0
 
 ## Record a completed one (at least one star): returns the streak after it. Call once per day.
-func daily_complete(coins_made: int, kind: String = "daily") -> int:
+func daily_complete(coins_made: int, kind: String = "bad") -> int:
 	var rec := record(kind)
 	var streak := daily_streak(kind) + 1
 	rec["streak"] = streak
@@ -159,9 +165,70 @@ func daily_complete(coins_made: int, kind: String = "daily") -> int:
 	return streak
 
 ## Record a played one that did not complete (still counts toward its best).
-func daily_note_score(coins_made: int, kind: String = "daily") -> void:
+func daily_note_score(coins_made: int, kind: String = "bad") -> void:
 	var rec := record(kind)
 	rec["best"] = maxi(coins_made, int(rec.get("best", 0)))
+
+# ---------- Daily goals and the streak ----------
+
+## Today's goals, made fresh when the day has changed (the context says what the player has unlocked, see Goals).
+func ensure_goals(ctx: Dictionary) -> void:
+	if int(goals.get("day", -1)) != today() or (goals.get("list", []) as Array).is_empty():
+		goals = Goals.make_day(today(), ctx)
+
+## One free reroll per goal per day.
+func reroll_goal(i: int, ctx: Dictionary) -> bool:
+	ensure_goals(ctx)
+	return Goals.reroll(goals, i, ctx)
+
+## The cheapest cosmetic not owned yet ("theme:autumn"), or "" if every one is owned.
+func cheapest_unowned_cosmetic() -> String:
+	var best := ""
+	var best_cost := 1 << 30
+	for t in Cosmetics.THEMES:
+		if t["id"] != "classic" and not owns("theme", t["id"]) and int(t["cost"]) < best_cost:
+			best = "theme:" + t["id"]
+			best_cost = int(t["cost"])
+	for l in Cosmetics.LIVERIES:
+		if l["id"] != "standard" and not owns("livery", l["id"]) and int(l["cost"]) < best_cost:
+			best = "livery:" + l["id"]
+			best_cost = int(l["cost"])
+	return best
+
+## A game event happened (a landing, the end of a shift): move the goals along and pay what finished. Returns
+## {"finished": [{"i", "id", "reward"}], "coins": everything paid, "chest": the chest, "streak": {...} (the day's first goal), "cosmetic": id}.
+func goal_event(ev: Dictionary, ctx: Dictionary) -> Dictionary:
+	ensure_goals(ctx)
+	var out := {"finished": [], "coins": 0, "chest": 0, "streak": {}, "cosmetic": "", "streak_coins": 0}
+	var was := Goals.done_count(goals)
+	var fin := Goals.apply(goals, ev)
+	if fin.is_empty():
+		return out
+	var paid := 0
+	for i in fin:
+		var g: Dictionary = goals["list"][i]
+		out["finished"].append({"i": i, "id": g["id"], "reward": int(g["reward"])})
+		paid += int(g["reward"])
+	if was == 0:
+		var sr := Goals.streak_advance(goal_streak, today())
+		var dr := Goals.day_reward(int(sr["pos"]), int(sr["count"]), int(ctx["unit"]))
+		sr["reward"] = dr
+		if dr["cosmetic"]:
+			var cid := cheapest_unowned_cosmetic()
+			if cid != "":
+				unlocks[cid] = true
+				out["cosmetic"] = cid
+				dr["coins"] = 0
+		out["streak"] = sr
+		out["streak_coins"] = int(dr["coins"])
+		paid += int(dr["coins"])
+	if Goals.done_count(goals) >= (goals["list"] as Array).size() and not bool(goals.get("chest", false)):
+		goals["chest"] = true
+		out["chest"] = Goals.chest_for(int(ctx["unit"]))
+		paid += int(out["chest"])
+	out["coins"] = paid
+	add_coins(paid)
+	return out
 
 # ---------- Cosmetics ----------
 

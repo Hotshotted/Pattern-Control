@@ -96,6 +96,8 @@ class Art extends Control:
 	var res_chips := PackedInt32Array([0, 0, 0])   # results: landings, early clear, fines
 	var res_sub := ""                # results: "Grass Strip · 14 landed"
 	var res_unlock := ""             # results: a new airport opened (shown as a card)
+	var res_goals: Array = []        # results: daily goals this shift finished ({"text", "reward"}), and a line under them
+	var res_goals_extra := ""
 	var res_protected := 0           # results: coins the pay floor added (0 = the net was above the floor)
 	var pause_card := Rect2()        # the sheet behind the pause menu's sliders
 	var _pts := PackedVector2Array()
@@ -893,6 +895,48 @@ class Art extends Control:
 					ptext(str(btn_cost[k]), cc2 + Vector2(26.0, 11.0), SZ_S, C_TEXT if st != 1 else C_QUIET)
 				elif btn_cost[k] == 0:
 					ptext("MAX", Vector2(rx - 190.0, cy + 38.0), SZ_S, C_GOLD_TXT)
+			13:     # a daily goal on the goals sheet: a tier dot, the goal, its progress, its reward (done: a green card with a check)
+				panel(_sb_gold if st == 2 else _sb_normal, r)
+				var cy13 := r.get_center().y
+				var tc13: Color = [Style.SUCCESS, Style.WARNING, Style.DANGER][clampi(btn_pips[k], 0, 2)]
+				draw_circle(Vector2(r.position.x + 62.0, cy13), 34.0, Style.INK)
+				draw_circle(Vector2(r.position.x + 62.0, cy13), 29.0, tc13)
+				if st == 2:
+					glyph("check", Vector2(r.position.x + 62.0, cy13), 17.0, Color.WHITE)
+				var tw13 := r.size.x - 120.0 - 250.0
+				var fs13 := Style.fit_size(btn_text[k], SZ_M, 28, tw13)
+				ptext(btn_text[k], Vector2(r.position.x + 120.0, cy13 - 4.0), fs13, ink, HORIZONTAL_ALIGNMENT_LEFT, tw13)
+				draw_string(Style.body(), Vector2(r.position.x + 120.0, cy13 + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, SZ_S, C_SOFT)
+				glyph("coin", Vector2(r.end.x - 190.0, cy13), 18.0)
+				ptext("+%d" % btn_cost[k], Vector2(r.end.x - 160.0, cy13 + 12.0), SZ_M, C_GOLD_TXT if st != 2 else ink, HORIZONTAL_ALIGNMENT_LEFT, 140.0)
+			14:     # the menu's goals card: "Daily goals", the streak, and three dots for the three goals
+				panel(_sb_normal, r, _sheen_s)
+				glyph("sun", Vector2(r.position.x + 52.0, r.get_center().y), 26.0, ink)
+				ptext(btn_text[k], Vector2(r.position.x + 98.0, r.get_center().y - 6.0), 32, ink, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 290.0)
+				draw_string(Style.body(), Vector2(r.position.x + 98.0, r.get_center().y + 30.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 290.0, SZ_S, C_SOFT)
+				for i in 3:
+					var dc := Vector2(r.end.x - 130.0 + i * 44.0, r.get_center().y)
+					draw_circle(dc, 17.0, Style.INK)
+					draw_circle(dc, 13.5, Style.SUCCESS if i < btn_stars[k] else Color(0.86, 0.78, 0.62))
+					if i < btn_stars[k]:
+						glyph("check", dc, 8.0, Color.WHITE)
+				if btn_badge[k] == -2:
+					var bc14 := Vector2(r.end.x - 6.0, r.position.y + 6.0)
+					draw_circle(bc14, 18.0, Style.SURFACE_DARK)
+					draw_circle(bc14, 12.0, Style.DANGER)
+			15:     # the streak card: seven day dots (the 7th a gift), where the player is in the week, the freezes
+				panel(_sb_normal, r)
+				ptext(btn_text[k], Vector2(r.position.x + 36.0, r.position.y + 54.0), SZ_M, ink, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 72.0)
+				draw_string(Style.body(), Vector2(r.position.x + 36.0, r.position.y + 92.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 72.0, SZ_S, C_SOFT)
+				var step := (r.size.x - 120.0) / 6.0
+				for i in 7:
+					var dc2 := Vector2(r.position.x + 60.0 + i * step, r.end.y - 52.0)
+					draw_circle(dc2, 25.0, Style.INK)
+					draw_circle(dc2, 21.0, C_GOLD if i < btn_pips[k] else Color(0.86, 0.78, 0.62))
+					if i == 6:
+						glyph("star" if i < btn_pips[k] else "star_off", dc2, 14.0)
+					elif i < btn_pips[k]:
+						glyph("check", dc2, 10.0, Color.WHITE)
 			_:
 				panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
 				var gw4 := r.size.y * 0.5 if btn_glyph[k] != "" else 0.0
@@ -1182,6 +1226,23 @@ class Art extends Control:
 			var pr := Rect2(card.position.x + 45.0, card.position.y + 470.0 * s2, card.size.x - 90.0, 84.0)
 			draw_style_box(_sb_chip, pr)
 			ptext("Shift pay protected", Vector2(pr.position.x, pr.get_center().y + 12.0), SZ_M, Style.SUCCESS_DARK, HORIZONTAL_ALIGNMENT_CENTER, pr.size.x)
+		# Daily goals this shift finished (up to two cards, the rest counted), and the streak / chest line.
+		if not res_goals.is_empty():
+			for gi in mini(res_goals.size(), 2):
+				var gr := Rect2(cx - 465.0, (1180.0 + gi * 98.0) * s2 + top, 930.0, 90.0)
+				draw_style_box(_sb_unlock, gr)
+				glyph("check", Vector2(gr.position.x + 50.0, gr.get_center().y), 14.0, Style.SUCCESS_DARK)
+				var gtxt: String = str(res_goals[gi]["text"]) if res_goals.size() <= 2 or gi == 0 else "+%d more goals" % (res_goals.size() - 1)
+				ptext(gtxt, Vector2(gr.position.x + 90.0, gr.get_center().y + 12.0), 32, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, gr.size.x - 300.0)
+				var rsum := int(res_goals[gi]["reward"])
+				if res_goals.size() > 2 and gi == 1:
+					rsum = 0
+					for q in range(1, res_goals.size()):
+						rsum += int(res_goals[q]["reward"])
+				ptext("+%d" % rsum, Vector2(gr.end.x - 190.0, gr.get_center().y + 12.0), 32, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_RIGHT, 150.0)
+				glyph("coin", Vector2(gr.end.x - 30.0, gr.get_center().y), 14.0)
+			if res_goals_extra != "":
+				draw_string(Style.body(), Vector2(cx - 465.0, (1180.0 + mini(res_goals.size(), 2) * 98.0) * s2 + top + 6.0), res_goals_extra, HORIZONTAL_ALIGNMENT_CENTER, 930.0, SZ_S, C_SOFT)
 		# A new airport opened with this shift.
 		if res_unlock != "":
 			var ur := Rect2(cx - 465.0, 1370.0 * s2 + top, 930.0, 130.0)
@@ -1531,8 +1592,10 @@ var _wind_secs := -1
 var _wind_inited := false
 var _wind_posted := false
 var _last_bal := 0
-var daily_streak := 0
-var daily_done := false
+var goals_done := 0                  # the menu's goals card: goals finished today, the streak line, and a red dot while none is done
+var goals_line := ""
+var goal_note: Array = []            # the goals the shift just finished (the results card lists them)
+var goal_extra := ""                 # ...and the streak day / bonus chest line under them
 var bad_streak := 0
 var bad_done := false
 var ramp_note := ""             # the results card says where the landed aircraft ended up ("Hangar full · 4 on the ramp")
@@ -1744,7 +1807,7 @@ func _update_coins(delta: float) -> void:
 
 const SLIDE := 140.0
 ## How far into the flow each screen is: going deeper slides in from the right, coming back from the left.
-const DEPTH := {"menu": 0.0, "select": 1.0, "detail": 1.5, "upgrades": 1.0, "list": 1.0, "play": 2.0, "results": 3.0, "pause": 2.5, "ad": 2.5}
+const DEPTH := {"menu": 0.0, "select": 1.0, "detail": 1.5, "upgrades": 1.0, "goals": 1.0, "list": 1.0, "play": 2.0, "results": 3.0, "pause": 2.5, "ad": 2.5}
 const POP_KINDS := ["results", "pause", "ad"]
 var _tr_t := 99.0
 var transition_count := 0
@@ -2407,6 +2470,8 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	var sub_extra := (" \u00b7 " + ramp_note) if ramp_note != "" else ((" \u00b7 cleared %d s early" % shift.early_seconds) if shift.early_seconds > 0 else "")
 	_art.res_sub = "%s \u00b7 %d landed%s" % [Airports.airport_name(), shift.landed, sub_extra]
 	_art.res_unlock = ""
+	_art.res_goals = goal_note.duplicate()
+	_art.res_goals_extra = goal_extra
 	if not _art.show_result or _art.res_t > 60.0:
 		_art.res_t = 0.0
 	_slam_next = 0
@@ -2691,6 +2756,33 @@ func show_upgrades(coins: int, levels: PackedInt32Array) -> void:
 			_art.add_button("upg:" + id, Upgrades.upgrade_name(id), r, state, Upgrades.description(id), -1, -1, {"kind": 1, "glyph": Upgrades.glyph(id), "pips": lvl, "cost": maxi(price, 0), "tint": [Style.PRIMARY, Color("a06bff"), Style.WARNING, Style.DANGER, Style.SUCCESS, Color("ff8a3d")][i % 6]})
 		_art.queue_redraw())
 
+## The daily goals sheet: three goal cards (with a reroll chip each), the bonus chest and the streak.
+func show_goals(v: Dictionary) -> void:
+	if not priming:
+		_go("goals")
+		_hide_all_screens()
+		_select.visible = true
+		_select_title.text = "DAILY GOALS"
+	_use_panel("goals", _sig([v]), func() -> void:
+		_set_header(0, "coin", int(v["coins"]))
+		var vp := get_viewport().get_visible_rect().size
+		_art.clear_buttons()
+		_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+		var y := 150.0 + Style.safe_top
+		var items: Array = v["items"]
+		for i in items.size():
+			var it: Dictionary = items[i]
+			_art.add_button("goal:%d" % i, it["text"], Rect2(40.0, y, vp.x - 80.0, 150.0), 2 if it["done"] else 0, it["sub"], -1, int(it["reward"]), {"kind": 13, "pips": int(it["tier"])})
+			if it["can_reroll"]:
+				_art.add_button("greroll:%d" % i, "Reroll", Rect2(vp.x - 40.0 - 200.0, y + 156.0, 200.0, 56.0), 0, "", -1, -1, {"kind": 4})
+				y += 70.0
+			y += 170.0
+		y += 10.0
+		_art.add_button("chest", "Bonus chest: all three", Rect2(40.0, y, vp.x - 80.0, 130.0), 2 if v["chest_done"] else 0, "Finish every goal today", -1, int(v["chest"]), {"kind": 13, "pips": 1})
+		y += 160.0
+		_art.add_button("streak", v["streak_title"], Rect2(40.0, y, vp.x - 80.0, 200.0), 0, v["streak_sub"], -1, -1, {"kind": 15, "pips": int(v["week_pos"])})
+		_art.queue_redraw())
+
 ## The id of the enabled button under `pos` ("" if none).
 func button_at(pos: Vector2) -> String:
 	var k := _art.button_at(pos)
@@ -2730,10 +2822,11 @@ func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _
 	# The airport under the title is a button (it opens the Airports screen): it is drawn as one.
 	var tag_y := 250.0 * vp.y / 1920.0 + Style.safe_top + 398.0
 	_art.add_button("airports_tag", airport_name, Rect2(56.0 + Style.safe_left, tag_y, _art.text_width(airport_name, 34) + 250.0, 76.0), 0, "", airport_stars, -1, {"kind": 9})
+	_art.add_button("goals", "Daily goals  %d/3" % goals_done, Rect2(56.0 + Style.safe_left, tag_y + 92.0, 640.0, 108.0), 0, goals_line, goals_done, -1, {"kind": 14, "badge": -2 if goals_done == 0 else 0})
 	_art.add_button("airports", "Airports", row2, 0, "", -1, -1, {"kind": 0, "glyph": "airport"})
 	_art.add_button("bad", "Bad pilot day", Rect2(row2.position.x + 464.0, row2.position.y, 436.0, 150.0), 0, "", -1, -1, {"kind": 0, "glyph": "bad"})
 	_art.add_button("noeng_bad", "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(row2.position.x + 464.0 + 70.0, row2.position.y - 50.0, 366.0, 44.0), 2 if bad_no_engines else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
-	var items := [["upgrades", "Tower", "upgrades", 0], ["shop", "Hangar", "hangar", 0], ["daily", "Daily", "sun", -1 if daily_done else (daily_streak if daily_streak > 0 else -2)]]
+	var items := [["upgrades", "Tower", "upgrades", 0], ["shop", "Hangar", "hangar", 0]]
 	for k in items.size():
 		_art.add_button(items[k][0], items[k][1], Rect2(vp.x - 36.0 - Style.safe_right - 130.0, 150.0 + Style.safe_top + k * 176.0, 130.0, 160.0), 0, "", -1, -1, {"kind": 7, "glyph": items[k][2], "badge": items[k][3]})
 	_art.queue_redraw()

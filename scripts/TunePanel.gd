@@ -291,7 +291,7 @@ func build() -> void:
 	var rows := [
 		[["add_coins", "+1000 coins"], ["unlock_all", "Unlock airports"], ["max_upgrades", "Max upgrades"]],
 		[["force_wind", "Force wind shift"], ["storm", "Storm"], ["fog", "Fog"], ["crosswind", "Crosswind"]],
-		[["reset_save", "Reset save"], ["reset_daily", "Reset daily"]],
+		[["reset_save", "Reset save"], ["reset_daily", "Reset goals"]],
 	]
 	for row in rows:
 		var hb := HBoxContainer.new()
@@ -395,7 +395,7 @@ func _debug(id: String) -> void:
 			_out.text = "Save reset."
 		"reset_daily":
 			main.debug_reset_daily()
-			_out.text = "Daily shift reset."
+			_out.text = "Daily goals and streak reset."
 
 ## Put every tuned value back to its default (as captured when the panel was built).
 func reset_defaults() -> void:

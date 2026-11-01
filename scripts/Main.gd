@@ -13,6 +13,7 @@ const SCREEN_UPGRADES := 4
 const SCREEN_SHOP := 5
 const SCREEN_AD := 6
 const SCREEN_PAUSE := 7
+const SCREEN_GOALS := 9          # today's three goals, the chest and the streak
 const SCREEN_DETAIL := 8         # one airport's detail screen (see open_detail)
 
 const HEADER_DONE := "SHIFT\nCOMPLETE"
@@ -398,6 +399,15 @@ func restart() -> void:
 	_last_land_t = -100.0
 	_results_ad_used = false
 	_paid_payout = 0
+	goal_go_arounds = 0
+	goal_locked_run = 0
+	goal_max_locked = 0
+	goal_weather = false
+	goal_results = []
+	goal_chest = 0
+	goal_streak_text = ""
+	hud.goal_note = []
+	hud.goal_extra = ""
 	_finale = 0
 	_last_over = -1
 	hud.set_finale("", Color.WHITE, false)
@@ -457,6 +467,106 @@ func restart() -> void:
 	hud.set_wind(wind.from_deg, wind.toward_deg())
 	hud.set_shift(shift)
 
+## What the daily goals need to know about the player: the open airports, what they spawn, their weather, ordinary shift sizes.
+func goals_ctx() -> Dictionary:
+	var open: Array = []
+	var types := {}
+	var weather := {}
+	var typical := {}
+	var t2 := {}
+	var noeng := false
+	for i in Airports.COUNT:
+		if not Save.airport_open(i):
+			continue
+		open.append(i)
+		types[i] = Airports.mix(i).keys()
+		weather[i] = not (Airports.def(i)["weather"] as Array).is_empty()
+		typical[i] = Goals.TYPICAL_LANDINGS[i]
+		t2[i] = Tuning.profile(i)["stars"][1]
+		if Save.no_engines_on(i) and (types[i] as Array).has(Aircraft.Type.GLIDER):
+			noeng = true
+	if Save.no_engines_bad:
+		noeng = true
+	return {"open": open, "types": types, "weather": weather, "typical": typical, "t2": t2, "noeng": noeng, "unit": Goals.unit_for(open, Tuning.goal_unit)}
+
+## A landing or the end of a shift happened: the goals move along, and what they pay is credited (and noted for the results card).
+func _goal_event(ev: Dictionary) -> void:
+	var ctx := goals_ctx()
+	var r := Save.goal_event(ev, ctx)
+	if r["finished"].is_empty():
+		return
+	for f in r["finished"]:
+		var g: Dictionary = Save.goals["list"][f["i"]]
+		goal_results.append({"text": Goals.text(g, Airports.airport_name(maxi(int(g["ap"]), 0))), "reward": int(f["reward"]), "tier": int(g["tier"])})
+		if screen == SCREEN_PLAY:
+			hud.popup("Goal done!  +%d" % int(f["reward"]), Color(1.0, 0.85, 0.3), Vector2(get_viewport().get_visible_rect().size.x * 0.5, get_viewport().get_visible_rect().size.y * 0.3))
+	goal_chest += int(r["chest"])
+	if not (r["streak"] as Dictionary).is_empty():
+		goal_streak_text = _streak_text(r)
+	hud.goal_note = goal_results
+	var extra: Array[String] = []
+	if goal_streak_text != "":
+		extra.append(goal_streak_text)
+	if goal_chest > 0:
+		extra.append("Bonus chest  +%d" % goal_chest)
+	hud.goal_extra = "  \u00b7  ".join(extra)
+	Save.write_file()
+
+func _streak_text(r: Dictionary) -> String:
+	var sr: Dictionary = r["streak"]
+	var t := "Day %d of the streak" % int(sr["pos"])
+	if r["cosmetic"] != "":
+		t += "  +" + str(r["cosmetic"]).split(":")[1].capitalize()
+	elif int(r["streak_coins"]) > 0:
+		t += "  +%d" % int(r["streak_coins"])
+	return t
+
+## The menu's goals card: how many goals are done today and the streak line.
+func _goals_for_hud() -> void:
+	Save.ensure_goals(goals_ctx())
+	hud.goals_done = Goals.done_count(Save.goals)
+	hud.goals_line = _streak_line()
+
+func _streak_line() -> String:
+	var ss := Goals.streak_state(Save.goal_streak, Save.today())
+	var t := ""
+	if int(ss["count"]) <= 0:
+		t = "Finish a goal to start a streak"
+	elif ss["done_today"]:
+		t = "Streak: day %d done" % ((int(ss["count"]) - 1) % Goals.STREAK_LEN + 1)
+	else:
+		t = "Streak: day %d today" % (int(ss["next_pos"]))
+	if int(ss["freezes"]) > 0:
+		t += "  \u00b7  %d freeze%s" % [int(ss["freezes"]), "" if int(ss["freezes"]) == 1 else "s"]
+	return t
+
+## The goals sheet.
+func _show_goals() -> void:
+	screen = SCREEN_GOALS
+	alive = false
+	var ctx := goals_ctx()
+	Save.ensure_goals(ctx)
+	var items: Array = []
+	for i in (Save.goals["list"] as Array).size():
+		var g: Dictionary = Save.goals["list"][i]
+		var sub: String = "%s  \u00b7  %s" % [Goals.TIER_NAMES[int(g["tier"])], Goals.progress_text(g)] if not Goals.progress_text(g).is_empty() else Goals.TIER_NAMES[int(g["tier"])]
+		items.append({"text": Goals.text(g, Airports.airport_name(maxi(int(g["ap"]), 0))), "sub": sub, "reward": int(g["reward"]), "tier": int(g["tier"]), "done": bool(g["done"]), "can_reroll": not bool(g["done"]) and not bool(g["rr"])})
+	var ss := Goals.streak_state(Save.goal_streak, Save.today())
+	var week_pos := (int(ss["count"]) - 1) % Goals.STREAK_LEN + 1 if int(ss["count"]) > 0 else 0
+	if int(ss["count"]) > 0 and not ss["done_today"]:
+		week_pos = int(ss["count"]) % Goals.STREAK_LEN if int(ss["count"]) % Goals.STREAK_LEN != 0 else 0
+	var nxt := Goals.day_reward(int(ss["next_pos"]), int(ss["count"]) + (0 if ss["done_today"] else 1), int(ctx["unit"]))
+	hud.show_goals({"items": items, "chest": Goals.chest_for(int(ctx["unit"])), "chest_done": bool(Save.goals.get("chest", false)),
+		"streak_title": "Streak  \u00b7  %s" % _streak_line().replace("Streak: ", ""), "streak_sub": "Next: %s" % (("a free cosmetic" if nxt["cosmetic"] else "+%d coins" % int(nxt["coins"]))),
+		"week_pos": week_pos, "coins": Save.coins})
+
+func reroll_goal(i: int) -> bool:
+	var ok := Save.reroll_goal(i, goals_ctx())
+	if ok:
+		Save.write_file()
+		_show_goals()
+	return ok
+
 func _show_menu() -> void:
 	preview_kind = ""
 	Boot.mark("menu shown")
@@ -467,8 +577,7 @@ func _show_menu() -> void:
 	daily_mode = false
 	bad_mode = false
 	hud.mode = ""
-	hud.daily_streak = Save.daily_streak()
-	hud.daily_done = Save.daily_done_today()
+	_goals_for_hud()
 	hud.bad_streak = Save.daily_streak("bad")
 	hud.bad_done = Save.daily_done_today("bad")
 	airfield.progress = -1.0
@@ -832,6 +941,9 @@ func _on_landed(p: Aircraft) -> void:
 		hangar_fee = roundi(base * Tuning.imp_hangar_fee)
 		extra += hangar_fee
 	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
+	goal_locked_run = goal_locked_run + 1 if p.locked else 0
+	goal_max_locked = maxi(goal_max_locked, goal_locked_run)
+	_goal_event({"t": "land", "ap": airport, "type": p.type, "emergency": p.emergency, "vip": vip_paid, "student": p.student, "no_engines": no_engines, "streak": streak})
 	var col := Airports.land_color(p.tkind, p.runway)
 	var land_at := p.pos
 	airfield.begin_taxi(p.type, p.tkind, p.runway, p.land_end, p.student, p.speed_class)
@@ -901,6 +1013,8 @@ func _on_crashed(p: Aircraft, kind: int) -> void:
 ## A go-around: the aircraft climbs out along the runway heading and needs a new path (it keeps its timer).
 func _on_go_around(p: Aircraft, reason: int) -> void:
 	var why := Approach.reason_text(reason)
+	goal_go_arounds += 1
+	goal_locked_run = 0
 	sfx.play("go_around")
 	hud.popup("Go-around!" if why == "" else "Go-around!\n%s" % why, Color(1, 0.85, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
 	overlay.ripple(p.pos, Color(1, 0.85, 0.3), 0.7)
@@ -1025,6 +1139,7 @@ func _on_weather_warned(_kind: String, text: String) -> void:
 
 func _on_weather_started(kind: String) -> void:
 	traffic.event_active = true
+	goal_weather = true
 	match kind:
 		"storm":
 			var n := 1 + (1 if rng_env.randf() < 0.3 + 0.5 * traffic.run_time / maxf(Tuning.par_eff(), 1.0) else 0)
@@ -1124,6 +1239,7 @@ func _end_shift() -> void:
 		shift.set_overtime(t_end - Tuning.par_eff(), int(Tuning.overtime_penalty_per_second))
 	_stinger_later("clear_sky" if shift.balance() >= 0 else "fine")
 	var gained := _settle()
+	_goal_event({"t": "shift", "ap": airport, "landed": shift.landed, "go_arounds": goal_go_arounds, "fines": shift.fines, "stars": shift.stars(), "net": shift.balance(), "hangar_full": shift.landed >= Ramp.star_landings(), "locked_run": goal_max_locked, "weather": goal_weather, "bad": bad_mode})
 	if not daily_mode:
 		Save.submit_best(airport, shift.landed)
 	Save.shifts_played += 1
@@ -1146,6 +1262,15 @@ func _end_shift() -> void:
 		_later(2, func(): Input.vibrate_handheld(150))      # (not in the frame that lays the results card out)
 
 var _daily_note := ""
+
+# What the daily goals watch during a shift.
+var goal_go_arounds := 0
+var goal_locked_run := 0
+var goal_max_locked := 0
+var goal_weather := false
+var goal_results: Array = []           # the goals this shift finished (for the results card): {"text", "reward"}
+var goal_chest := 0
+var goal_streak_text := ""
 
 ## Run `c` after `frames` frames: work that is not part of drawing a screen waits for the frames after it.
 func _later(frames: int, c: Callable) -> void:
@@ -1177,7 +1302,7 @@ func _settle() -> Dictionary:
 				coins += Tuning.coins_first_star_bonus
 	var note := ""
 	if daily_mode:
-		var kind := "bad" if bad_mode else "daily"
+		var kind := "bad"
 		Save.daily_note_score(payout, kind)
 		if stars >= 1 and not Save.daily_done_today(kind):
 			var streak_now := Save.daily_complete(payout, kind)
@@ -1185,7 +1310,7 @@ func _settle() -> Dictionary:
 			if bad_mode:
 				bonus = roundi(bonus * Tuning.bad_day_bonus_mult)
 			coins += bonus
-			note = "\n%s bonus|+%d (streak %d)" % ["Bad day" if bad_mode else "Daily", bonus, streak_now]
+			note = "\nBad day bonus|+%d (streak %d)" % [bonus, streak_now]
 			_daily_note = note
 	Save.add_coins(coins)
 	var is_best := (not daily_mode) and Save.submit_best_coins(airport, payout)
@@ -1406,8 +1531,10 @@ func _on_button(id: String) -> void:
 		_refresh_preview()
 	elif id == "pv_buy":
 		_preview_tap()
-	elif id == "daily":
-		start_daily()
+	elif id == "goals":
+		_show_goals()
+	elif id.begins_with("greroll:"):
+		reroll_goal(int(id.substr(8)))
 	elif id == "bad":
 		start_bad_day()
 	elif id == "ad_refund":
@@ -1446,7 +1573,7 @@ func _on_button(id: String) -> void:
 func _ui_sound(id: String) -> String:
 	if id == "back" or id == "menu" or id == "quit" or id == "restart" or id == "resume":
 		return "back"
-	if id == "details" or id.begins_with("shop_tab:") or id.begins_with("dtab:") or id.begins_with("noeng"):
+	if id == "details" or id.begins_with("shop_tab:") or id.begins_with("dtab:") or id.begins_with("noeng") or id.begins_with("greroll:"):
 		return "toggle"
 	if id == "unlock_ok" or id.begins_with("ad_"):
 		return "unlock"
@@ -1651,21 +1778,14 @@ func shop_pick(kind: String, i: int) -> bool:
 func _daily_bonus(streak_days: int) -> int:
 	return Tuning.daily_bonus_coins + Tuning.daily_streak_coins * mini(streak_days, 7)
 
-## The airport of a daily challenge: one of the open airports, chosen by the day number (`offset` keeps the
-## Bad Pilot Day's airport apart from the daily shift's). With every airport open this is `(day + offset) % 6`.
+## The airport of Bad Pilot Day: one of the open airports, chosen by the day number (`offset` keeps it apart from other seeds).
+## With every airport open this is `(day + offset) % 6`.
 func daily_airport(offset: int) -> int:
 	var open: Array[int] = []
 	for i in Airports.COUNT:
 		if Save.airport_open(i):
 			open.append(i)
 	return open[(Save.today() + offset) % open.size()] if not open.is_empty() else 0
-
-## Today's seeded shift: the airport and the arrivals are the same for everyone today.
-func start_daily() -> void:
-	daily_mode = true
-	bad_mode = false
-	airport = daily_airport(0)
-	begin_shift()
 
 ## Bad Pilot Day: a second daily challenge. Every aircraft is a student pilot, go-arounds are very likely and every
 ## landing pays big. Its own airport, best score and streak.
@@ -1770,7 +1890,8 @@ func debug_reset_save() -> void:
 	airfield.show_upgrades()
 
 func debug_reset_daily() -> void:
-	Save.daily = {}
+	Save.goals = {}
+	Save.goal_streak = {}
 	Save.bad_day = {}
 	Save.write_file()
 
