@@ -2274,16 +2274,15 @@ func _improvement_props(v: AirportScene) -> void:
 				Prim.box(holder, Vector3(0.05, 0.06, 0.05), Vector3(0.18, 0.06, ez * 0.55), glow, false)
 			v.imps.append([holder, "exit", k + 1])
 
-## A small gold plaque on the tower's front wall: it appears at mastery rank 5 (a gold plate with a darker frame and a little star).
+## A small gold plaque on the tower base's roof: it appears at mastery rank 5 (a gold plate with a darker frame and a lighter centre).
 func _plaque(tower_node: Node3D) -> Node3D:
 	var n := Node3D.new()
-	n.position = Vector3(0.0, 0.26, 0.37)
+	n.position = Vector3(0.27, 0.445, 0.17)         # (on the flat roof of the tower's base, where the camera looks down on it)
 	n.visible = false
 	tower_node.add_child(n)
-	Prim.box(n, Vector3(0.26, 0.15, 0.02), Vector3(0, 0, 0), Prim.mat(Color("7a5a14")), false)
-	var gold := Prim.mat(Color("f2c230"))
-	Prim.box(n, Vector3(0.22, 0.11, 0.025), Vector3(0, 0, 0.004), gold, false)
-	Prim.box(n, Vector3(0.05, 0.05, 0.03), Vector3(0, 0, 0.012), Prim.mat(Color("fff0b0")), false)
+	Prim.box(n, Vector3(0.24, 0.025, 0.17), Vector3(0, 0, 0), Prim.mat(Color("7a5a14")), false)
+	Prim.box(n, Vector3(0.2, 0.03, 0.13), Vector3(0, 0.006, 0), Prim.mat(Color("f2c230")), false)
+	Prim.box(n, Vector3(0.07, 0.034, 0.05), Vector3(0, 0.012, 0), Prim.mat(Color("fff0b0")), false)
 	return n
 
 ## Is the gold plaque showing on the tower of the airport the field is showing now?
