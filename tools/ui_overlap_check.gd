@@ -14,6 +14,7 @@ extends SceneTree
 ##
 ## Arguments (after --):  shots=<dir>   save the pictures there        only=<text>   only states whose name contains it
 ##                        sizes=<a,b>   only those sizes ("390x844")    report=<file> write every problem as JSON there
+##                        plant         self-test: a label is put across the PLAY button; the exit code must then be 1
 ##                        quiet         print only the totals          baseline=<file> compare with an earlier report: print what is new
 ## The exit code is 1 if there is any problem that is not in ALLOW (the allowlist below), 0 otherwise.
 
@@ -39,6 +40,7 @@ var sizes_arg := ""
 var report_path := ""
 var baseline_path := ""
 var quiet := false
+var plant := false                    # self-test: put a label across the PLAY button, which the check must report (CI runs this and expects exit code 1)
 var main: Node
 var hud: Node
 var save: Node
@@ -75,6 +77,8 @@ func _initialize() -> void:
 			baseline_path = a.substr(9)
 		elif a == "quiet":
 			quiet = true
+		elif a == "plant":
+			plant = true
 	rendering = DisplayServer.get_name() != "headless"
 	if out_dir != "" and not rendering:
 		print("no pictures: the display server is headless (use xvfb-run with --rendering-driver opengl3)")
@@ -216,17 +220,20 @@ func _collect() -> Array:
 			var br: Rect2 = bx
 			if br.size.x >= 24.0 and br.size.y >= 24.0 and br.size.x * br.size.y < 0.6 * vp.x * vp.y:
 				cur_boxes.append(br)
-		if art.hits_dirty:
+		# (an older checkout, which the baseline run reads, has no hit areas: its buttons are tapped where they are drawn)
+		var has_hits: bool = art.has_method("refresh_hits")
+		if has_hits and art.hits_dirty:
 			art.refresh_hits()
 		for k in art.btn_count:
 			if art.btn_kind[k] == 11:
 				continue                       # (an invisible catcher: a sheet's scrim)
-			els.append({"k": "button", "id": art.btn_id[k], "text": art.btn_text[k], "rect": art.btn_rect[k], "hit": art.btn_hit[k], "inter": true, "state": art.btn_state[k], "src": "art"})
+			els.append({"k": "button", "id": art.btn_id[k], "text": art.btn_text[k], "rect": art.btn_rect[k], "hit": art.btn_hit[k] if has_hits else art.btn_rect[k], "inter": true, "state": art.btn_state[k], "src": "art"})
 		if art.show_play and art.pause_rect.size.x > 0.0:
-			els.append({"k": "button", "id": "pause", "text": "", "rect": art.pause_rect, "hit": art._slop(art.pause_rect.grow(6.0)), "inter": true, "state": 0, "src": "art"})
+			els.append({"k": "button", "id": "pause", "text": "", "rect": art.pause_rect, "hit": art._slop(art.pause_rect.grow(6.0)) if has_hits else art.pause_rect.grow(6.0), "inter": true, "state": 0, "src": "art"})
 		if art.show_pause and art == hud._art and art.slider_rect[0].size.x > 0.0:
 			for i in 3:
-				els.append({"k": "button", "id": "slider:%d" % i, "text": art.slider_name[i], "rect": art.slider_rect[i], "hit": art._slop(art.slider_rect[i].grow_individual(40.0, 20.0, 40.0, 20.0)), "inter": true, "state": 0, "src": "art"})
+				var sh: Rect2 = art.slider_rect[i].grow_individual(40.0, 20.0, 40.0, 20.0)
+				els.append({"k": "button", "id": "slider:%d" % i, "text": art.slider_name[i], "rect": art.slider_rect[i], "hit": art._slop(sh) if has_hits else sh, "inter": true, "state": 0, "src": "art"})
 		for t in art.rec_texts:
 			els.append({"k": "text", "id": "", "text": t["text"], "rect": t["rect"], "inter": false, "size": t["size"], "over": t["over"], "limit": t["limit"], "natural": t["natural"], "src": "art", "layer": str(art.name)})
 		for g in art.rec_glyphs:
@@ -558,6 +565,16 @@ func _states_menu() -> void:
 	save.reset_all()
 	main._show_menu()
 	await _check("menu fresh")
+	if plant:
+		var pk: int = hud._art.btn_id.find("play")
+		var pr: Rect2 = hud._art.btn_rect[pk]
+		var pl := Label.new()
+		pl.text = "PLANTED OVERLAP"
+		pl.add_theme_font_size_override("font_size", 56)
+		hud.add_child(pl)
+		pl.position = Vector2(pr.position.x + 40.0, pr.position.y - 30.0)
+		await _check("menu planted overlap")
+		pl.queue_free()
 	_rich_save()
 	save.day_override = 70000
 	main.goals_enabled = true
@@ -826,8 +843,11 @@ func _states_misc() -> void:
 		await _check("ad screen %s" % title.substr(0, 14))
 		main.hud.hide_ad()
 	main.hud.show_logo()
-	await _frames(40)
+	main.hud.set_process(false)             # (the intro's clock stands still: the plane that crosses the screen is in the same place every run)
+	main.hud._art.logo_t = 2.0
+	main.hud._art.queue_redraw()
 	await _check("studio logo")
+	main.hud.set_process(true)
 	main.hud._art.logo_t = -1.0
 	main.hud._logo_bg.visible = false
 	main._show_menu()

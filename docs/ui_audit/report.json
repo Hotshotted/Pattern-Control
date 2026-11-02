@@ -1,0 +1,11 @@
+{
+	"allowed": 0,
+	"problems": [],
+	"states": 846,
+	"unreachable": [
+		"privacy policy page: it opens the system browser (web/privacy.html), it is not an in-game screen",
+		"TUNE panel and perf overlay: developer tools behind ?tune / ?perf in the page address, never shown to players",
+		"confirmation dialogs: the game has none (the shop's hold-to-buy sheet is covered: 'preview ...' states)",
+		"popups: where one appears depends on where the aircraft is; they are checked at the screen's left, middle and right edges"
+	]
+}

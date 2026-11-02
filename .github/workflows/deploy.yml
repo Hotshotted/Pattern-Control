@@ -70,6 +70,43 @@ jobs:
           timeout 180 godot --headless --path . --script res://tests/smoke_test.gd 2>&1 | tee smoke.log
           ! grep -q "SCRIPT ERROR" smoke.log
 
+      # The UI overlap check (tools/ui_overlap_check.gd, docs/ui_audit.md): every screen, panel, popup, tab and state at six screen sizes
+      # (320x568, 375x667, 390x844, 430x932, 768x1024, 1280x720). Fails on any overlapping text / button / icon, clipped or overflowing text,
+      # anything off-screen or under the notch or home bar, a tap target under 44 points or one that another control covers, and text under
+      # the minimum size, unless the allowlist in the tool says why it is meant to be so. On failure the pictures (problems outlined in red) are kept.
+      # ...and the check itself is checked: with a label planted across the PLAY button it must fail (exit code 1).
+      - name: UI overlap check catches a planted overlap
+        shell: bash
+        run: |
+          set +e
+          timeout 300 godot --headless --path . --script tools/ui_overlap_check.gd -- sizes=390x844 only="menu planted" plant quiet > /dev/null 2>&1
+          test $? -eq 1
+
+      - name: UI overlap check
+        id: uioverlap
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout 1500 godot --headless --path . --script tools/ui_overlap_check.gd -- quiet report="$RUNNER_TEMP/ui_overlap.json" 2>&1 | grep -v "^\[boot\]\|^\[go-around\]\|^ALSA\|^WARNING\|^   at:" | tee ui_overlap.log
+          ! grep -q "SCRIPT ERROR" ui_overlap.log
+          grep -q "^ui_overlap_check:" ui_overlap.log
+
+      - name: UI overlap pictures (when the check fails)
+        if: failure() && steps.uioverlap.outcome == 'failure'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglx-mesa0 > /dev/null
+          xvfb-run -a godot --path . --rendering-driver opengl3 --script tools/ui_overlap_check.gd -- quiet shots="$RUNNER_TEMP/ui_audit_pictures" > /dev/null 2>&1 || true
+
+      - name: Keep the UI overlap pictures
+        if: failure() && steps.uioverlap.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-overlap-pictures
+          path: ${{ runner.temp }}/ui_audit_pictures
+          if-no-files-found: ignore
+
       # The phone check: a mid-shift drawn normally and as a phone with a 16-bit depth buffer would draw it (the same picture, no
       # magenta-ish pixel anywhere: a missing texture or a bad shader input), on a software GL under a virtual display.
       - name: Phone check
