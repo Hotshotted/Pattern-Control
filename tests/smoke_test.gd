@@ -6241,6 +6241,24 @@ func _initialize() -> void:
 	main._show_menu()
 	save.reset_all()
 
+	print("37. The privacy policy page")
+	var pv_html = FileAccess.get_file_as_string("res://web/privacy.html")
+	check(pv_html != "" and pv_html.contains("collects no personal data") and pv_html.contains("There are no accounts"), "the policy page says Pattern Work collects no personal data and has no accounts")
+	check(pv_html.contains("no analytics") and pv_html.contains("no advertising") and pv_html.contains("stored only on your device") and pv_html.contains("Uninstalling the app deletes it"), "...no analytics or ads, progress only on the device, uninstalling deletes it")
+	check(pv_html.contains("mailto:gaugehendon@gmail.com") and pv_html.contains("effective ") and pv_html.contains("we will update this page"), "...the contact email, an effective date and a promise to update it")
+	check(pv_html.contains("font-family: \"Rubik\"") and pv_html.contains("Rubik.ttf") and pv_html.contains("#FFF2DC") and pv_html.contains("viewport-fit=cover") and not pv_html.contains("fonts.googleapis") and not pv_html.contains("<script"), "...set in Rubik on the Cozy cream, readable on a phone, with no script and no outside request")
+	var pv_deploy = FileAccess.get_file_as_string("res://.github/workflows/deploy.yml")
+	check(pv_deploy.contains("cp web/privacy.html build/web/privacy.html") and pv_deploy.contains("assets/fonts/Rubik.ttf"), "the web deploy publishes it as /privacy.html with the font")
+	check(FileAccess.get_file_as_string("res://docs/ios.md").contains(main.PRIVACY_URL) and main.PRIVACY_URL.ends_with("/privacy.html"), "docs/ios.md carries the same address as the game")
+	main.restart()
+	tr.auto_spawn = false
+	main.pause_game()
+	check(main.hud._art.btn_id.has("privacy"), "the pause menu has a Privacy policy button")
+	var pv_before = main.privacy_opened
+	main._on_button("privacy")
+	check(main.privacy_opened == pv_before + 1 and main.screen == main.SCREEN_PAUSE, "...and it opens the page and leaves the shift paused")
+	main.resume_game()
+
 	print("34. Mastery, achievements and the new cosmetics")
 	main.progress_enabled = true
 	# Mastery data: rising thresholds, rank 5 about three times rank 3, a livery at rank 3 and a field detail at rank 5 for every airport.

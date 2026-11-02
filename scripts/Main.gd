@@ -551,6 +551,20 @@ func _streak_line() -> String:
 		t += "  \u00b7  %d freeze%s" % [int(ss["freezes"]), "" if int(ss["freezes"]) == 1 else "s"]
 	return t
 
+## The privacy policy page, served next to the game (docs/ios.md has the same address for the store listing). On the web it opens beside the game
+## (a relative address: it follows wherever the game is hosted), on a phone in the browser.
+const PRIVACY_URL := "https://hotshotted.github.io/Pattern-Control/privacy.html"
+var privacy_opened := 0                 # (how many times it was opened: the tests read it)
+
+func open_privacy_policy() -> void:
+	privacy_opened += 1
+	if DisplayServer.get_name() == "headless":
+		return
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.open('privacy.html', '_blank')")
+	else:
+		OS.shell_open(PRIVACY_URL)
+
 ## The Achievements sheet, one group at a time.
 func _show_achievements() -> void:
 	screen = SCREEN_ACH
@@ -1683,6 +1697,8 @@ func _on_button(id: String) -> void:
 		_refresh_preview()
 	elif id == "pv_buy":
 		_preview_tap()
+	elif id == "privacy":
+		open_privacy_policy()
 	elif id == "goals":
 		_show_goals()
 	elif id == "ach":

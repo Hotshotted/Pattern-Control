@@ -83,9 +83,10 @@ No certificate or provisioning profile is stored anywhere: Xcode asks Apple for 
 
 Do these in App Store Connect before pressing "Submit for review" on the first external build.
 
-- [ ] **Privacy policy URL** (App Information > Privacy Policy URL, and TestFlight > Test Information). It must be a public web page. A draft is in
-      section 6 below; put it on any public page (a GitHub Pages page of this repository works) and paste the address.
-- [ ] **App Privacy** (App > App Privacy): answer **Data Not Collected**. The app has no account, no analytics, no advertising SDK and makes no
+- [ ] **Privacy policy URL** (App Information > Privacy Policy URL, and TestFlight > Test Information): **https://hotshotted.github.io/Pattern-Control/privacy.html**.
+      The page is `web/privacy.html`, deployed with the web game (same GitHub Pages site); the pause menu's *Privacy policy* button opens it too.
+      If the repository or the Pages site is ever renamed or moved, change the address here, in `Main.gd` (`PRIVACY_URL`) and in App Store Connect.
+- [ ] **App Privacy** (App > App Privacy): answer **Data Not Collected** (matching the policy page). The app has no account, no analytics, no advertising SDK and makes no
       network request; the save (coins, stars, settings) stays in the app's own storage on the phone. The build also carries a privacy manifest
       (`PrivacyInfo.xcprivacy`: tracking off; the file-timestamp, system-boot-time and disk-space reasons Godot declares).
 - [ ] **Test Information** (TestFlight > Test Information): Beta App Description, Feedback Email, Contact (first name, last name, phone, email),
@@ -112,15 +113,14 @@ Do these in App Store Connect before pressing "Submit for review" on the first e
 > "Refund fine" buttons are placeholders for a future ad: they show a short "Ad playing" screen and give the reward; no ad is loaded. The app
 > pauses when it goes to the background or a call comes in and waits for a tap to resume.
 
-## 6. Draft privacy policy (put it on a public page)
+## 6. The privacy policy
 
-> **Privacy policy: Pattern Work** (Clear Prop Games)
->
-> Pattern Work does not collect, store on our servers, share or sell any personal information. The game has no accounts and no analytics, shows no
-> advertising, and does not connect to the internet. Your progress (coins, stars, settings) is saved only on your device, in the app's own storage,
-> and is deleted when you delete the app. If you send us feedback by email, we use the address only to reply to you.
->
-> Contact: *your email*. Last updated: *date*.
+`web/privacy.html` (live at the address in the checklist above) says: no personal data is collected, no accounts, analytics, crash reporting or
+ads, progress is stored only on the device and uninstalling deletes it, with the contact email and an effective date. It was written after
+reading the code for anything that leaves the device and finding nothing: no HTTP, socket or multiplayer call anywhere in the scripts, no
+analytics or crash-reporting code, no third-party SDK or GDExtension, no external URL in the web shell. (The web build only fetches its own
+files from its own site: the audio loops and a `version.txt` stale-page check.) **If you ever add an SDK or any network call, update the page, its
+effective date, the App Privacy answers and the review notes before shipping.**
 
 ## 7. If a run fails
 

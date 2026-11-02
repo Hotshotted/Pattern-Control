@@ -94,6 +94,11 @@ jobs:
           grep -c "version.txt" build/web/index.html
           cp assets/fonts/BowlbyOneSC.ttf build/web/BowlbyOneSC.ttf   # (the loading page's wordmark font)
           mkdir -p build/web/audio && cp assets/audio/loops/*.wav build/web/audio/   # (the page plays the music loops natively)
+          # The privacy policy page, /privacy.html, with the Rubik font it is set in (served from here: the page asks no other site for anything).
+          cp web/privacy.html build/web/privacy.html
+          cp assets/fonts/Rubik.ttf assets/fonts/OFL-Rubik.txt build/web/
+          grep -q "collects no personal data" build/web/privacy.html
+          grep -q "gaugehendon@gmail.com" build/web/privacy.html
           grep -q "Clear Prop" build/web/index.html
           ! grep -q '\$GODOT_' build/web/index.html
           ls -la build/web

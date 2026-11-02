@@ -2192,6 +2192,7 @@ func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 		_art.add_button("resume", "RESUME", Rect2(vp.x * 0.5 - 420.0, vp.y * 0.5 - 420.0, 840.0, 230.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
 		_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, vp.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
 		_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, vp.y * 0.5 + 350.0, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
+		_art.add_button("privacy", "Privacy policy", Rect2(vp.x * 0.5 - 250.0, vp.y * 0.5 + 650.0, 500.0, 76.0), 0, "", -1, -1, {"kind": 6, "glyph": "lock"})
 		_panel_sig["pause"] = _sig([])
 		_art.queue_redraw()
 	if not is_equal_approx(_art.slider_val[0], sound) or not is_equal_approx(_art.slider_val[1], music) or not is_equal_approx(_art.slider_val[2], ambience):
