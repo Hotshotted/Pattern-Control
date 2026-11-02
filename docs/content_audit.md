@@ -512,6 +512,54 @@ Against the targets:
 - **Everything bought is unchanged** (average 14.2 h, good 6.6 h with `chase`), because coins per hour did not change. The longest wait with nothing to buy for the average bot went from 36 to 43 minutes (a single long gap before the last Tower level 5; run to run it moves by about 5 minutes).
 - **`newest` regressed on stars.** The bot that only plays the newest airport now stops at 9 stars: it reaches Island at 0.8 h, plays there, and never goes back for a star 2 or 3 at the earlier airports, so it never gets the 10 stars International asks for (before, International needed 13 and opened at 4.5 h because it picked up stars on the way). `chase` and a player who reads the cards do not have this problem. It also means "everything bought" is not reached by `newest` (the improvements at International stay unbought).
 - The good bot is unchanged apart from opening Mountain Field earlier.
+- **Decision: the average bot's 5.7 hours to all 18 stars is accepted** (the 7 to 12 hour target is not met and is not being retuned).
+
+## 8. Phase 3: daily goals and the streak
+
+What was built (tests in section 33 of `tests/smoke_test.gd`):
+
+1. **Goals.** Three a day (one easy, one medium, one hard), reset at local midnight (the day number is the local date). A pool of 31 templates (9 easy, 13 medium, 9 hard) is filled with values that fit the player's progress ("Land N aircraft at X" scales with the airport's ordinary shift) and only ever uses airports the player has open, and aircraft types those airports bring. One free reroll per goal per day (same size, a different goal, never after it is done). All three finished pay a bonus chest. The menu shows a small "Daily goals 1/3" card under the airport chip (tap: the goals sheet with the three goals, their rewards, the rerolls, the chest and the streak). A goal finished in a shift pops up and is listed on the results card.
+2. **Streak.** A day counts when at least one goal is finished. Days 1 to 6 pay 0.5 / 0.75 / 1 / 1.25 / 1.5 / 2 units, day 7 is a cosmetic (the cheapest one not owned) the first time round and 5 units after that; the chain loops. One streak freeze is earned with each completed week (up to two) and spent automatically on a missed day; a gap the freezes cannot cover sends it back to day 1. The streak card shows the week and the freezes. Tested over 30 simulated days with gaps.
+3. **The old Daily Shift is gone** (its menu tile, its seeded shift, its 88 to 166 coin bonus). Bad Pilot Day is unchanged.
+
+**Pay.** The unit is an average shift's pay at the best open airport (55, 64, 69, 69, 107, 150 coins) times a factor, and the goals pay 1, 2 and 4 units, the chest 2 units. At a factor of 1.0, which is the "1x, 2x, 4x an average shift's pay" in the request, the goals added 50% to the average bot's coins (and 26% to the good bot's), far over the 15 to 25% target, because a 20-minute session is only about 12 shifts and the three goals plus the chest are worth 9.5 units. I took the economy target over the 1x / 2x / 4x wording: **the factor is 0.4** (`Tuning.goal_unit`), so the goals pay 0.4x, 0.8x and 1.6x an average shift.
+
+**Careers with goals** (one 20-minute session a day: the bot plays 20 minutes, then the day number goes up). "Without" is the section 7.1 careers (gates 0 / 1 / 2 / 3 / 6 / 10, `chase`); "with" has the goals, the streak, mastery (section 9) and the achievements all on.
+
+| Bot / policy | Goals add to its coins | Everything bought, without | Everything bought, with | All 18 stars, with | Longest wait with nothing to buy or earn |
+|---|---|---|---|---|---|
+| Average / chase | +15% | 14.2 h | 11.3 h | 8.0 h | 34 min (goals count as earning) |
+| Average / grind | +22% | – | 11.5 h | 8.0 h | 24 min |
+| Good / chase | +9% | 6.6 h | 4.9 h | 0.7 h | 18 min |
+| Good / grind | +13% | – | 5.8 h | 0.7 h | 21 min |
+
+- **Goals add 15 to 25% to an average player's coins: met** (+15% with `chase`, +22% with `grind`; +9% to +13% for the good bot, who is not the target).
+- **The average bot's everything-bought time stays above 11 hours: met, just** (11.3 and 11.5 hours). The mastery coins (up to 8,000) are in these runs too.
+- **The good bot's everything-bought time falls to 4.9 to 5.8 hours,** under the 6 to 8 hour window set in phase 2, because early goal coins buy upgrades sooner and the gain compounds. Nobody asked for a floor on the good bot, so I left it.
+- **Nothing to buy or earn for more than about 30 minutes:** with the daily goals counted as earnings the longest gap is 18 to 34 minutes. Without the goals the gaps are longer in the stretch after everything is bought (see section 9).
+- The 15 to 25% was measured per 20-minute session at the airport the bot happens to be at. A player who plays several sessions a day does not get more: the goals reset once a day.
+
+## 9. Phase 4: airport mastery, achievements and cosmetics
+
+What was built (tests in section 34):
+
+1. **Mastery.** Ranks 1 to 5 at each airport from the landings made there (every landing counts). Landings for ranks 1 to 5: Grass Strip 15 / 65 / 140 / 265 / 420, County 40 / 160 / 350 / 665 / 1,050, Regional 25 / 100 / 220 / 420 / 660, Mountain Field 10 / 30 / 70 / 135 / 210, Island 35 / 130 / 290 / 550 / 870, International 60 / 220 / 490 / 930 / 1,470. Rank 3 is where the average bot of the phase 2 careers had its third star there, rank 5 is three times that. Ranks pay 1, 2, 3, 4 and 6 average shifts' pay at that airport (8,000 coins in all for the six airports); rank 3 gives an airport livery and rank 5 a field detail (a windsock colour or a hangar paint). Rank 5 puts a gold plaque on the roof of that tower's base. The airport card and the detail screen show the rank and a progress bar.
+2. **Achievements.** 33 in four groups: Landings 8, Skill 9, Airports 9, Collection 7 (easy, medium and rare), each paying coins once; 10 also give a cosmetic. A new Awards sheet from the menu lists them by group. A toast for one that unlocks (or a mastery rank) waits for a calm moment in a shift: no path being drawn, no go-around signalled, nothing close to another aircraft; what is left at the end of the shift is listed on the results card.
+3. **Cosmetics.** 27 new items: 11 liveries, 4 airport skins and 12 field details (6 windsocks, 6 hangar paints), so 15 liveries and skins in all. Sources: Shop (coins) 5, Mastery 12 (a livery at rank 3 and a detail at rank 5 for each airport), Achievement 10. A locked item shows where it comes from on its card and in its preview ("Mastery: County, rank 3", "Achievement: ten locked finals in a row", "650 coins"). New liveries use only a body and a stripe colour (none within 0.3 of a runway colour, tested) and never touch the nose, wingtips or fin. The shop has three tabs (skins, liveries, field) of two-column cards.
+
+**Careers** (goals on, one 20-minute session a day; `chase` goes after stars and then plays the newest airport, `grind` goes after stars and then plays where mastery is furthest from rank 5):
+
+| Bot / policy | All 18 stars | Everything bought | All cosmetics bought | Rank 5 at all six airports | Achievements earned (of 33) |
+|---|---|---|---|---|---|
+| Average / chase | 8.0 h | 11.3 h | – | – | 22, the last at 10.3 h |
+| Average / grind | 8.0 h | 11.5 h | 12.4 h | **17.3 h** | 26, the last at 17.3 h |
+| Good / chase | 0.7 h | 4.9 h | – | – | 21, the last at 4.4 h |
+| Good / grind | 0.7 h | 5.8 h | 6.4 h | **11.9 h** | 25, the last at 11.9 h |
+
+- **All rank 5s: 17.3 hours for the average bot and 11.9 hours for the good bot,** with a bot that plays where mastery is behind. (With `chase` the bot keeps going back to the newest airport and does not get there.)
+- **Rank 3 against the star-3 landings** (average bot, `grind`; landings at the airport when the third star came, against the rank 3 threshold): Grass Strip 66 / 140, County 365 / 350, Regional 180 / 220, Mountain Field 158 / 70, Island 1,236 / 290, International 470 / 490. Four of the six are within a factor of 2; Grass Strip's star comes earlier than its rank, and Island's much later (in these careers the bot opened Island early and wins its stars last, so it plays 1,236 shifts' worth there first).
+- **Achievements the bots never earn:** Locked on (10 locked finals in a row: the bot does not lock its finals), Dead stick and Silent at International (the bot does not switch No engines on), Bad day, good pilot (it does not play Bad Pilot Day) and Every livery (it needs the livery of Locked on). Goal getter (30 goals) and Treasure (5 chests) were not earned **because of a bug in these careers: the goal counters were not being kept** (fixed in the commit after them, with a test), so they are untested in a career; the goals are 3 a day and a 20-minute session is a day, so 30 goals is at least 10 sessions, about 3.5 hours of play at the earliest.
+- **More than 30 minutes with nothing to buy or earn?** Counting the daily goals as something to earn: no (18 to 34 minutes; the 34 is the average bot's `chase` run just before it buys the last upgrade). Not counting goals: yes, after everything has been bought, mastery ranks are what is left. The good bot's `grind` run has 64 minutes between rank-ups at 6.4 hours and 251 minutes at 7.6 hours; the average bot's, 270 minutes at 12.4 hours. The ranks arrive together because the bot spreads its landings; a player who stays at one airport sees a rank every hour or two instead.
 
 ## What I did not verify
 

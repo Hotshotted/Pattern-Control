@@ -508,6 +508,10 @@ func _goal_event(ev: Dictionary) -> void:
 			hud.popup("Goal done!  +%d" % int(f["reward"]), Color(1.0, 0.85, 0.3), Vector2(get_viewport().get_visible_rect().size.x * 0.5, get_viewport().get_visible_rect().size.y * 0.3))
 	goal_chest += int(r["chest"])
 	goal_coins_total += int(r["coins"])
+	Save.stat_add("goals_done", (r["finished"] as Array).size())
+	if int(r["chest"]) > 0:
+		Save.stat_add("chests")
+	_check_achievements()
 	if not (r["streak"] as Dictionary).is_empty():
 		goal_streak_text = _streak_text(r)
 	hud.goal_note = goal_results

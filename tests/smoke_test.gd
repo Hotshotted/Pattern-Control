@@ -6214,6 +6214,27 @@ func _initialize() -> void:
 	check(main.toast_queue.size() == 1, "...or while a go-around is signalled")
 	tr.planes.erase(ac_plane)
 	tr.release_all()
+	# Finished daily goals and opened chests count toward their achievements.
+	save.reset_all()
+	save.day_override = 80000
+	main.goals_enabled = true
+	main.restart()
+	tr.auto_spawn = false
+	var gc_rng = RandomNumberGenerator.new()
+	gc_rng.seed = 3
+	var gc_ctx = main.goals_ctx()
+	save.goals = {"day": 80000, "list": [Goals.fill(Goals.template("e_emerg"), gc_ctx, gc_rng), Goals.fill(Goals.template("m_vip"), gc_ctx, gc_rng), Goals.fill(Goals.template("h_nogo"), gc_ctx, gc_rng)], "chest": false}
+	main._goal_event({"t": "land", "ap": 0, "type": 2, "emergency": true, "vip": true})
+	main._goal_event({"t": "shift", "ap": 0, "landed": 6, "go_arounds": 0, "fines": 0, "stars": 1})
+	check(int(save.stats.get("goals_done", 0)) == 3 and int(save.stats.get("chests", 0)) == 1, "finished goals and the opened chest are counted (%d goals, %d chests)" % [int(save.stats.get("goals_done", 0)), int(save.stats.get("chests", 0))])
+	save.stats["goals_done"] = 29
+	save.stats["chests"] = 4
+	save.goals = {"day": 80000, "list": [Goals.fill(Goals.template("e_emerg"), gc_ctx, gc_rng), Goals.fill(Goals.template("m_vip"), gc_ctx, gc_rng), Goals.fill(Goals.template("h_nogo"), gc_ctx, gc_rng)], "chest": false}
+	main._goal_event({"t": "land", "ap": 0, "type": 2, "emergency": true, "vip": true})
+	main._goal_event({"t": "shift", "ap": 0, "landed": 6, "go_arounds": 0, "fines": 0, "stars": 1})
+	check(save.achievements.has("c_goals30") and save.achievements.has("c_chest5"), "the 30th goal and the 5th chest earn 'Goal getter' and 'Treasure'")
+	main.goals_enabled = false
+	save.reset_all()
 	# The achievements sheet and its menu button.
 	save.reset_all()
 	main._show_menu()
