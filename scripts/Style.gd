@@ -62,6 +62,8 @@ const OVERSHOOT := 1.70158               # ease-out-back constant for popups
 # Easing: ease-out-cubic for things arriving, ease-in-cubic for things leaving, ease-out-back for popups and stars.
 
 # ---- type ----
+## The smallest text the interface draws, in viewport units (the 1080-wide layout): nothing is set below it (the audit checks).
+const MIN_TEXT := 22
 const SZ_XL := 110
 const SZ_M := 56
 const SZ_S := 30
@@ -99,6 +101,8 @@ static func body() -> Font:
 ## `pos` is the baseline start, as for draw_string.
 static func draw_ext(ci: CanvasItem, pos: Vector2, s: String, size_px: int, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0, col: Color = WORLD_TEXT, depth: int = 5, alpha: float = 1.0) -> void:
 	var f := display()
+	if ci.has_method("rec_text") and ci.get("rec_on"):      # (the overlap audit notes the run once, not once per extrusion step)
+		ci.rec_text(f, pos, s, align, width, size_px, 1)
 	var step := maxf(size_px / 28.0, 1.5)
 	ci.draw_string(f, pos + Vector2(0, step * depth + 3.0), s, align, width, size_px, Color(0.2, 0.1, 0.02, 0.22 * alpha))       # the soft shadow
 	for i in range(depth, 0, -1):
@@ -252,6 +256,8 @@ static func draw_wordmark(ci: CanvasItem, cx: float, y: float, size_px: int, a: 
 	var x := cx - total * 0.5
 	for k in 3:
 		var col := Color(ACCENT if k == 1 else TEXT, a)
+		if ci.has_method("rec_text") and ci.get("rec_on"):
+			ci.rec_text(f, Vector2(x, y), STUDIO_WORDS[k], HORIZONTAL_ALIGNMENT_LEFT, -1.0, size_px, 1)
 		ci.draw_string_outline(f, Vector2(x, y), STUDIO_WORDS[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, maxi(size_px / 8, 4), Color(INK, a))
 		ci.draw_string(f, Vector2(x, y), STUDIO_WORDS[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, col)
 		x += widths[k] + gap

@@ -270,7 +270,7 @@ class Art extends Control:
 		var x := pos.x
 		for i in s.length():
 			var ch := s.substr(i, 1)
-			draw_string(f, Vector2(x, pos.y), ch, HORIZONTAL_ALIGNMENT_LEFT, -1.0, size_px, col)
+			_ds(f, Vector2(x, pos.y), ch, HORIZONTAL_ALIGNMENT_LEFT, -1.0, size_px, col)
 			x += f.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x + track
 
 	## A panel with its soft highlight: a rounded cap at the top fading down into the face (the style's gradient).
@@ -295,22 +295,75 @@ class Art extends Control:
 		_gc[3] = _gc[2]
 		draw_polygon(_gp, _gc)
 
+	# ---------- the audit's text recorder (see tools/ui_overlap_check.gd) ----------
+	# Every string the art draws goes through _ds / _dms: when `rec_on` is set the run is noted (its box, size, width limit, whether it
+	# overflows that limit), so the overlap check can see canvas-drawn text as well as the Controls.
+	var rec_on := false
+	var rec_texts: Array = []
+	var rec_glyphs: Array = []
+	var rec_xf := Transform2D.IDENTITY             # the transform the drawing is under (the recorder maps the boxes through it)
+
+	func _dst(pos: Vector2, rot: float = 0.0, scl: Vector2 = Vector2.ONE) -> void:
+		rec_xf = Transform2D(rot, scl, 0.0, pos)
+		draw_set_transform(pos, rot, scl)
+
+	func _ds(f: Font, pos: Vector2, s: String, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0, size_px: int = 16, col: Color = Color.WHITE) -> void:
+		if rec_on and s != "" and col.a > 0.05:
+			rec_text(f, pos, s, align, width, size_px, 1)
+		draw_string(f, pos, s, align, width, size_px, col)
+
+	func _dms(f: Font, pos: Vector2, s: String, align: int, width: float, size_px: int, max_lines: int, col: Color = Color.WHITE) -> void:
+		if rec_on and s != "" and col.a > 0.05:
+			rec_text(f, pos, s, align, width, size_px, max_lines)
+		draw_multiline_string(f, pos, s, align, width, size_px, max_lines, col)
+
+	func _has_descender(s: String) -> bool:
+		for ch in "gjpqyQ,;()":
+			if s.contains(ch):
+				return true
+		return false
+
+	## Note a text run: `pos` is the baseline start, as for draw_string; `max_lines` > 1 for a wrapped run.
+	func rec_text(f: Font, pos: Vector2, s: String, align: int, width: float, size_px: int, max_lines: int) -> void:
+		var asc := f.get_ascent(size_px)
+		var h := asc + f.get_descent(size_px)
+		var nat := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+		var lines := 1
+		var tw := nat
+		if max_lines > 1 and width > 0.0:
+			var ms := f.get_multiline_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, width, size_px, -1)
+			lines = maxi(roundi(ms.y / maxf(f.get_height(size_px), 1.0)), 1)
+			tw = minf(nat, width) if lines > 1 else nat
+		var x0 := pos.x
+		if width > 0.0:
+			match align:
+				HORIZONTAL_ALIGNMENT_CENTER:
+					x0 = pos.x + (width - tw) * 0.5
+				HORIZONTAL_ALIGNMENT_RIGHT:
+					x0 = pos.x + width - tw
+		var over := (width > 0.0 and max_lines <= 1 and nat > width + 0.5) or (max_lines > 1 and lines > max_lines)
+		var nl := float(mini(lines, maxi(max_lines, 1)))
+		var ink_top := pos.y - 0.74 * float(size_px)            # (the ink, not the line box: capitals reach 0.74 of the size above the baseline,
+		var ink_bot := pos.y + (h - asc) * (nl - 1.0) + float(size_px) * (0.22 if _has_descender(s) else 0.04) + (nl - 1.0) * asc * 0.0       #  descenders 0.22 below)
+		var rr := rec_xf * Rect2(x0, ink_top, tw, maxf(ink_bot - ink_top, 4.0))
+		rec_texts.append({"text": s, "rect": rr, "size": roundi(float(size_px) * rec_xf.get_scale().y), "limit": width * rec_xf.get_scale().x, "natural": nat * rec_xf.get_scale().x, "over": over})
+
 	# ---------- text ----------
 
 	func text(s: String, pos: Vector2, size_px: int, col: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0) -> void:
 		var f := Style.font_for(s, size_px)
 		draw_string_outline(f, pos, s, align, width, size_px, maxi(size_px / 8, 4), Color(Style.INK, col.a))
-		draw_string(f, pos, s, align, width, size_px, col)
+		_ds(f, pos, s, align, width, size_px, col)
 
 	## Text on a cream surface: brown, no outline.
 	func ptext(s: String, pos: Vector2, size_px: int, col: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0) -> void:
-		draw_string(Style.font_for(s, size_px), pos, s, align, width, size_px, col)
+		_ds(Style.font_for(s, size_px), pos, s, align, width, size_px, col)
 
 	## Text on the primary button: white with a slight dark shadow.
 	func btext(s: String, pos: Vector2, size_px: int, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0) -> void:
 		var f := Style.display()
-		draw_string(f, pos + Vector2(0, 4), s, align, width, size_px, Color(Style.ORANGE_EDGE.r * 0.6, Style.ORANGE_EDGE.g * 0.5, 0.05, 0.5))
-		draw_string(f, pos, s, align, width, size_px, Color.WHITE)
+		_ds(f, pos + Vector2(0, 4), s, align, width, size_px, Color(Style.ORANGE_EDGE.r * 0.6, Style.ORANGE_EDGE.g * 0.5, 0.05, 0.5))
+		_ds(f, pos, s, align, width, size_px, Color.WHITE)
 
 	func text_width(s: String, size_px: int) -> float:
 		return Style.font_for(s, size_px).get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
@@ -350,6 +403,9 @@ class Art extends Control:
 
 	## Icons: small pictures that stand in for words. `r` is the radius of the box they fit in.
 	func glyph(id: String, c: Vector2, r: float, col: Color = Color.WHITE) -> void:
+		if rec_on and col.a > 0.05:
+			var gr := r * (1.0 if id == "coin" or id == "star" or id == "star_off" else 0.8)       # (the other pictures fill about four fifths of their box)
+			rec_glyphs.append({"id": id, "rect": rec_xf * Rect2(c - Vector2(gr, gr), Vector2(gr, gr) * 2.0)})
 		var w := maxf(r * 0.16, 3.0)
 		match id:
 			"coin":      # a real coin: gold with a darker rim and a three-blade propeller mark
@@ -650,7 +706,7 @@ class Art extends Control:
 
 	## A card's icon: an animal pilot portrait, or a theme's two colours.
 	func text_l(c: Vector2, r: float, col: Color) -> void:
-		draw_string(Style.display(), c + Vector2(-r * 0.45, r * 0.55), "L", HORIZONTAL_ALIGNMENT_CENTER, r * 0.9, int(r * 1.7), col)
+		_ds(Style.display(), c + Vector2(-r * 0.45, r * 0.55), "L", HORIZONTAL_ALIGNMENT_CENTER, r * 0.9, int(r * 1.7), col)
 
 	func _draw_icon(icon: int, c: Vector2, r: float) -> void:
 		if icon < 100:
@@ -715,9 +771,9 @@ class Art extends Control:
 				s *= lerpf(0.94, 1.0, Style.ease_out_back(rel_t / Style.T_BASE))
 			if absf(s - 1.0) > 0.001:
 				var c := btn_rect[k].get_center()
-				draw_set_transform(c * (1.0 - s), 0.0, Vector2(s, s))
+				_dst(c * (1.0 - s), 0.0, Vector2(s, s))
 			_draw_button(k)
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	func _draw_button(k: int) -> void:
 		var r := btn_rect[k]
@@ -837,7 +893,7 @@ class Art extends Control:
 				if st != 1:
 					btext(btn_text[k], Vector2(face10.position.x, face10.get_center().y + fs10 * 0.33), fs10, HORIZONTAL_ALIGNMENT_CENTER, face10.size.x)
 				else:
-					draw_string(Style.display(), Vector2(face10.position.x, face10.get_center().y + fs10 * 0.33), btn_text[k], HORIZONTAL_ALIGNMENT_CENTER, face10.size.x, fs10, ink10)
+					_ds(Style.display(), Vector2(face10.position.x, face10.get_center().y + fs10 * 0.33), btn_text[k], HORIZONTAL_ALIGNMENT_CENTER, face10.size.x, fs10, ink10)
 			9:      # the airport under the title: name and stars on a cream chip, a tap opens the Airports screen
 				panel(_sb_normal, r, _sheen_s)
 				ptext(btn_text[k], Vector2(r.position.x + 32.0, r.get_center().y + 12.0), 34, ink)
@@ -878,7 +934,7 @@ class Art extends Control:
 				var nfs := SZ_M if text_width(btn_text[k], SZ_M) < tw3 else 42
 				ptext(btn_text[k], Vector2(tx, cy + (-4.0 if btn_sub[k] != "" else nfs * 0.34)), nfs, ink, HORIZONTAL_ALIGNMENT_LEFT, tw3)
 				if btn_sub[k] != "":
-					draw_string(Style.body(), Vector2(tx, cy + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw3, SZ_S, C_SOFT if st != 1 else C_QUIET)
+					_ds(Style.body(), Vector2(tx, cy + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw3, SZ_S, C_SOFT if st != 1 else C_QUIET)
 				var rx := r.end.x - 36.0
 				if btn_stars[k] >= 0 and btn_lock[k] <= 0:
 					for i in 3:
@@ -909,7 +965,7 @@ class Art extends Control:
 				var tw13 := r.size.x - 120.0 - 250.0
 				var fs13 := Style.fit_size(btn_text[k], SZ_M, 28, tw13)
 				ptext(btn_text[k], Vector2(r.position.x + 120.0, cy13 - 4.0), fs13, ink, HORIZONTAL_ALIGNMENT_LEFT, tw13)
-				draw_string(Style.body(), Vector2(r.position.x + 120.0, cy13 + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, Style.fit_size(btn_sub[k], SZ_S, 17, tw13), C_SOFT)
+				_ds(Style.body(), Vector2(r.position.x + 120.0, cy13 + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, Style.fit_size(btn_sub[k], SZ_S, 17, tw13), C_SOFT)
 				glyph("coin", Vector2(r.end.x - 218.0, cy13), 18.0)
 				ptext("+%d" % btn_cost[k], Vector2(r.end.x - 188.0, cy13 + 12.0), SZ_M, C_GOLD_TXT if st != 2 else ink, HORIZONTAL_ALIGNMENT_LEFT, 160.0)
 			16:     # a compact cosmetic card (two to a row): a picture or swatch, the name, and one line (the price, or where a locked item comes from)
@@ -926,14 +982,14 @@ class Art extends Control:
 				ptext(btn_text[k], Vector2(r.position.x + 120.0, r.position.y + 54.0), Style.fit_size(btn_text[k], 30, 22, tw16), ink, HORIZONTAL_ALIGNMENT_LEFT, tw16)
 				if locked16:       # where it comes from, on up to two lines
 					glyph("lock", Vector2(r.position.x + 134.0, r.position.y + 84.0), 11.0, C_SOFT)
-					draw_multiline_string(Style.body(), Vector2(r.position.x + 152.0, r.position.y + 90.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16 - 32.0, 20, 2, C_SOFT)
+					_dms(Style.body(), Vector2(r.position.x + 152.0, r.position.y + 90.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16 - 32.0, 20, 2, C_SOFT)
 				else:
-					draw_string(Style.body(), Vector2(r.position.x + 120.0, r.position.y + 102.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16, 22, C_SOFT if st != 1 else C_QUIET)
+					_ds(Style.body(), Vector2(r.position.x + 120.0, r.position.y + 102.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16, 22, C_SOFT if st != 1 else C_QUIET)
 			14:     # the menu's goals card: "Daily goals", the streak, and three dots for the three goals
 				panel(_sb_normal, r, _sheen_s)
 				glyph("sun", Vector2(r.position.x + 52.0, r.get_center().y), 26.0, ink)
 				ptext(btn_text[k], Vector2(r.position.x + 98.0, r.get_center().y - 6.0), 32, ink, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 290.0)
-				draw_string(Style.body(), Vector2(r.position.x + 98.0, r.get_center().y + 30.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 290.0, SZ_S, C_SOFT)
+				_ds(Style.body(), Vector2(r.position.x + 98.0, r.get_center().y + 30.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 290.0, SZ_S, C_SOFT)
 				for i in 3:
 					var dc := Vector2(r.end.x - 130.0 + i * 44.0, r.get_center().y)
 					draw_circle(dc, 17.0, Style.INK)
@@ -947,7 +1003,7 @@ class Art extends Control:
 			15:     # the streak card: seven day dots (the 7th a gift), where the player is in the week, the freezes
 				panel(_sb_normal, r)
 				ptext(btn_text[k], Vector2(r.position.x + 36.0, r.position.y + 54.0), SZ_M, ink, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 72.0)
-				draw_string(Style.body(), Vector2(r.position.x + 36.0, r.position.y + 92.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 72.0, SZ_S, C_SOFT)
+				_ds(Style.body(), Vector2(r.position.x + 36.0, r.position.y + 92.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 72.0, SZ_S, C_SOFT)
 				var step := (r.size.x - 120.0) / 6.0
 				for i in 7:
 					var dc2 := Vector2(r.position.x + 60.0 + i * step, r.end.y - 52.0)
@@ -990,21 +1046,21 @@ class Art extends Control:
 		var avail := r.end.x - tx - (300.0 if sel else 40.0)
 		var nfs := Style.fit_size(btn_text[k], 46, 28, avail)
 		ptext(btn_text[k], Vector2(tx, r.position.y + 78.0), nfs, C_TEXT if not locked else C_QUIET, HORIZONTAL_ALIGNMENT_LEFT, avail)
-		draw_string(Style.body(), Vector2(tx, r.position.y + 118.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, avail, 26, C_SOFT if not locked else C_QUIET)
+		_ds(Style.body(), Vector2(tx, r.position.y + 118.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, avail, 26, C_SOFT if not locked else C_QUIET)
 		if not locked:
 			for i in 3:
 				glyph("star" if i < btn_stars[k] else "star_off", Vector2(tx + 24.0 + i * 58.0, r.end.y - 52.0), 21.0)
 			if btn_cost[k] > 0:
-				draw_string(Style.text(), Vector2(tx + 200.0, r.end.y - 42.0), "Best %d" % btn_cost[k], HORIZONTAL_ALIGNMENT_LEFT, 200.0, 26, C_SOFT)
+				_ds(Style.text(), Vector2(tx + 200.0, r.end.y - 42.0), "Best %d" % btn_cost[k], HORIZONTAL_ALIGNMENT_LEFT, 200.0, 26, C_SOFT)
 			if btn_pips[k] >= 0:         # the mastery rank and how far to the next
 				var mr := Rect2(r.end.x - 300.0, r.end.y - 58.0, 250.0, 16.0)
-				draw_string(Style.text(), Vector2(mr.position.x, mr.position.y - 12.0), "Rank %d  \u00b7  %s" % [btn_pips[k], Mastery.rank_name(btn_pips[k])], HORIZONTAL_ALIGNMENT_LEFT, 250.0, 24, C_GOLD_TXT if btn_pips[k] >= Mastery.MAX_RANK else C_SOFT)
+				_ds(Style.text(), Vector2(mr.position.x, mr.position.y - 12.0), "Rank %d  \u00b7  %s" % [btn_pips[k], Mastery.rank_name(btn_pips[k])], HORIZONTAL_ALIGNMENT_LEFT, 250.0, 24, C_GOLD_TXT if btn_pips[k] >= Mastery.MAX_RANK else C_SOFT)
 				_mastery_bar(mr, float(btn_badge[k]) / 100.0, btn_pips[k])
 		else:
 			var pill := Rect2(vig.position.x + 6.0, vig.get_center().y - 30.0, vig.size.x - 12.0, 60.0)
 			draw_style_box(_sb_lockpill, pill)
 			glyph("lock", Vector2(pill.position.x + 30.0, pill.get_center().y), 15.0, Color.WHITE)
-			draw_string(Style.text(), Vector2(pill.position.x + 52.0, pill.get_center().y + 9.0), "Unlock with %d" % btn_lock[k], HORIZONTAL_ALIGNMENT_LEFT, pill.size.x - 56.0, 22, Color.WHITE)
+			_ds(Style.text(), Vector2(pill.position.x + 52.0, pill.get_center().y + 9.0), "Unlock with %d" % btn_lock[k], HORIZONTAL_ALIGNMENT_LEFT, pill.size.x - 56.0, 22, Color.WHITE)
 			glyph("star", Vector2(r.end.x - 60.0, cy), 22.0)
 
 	# ---------- the HUD of a shift ----------
@@ -1050,9 +1106,9 @@ class Art extends Control:
 			var k := star_t[i] / 0.6 if star_t[i] >= 0.0 else 1.0
 			if k < 1.0:
 				var s := Style.ease_out_back(minf(k * 1.4, 1.0))
-				draw_set_transform(c * (1.0 - s), 0.0, Vector2(s, s))
+				_dst(c * (1.0 - s), 0.0, Vector2(s, s))
 				glyph("star", c, 24.0)
-				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 				_sparks(c, k, 22.0, 60.0, 8, Style.ACCENT)
 			else:
 				glyph("star" if lit else "star_off", c, 24.0 if lit else 20.0)
@@ -1129,7 +1185,7 @@ class Art extends Control:
 			if tip_glyph != "":
 				glyph(tip_glyph, Vector2(x2 + 28.0, r2.get_center().y), 28.0, Color(Style.TEXT, tip_alpha))
 				x2 += 84.0
-			draw_string(Style.body(), Vector2(x2, r2.get_center().y + SZ_S * 0.35), tip_text, HORIZONTAL_ALIGNMENT_LEFT, r2.end.x - x2 - 20.0, SZ_S, Color(Style.TEXT, tip_alpha))
+			_ds(Style.body(), Vector2(x2, r2.get_center().y + SZ_S * 0.35), tip_text, HORIZONTAL_ALIGNMENT_LEFT, r2.end.x - x2 - 20.0, SZ_S, Color(Style.TEXT, tip_alpha))
 
 	# ---------- the results ----------
 
@@ -1144,9 +1200,9 @@ class Art extends Control:
 			var y := details_rect.position.y + 58.0 + i * 46.0
 			var parts := details_lines[i].split("|")
 			var last := i == details_lines.size() - 1
-			draw_string(Style.text(), Vector2(details_rect.position.x + 40.0, y), parts[0], HORIZONTAL_ALIGNMENT_LEFT, details_rect.size.x - 80.0, SZ_S, C_TEXT if last else C_SOFT)
+			_ds(Style.text(), Vector2(details_rect.position.x + 40.0, y), parts[0], HORIZONTAL_ALIGNMENT_LEFT, details_rect.size.x - 80.0, SZ_S, C_TEXT if last else C_SOFT)
 			if parts.size() > 1:
-				draw_string(Style.text(), Vector2(details_rect.position.x + 40.0, y), parts[1], HORIZONTAL_ALIGNMENT_RIGHT, details_rect.size.x - 80.0, SZ_S, C_GOLD_TXT if last else C_TEXT)
+				_ds(Style.text(), Vector2(details_rect.position.x + 40.0, y), parts[1], HORIZONTAL_ALIGNMENT_RIGHT, details_rect.size.x - 80.0, SZ_S, C_GOLD_TXT if last else C_TEXT)
 
 	func _draw_results() -> void:
 		var cx := size.x * 0.5
@@ -1187,7 +1243,7 @@ class Art extends Control:
 			for j in 3:
 				var cr0 := Rect2(card.position.x + 45.0 + j * (cw0 + 18.0), card.position.y + 290.0 * s2, cw0, 150.0)
 				draw_style_box(_sb_chip, cr0)
-				draw_string(Style.text(), Vector2(cr0.position.x, cr0.position.y + 126.0), ["Landings", "Early clear", "Fines"][j], HORIZONTAL_ALIGNMENT_CENTER, cr0.size.x, SZ_S, C_SOFT)
+				_ds(Style.text(), Vector2(cr0.position.x, cr0.position.y + 126.0), ["Landings", "Early clear", "Fines"][j], HORIZONTAL_ALIGNMENT_CENTER, cr0.size.x, SZ_S, C_SOFT)
 		if not dyn:
 			return
 		var t_count := STAR_T0 + STAR_GAP * 3.0
@@ -1204,10 +1260,10 @@ class Art extends Control:
 		var k2 := clampf((res_t - (t_count + 1.0)) / 0.4, 0.0, 1.0)
 		if res_new_best:       # a red tag stuck on the card's top edge
 			var tagr := Rect2(-140.0, -34.0, 280.0, 68.0)
-			draw_set_transform(Vector2(cx, card.position.y), deg_to_rad(-3.0), Vector2(k2, k2))
+			_dst(Vector2(cx, card.position.y), deg_to_rad(-3.0), Vector2(k2, k2))
 			draw_style_box(_sb_tag, tagr)
-			draw_string(Style.text(), Vector2(-140.0, 14.0), "NEW BEST", HORIZONTAL_ALIGNMENT_CENTER, 280.0, 36, Color.WHITE)
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			_ds(Style.text(), Vector2(-140.0, 14.0), "NEW BEST", HORIZONTAL_ALIGNMENT_CENTER, 280.0, 36, Color.WHITE)
+			_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 		elif res_best > 0:
 			ptext("best %d" % res_best, Vector2(cx - 300.0, card.position.y + 60.0), SZ_S, Color(C_QUIET.r, C_QUIET.g, C_QUIET.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0)
 		var cw := (card.size.x - 90.0 - 36.0) / 3.0
@@ -1216,7 +1272,7 @@ class Art extends Control:
 			var v := res_chips[j]
 			var colr := C_TEXT if j == 0 else (Style.SUCCESS_DARK if j == 1 else Color("b8322a"))
 			var sign := "+" if v >= 0 and j < 2 else ("" if j < 2 else "\u2212")
-			draw_string(Style.display(), Vector2(cr.position.x, cr.position.y + 80.0), "%s%d" % [sign, absi(v)], HORIZONTAL_ALIGNMENT_CENTER, cr.size.x, 54, colr)
+			_ds(Style.display(), Vector2(cr.position.x, cr.position.y + 80.0), "%s%d" % [sign, absi(v)], HORIZONTAL_ALIGNMENT_CENTER, cr.size.x, 54, colr)
 		if res_protected > 0:        # the fines took the net under the floor: the floor pays instead
 			var pr := Rect2(card.position.x + 45.0, card.position.y + 470.0 * s2, card.size.x - 90.0, 84.0)
 			draw_style_box(_sb_chip, pr)
@@ -1240,14 +1296,14 @@ class Art extends Control:
 			var ex_lines := res_goals_extra.split("\n")
 			var ex_y := (1180.0 + mini(res_goals.size(), 2) * 98.0) * s2 + top + 6.0
 			for li in mini(ex_lines.size(), 4):
-				draw_string(Style.body(), Vector2(cx - 465.0, ex_y + li * 32.0), ex_lines[li], HORIZONTAL_ALIGNMENT_CENTER, 930.0, SZ_S, C_SOFT)
+				_ds(Style.body(), Vector2(cx - 465.0, ex_y + li * 32.0), ex_lines[li], HORIZONTAL_ALIGNMENT_CENTER, 930.0, SZ_S, C_SOFT)
 		# A new airport opened with this shift.
 		if res_unlock != "":
 			var ur := Rect2(cx - 465.0, 1370.0 * s2 + top, 930.0, 130.0)
 			draw_style_box(_sb_unlock, ur)
 			_minimap(Vector2(ur.position.x + 90.0, ur.get_center().y), 50.0, Airports.index_of(res_unlock))
 			ptext("%s unlocked!" % res_unlock, Vector2(ur.position.x + 170.0, ur.get_center().y - 4.0), 40, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0)
-			draw_string(Style.body(), Vector2(ur.position.x + 170.0, ur.get_center().y + 40.0), Airports.tag(Airports.index_of(res_unlock)), HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0, SZ_S, C_SOFT)
+			_ds(Style.body(), Vector2(ur.position.x + 170.0, ur.get_center().y + 40.0), Airports.tag(Airports.index_of(res_unlock)), HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0, SZ_S, C_SOFT)
 
 	# ---------- The shop's preview sheet ----------
 
@@ -1271,14 +1327,14 @@ class Art extends Control:
 		if pv_ok_t >= 0.0 and pv_ok_t < 0.35:
 			ok_pop = 1.0 + 0.06 * sin(pv_ok_t / 0.35 * PI)
 		if ok_pop != 1.0:
-			draw_set_transform(st.get_center() * (1.0 - ok_pop), 0.0, Vector2(ok_pop, ok_pop))
+			_dst(st.get_center() * (1.0 - ok_pop), 0.0, Vector2(ok_pop, ok_pop))
 		if pv["kind"] == "livery":
 			_draw_livery_stage(st)
 		elif pv["kind"] == "windsock" or pv["kind"] == "hangar":
 			_draw_detail_stage(st)
 		else:
 			_draw_theme_stage(st)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 		# price and balance
 		var y: float = pv["info_y"]
 		var cx := card.get_center().x
@@ -1299,7 +1355,7 @@ class Art extends Control:
 				ptext("In use" if pv["state"] == "equipped" else "Yours", Vector2(card.position.x, y + 40.0), SZ_M, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
 
 	func text_plain(s: String, pos: Vector2, size_px: int, col: Color, width: float) -> void:
-		draw_string(Style.font_for(s, size_px), pos, s, HORIZONTAL_ALIGNMENT_CENTER, width, size_px, col)
+		_ds(Style.font_for(s, size_px), pos, s, HORIZONTAL_ALIGNMENT_CENTER, width, size_px, col)
 
 	## What bursts over the sheet when the purchase goes through: a ring, rays, a check.
 	func _draw_preview_top() -> void:
@@ -1360,7 +1416,7 @@ class Art extends Control:
 	## `yaw` turns it, `bank` squeezes the wings as if it rolled.
 	func _draw_plane(c: Vector2, s: float, yaw: float, bank: float, body: Color, stripe, rw: Color) -> void:
 		var bx := cos(bank)
-		draw_set_transform(c, yaw, Vector2(s * bx, s))
+		_dst(c, yaw, Vector2(s * bx, s))
 		var wing := Color(0.94, 0.94, 0.92)
 		for sx in [-1.0, 1.0]:
 			quad(Vector2(sx * 8.0, -12.0), Vector2(sx * 62.0, 2.0), Vector2(sx * 62.0, 14.0), Vector2(sx * 8.0, 10.0), wing)
@@ -1373,7 +1429,7 @@ class Art extends Control:
 			draw_line(Vector2(0, -30.0), Vector2(0, 36.0), stripe, 6.0)
 		draw_circle(Vector2(0, -47.0), 7.0, rw)
 		draw_rect(Rect2(-3.0, 34.0, 6.0, 22.0), rw)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	func _draw_theme_stage(st: Rect2) -> void:
 		var big: bool = pv["mode"] == 1
@@ -1405,10 +1461,10 @@ class Art extends Control:
 		var y0 := 250.0 * s2 + top
 		var muted := Color(Style.WORLD_TEXT, 0.7)         # (plain small print: nothing here can be tapped, so nothing is a shape)
 		tracked("AIR TRAFFIC CONTROL", Vector2(x0 + 4.0, y0 - 6.0), 24, muted, 5.0)
-		draw_set_transform(Vector2(x0, y0), deg_to_rad(2.0), Vector2.ONE)
+		_dst(Vector2(x0, y0), deg_to_rad(2.0), Vector2.ONE)
 		Style.draw_ext(self, Vector2(0.0, 150.0), "PATTERN", 150, HORIZONTAL_ALIGNMENT_LEFT, -1.0, Style.WORLD_TEXT, 7)
 		Style.draw_ext(self, Vector2(0.0, 300.0), "WORK", 150, HORIZONTAL_ALIGNMENT_LEFT, -1.0, Style.WORLD_TEXT, 7)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 		tracked("CLEAR PROP GAMES", Vector2(x0 + 4.0, y0 + 376.0), 24, muted, 5.0)
 
 	## The intro: the studio mark (a propeller that spins up and settles) and wordmark pop in and out, then the game's
@@ -1420,10 +1476,10 @@ class Art extends Control:
 		if t < 1.0:
 			var k := Style.ease_out_back(t / 0.45)
 			var a := clampf(minf(t / 0.2, (1.0 - t) / 0.2), 0.0, 1.0)
-			draw_set_transform(Vector2(cx, cy) * (1.0 - k), 0.0, Vector2(k, k))
+			_dst(Vector2(cx, cy) * (1.0 - k), 0.0, Vector2(k, k))
 			Style.draw_mark(self, Vector2(cx, cy - 40.0), 110.0, (1.0 - Style.ease_out_cubic(t / 0.9)) * TAU * 2.0, a)
 			Style.draw_wordmark(self, cx, cy + 150.0, SZ_M, a)
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 			return
 		var u := t - 1.0
 		var a2 := clampf(1.0 - (t - 2.4) / 0.3, 0.0, 1.0)
@@ -1433,9 +1489,9 @@ class Art extends Control:
 			if k2 <= 0.01:
 				continue
 			var c := Vector2(cx, cy - 40.0 + w * 150.0)
-			draw_set_transform(c * (1.0 - k2), 0.0, Vector2(k2, k2))
+			_dst(c * (1.0 - k2), 0.0, Vector2(k2, k2))
 			Style.draw_ext(self, Vector2(cx - 500.0, c.y), word, 120, HORIZONTAL_ALIGNMENT_CENTER, 1000.0, Style.WORLD_TEXT if w == 0 else Style.ACCENT, 6, a2)
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 		var f := clampf((u - 0.5) / 1.0, 0.0, 1.0)
 		if f > 0.0:
 			var pc := Vector2(lerpf(-80.0, size.x + 80.0, Style.ease_out_cubic(f)), cy - 190.0 - 70.0 * sin(PI * f))
@@ -1447,9 +1503,9 @@ class Art extends Control:
 		for i in CONFETTI:
 			if cf_on[i] == 0:
 				continue
-			draw_set_transform(cf_pos[i], cf_rot[i], Vector2.ONE)
+			_dst(cf_pos[i], cf_rot[i], Vector2.ONE)
 			draw_rect(Rect2(-cf_size[i] * 0.5, cf_size[i]), cf_col[i])
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	## The new-airport reveal: a dimmed screen, a card that pops in, a padlock that springs open with a burst.
 	func _draw_unlock() -> void:
@@ -1458,13 +1514,13 @@ class Art extends Control:
 		var a := clampf(unlock_t / 0.25, 0.0, 1.0)
 		draw_rect(Rect2(Vector2.ZERO, size), Color(Style.SCRIM, 0.78 * a))
 		var k := Style.ease_out_back(unlock_t / 0.45)
-		draw_set_transform(Vector2(cx, cy) * (1.0 - k), 0.0, Vector2(k, k))
+		_dst(Vector2(cx, cy) * (1.0 - k), 0.0, Vector2(k, k))
 		var card := Rect2(cx - 430.0, cy - 340.0, 860.0, 680.0)
 		panel(_sb_sheet, card, _sheen_l)
-		draw_string(Style.text(), Vector2(cx - 400.0, cy - 40.0), "NEW AIRPORT", HORIZONTAL_ALIGNMENT_CENTER, 800.0, SZ_S, C_GOLD_TXT)
+		_ds(Style.text(), Vector2(cx - 400.0, cy - 40.0), "NEW AIRPORT", HORIZONTAL_ALIGNMENT_CENTER, 800.0, SZ_S, C_GOLD_TXT)
 		var ufs := Style.fit_size(unlock_name, SZ_XL, 40, 780.0)
 		ptext(unlock_name, Vector2(cx - 420.0, cy + 90.0), ufs, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, 840.0)
-		draw_string(Style.body(), Vector2(cx - 400.0, cy + 170.0), "ready for flights", HORIZONTAL_ALIGNMENT_CENTER, 800.0, SZ_S, Style.TEXT_SOFT)
+		_ds(Style.body(), Vector2(cx - 400.0, cy + 170.0), "ready for flights", HORIZONTAL_ALIGNMENT_CENTER, 800.0, SZ_S, Style.TEXT_SOFT)
 		# The padlock: the shackle pops up and swings open at 0.55 s.
 		var lc := Vector2(cx, cy - 190.0)
 		var open := Style.ease_out_back(clampf((unlock_t - 0.55) / 0.35, 0.0, 1.0))
@@ -1474,7 +1530,7 @@ class Art extends Control:
 		draw_rect(Rect2(lc.x - 78.0, lc.y - 44.0, 156.0, 124.0), Color(Style.INK, 1.0))
 		draw_rect(Rect2(lc.x - 70.0, lc.y - 36.0, 140.0, 108.0), gold)
 		draw_circle(lc + Vector2(0, 14.0), 14.0, Color(Style.ACCENT_DARK, 1.0))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 		var sp := (unlock_t - 0.55) / 0.7
 		if sp >= 0.0 and sp < 1.0:
 			_sparks(lc + Vector2(0, -60.0), sp, 60.0, 280.0, 12, Style.ACCENT)
@@ -1487,6 +1543,10 @@ class Art extends Control:
 
 	func _draw() -> void:
 		var t_start := Time.get_ticks_usec()
+		if rec_on:                    # (the audit keeps the latest draw only: an animated screen draws every frame)
+			rec_texts.clear()
+			rec_glyphs.clear()
+			rec_xf = Transform2D.IDENTITY
 		_draw_all()
 		last_draw_us = Time.get_ticks_usec() - t_start
 		Boot.add("interface art redraw", float(last_draw_us) / 1000.0)
