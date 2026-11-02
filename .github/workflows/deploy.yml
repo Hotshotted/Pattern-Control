@@ -130,7 +130,12 @@ jobs:
       # build must stay short and the worst frame of a shift in the game's own code (rendering is the browser's: this runner draws in
       # software, so only the game's share is judged) is gated as a RATIO to a reference workload timed first in the same browser
       # (tools/web_ref.js; a shared runner's speed moves the raw milliseconds by half), limited to 1.25 x the worst ratio of the last
-      # ten green runs (tools/gate_history.json). The raw milliseconds stay in the log.
+      # ten green runs (tools/gate_history.json). The raw milliseconds stay in the log. A gate fails only when its ratio is over its limit AND
+      # its raw median is over 33 ms; on a runner whose reference workload is unusually fast or slow (more than 20% outside the usual range)
+      # the ratios are skipped and only the raw time counts (see tools/median_gate.py).
+      - name: Gate rule self-test
+        run: python3 tools/test_median_gate.py
+
       - name: Start-up and frame check
         timeout-minutes: 20
         run: |

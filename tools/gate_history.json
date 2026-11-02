@@ -1,6 +1,6 @@
 {
  "headroom": 1.25,
- "note": "Median-of-3 ratio (frame ms / reference ms) of ten fresh runners at commit a2d65b9 (Gate calibration workflow, run 2). Limit per name = max of the last ten x headroom. Refresh with tools/gate_history.py. The Airports values are from the ten latest green deploy runs on main instead (22c0770, 905945f, 5224d12, 72ab355, fedc8f7, 5729a5a, d6f5cf4, 0c280b7, 5315689, 69cf026: the 'Panel open check' GATE_DATA of each): Airports limit = 0.1456 x 1.25 = 0.182. Every other name is still from the calibration runs.",
+ "note": "Median-of-3 ratio (frame ms / reference ms) of ten fresh runners at commit a2d65b9 (Gate calibration workflow, run 2). Limit per name = max of the last ten x headroom. Refresh with tools/gate_history.py. The Airports values are from the ten latest green deploy runs on main instead (22c0770, 905945f, 5224d12, 72ab355, fedc8f7, 5729a5a, d6f5cf4, 0c280b7, 5315689, 69cf026: the 'Panel open check' GATE_DATA of each): Airports limit = 0.1456 x 1.25 = 0.182. Every other name is still from the calibration runs. Reference workload: the usual range is 68.3 to 87.1 ms (the panel reference medians of the ten green deploy runs on main, leaving out 56.1 ms, a fast runner); a run whose reference is more than ref_tolerance (20%) outside it is an unreliable runner (below 54.6 ms or above 104.5 ms) and is gated on raw ms only. A name fails only when its ratio is over its limit AND its raw median is over raw_ceiling_ms (33); 'shift mean' has no raw ceiling and is gated on its ratio alone (see tools/median_gate.py).",
  "runs": [
   {
    "shift frame": 0.274,
@@ -102,5 +102,14 @@
    "Results": 0.2517,
    "Upgrades": 0.0891
   }
- ]
+ ],
+ "raw_ceiling_ms": 33,
+ "raw_ceiling_exempt": [
+  "shift mean"
+ ],
+ "ref_ms_range": [
+  68.3,
+  87.1
+ ],
+ "ref_tolerance": 0.2
 }

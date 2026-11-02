@@ -138,11 +138,19 @@ Chromium on software GL:
 | Pause (first open) | 20.1 ms | 7-11 ms |
 | Results | not measured (first sight of the minus sign: 70+ ms) | 21-28 ms |
 
-## The perf gates judge the median of three runs
+## The perf gates judge the median of three runs, by ratio and by raw time
 
-CI runs the start-up check and the panel check three times each (`REPORT=file.json`) and `tools/median_gate.py 33 ...` gates on the
-median worst frame (per panel for the panel check), still 33 ms. One slow frame on a shared runner (33.6 ms once, 49.9 ms for the
-results card once) cannot fail a build; a frame that is slow in most runs does. Every run's numbers are printed in the job log.
+CI runs the start-up check and the panel check three times each (`REPORT=file.json`) and `tools/median_gate.py` gates on the median over
+the three runs (per panel for the panel check), so one slow frame on a shared runner cannot fail a build; a frame that is slow in most
+runs does. Every run's numbers are printed in the job log. Each value is also divided by a reference workload timed in the same browser
+(`tools/web_ref.js`), because a shared runner's speed moves the raw milliseconds by half. The rule (`tools/gate_history.json` holds the
+numbers, `tools/test_median_gate.py` tests it):
+
+* A gate fails only when **both** its median ratio is over its limit (1.25 x the worst ratio of the last ten green deploy runs) **and** its
+  median raw time is over the **33 ms** ceiling. A fast reference inflates every ratio with unchanged timings; a raw time under 33 ms is
+  never a failure by itself. (The mean frame, `shift mean`, has no raw ceiling and is gated on its ratio alone.)
+* If the reference workload is more than 20% outside its usual range (68.3 to 87.1 ms: below 54.6 or above 104.5 ms) the log says
+  `UNRELIABLE RUNNER`, the ratio check is skipped for that run and every gate is on raw ms only.
 
 The results card's frame: the card is its own pre-laid-out layer, laid out once with made-up numbers while the menu is idle
 (`Hud.prime_results`: the first draw of an Art grows its command buffers and warms its styles), and what is not drawing waits for

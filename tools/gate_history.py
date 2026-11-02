@@ -23,5 +23,11 @@ for line in open(src):
         if d.get("label") in ("boot", "panel", "gate"):
             cur.update(d["ratios"])
 runs = [r for r in runs if r]
-json.dump({"headroom": 1.25, "runs": runs[-10:], "note": "median ratio (frame ms / reference ms) of each name in ten green runs; the limit is the highest times headroom"}, open(out, "w"), indent=1, sort_keys=True)
+keep = {}
+try:
+    old = json.load(open(out))
+    keep = {k: old[k] for k in ("raw_ceiling_ms", "raw_ceiling_exempt", "ref_ms_range", "ref_tolerance") if k in old}
+except (FileNotFoundError, ValueError):
+    pass
+json.dump({**keep, "headroom": 1.25, "runs": runs[-10:], "note": "median ratio (frame ms / reference ms) of each name in ten green runs; the limit is the highest times headroom"}, open(out, "w"), indent=1, sort_keys=True)
 print(f"{len(runs[-10:])} runs, names: {sorted({k for r in runs for k in r})}")
