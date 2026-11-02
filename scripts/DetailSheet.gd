@@ -138,8 +138,12 @@ class Pips extends Control:
 
 # ---------------------------------------------------------------------------------------------------------------------
 
-static func label(text: String, size_px: int, col: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT, wrap: bool = true, font: Font = null) -> Label:
+static func label(text: String, size_px: int, col: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT, wrap: bool = true, font: Font = null, role: String = "") -> Label:
 	var l := Label.new()
+	if role == "":
+		role = "heading" if size_px >= 54 else "body"
+	size_px = maxi(size_px, Style.min_size(role))          # (text is never under the floor of its role: Style, docs/style.md)
+	l.set_meta("role", role)
 	l.text = text
 	l.horizontal_alignment = align
 	l.add_theme_font_size_override("font_size", size_px)
@@ -218,21 +222,18 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 	# ---- name and tag (left), the tabs (right) ----
 	var inner_w := w - 2.0 * GUTTER
 	var tab := int(info.get("tab", 0))
-	var head := hbox(14)
-	body.add_child(head)
 	var names := vbox(2)
 	_fill(names)
 	names.custom_minimum_size.x = 8.0
-	head.add_child(names)
+	body.add_child(names)
 	var nm: String = info["name"]
-	var tabs_w := 0.0 if locked else 500.0                # (about what the two tab chips need; the name is fitted to the rest)
-	var nfs := Style.fit_size(nm, 64, 36, inner_w - tabs_w - 14.0)
+	var nfs := Style.fit_size(nm, 64, Style.SZ_BODY, inner_w)
 	names.add_child(label(nm, nfs, Style.TEXT if not locked else Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.display()))
 	var tag_txt: String = info["tag"] + ((" \u00b7 Best %d" % int(info["best"])) if (not locked and int(info["best"]) > 0) else "")
 	names.add_child(label(tag_txt, 28, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.body()))
 	if not locked:
 		var tabs := hbox(10)
-		head.add_child(tabs)
+		body.add_child(tabs)
 		tabs.add_child(_chip("dtab:0", "Stars", "star", 2 if tab == 0 else 0, tap))
 		tabs.add_child(_chip("dtab:1", "Improve", "upgrades", 2 if tab == 1 else 0, tap))
 
@@ -252,14 +253,14 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 			var htxt := ("Land %d" % int(info["land"][0])) if k == 0 else ("Net %d" % int(info["coins"][k]))
 			cellv.add_child(label(htxt, 32, Style.TEXT if not locked else Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.display()))
 			if k == 0:
-				cellv.add_child(label("and finish the shift", 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text()))
+				cellv.add_child(label("and finish the shift", 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text(), "caption"))
 			else:
 				var cr := hbox(6)
 				cr.alignment = BoxContainer.ALIGNMENT_CENTER
 				var ci := Icon.new()
 				ci.setup("coin", 28.0, art_factory)
 				cr.add_child(ci)
-				cr.add_child(label("after fines", 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, false, Style.text()))
+				cr.add_child(label("after fines", 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, false, Style.text(), "caption"))
 				cellv.add_child(cr)
 	if not locked and tab == 0:
 		body.add_child(label("Hangar %d, profit after %d landings" % [int(info["hangar"]), int(info["land"][0])], 28, Style.TEXT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text()))
@@ -323,7 +324,7 @@ func _extras(body: VBoxContainer, info: Dictionary, tap: float) -> void:
 		_fill(rl)
 		mline.add_child(rl)
 		var mtxt := "%d landings  \u00b7  top rank" % int(info["landings"]) if int(info["need"]) <= 0 else "%d / %d to rank %d" % [int(info["into"]), int(info["need"]), rank + 1]
-		var ml := label(mtxt, 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_RIGHT, true, Style.text())
+		var ml := label(mtxt, 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_RIGHT, true, Style.text(), "caption")
 		_fill(ml)
 		mline.add_child(ml)
 		var bar := Bar.new()
@@ -363,7 +364,7 @@ func _chip(id: String, text: String, glyph: String, state: int, tap: float) -> C
 	var ic := Icon.new()
 	ic.setup(glyph, 44.0, art_factory, Style.TEXT if state != 1 else Style.TEXT_QUIET)
 	row.add_child(ic)
-	var l := label(text, Style.SZ_S, Style.TEXT if state != 1 else Style.TEXT_QUIET, HORIZONTAL_ALIGNMENT_LEFT, false, Style.text())
+	var l := label(text, Style.SZ_S, Style.TEXT if state != 1 else Style.TEXT_QUIET, HORIZONTAL_ALIGNMENT_LEFT, false, Style.text(), "button")
 	row.add_child(l)
 	_wire(c)
 	return c
@@ -393,7 +394,7 @@ func _imp_chip(id: String, im: Dictionary, price: int, state: int, tap: float) -
 	ic.setup(im["id"], 48.0, art_factory, ink)
 	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(ic)
-	v.add_child(label(im["name"], 26, ink, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text()))
+	v.add_child(label(im["name"], 26, ink, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text(), "button"))
 	var pips := Pips.new()
 	pips.level = int(im["level"])
 	v.add_child(pips)

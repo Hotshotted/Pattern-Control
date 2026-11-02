@@ -242,6 +242,27 @@ def main():
     w("")
     w("(Each of them now has 0 problems; the CI artifact has the current picture, `<size>/<state>.jpg`.)\n")
 
+    tr = json.load(open(ROOT + "/docs/ui_audit/before/text_roles.json"))
+    w("## Text sizes by role (second pass)\n")
+    w("The first pass used one floor, 22 units (about 8 pt). The second pass sets text in points on the 390-pt design phone and enforces a floor per role "
+      "(`docs/style.md`): captions 11 pt, body 15 pt, button labels 17 pt, headings as designed. Run over the game as it stood after the first pass, with the new rules:\n")
+    w("| | before | after |\n|---|---:|---:|")
+    w("| text under its role's floor | %d | 0 |" % tr["before"]["total"])
+    for r in ("body", "button", "caption"):
+        w("| ...%s text | %d | 0 |" % (r, tr["before"][r]))
+    w("| every other kind of problem (overlap, clipped, off-screen, tap size) | 0 | %d |\n" % na)
+    w("It was fixed by layout, not by shrinking: text is raised to its floor and the layouts follow. Long names and descriptions wrap onto two lines; the airport detail "
+      "tabs sit under the name; the results card's ad pills are stacked, full width; the menu's round buttons are wider and taller; the shop, achievements and goals are lists that scroll.\n")
+    sc = AFTER.get("scrolling", {})
+    w("Screens that scroll (a state whose content is taller than the room, at each size; counts are states):\n")
+    w("| Screen | " + " | ".join(SIZES) + " | Scrolled before? |")
+    w("|---|" + "---:|" * len(SIZES) + "---|")
+    for fam, label_, was in (("detail", "Airport detail", "yes (the same states, plus 7 more at 390 and 430)"), ("shop", "Shop (skins, liveries, field)", "**no: new**"), ("achievements", "Achievements", "**no: new**"), ("goals", "Daily goals", "no, and still fits")):
+        row = sc.get(fam, {})
+        w("| %s | %s | %s |" % (label_, " | ".join(str(row.get(z, 0)) if row.get(z, 0) else "-" for z in SIZES), was))
+    w("")
+    w("A drag that scrolls a list is not a tap (`Main._press_pos`). Scrolling by touch inside a ScrollContainer is checked only with synthetic events here, not on a device.\n")
+
     w("## The allowlist\n")
     w("Intentional overlaps are allowed only through the `ALLOW` list at the top of `tools/ui_overlap_check.gd`, one entry per case, each with a `why` "
       "(fields: `screen` (a glob on the state name), `size` (optional glob), `type`, `a` and optionally `b` (substrings of the two element names), `why`). "
@@ -263,7 +284,7 @@ def main():
     w("* **Clipped**: text wider than the width it is drawn with, a wrapped run that lost its last line, text that leaves the button or panel it is on, a word broken across lines.")
     w("* **Off-screen / safe-area**: any part outside the screen, or text and buttons under the notch, the Dynamic Island or the home indicator (the safe area of each size is in the tool).")
     w("* **Tap size**: a button's tap area under 44 x 44 points (`Style.px_per_pt` units per point), or covered by another control.")
-    w("* **Small text**: under `Style.MIN_TEXT` (22 units), the smallest size the interface draws; see `docs/style.md`, *Layout and legibility rules*.")
+    w("* **Small text**: under the floor of its role: caption 11 pt, body 15 pt, button label 17 pt on a 390-pt phone (31, 42, 48 units); headings as designed; or a size the pre-warm does not rasterise. See `docs/style.md`, *Layout and legibility rules*.")
     w("* Every state is also run with the largest numbers (9,999,999 coins, an eight-digit payout) and the longest real strings (the longest toast, achievement and mastery lines).\n")
     w("Run it: `godot --headless --path . --script tools/ui_overlap_check.gd` (the check, about 6 minutes), or under `xvfb-run -a godot --path . --rendering-driver opengl3 --script "
       "tools/ui_overlap_check.gd -- shots=<dir> report=docs/ui_audit/report.json` for the pictures. Options: `only=<text>`, `sizes=390x844,...`, `quiet`, `plant` (the CI self-test).\n")

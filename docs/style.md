@@ -318,8 +318,21 @@ findings and the allowlist). A change that breaks one fails the build.
   stack), widths taken from the text (`Style.fit_size`) and wrapping onto a second line, not an overlap.
 * **Text is never clipped, truncated or cut by the edge of its box.** Longest real strings and the biggest numbers are used in the checks:
   9,999,999 coins, an eight-digit payout, the longest toast, the longest achievement line.
-* **The smallest text is 22 units** (`Style.MIN_TEXT`; 1080 units across the screen: about 8 points on a 390-point-wide phone). Text is
-  only made smaller than its design size as a last resort, down the size ladder, never below that; past it, it wraps.
+* **Text sizes are set in points, relative to the 390-point-wide design phone** (the viewport is 1080 units wide, so 1 pt = 1080 / 390 = 2.77
+  units; `Style.PT`), and have a floor by role (`Style.min_size(role)`; `tools/ui_overlap_check.gd` enforces each by role, not one global number):
+
+  | Role | Floor | Units | Used for |
+  |---|---|---|---|
+  | caption | 11 pt (Apple's minimum) | 31 (`Style.SZ_CAPTION`) | captions and tiny labels only: the chip captions on the results card, a slider's name, `Best N` and the rank line on an airport card, the build tag, a star column's note |
+  | body | 15 pt | 42 (`Style.SZ_BODY`, = `SZ_S`) | descriptions, second lines, tips, goal and toast text, numbers beside things |
+  | button | 17 pt | 48 (`Style.SZ_BUTTON`) | the label of anything tappable: chips, tabs, card names, pills |
+  | heading | as designed | 54 and up | titles, the timer, the score, popups' display size |
+
+  Text is never shrunk under the floor of its role: when it does not fit it **wraps** (two lines), **stacks** (the detail screen's tabs sit under the name,
+  the results card's ad pills one under the other) or the screen **scrolls** (the shop, achievements, goals and the airport detail screen: `Hud._scroll_for`,
+  a ScrollContainer with its own Art; the header, tabs and Back button stay put). Every size drawn is one the start-up pre-warm rasterises
+  (`Style.PREWARM_SIZES`), and the checker flags one that is not. In code: `Art.role_size` raises any drawn text to its floor (a string that is the label of one of
+  the layer's buttons is a button label; `"caption"` is passed by the few call sites that draw one), the Labels do the same, and `Style.fit_size` is only ever called with a floor.
 * **A tap target is at least 44 x 44 points** (Apple's minimum). The viewport is 1080 units wide whatever the phone, so a point is
   `Style.px_per_pt` units (3.4 on a 320-point-wide phone, 2.8 on a 390 one) and 44 points is `Style.tap_px()`. A button drawn smaller than that
   keeps its looks and gets a larger hit area (`Art.btn_hit`, worked out by `refresh_hits`: grown about its centre, then handed back where it meets

@@ -163,6 +163,31 @@ One row per screen, pair of elements and type (a pair that occurs in several sta
 
 (Each of them now has 0 problems; the CI artifact has the current picture, `<size>/<state>.jpg`.)
 
+## Text sizes by role (second pass)
+
+The first pass used one floor, 22 units (about 8 pt). The second pass sets text in points on the 390-pt design phone and enforces a floor per role (`docs/style.md`): captions 11 pt, body 15 pt, button labels 17 pt, headings as designed. Run over the game as it stood after the first pass, with the new rules:
+
+| | before | after |
+|---|---:|---:|
+| text under its role's floor | 7513 | 0 |
+| ...body text | 4945 | 0 |
+| ...button text | 1796 | 0 |
+| ...caption text | 772 | 0 |
+| every other kind of problem (overlap, clipped, off-screen, tap size) | 0 | 0 |
+
+It was fixed by layout, not by shrinking: text is raised to its floor and the layouts follow. Long names and descriptions wrap onto two lines; the airport detail tabs sit under the name; the results card's ad pills are stacked, full width; the menu's round buttons are wider and taller; the shop, achievements and goals are lists that scroll.
+
+Screens that scroll (a state whose content is taller than the room, at each size; counts are states):
+
+| Screen | 320x568 | 375x667 | 390x844 | 430x932 | 768x1024 | 1280x720 | Scrolled before? |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Airport detail | 31 | 31 | 31 | 31 | 31 | 31 | yes (the same states, plus 7 more at 390 and 430) |
+| Shop (skins, liveries, field) | 50 | 50 | 50 | 50 | 50 | 50 | **no: new** |
+| Achievements | 3 | 3 | 2 | 2 | 2 | - | **no: new** |
+| Daily goals | - | - | - | - | - | - | no, and still fits |
+
+A drag that scrolls a list is not a tap (`Main._press_pos`). Scrolling by touch inside a ScrollContainer is checked only with synthetic events here, not on a device.
+
 ## The allowlist
 
 Intentional overlaps are allowed only through the `ALLOW` list at the top of `tools/ui_overlap_check.gd`, one entry per case, each with a `why` (fields: `screen` (a glob on the state name), `size` (optional glob), `type`, `a` and optionally `b` (substrings of the two element names), `why`). Currently it has **0** entries: every problem the tool found was fixed, none had to be allowed.
@@ -183,7 +208,7 @@ Nothing is skipped silently: the tool prints this list with its totals.
 * **Clipped**: text wider than the width it is drawn with, a wrapped run that lost its last line, text that leaves the button or panel it is on, a word broken across lines.
 * **Off-screen / safe-area**: any part outside the screen, or text and buttons under the notch, the Dynamic Island or the home indicator (the safe area of each size is in the tool).
 * **Tap size**: a button's tap area under 44 x 44 points (`Style.px_per_pt` units per point), or covered by another control.
-* **Small text**: under `Style.MIN_TEXT` (22 units), the smallest size the interface draws; see `docs/style.md`, *Layout and legibility rules*.
+* **Small text**: under the floor of its role: caption 11 pt, body 15 pt, button label 17 pt on a 390-pt phone (31, 42, 48 units); headings as designed; or a size the pre-warm does not rasterise. See `docs/style.md`, *Layout and legibility rules*.
 * Every state is also run with the largest numbers (9,999,999 coins, an eight-digit payout) and the longest real strings (the longest toast, achievement and mastery lines).
 
 Run it: `godot --headless --path . --script tools/ui_overlap_check.gd` (the check, about 6 minutes), or under `xvfb-run -a godot --path . --rendering-driver opengl3 --script tools/ui_overlap_check.gd -- shots=<dir> report=docs/ui_audit/report.json` for the pictures. Options: `only=<text>`, `sizes=390x844,...`, `quiet`, `plant` (the CI self-test).

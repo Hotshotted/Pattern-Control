@@ -220,6 +220,7 @@ var _wanted_detail := false           # the airport being built is for its detai
 var detail_t := 0.0                    # 0 = the shift's view, 1 = the detail screen's
 var detail_zoom := 1.0
 var detail_pan := Vector2.ZERO         # the view's centre, in world units from the default
+var _press_pos := Vector2.ZERO               # where the finger went down on a button (a drag that scrolls a list is not a tap)
 var _dt_touch := {}                    # finger index -> position, for fingers down on the live view
 var _dt_dist := 0.0
 func _idle_build() -> void:
@@ -1605,6 +1606,7 @@ func _touch_down(index: int, pos: Vector2) -> void:
 			_set_volume(sl, hud.slider_set(sl, pos.x))
 			return
 	if screen != SCREEN_PLAY:
+		_press_pos = pos
 		hud.press(pos)
 		var id := hud.button_at(pos)
 		if id != "":
@@ -2277,7 +2279,7 @@ func _touch_up(index: int, pos: Vector2) -> void:
 		_dt_dist = _dt_fingers_dist()
 	var pressed_id := hud.pressed_id()
 	hud.release()
-	if pressed_id != "" and screen != SCREEN_PLAY and hud.button_at(pos) == pressed_id:
+	if pressed_id != "" and screen != SCREEN_PLAY and hud.button_at(pos) == pressed_id and pos.distance_to(_press_pos) < 30.0:         # (a finger that dragged a list is not a tap)
 		_on_button(pressed_id)
 		return
 	if _slider_drag >= 0:

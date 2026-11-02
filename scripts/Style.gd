@@ -62,11 +62,30 @@ const OVERSHOOT := 1.70158               # ease-out-back constant for popups
 # Easing: ease-out-cubic for things arriving, ease-in-cubic for things leaving, ease-out-back for popups and stars.
 
 # ---- type ----
-## The smallest text the interface draws, in viewport units (the 1080-wide layout): nothing is set below it (the audit checks).
-const MIN_TEXT := 22
+## Text sizes are set in points relative to a 390-point-wide phone (the design width: 1080 units across, so one point is 1080 / 390 units) and
+## have a floor by role (docs/style.md, "Text sizes"; tools/ui_overlap_check.gd enforces them by role):
+##   caption (captions and tiny labels only)  11 pt     body and secondary text  15 pt     button labels  17 pt     headings: as designed
+const PT := 1080.0 / 390.0
+const CAPTION_PT := 11.0
+const BODY_PT := 15.0
+const BUTTON_PT := 17.0
+const SZ_CAPTION := 31       # ceil(11 pt)
+const SZ_BODY := 42          # ceil(15 pt)
+const SZ_BUTTON := 48        # ceil(17 pt)
+## The smallest size of a role, in units.
+static func min_size(role: String) -> int:
+	match role:
+		"caption":
+			return SZ_CAPTION
+		"button":
+			return SZ_BUTTON
+		"heading":
+			return 0
+	return SZ_BODY
+
 const SZ_XL := 110
 const SZ_M := 56
-const SZ_S := 30
+const SZ_S := 42                         # (body text: 15 pt)
 const WGHT := 2003265652                 # the OpenType 'wght' axis tag
 const LABEL_WEIGHT := 800.0              # Rubik ExtraBold: labels
 const BODY_WEIGHT := 500.0               # Rubik Medium: one-line descriptions
@@ -113,10 +132,10 @@ static func draw_ext(ci: CanvasItem, pos: Vector2, s: String, size_px: int, alig
 
 ## Text that has to fit a width is drawn at the largest size of a fixed ladder that fits (never at an arbitrary pixel size): every
 ## size on it is rasterised by the start-up pre-warm, so fitting a string never rasterises a glyph for the first time mid-game.
-const FIT := [150, 130, 110, 104, 96, 84, 74, 64, 56, 48, 42, 36, 32, 28, 24]
+const FIT := [150, 130, 110, 104, 96, 84, 74, 64, 56, 48, 42, 36, 31]
 
 ## Every size the interface draws text at (the pre-warm rows): the ladder plus the fixed ones.
-const PREWARM_SIZES := [22, 24, 26, 28, 30, 32, 34, 36, 40, 42, 46, 48, 54, 56, 64, 74, 80, 84, 96, 104, 110, 120, 130, 150]
+const PREWARM_SIZES := [31, 36, 40, 42, 46, 48, 54, 56, 64, 74, 80, 84, 96, 104, 110, 120, 130, 150]
 
 ## The size to draw `s` at: `start` if it fits `max_w`, else the largest ladder size below it that does (never under `min_px`).
 static func fit_size(s: String, start: int, min_px: int, max_w: float) -> int:

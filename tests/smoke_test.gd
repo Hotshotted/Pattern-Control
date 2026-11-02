@@ -129,6 +129,10 @@ func touch(main: Node, index: int, pressed: bool, screen: Vector2) -> void:
 	ev.position = screen
 	main._input(ev)
 
+## Is there a button with this id on the screen: among the panel's own, or in its list that scrolls?
+func bt_has(main: Node, id: String) -> bool:
+	return main.hud._art.btn_id.find(id) in range(main.hud._art.btn_count) or main.hud.list_ids().has(id)
+
 ## A tap on one of the detail sheet's buttons, as the sheet reports it (finger down, finger up on the same button).
 func sheet_tap(main: Node, id: String) -> void:
 	var c = main.hud.detail_sheet().chips.get(id)
@@ -1905,10 +1909,15 @@ func _initialize() -> void:
 	var shop_ids = []
 	for k in main.hud._art.btn_count:
 		shop_ids.append(main.hud._art.btn_id[k])
+	shop_ids.append_array(main.hud.list_ids())
 	check(shop_ids.has("shop_tab:0") and shop_ids.has("shop_tab:1") and shop_ids.has("theme:4") and shop_ids.has("back"), "two tabs, five theme cards and Back")
 	var card_state = {}
 	for k in main.hud._art.btn_count:
 		card_state[main.hud._art.btn_id[k]] = [main.hud._art.btn_state[k], main.hud._art.btn_sub[k], main.hud._art.btn_icon[k], main.hud._art.btn_rect[k], main.hud._art.btn_cost[k]]
+	for lid in main.hud.list_ids():       # (the cards are in the list that scrolls: their rectangles are where they are on the screen)
+		var lb = main.hud.list_button(lid)
+		var la = lb["art"]
+		card_state[lid] = [la.btn_state[lb["index"]], la.btn_sub[lb["index"]], la.btn_icon[lb["index"]], main.hud.list_screen_rect(lid), la.btn_cost[lb["index"]]]
 	check(card_state["theme:0"][1] == "In use" and card_state["theme:1"][1] == "300 coins" and card_state["theme:1"][0] == 0 and card_state["theme:3"][0] == 1, "Classic is equipped, Autumn is for sale, Winter is out of reach")
 	check(card_state["theme:2"][2] == 102, "theme cards show a colour swatch")
 	main.hud._preview_art()        # (made, and put above the list, while the menu idles in the game)
@@ -1948,7 +1957,7 @@ func _initialize() -> void:
 	touch(main, 0, false, pv_pos)
 	check(save.equipped_id("theme") == "autumn" and save.coins == 220 and main.hud.preview_state() == "equipped", "a tap on Equip equips it for free")
 	main.close_preview()
-	check(not main.hud.preview_open() and main.hud._art.btn_id.has("theme:1"), "closing the sheet leaves the list")
+	check(not main.hud.preview_open() and bt_has(main, "theme:1"), "closing the sheet leaves the list")
 	var reg_scene = main.airfield.variants[2]
 	check(reg_scene.ground_mat.albedo_color.is_equal_approx(Cosmetics.THEMES[1]["ground"]), "the airport ground takes the theme's colour")
 	check(main.airfield.variants[4].ground_mat.albedo_color != Cosmetics.THEMES[1]["ground"], "...but the Island's water stays water")
@@ -1970,7 +1979,7 @@ func _initialize() -> void:
 	main.shop_pick("theme", 0)
 	check(save.equipped_id("theme") == "classic" and reg_scene.ground_mat.albedo_color.is_equal_approx(reg_scene.base_ground), "equipping Classic again is free and restores the look")
 	main._on_button("shop_tab:1")
-	check(main.shop_tab == 1 and main.hud._art.btn_icon[main.hud._art.btn_id.find("livery:3")] == 3, "the Liveries tab shows each pilot's portrait")
+	check(main.shop_tab == 1 and main.hud.list_button("livery:3")["art"].btn_icon[main.hud.list_button("livery:3")["index"]] == 3, "the Liveries tab shows each pilot's portrait")
 	save.add_coins(300)
 	var coins_l = save.coins
 	main.shop_pick("livery", 1)
@@ -3087,13 +3096,13 @@ func _initialize() -> void:
 		if ch is Label and ch != main.hud._perf_label and ch != main.hud._stamp:
 			var sz = ch.get_theme_font_size("font_size")
 			sizes_seen[sz] = true
-			sizes_ok = sizes_ok and (sz == main.hud.SZ_XL or sz == main.hud.SZ_M or sz == main.hud.SZ_S or sz == 26 or (sz in Style.FIT and sz >= Style.MIN_TEXT and sz < main.hud.SZ_XL))     # (the popups fit their text down the ladder)
+			sizes_ok = sizes_ok and (sz == main.hud.SZ_XL or sz == main.hud.SZ_M or sz == main.hud.SZ_S or sz == 26 or (sz in Style.FIT and sz >= Style.SZ_CAPTION and sz < main.hud.SZ_XL))     # (the popups fit their text down the ladder)
 	for scr in [main.hud._menu, main.hud._over, main.hud._select, main.hud._pause, main.hud._ad]:
 		for ch in scr.get_children():
 			if ch is Label:
 				var sz2 = ch.get_theme_font_size("font_size")
 				sizes_seen[sz2] = true
-				sizes_ok = sizes_ok and (sz2 == main.hud.SZ_XL or sz2 == main.hud.SZ_M or sz2 == main.hud.SZ_S or (sz2 in Style.FIT and sz2 >= Style.MIN_TEXT and sz2 < main.hud.SZ_XL))        # (a title that has to fit its room steps down the size ladder)
+				sizes_ok = sizes_ok and (sz2 == main.hud.SZ_XL or sz2 == main.hud.SZ_M or sz2 == main.hud.SZ_S or (sz2 in Style.FIT and sz2 >= Style.SZ_CAPTION and sz2 < main.hud.SZ_XL))        # (a title that has to fit its room steps down the size ladder)
 	check(sizes_ok, "every label uses one of the three text sizes %s, or a step down the size ladder for one that must fit (seen %s)" % [str([main.hud.SZ_XL, main.hud.SZ_M, main.hud.SZ_S]), str(sizes_seen.keys())])
 	# Airport select: just a name, stars and a lock.
 	main._on_button("airports")
@@ -3197,7 +3206,7 @@ func _initialize() -> void:
 		if art.btn_kind[k] == 2:
 			res_prim.append(art.btn_id[k])
 		elif art.btn_id[k] != "again":
-			res_small = res_small and area.call(k) < area.call(art.btn_id.find("again")) * 0.3
+			res_small = res_small and area.call(k) < area.call(art.btn_id.find("again")) * 0.55
 	check(res_prim == ["again"] and res_small, "results: one big PLAY AGAIN button; the ads and the rest are small chips")
 	main.hud._process(1.0)
 	var t_mid = art.res_t
@@ -4024,7 +4033,7 @@ func _initialize() -> void:
 	check(not main.hud._stamp.visible and not DebugFlags.stamp_enabled(), "players do not see the build stamp")
 	DebugFlags.parse(["debug"])
 	main.hud.refresh_stamp()
-	check(main.hud._stamp.visible and main.hud._stamp.text.contains(BuildInfo.COMMIT) and main.hud._stamp.size.y < 90.0 and main.hud._stamp.get_theme_font_size("font_size") <= 22, "?debug shows it, small, in the corner")
+	check(main.hud._stamp.visible and main.hud._stamp.text.contains(BuildInfo.COMMIT) and main.hud._stamp.size.y < 90.0 and main.hud._stamp.get_theme_font_size("font_size") <= Style.SZ_CAPTION, "?debug shows it, small, in the corner")
 	DebugFlags.parse(["perf"])
 	main.hud.refresh_stamp()
 	var br_perf = main.hud._stamp.visible
@@ -4038,7 +4047,7 @@ func _initialize() -> void:
 	main.hud.refresh_stamp()
 	for vt_parent in [main.hud._menu, main.hud._pause]:
 		var vt: Label = vt_parent.get_node_or_null("VersionTag")
-		check(vt != null and vt.text == "build " + BuildInfo.COMMIT and vt.get_theme_font_size("font_size") <= 30 and vt.modulate.a < 0.8 and vt.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT and vt.anchor_left == 1.0 and vt.anchor_top == 1.0, "the menu and the pause screen show a small muted 'build <commit>' bottom-right")
+		check(vt != null and vt.text == "build " + BuildInfo.COMMIT and vt.get_theme_font_size("font_size") <= Style.SZ_CAPTION and vt.modulate.a < 0.8 and vt.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT and vt.anchor_left == 1.0 and vt.anchor_top == 1.0, "the menu and the pause screen show a small muted 'build <commit>' bottom-right")
 
 	print("9v. web audio: sample-based streams, buses from the layout, volumes, the first-gesture unlock")
 	var wa_scripts = ""
@@ -6065,12 +6074,14 @@ func _initialize() -> void:
 	var dg_ids2 = []
 	for dg_k in main.hud._art.btn_count:
 		dg_ids2.append(main.hud._art.btn_id[dg_k])
+	dg_ids2.append_array(main.hud.list_ids())
 	check(dg_ids2.has("goal:0") and dg_ids2.has("goal:1") and dg_ids2.has("goal:2") and dg_ids2.has("greroll:0") and dg_ids2.has("chest") and dg_ids2.has("streak") and dg_ids2.has("back"), "the sheet lists three goals each with a reroll, the chest and the streak")
 	var dg_first = save.goals["list"][0]["id"]
 	main._on_button("greroll:0")
 	var dg_ids3 = []
 	for dg_k in main.hud._art.btn_count:
 		dg_ids3.append(main.hud._art.btn_id[dg_k])
+	dg_ids3.append_array(main.hud.list_ids())
 	check(main.screen == main.SCREEN_GOALS and save.goals["list"][0]["id"] != dg_first and not dg_ids3.has("greroll:0") and dg_ids3.has("greroll:1"), "a reroll swaps the goal and uses up that goal's reroll")
 	main._on_button("back")
 	check(main.screen == main.SCREEN_MENU, "Back returns to the menu")
@@ -6485,9 +6496,9 @@ func _initialize() -> void:
 	main._show_menu()
 	check(main.hud._art.btn_id.has("ach") and main.hud._art.btn_text[main.hud._art.btn_id.find("ach")] == "Awards", "the menu has an Awards button")
 	main._on_button("ach")
-	check(main.screen == main.SCREEN_ACH and main.hud._select_title.text == "ACHIEVEMENTS" and main.hud._art.btn_id.has("ach_tab:3") and main.hud._art.btn_id.has("ach:a_first"), "it opens the Achievements sheet, with four group tabs")
+	check(main.screen == main.SCREEN_ACH and main.hud._select_title.text == "ACHIEVEMENTS" and main.hud._art.btn_id.has("ach_tab:3") and bt_has(main, "ach:a_first"), "it opens the Achievements sheet, with four group tabs")
 	main._on_button("ach_tab:1")
-	check(main.hud._art.btn_id.has("ach:s_nogo") and not main.hud._art.btn_id.has("ach:a_first"), "a tab lists one group")
+	check(bt_has(main, "ach:s_nogo") and not bt_has(main, "ach:a_first"), "a tab lists one group")
 	main._on_button("back")
 	# The new cosmetics: sources, locked items, the shop tabs, field details drawn on the field.
 	var cs_new = 0
@@ -6503,14 +6514,17 @@ func _initialize() -> void:
 	var cs_cards = {}
 	for cs_k in main.hud._art.btn_count:
 		cs_cards[main.hud._art.btn_id[cs_k]] = [main.hud._art.btn_sub[cs_k], main.hud._art.btn_state[cs_k], main.hud._art.btn_kind[cs_k]]
+	for cs_id in main.hud.list_ids():
+		var cs_b = main.hud.list_button(cs_id)
+		cs_cards[cs_id] = [cs_b["art"].btn_sub[cs_b["index"]], cs_b["art"].btn_state[cs_b["index"]], cs_b["art"].btn_kind[cs_b["index"]]]
 	check(cs_cards.size() >= 18 and cs_cards["livery:8"][0].begins_with("Mastery: Grass Strip") and cs_cards["livery:8"][1] == 1 and cs_cards["livery:6"][0] == "650 coins" and cs_cards["livery:0"][0] == "In use" and cs_cards["livery:8"][2] == 16, "the liveries tab lists all 17 in compact cards, a locked one saying its source")
 	main._on_button("livery:8")
 	check(main.preview_kind == "livery" and main.hud.preview_state() == "locked", "a mastery livery opens a preview that says Locked")
 	main._on_button("preview_close")
 	main._on_button("shop_tab:2")
-	check(main.hud._art.btn_id.has("windsock:0") and main.hud._art.btn_id.has("hangar:6"), "the Field tab lists the windsocks and hangar paints")
+	check(bt_has(main, "windsock:0") and bt_has(main, "hangar:6"), "the Field tab lists the windsocks and hangar paints")
 	main._on_button("shop_tab:0")
-	check(main.hud._art.btn_id.has("theme:8"), "the skins tab lists all nine")
+	check(bt_has(main, "theme:8"), "the skins tab lists all nine")
 	main._on_button("back")
 	# Field details on the airfield.
 	save.reset_all()

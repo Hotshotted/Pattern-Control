@@ -99,6 +99,7 @@ class Art extends Control:
 	var res_unlock := ""             # results: a new airport opened (shown as a card)
 	var res_goals: Array = []        # results: daily goals this shift finished ({"text", "reward"}), and a line under them
 	var res_goals_extra := ""
+	var res_pills := 0               # results: how many rewarded-ad pills sit under the Next shift button (0 to 2)
 	var res_protected := 0           # results: coins the pay floor added (0 = the net was above the floor)
 	var pause_card := Rect2()        # the sheet behind the pause menu's sliders
 	var _pts := PackedVector2Array()
@@ -269,11 +270,12 @@ class Art extends Control:
 
 	## Small tracked capitals: the letters spaced apart, one by one.
 	func tracked(s: String, pos: Vector2, size_px: int, col: Color, track: float) -> void:
+		size_px = maxi(size_px, Style.SZ_CAPTION)
 		var f := Style.font_for(s, size_px)
 		var x := pos.x
 		for i in s.length():
 			var ch := s.substr(i, 1)
-			_ds(f, Vector2(x, pos.y), ch, HORIZONTAL_ALIGNMENT_LEFT, -1.0, size_px, col)
+			_ds(f, Vector2(x, pos.y), ch, HORIZONTAL_ALIGNMENT_LEFT, -1.0, size_px, col, "caption")
 			x += f.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x + track
 
 	## A panel with its soft highlight: a rounded cap at the top fading down into the face (the style's gradient).
@@ -316,14 +318,29 @@ class Art extends Control:
 		rec_xf = Transform2D(rot, scl, 0.0, pos)
 		draw_set_transform(pos, rot, scl)
 
-	func _ds(f: Font, pos: Vector2, s: String, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0, size_px: int = 16, col: Color = Color.WHITE) -> void:
+	## The floor of a text's role (Style: caption 11 pt, body 15 pt, button label 17 pt; a heading is as designed): text is never drawn under it.
+	## A string that is the label of one of this layer's buttons is a button label; "caption" is passed by the few call sites that draw one.
+	func role_size(s: String, size_px: int, role: String = "") -> int:
+		if role == "" and size_px >= 54:
+			return size_px
+		if role == "":
+			role = "body"
+			for k in btn_count:
+				if btn_text[k] == s:
+					role = "button"
+					break
+		return maxi(size_px, Style.min_size(role))
+
+	func _ds(f: Font, pos: Vector2, s: String, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0, size_px: int = 16, col: Color = Color.WHITE, role: String = "") -> void:
+		size_px = role_size(s, size_px, role)
 		if rec_on and s != "" and col.a > 0.05:
-			rec_text(f, pos, s, align, width, size_px, 1)
+			rec_text(f, pos, s, align, width, size_px, 1, role)
 		draw_string(f, pos, s, align, width, size_px, col)
 
-	func _dms(f: Font, pos: Vector2, s: String, align: int, width: float, size_px: int, max_lines: int, col: Color = Color.WHITE) -> void:
+	func _dms(f: Font, pos: Vector2, s: String, align: int, width: float, size_px: int, max_lines: int, col: Color = Color.WHITE, role: String = "") -> void:
+		size_px = role_size(s, size_px, role)
 		if rec_on and s != "" and col.a > 0.05:
-			rec_text(f, pos, s, align, width, size_px, max_lines)
+			rec_text(f, pos, s, align, width, size_px, max_lines, role)
 		draw_multiline_string(f, pos, s, align, width, size_px, max_lines, col)
 
 	func _has_descender(s: String) -> bool:
@@ -333,7 +350,7 @@ class Art extends Control:
 		return false
 
 	## Note a text run: `pos` is the baseline start, as for draw_string; `max_lines` > 1 for a wrapped run.
-	func rec_text(f: Font, pos: Vector2, s: String, align: int, width: float, size_px: int, max_lines: int) -> void:
+	func rec_text(f: Font, pos: Vector2, s: String, align: int, width: float, size_px: int, max_lines: int, role: String = "") -> void:
 		var asc := f.get_ascent(size_px)
 		var h := asc + f.get_descent(size_px)
 		var nat := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
@@ -355,7 +372,7 @@ class Art extends Control:
 		var ink_top := pos.y - 0.74 * float(size_px)            # (the ink, not the line box: capitals reach 0.74 of the size above the baseline,
 		var ink_bot := pos.y + (h - asc) * (nl - 1.0) + float(size_px) * (0.22 if _has_descender(s) else 0.04) + (nl - 1.0) * asc * 0.0       #  descenders 0.22 below)
 		var rr := rec_xf * Rect2(x0, ink_top, tw, maxf(ink_bot - ink_top, 4.0))
-		rec_texts.append({"text": s, "rect": rr, "size": roundi(float(size_px) * rec_xf.get_scale().y), "limit": width * rec_xf.get_scale().x, "natural": nat * rec_xf.get_scale().x, "over": over})
+		rec_texts.append({"text": s, "rect": rr, "size": roundi(float(size_px) * rec_xf.get_scale().y), "limit": width * rec_xf.get_scale().x, "natural": nat * rec_xf.get_scale().x, "over": over, "role": role})
 
 	# ---------- text ----------
 
@@ -365,8 +382,8 @@ class Art extends Control:
 		_ds(f, pos, s, align, width, size_px, col)
 
 	## Text on a cream surface: brown, no outline.
-	func ptext(s: String, pos: Vector2, size_px: int, col: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0) -> void:
-		_ds(Style.font_for(s, size_px), pos, s, align, width, size_px, col)
+	func ptext(s: String, pos: Vector2, size_px: int, col: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0, role: String = "") -> void:
+		_ds(Style.font_for(s, size_px), pos, s, align, width, size_px, col, role)
 
 	## Text on the primary button: white with a slight dark shadow.
 	func btext(s: String, pos: Vector2, size_px: int, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0) -> void:
@@ -375,6 +392,7 @@ class Art extends Control:
 		_ds(f, pos, s, align, width, size_px, Color.WHITE)
 
 	func text_width(s: String, size_px: int) -> float:
+		size_px = role_size(s, size_px)
 		return Style.font_for(s, size_px).get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
 
 	# ---------- shapes ----------
@@ -773,7 +791,7 @@ class Art extends Control:
 		if h.size.y < tap:
 			h.position.y -= (tap - h.size.y) * 0.5
 			h.size.y = tap
-		var vs := get_viewport_rect().size
+		var vs := _bounds()
 		if vs.x > 0.0 and h.size.x <= vs.x:
 			h.position.x = clampf(h.position.x, 0.0, vs.x - h.size.x)
 		if vs.y > 0.0 and h.size.y <= vs.y:
@@ -781,13 +799,17 @@ class Art extends Control:
 		return h
 
 	var hits_dirty := false
+	var is_scroll := false           # a list that scrolls (see Hud._scroll_for): its buttons are in the list's own coordinates
+
+	func _bounds() -> Vector2:
+		return size if is_scroll else get_viewport_rect().size
 
 	## Work the hit areas out (when the layout is done, before the first tap or the audit): each button's rectangle grown to the 44-point
 	## tap size; where two grown areas meet, each gives back its extra at the middle of the gap between the buttons; a button that gave
 	## back too much grows again on its free side (up to the next button or the screen's edge).
 	func refresh_hits() -> void:
 		hits_dirty = false
-		var vs := get_viewport_rect().size
+		var vs := _bounds()
 		for k in btn_count:
 			btn_hit[k] = btn_rect[k] if btn_kind[k] == 11 else _slop(btn_rect[k])
 		for k in btn_count:
@@ -926,7 +948,7 @@ class Art extends Control:
 				if pressed:
 					face2.position.y += 4.0
 				panel(_sb_primary, face2, _sheen_o)
-				var fs2 := Style.fit_size(btn_text[k], 40, 24, face2.size.x - 40.0)
+				var fs2 := Style.fit_size(btn_text[k], 48, 48, face2.size.x - 40.0)
 				btext(btn_text[k], Vector2(face2.position.x, face2.get_center().y + fs2 * 0.33), fs2, HORIZONTAL_ALIGNMENT_CENTER, face2.size.x)
 			3:      # a colour tile (ink border, a lip under it) with a small label under it: the pause buttons
 				var tint := btn_tint[k]
@@ -949,7 +971,7 @@ class Art extends Control:
 				draw_circle(cc, rad, Style.SURFACE_DARK)
 				draw_circle(cc + Vector2(0, -rad * 0.25), rad * 0.7, Color(1, 1, 1, 0.45))
 				glyph(btn_glyph[k], cc, rad * 0.5, Style.TEXT)
-				text(btn_text[k], Vector2(r.position.x - 20.0, r.end.y - 4.0), 24, C_CREAM, HORIZONTAL_ALIGNMENT_CENTER, r.size.x + 40.0)
+				text(btn_text[k], Vector2(r.position.x - 20.0, r.end.y - 14.0), 24, C_CREAM, HORIZONTAL_ALIGNMENT_CENTER, r.size.x + 40.0)
 				var b7 := btn_badge[k]
 				var bc7 := cc + Vector2(rad * 0.75, -rad * 0.75)
 				if b7 == -2:
@@ -1020,13 +1042,13 @@ class Art extends Control:
 					glyph("star" if i < btn_stars[k] else "star_off", Vector2(r.end.x - 128.0 + i * 44.0, r.get_center().y), 16.0)
 			6:      # a quiet pill (the rewarded ads): it stays out of the way of the one big button
 				_dsb(_sb_ghost, r)
-				var lw := text_width(btn_text[k], SZ_S)
-				var sw := text_width(btn_sub[k], SZ_S) if btn_sub[k] != "" else 0.0
-				var lx := r.get_center().x - (lw + sw + (14.0 if sw > 0.0 else 0.0) + 56.0) * 0.5
-				glyph(btn_glyph[k], Vector2(lx + 18.0, r.get_center().y), 16.0, ink)
-				ptext(btn_text[k], Vector2(lx + 56.0, r.get_center().y + SZ_S * 0.35), SZ_S, ink)
+				var lw := text_width(btn_text[k], Style.SZ_BUTTON)
+				var sw := text_width(btn_sub[k], Style.SZ_BODY) if btn_sub[k] != "" else 0.0
+				var lx := r.get_center().x - (lw + sw + (20.0 if sw > 0.0 else 0.0) + 64.0) * 0.5
+				glyph(btn_glyph[k], Vector2(lx + 22.0, r.get_center().y), 20.0, ink)
+				ptext(btn_text[k], Vector2(lx + 64.0, r.get_center().y + Style.SZ_BUTTON * 0.35), Style.SZ_BUTTON, ink)
 				if sw > 0.0:
-					ptext(btn_sub[k], Vector2(lx + 56.0 + lw + 14.0, r.get_center().y + SZ_S * 0.35), SZ_S, C_GOLD_TXT)
+					ptext(btn_sub[k], Vector2(lx + 64.0 + lw + 20.0, r.get_center().y + Style.SZ_BODY * 0.35), Style.SZ_BODY, C_GOLD_TXT)
 			1:      # a card
 				var sb := _sb_gold if (st == 2 and btn_cost[k] == 0) else (_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal))
 				if btn_map[k] >= 0:
@@ -1082,14 +1104,18 @@ class Art extends Control:
 				if st == 2:
 					glyph("check", Vector2(r.position.x + 62.0, cy13), 17.0, Color.WHITE)
 				var tw13 := r.size.x - 120.0 - 250.0
-				var fs13 := Style.fit_size(btn_text[k], SZ_M, 28, tw13)
-				var sfs13 := Style.fit_size(btn_sub[k], SZ_S, 24, tw13)
-				if Style.body().get_string_size(btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, -1, sfs13).x > tw13:        # too long even at the smallest size: two lines
-					ptext(btn_text[k], Vector2(r.position.x + 120.0, cy13 - 24.0), fs13, ink, HORIZONTAL_ALIGNMENT_LEFT, tw13)
-					_dms(Style.body(), Vector2(r.position.x + 120.0, cy13 + 14.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, 24, 2, C_SOFT)
+				var nl13 := Hud.wrap_lines(btn_text[k], Style.SZ_BUTTON, tw13)
+				var sl13 := Hud.wrap_lines(btn_sub[k], Style.SZ_BODY, tw13)
+				var ty13 := r.position.y + 26.0 + 44.0
+				if nl13 > 1:
+					_dms(Style.font_for(btn_text[k], Style.SZ_BUTTON), Vector2(r.position.x + 120.0, ty13), btn_text[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, Style.SZ_BUTTON, nl13, ink, "button")
 				else:
-					ptext(btn_text[k], Vector2(r.position.x + 120.0, cy13 - 4.0), fs13, ink, HORIZONTAL_ALIGNMENT_LEFT, tw13)
-					_ds(Style.body(), Vector2(r.position.x + 120.0, cy13 + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, sfs13, C_SOFT)
+					ptext(btn_text[k], Vector2(r.position.x + 120.0, ty13), Style.SZ_BUTTON, ink, HORIZONTAL_ALIGNMENT_LEFT, tw13)
+				var sy13 := ty13 + float(nl13 - 1) * 54.0 + 48.0
+				if sl13 > 1:
+					_dms(Style.body(), Vector2(r.position.x + 120.0, sy13), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, Style.SZ_BODY, sl13, C_SOFT)
+				else:
+					_ds(Style.body(), Vector2(r.position.x + 120.0, sy13), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw13, Style.SZ_BODY, C_SOFT)
 				glyph("coin", Vector2(r.end.x - 218.0, cy13), 18.0)
 				ptext("+%d" % btn_cost[k], Vector2(r.end.x - 188.0, cy13 + 12.0), SZ_M, C_GOLD_TXT if st != 2 else ink, HORIZONTAL_ALIGNMENT_LEFT, 160.0)
 			16:     # a compact cosmetic card (two to a row): a picture or swatch, the name, and one line (the price, or where a locked item comes from)
@@ -1103,17 +1129,23 @@ class Art extends Control:
 					draw_circle(pc, 39.0, btn_tint2[k])
 					draw_circle(pc + Vector2(0, -8.0), 25.0, btn_tint[k])
 				var tw16 := r.size.x - 120.0 - 24.0
-				ptext(btn_text[k], Vector2(r.position.x + 120.0, r.position.y + 54.0), Style.fit_size(btn_text[k], 30, 22, tw16), ink, HORIZONTAL_ALIGNMENT_LEFT, tw16)
-				if locked16:       # where it comes from, on up to two lines
-					glyph("lock", Vector2(r.position.x + 134.0, r.position.y + 84.0), 11.0, C_SOFT)
-					_dms(Style.body(), Vector2(r.position.x + 152.0, r.position.y + 88.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16 - 32.0, 22, 2, C_SOFT)
+				var nfs16 := Style.SZ_BUTTON
+				var two := Style.font_for(btn_text[k], nfs16).get_string_size(btn_text[k], HORIZONTAL_ALIGNMENT_LEFT, -1, nfs16).x > tw16
+				if two:
+					_dms(Style.font_for(btn_text[k], nfs16), Vector2(r.position.x + 120.0, r.position.y + 52.0), btn_text[k], HORIZONTAL_ALIGNMENT_LEFT, tw16, nfs16, 2, ink, "button")
 				else:
-					_ds(Style.body(), Vector2(r.position.x + 120.0, r.position.y + 102.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16, 22, C_SOFT if st != 1 else C_QUIET)
+					ptext(btn_text[k], Vector2(r.position.x + 120.0, r.position.y + 54.0), nfs16, ink, HORIZONTAL_ALIGNMENT_LEFT, tw16)
+				var sy16 := r.position.y + (150.0 if two else 106.0)
+				if locked16:       # where it comes from, on up to two lines
+					glyph("lock", Vector2(r.position.x + 134.0, sy16 - 12.0), 13.0, C_SOFT)
+					_dms(Style.body(), Vector2(r.position.x + 160.0, sy16), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16 - 40.0, Style.SZ_BODY, 2, C_SOFT)
+				else:
+					_ds(Style.body(), Vector2(r.position.x + 120.0, sy16), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, tw16, Style.SZ_BODY, C_SOFT if st != 1 else C_QUIET)
 			14:     # the menu's goals card: "Daily goals", the streak, and three dots for the three goals
 				panel(_sb_normal, r, _sheen_s)
 				glyph("sun", Vector2(r.position.x + 52.0, r.get_center().y), 26.0, ink)
-				ptext(btn_text[k], Vector2(r.position.x + 98.0, r.get_center().y - 6.0), 32, ink, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 290.0)
-				_ds(Style.body(), Vector2(r.position.x + 98.0, r.get_center().y + 30.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 290.0, SZ_S, C_SOFT)
+				ptext(btn_text[k], Vector2(r.position.x + 98.0, r.get_center().y - 12.0), Style.SZ_BUTTON, ink, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 290.0)
+				_ds(Style.body(), Vector2(r.position.x + 98.0, r.get_center().y + 40.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 290.0, SZ_S, C_SOFT)
 				for i in 3:
 					var dc := Vector2(r.end.x - 130.0 + i * 44.0, r.get_center().y)
 					draw_circle(dc, 17.0, Style.INK)
@@ -1140,7 +1172,7 @@ class Art extends Control:
 			_:
 				panel(_sb_accent if st == 2 else (_sb_disabled if st == 1 else _sb_normal), r)
 				var gw4 := r.size.y * 0.5 if btn_glyph[k] != "" else 0.0
-				var fs4 := Style.fit_size(btn_text[k], SZ_M, 30, r.size.x - 50.0 - gw4)
+				var fs4 := Style.fit_size(btn_text[k], SZ_M, 48, r.size.x - 50.0 - gw4)
 				var tw4 := text_width(btn_text[k], fs4)
 				var sx := r.get_center().x - (tw4 + gw4) * 0.5
 				if btn_glyph[k] != "":
@@ -1168,17 +1200,17 @@ class Art extends Control:
 		_vignette(vig, btn_map[k], locked)
 		var tx := vig.end.x + 28.0
 		var avail := r.end.x - tx - (300.0 if sel else 40.0)
-		var nfs := Style.fit_size(btn_text[k], 46, 28, avail)
-		ptext(btn_text[k], Vector2(tx, r.position.y + 78.0), nfs, C_TEXT if not locked else C_QUIET, HORIZONTAL_ALIGNMENT_LEFT, avail)
-		_ds(Style.body(), Vector2(tx, r.position.y + 118.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, avail, 26, C_SOFT if not locked else C_QUIET)
+		var nfs := Style.fit_size(btn_text[k], 48, 48, avail)
+		ptext(btn_text[k], Vector2(tx, r.position.y + 70.0), nfs, C_TEXT if not locked else C_QUIET, HORIZONTAL_ALIGNMENT_LEFT, avail)
+		_ds(Style.body(), Vector2(tx, r.position.y + 122.0), btn_sub[k], HORIZONTAL_ALIGNMENT_LEFT, avail, 26, C_SOFT if not locked else C_QUIET)
 		if not locked:
 			for i in 3:
-				glyph("star" if i < btn_stars[k] else "star_off", Vector2(tx + 24.0 + i * 58.0, r.end.y - 52.0), 21.0)
+				glyph("star" if i < btn_stars[k] else "star_off", Vector2(tx + 24.0 + i * 50.0, r.end.y - 52.0), 21.0)
 			if btn_cost[k] > 0:
-				_ds(Style.text(), Vector2(tx + 200.0, r.end.y - 42.0), "Best %d" % btn_cost[k], HORIZONTAL_ALIGNMENT_LEFT, 200.0, 26, C_SOFT)
+				_ds(Style.text(), Vector2(tx + 156.0, r.end.y - 40.0), "Best %d" % btn_cost[k], HORIZONTAL_ALIGNMENT_LEFT, 232.0, 26, C_SOFT, "caption")
 			if btn_pips[k] >= 0:         # the mastery rank and how far to the next
-				var mr := Rect2(r.end.x - 300.0, r.end.y - 58.0, 250.0, 16.0)
-				_ds(Style.text(), Vector2(mr.position.x, mr.position.y - 12.0), "Rank %d  \u00b7  %s" % [btn_pips[k], Mastery.rank_name(btn_pips[k])], HORIZONTAL_ALIGNMENT_LEFT, 250.0, 24, C_GOLD_TXT if btn_pips[k] >= Mastery.MAX_RANK else C_SOFT)
+				var mr := Rect2(r.end.x - 360.0, r.end.y - 58.0, 320.0, 16.0)
+				_ds(Style.text(), Vector2(mr.position.x, mr.position.y - 12.0), "Rank %d \u00b7 %s" % [btn_pips[k], Mastery.rank_name(btn_pips[k])], HORIZONTAL_ALIGNMENT_LEFT, 320.0, 24, C_GOLD_TXT if btn_pips[k] >= Mastery.MAX_RANK else C_SOFT, "caption")
 				_mastery_bar(mr, float(btn_badge[k]) / 100.0, btn_pips[k])
 		else:
 			var pill := Rect2(tx, r.end.y - 88.0, r.end.x - tx - 40.0, 64.0)         # (what unlocks it: under the name, where the stars are on an open card)
@@ -1200,7 +1232,7 @@ class Art extends Control:
 			var r := slider_rect[i]
 			var ty := r.get_center().y
 			glyph(slider_glyph[i], Vector2(r.position.x - 70.0, ty), 34.0, C_TEXT)
-			ptext(slider_name[i], Vector2(r.position.x, ty - 52.0), 26, C_SOFT)         # (above the track's tap area, not on it)
+			ptext(slider_name[i], Vector2(r.position.x, ty - 52.0), 26, C_SOFT, HORIZONTAL_ALIGNMENT_LEFT, -1.0, "caption")         # (above the track's tap area, not on it)
 			var track := Rect2(r.position.x, ty - 11.0, r.size.x, 22.0)
 			_dsb(_sb_slider, track)
 			var fx := maxf(r.size.x * slider_val[i], 22.0)
@@ -1237,7 +1269,7 @@ class Art extends Control:
 			else:
 				glyph("star" if lit else "star_off", c, 24.0 if lit else 20.0)
 			if i == 0 and not lit and thresholds[0] > 0:        # the landings still to go for the first star
-				ptext("%d/%d" % [landed, thresholds[0]], Vector2(x - 60.0, y + 58.0), 22, C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, 120.0)
+				ptext("%d/%d" % [landed, thresholds[0]], Vector2(x - 80.0, y + 66.0), 31, C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, 160.0, "caption")
 
 	## The wind card (top-right): a cream card with an arrow showing where the air is going and its direction number.
 	func _draw_wind() -> void:
@@ -1274,7 +1306,7 @@ class Art extends Control:
 		if mode_glyph != "":
 			glyph(mode_glyph, Vector2(50.0 + left, 146.0 + top), 26.0, C_SOFT)       # (under the pause button, which has the safe area's top)
 		_draw_star_bar()
-		var y := 400.0 + top                 # (under the banner, which has 262 to 380 to itself)
+		var y := 460.0 + top                 # (under the banner, which has 312 to 440 to itself)
 		if chip_finale != "":
 			_pill(Vector2(size.x * 0.5, y), "plane", chip_finale, SZ_M, C_RED if chip_finale_red else C_TEXT)
 			y += 86.0
@@ -1298,7 +1330,7 @@ class Art extends Control:
 			if banner_glyph != "":
 				glyph(banner_glyph, Vector2(x + 30.0, r.get_center().y), 30.0, Color(banner_color.r, banner_color.g, banner_color.b, banner_alpha))
 				x += 84.0
-			var bfs := Style.fit_size(banner_text, SZ_M, 28, r.end.x - x - 40.0)
+			var bfs := Style.fit_size(banner_text, SZ_M, Style.SZ_BODY, r.end.x - x - 40.0)
 			var bcol := Color(Style.TEXT.r, Style.TEXT.g, Style.TEXT.b, banner_alpha)
 			if banner_lines > 1:
 				_dms(Style.font_for(banner_text, bfs), Vector2(x, r.position.y + 22.0 + float(bfs)), banner_text, HORIZONTAL_ALIGNMENT_LEFT, r.end.x - x - 40.0, bfs, 2, bcol)
@@ -1372,7 +1404,7 @@ class Art extends Control:
 			for j in 3:
 				var cr0 := Rect2(card.position.x + 45.0 + j * (cw0 + 18.0), card.position.y + 270.0 * s2, cw0, 150.0)
 				_dsb(_sb_chip, cr0)
-				_ds(Style.text(), Vector2(cr0.position.x, cr0.position.y + 126.0), ["Landings", "Early clear", "Fines"][j], HORIZONTAL_ALIGNMENT_CENTER, cr0.size.x, SZ_S, C_SOFT)
+				_ds(Style.text(), Vector2(cr0.position.x, cr0.position.y + 126.0), ["Landings", "Early clear", "Fines"][j], HORIZONTAL_ALIGNMENT_CENTER, cr0.size.x, SZ_S, C_SOFT, "caption")
 		if not dyn:
 			return
 		var t_count := STAR_T0 + STAR_GAP * 3.0
@@ -1394,7 +1426,7 @@ class Art extends Control:
 			_ds(Style.text(), Vector2(-140.0, 14.0), "NEW BEST", HORIZONTAL_ALIGNMENT_CENTER, 280.0, 36, Color.WHITE)
 			_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 		elif res_best > 0:
-			ptext("best %d" % res_best, Vector2(cx - 300.0, card.position.y + 60.0), SZ_S, Color(C_QUIET.r, C_QUIET.g, C_QUIET.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0)
+			ptext("best %d" % res_best, Vector2(cx - 300.0, card.position.y + 60.0), SZ_S, Color(C_QUIET.r, C_QUIET.g, C_QUIET.b, k2), HORIZONTAL_ALIGNMENT_CENTER, 600.0, "caption")
 		var cw := (card.size.x - 90.0 - 36.0) / 3.0
 		for j in 3:
 			var cr := Rect2(card.position.x + 45.0 + j * (cw + 18.0), card.position.y + 270.0 * s2, cw, 150.0)
@@ -1402,7 +1434,7 @@ class Art extends Control:
 			var colr := C_TEXT if j == 0 else (Style.SUCCESS_DARK if j == 1 else Color("b8322a"))
 			var sign := "+" if v >= 0 and j < 2 else ("" if j < 2 else "\u2212")
 			var ctxt := "%s%s" % [sign, fmt_int(absi(v))]
-			var cfs := Style.fit_size(ctxt, 54, 28, cr.size.x - 16.0)
+			var cfs := Style.fit_size(ctxt, 54, 42, cr.size.x - 16.0)
 			_ds(Style.display(), Vector2(cr.position.x, cr.position.y + 80.0), ctxt, HORIZONTAL_ALIGNMENT_CENTER, cr.size.x, cfs, colr)
 		if stk.has("pill"):        # the fines took the net under the floor: the floor pays instead
 			var pr: Rect2 = stk["pill"]
@@ -1415,12 +1447,15 @@ class Art extends Control:
 			_dsb(_sb_unlock, gr)
 			glyph("check", Vector2(gr.position.x + 50.0, gr.get_center().y), 14.0, Style.SUCCESS_DARK)
 			var gtxt: String = str(res_goals[gi]["text"]) if res_goals.size() <= grows.size() or (gi == 0 and grows.size() > 1) else ("%d goals done" % res_goals.size() if grows.size() == 1 else "+%d more goals" % (res_goals.size() - gi))
-			var gfs := Style.fit_size(gtxt, 32, 24, gr.size.x - 300.0)
-			ptext(gtxt, Vector2(gr.position.x + 90.0, gr.get_center().y + 12.0), gfs, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, gr.size.x - 300.0)
+			var gw := gr.size.x - 300.0
+			if Hud.wrap_lines(gtxt, Style.SZ_BODY, gw) > 1:
+				_dms(Style.text(), Vector2(gr.position.x + 90.0, gr.get_center().y - 8.0), gtxt, HORIZONTAL_ALIGNMENT_LEFT, gw, Style.SZ_BODY, 2, C_TEXT)
+			else:
+				ptext(gtxt, Vector2(gr.position.x + 90.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, gw)
 			var rsum := 0
 			for q in range(gi, res_goals.size() if (gi == grows.size() - 1) else gi + 1):         # (the last row also counts the goals that did not get a row)
 				rsum += int(res_goals[q]["reward"])
-			ptext("+%d" % rsum, Vector2(gr.end.x - 210.0, gr.get_center().y + 12.0), 32, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_RIGHT, 150.0)
+			ptext("+%d" % rsum, Vector2(gr.end.x - 230.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_RIGHT, 170.0)
 			glyph("coin", Vector2(gr.end.x - 40.0, gr.get_center().y), 14.0)
 		var xl: Array = stk["extra"]
 		for li in xl.size():
@@ -1431,12 +1466,19 @@ class Art extends Control:
 			var ur: Rect2 = stk["unlock"]
 			_dsb(_sb_unlock, ur)
 			_minimap(Vector2(ur.position.x + 90.0, ur.get_center().y), 50.0, Airports.index_of(res_unlock))
-			ptext("%s unlocked!" % res_unlock, Vector2(ur.position.x + 170.0, ur.get_center().y - 4.0), 40, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0)
-			_ds(Style.body(), Vector2(ur.position.x + 170.0, ur.get_center().y + 40.0), Airports.tag(Airports.index_of(res_unlock)), HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0, SZ_S, C_SOFT)
+			ptext("%s unlocked!" % res_unlock, Vector2(ur.position.x + 170.0, ur.get_center().y - 8.0), 46, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0)
+			_ds(Style.body(), Vector2(ur.position.x + 170.0, ur.get_center().y + 46.0), Airports.tag(Airports.index_of(res_unlock)), HORIZONTAL_ALIGNMENT_LEFT, ur.size.x - 200.0, SZ_S, C_SOFT)
 
 	## The results card laid out from the top down, so nothing sits on anything else: the card, then (what there is of it, in this order of
 	## importance, as much as the room above the Next shift button allows) the new-airport row, the first goal, the pay-protected pill, the
 	## second goal and the extra lines; the Details chip comes last. Everything is a rectangle here, not a position.
+	## The Next shift button: above the ad pills (each as tall as a tap and as wide as the button, one under the other).
+	func res_again() -> Rect2:
+		var ph := maxf(100.0, Style.tap_px())
+		var block := float(res_pills) * ph + float(maxi(res_pills - 1, 0)) * 14.0
+		var bottom := size.y - Style.safe_bottom - 36.0 - (block + 24.0 if res_pills > 0 else 40.0)
+		return Rect2(size.x * 0.5 - 450.0, bottom - 250.0, 900.0, 250.0)
+
 	func res_stack() -> Dictionary:
 		var s2 := size.y / 1920.0
 		var cx := size.x * 0.5
@@ -1444,7 +1486,7 @@ class Art extends Control:
 		var out := {}
 		var ctop := 700.0 * s2 + top
 		var y := ctop + 270.0 * s2 + 150.0 + 16.0
-		var limit := size.y - 380.0 - Style.safe_bottom - 20.0                # (the Next shift button's top, and a gap)
+		var limit := res_again().position.y - 20.0                # (the Next shift button's top, and a gap)
 		var det_h := maxf(80.0, tap)
 		var avail := limit - y - det_h - 12.0
 		var goals: Array[Rect2] = []
@@ -1460,7 +1502,7 @@ class Art extends Control:
 			order.append("goal1")
 		var used := 0.0
 		for it in order:
-			var h := 130.0 if it == "unlock" else (84.0 if it == "pill" else 90.0)
+			var h := 160.0 if it == "unlock" else (100.0 if it == "pill" else 112.0)
 			if used + h + 8.0 <= avail:
 				rects[it] = h
 				used += h + 8.0
@@ -1483,7 +1525,7 @@ class Art extends Control:
 		var xl: Array = []
 		if res_goals_extra != "":
 			for ln in res_goals_extra.split("\n"):
-				var fs := Style.fit_size(ln, SZ_S, 24, 930.0)
+				var fs := Style.fit_size(ln, SZ_S, 42, 930.0)
 				var f := Style.body()
 				var lines := 1
 				if f.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > 930.0:
@@ -1545,7 +1587,7 @@ class Art extends Control:
 				ptext("Balance %s" % fmt_int(pv["balance"]), Vector2(card.position.x, y + 64.0), 40, C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
 			"locked":
 				glyph("lock", Vector2(cx, y + 10.0), 26.0, C_SOFT)
-				ptext(str(pv["source"]), Vector2(card.position.x + 30.0, y + 76.0), 34, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x - 60.0)
+				_dms(Style.font_for(str(pv["source"]), 42), Vector2(card.position.x + 30.0, y + 76.0), str(pv["source"]), HORIZONTAL_ALIGNMENT_CENTER, card.size.x - 60.0, 42, 2, C_TEXT)
 			_:
 				ptext("In use" if pv["state"] == "equipped" else "Yours", Vector2(card.position.x, y + 40.0), SZ_M, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
 
@@ -1919,7 +1961,7 @@ func _ready() -> void:
 	_wind_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_wind_banner.offset_left = -440
 	_wind_banner.offset_right = 440
-	_wind_banner.offset_top = 262
+	_wind_banner.offset_top = 312
 	_wind_banner.visible = false
 	_wind_banner.modulate.a = 0.0         # (the banner is drawn by the art, on its pill; the label holds the text)
 	_finale = _label(SZ_M, HORIZONTAL_ALIGNMENT_CENTER)
@@ -2011,7 +2053,7 @@ func _fit_select_title(total: int) -> void:
 	_select_title.offset_right = maxf(x1, x0 + 120.0)
 	_select_title.offset_top = 40.0 + Style.safe_top
 	_select_title.offset_bottom = _select_title.offset_top + 90.0
-	_select_title.add_theme_font_size_override("font_size", Style.fit_size(_select_title.text, SZ_M, 28, maxf(x1 - x0, 120.0)))
+	_select_title.add_theme_font_size_override("font_size", Style.fit_size(_select_title.text, SZ_M, 42, maxf(x1 - x0, 120.0)))
 
 func _apply_headers() -> void:
 	var t0 := str(roundi(_hdr_shown[0]))
@@ -2134,6 +2176,7 @@ func _go(kind: String) -> void:
 		return
 	_hdr_on[0] = false
 	_hdr_on[1] = false
+	_scroll_cur = null
 	var d: float = DEPTH.get(kind.get_slice(":", 0), 0.0)
 	_tr_dir = 0 if kind in POP_KINDS else int(signf(d - _tr_depth))
 	_tr_depth = d
@@ -2320,7 +2363,7 @@ func apply_safe() -> void:
 		_panel_arts["results_bg"].queue_redraw()      # (its layout follows the safe area)
 	_score.offset_top = 56 + t
 	_best.offset_top = 6 + t
-	_wind_banner.offset_top = 262 + t
+	_wind_banner.offset_top = 312 + t
 	_select_title.offset_top = 40 + t          # (the list screens fit their own title: see _fit_select_title)
 	for vt in _version_tags:
 		vt.offset_top = -52 - Style.safe_bottom
@@ -2334,21 +2377,104 @@ func apply_safe() -> void:
 	_art.queue_redraw()
 
 ## A finger is down on a button: it draws pushed in (and the activation follows at once).
+## ---- lists that scroll ----
+## A list that does not fit the screen (the shop, the achievements, the goals) is a ScrollContainer holding an Art of its own, as tall as the list; the
+## header, tabs and Back button stay on the panel's Art. `_scroll_for` makes (or reuses) the one of a panel; the touch functions below look in it
+## after the panel's own buttons, in the list's coordinates (the position of the finger, less the container's, plus how far it is scrolled).
+var _scrolls := {}                 # panel kind -> {"host": ScrollContainer, "art": Art}
+var _scroll_cur = null              # the current panel's entry, or null
+var _press_art: Art = null
+
+func _scroll_for(kind: String, region: Rect2, content_h: float) -> Art:
+	var pa := _panel_art(kind)
+	var e = _scrolls.get(kind)
+	if e == null:
+		var host := ScrollContainer.new()
+		host.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		host.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+		host.scroll_deadzone = 16
+		var sa := Art.new()
+		sa.is_scroll = true
+		sa.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		host.add_child(sa)
+		pa.add_child(host)
+		e = {"host": host, "art": sa}
+		_scrolls[kind] = e
+	var h: ScrollContainer = e["host"]
+	var a: Art = e["art"]
+	h.position = region.position
+	h.size = region.size
+	h.scroll_vertical = 0
+	a.custom_minimum_size = Vector2(region.size.x, maxf(content_h, region.size.y))
+	a.size = a.custom_minimum_size
+	a.top = pa.top
+	a.clear_buttons()
+	a.btn_age = 99.0
+	_scroll_cur = e
+	return a
+
+## The list's button under `pos` (screen coordinates), or [null, -1].
+func _scroll_hit(pos: Vector2) -> Array:
+	if _scroll_cur == null:
+		return [null, -1]
+	var h: ScrollContainer = _scroll_cur["host"]
+	if not h.is_visible_in_tree() or not h.get_global_rect().has_point(pos):
+		return [null, -1]
+	var a: Art = _scroll_cur["art"]
+	var local := pos - h.get_global_rect().position + Vector2(0.0, float(h.scroll_vertical))
+	return [a, a.button_at(local)]
+
 func press(pos: Vector2) -> void:
 	_art.press_k = _art.button_at(pos)
-	_art.press_t = 0.0
-	_art.rel_k = -1
+	_press_art = _art
+	if _art.press_k < 0:
+		var sh := _scroll_hit(pos)
+		if sh[1] >= 0:
+			_press_art = sh[0]
+			_press_art.press_k = sh[1]
+	_press_art.press_t = 0.0
+	_press_art.rel_k = -1
+	_press_art.queue_redraw()
 	_art.queue_redraw()
 
 func release() -> void:
-	if _art.press_k != -1:
-		_art.rel_k = _art.press_k
-		_art.rel_t = 0.0
-		_art.press_k = -1
-		_art.queue_redraw()
+	var pa: Art = _press_art if _press_art != null else _art
+	if pa.press_k != -1:
+		pa.rel_k = pa.press_k
+		pa.rel_t = 0.0
+		pa.press_k = -1
+		pa.queue_redraw()
+	_press_art = null
 
 func pressed_id() -> String:
-	return _art.btn_id[_art.press_k] if _art.press_k >= 0 else ""
+	var pa: Art = _press_art if _press_art != null else _art
+	return pa.btn_id[pa.press_k] if pa.press_k >= 0 else ""
+
+## A list card's button, for the tests and the audit: {"rect" (in the list), "state", "text", "index"} or {}.
+func list_button(id: String) -> Dictionary:
+	if _scroll_cur == null:
+		return {}
+	var a: Art = _scroll_cur["art"]
+	var k: int = a.btn_id.find(id)
+	if k < 0 or k >= a.btn_count:
+		return {}
+	return {"rect": a.btn_rect[k], "state": a.btn_state[k], "text": a.btn_text[k], "index": k, "art": a}
+
+## Where a list card is on the screen now (the list's own offset and how far it is scrolled taken into account).
+func list_screen_rect(id: String) -> Rect2:
+	var b := list_button(id)
+	if b.is_empty():
+		return Rect2()
+	var h: ScrollContainer = _scroll_cur["host"]
+	return Rect2(h.global_position + (b["rect"] as Rect2).position - Vector2(0.0, float(h.scroll_vertical)), (b["rect"] as Rect2).size)
+
+func list_ids() -> PackedStringArray:
+	var out := PackedStringArray()
+	if _scroll_cur != null:
+		var a: Art = _scroll_cur["art"]
+		for k in a.btn_count:
+			out.append(a.btn_id[k])
+	return out
 
 func _label(size: int, align: HorizontalAlignment, parent: Node = null) -> Label:
 	var l: Label = ExtLabel.new() if size >= SZ_M else Label.new()       # display text is cream on a warm extrusion (see ExtLabel)
@@ -2359,6 +2485,9 @@ func _label(size: int, align: HorizontalAlignment, parent: Node = null) -> Label
 	l.add_theme_color_override("font_outline_color", Style.EXT_BOTTOM if size >= SZ_M else Style.INK)
 	l.add_theme_constant_override("outline_size", 4 if size >= SZ_M else maxi(size / 8, 4))
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.set_meta("role", "heading" if size >= 54 else "body")
+	if size < 54:
+		l.add_theme_font_size_override("font_size", maxi(size, Style.SZ_BODY))
 	(parent if parent != null else self).add_child(l)
 	return l
 
@@ -2641,7 +2770,7 @@ func slider_set(i: int, x: float) -> float:
 
 ## "build 90bbdd5": small muted text in the bottom-right corner of the menu and the pause screen, so a tester can say which build they run.
 func _version_tag(parent: Control) -> Label:
-	var l := _label(30, HORIZONTAL_ALIGNMENT_RIGHT, parent)
+	var l := _label(Style.SZ_CAPTION, HORIZONTAL_ALIGNMENT_RIGHT, parent)
 	l.name = "VersionTag"
 	l.text = "build " + BuildInfo.COMMIT
 	l.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -2650,6 +2779,8 @@ func _version_tag(parent: Control) -> Label:
 	l.offset_top = -52 - Style.safe_bottom
 	l.offset_bottom = -10 - Style.safe_bottom
 	l.modulate = Color(1, 1, 1, 0.5)
+	l.set_meta("role", "caption")
+	l.add_theme_font_size_override("font_size", Style.SZ_CAPTION)
 	_version_tags.append(l)
 	return l
 
@@ -2826,16 +2957,18 @@ func set_results_ads(double_coins: int, refund: int) -> void:
 	var cx := vp.x * 0.5
 	var cy := vp.y * 0.5
 	var s2 := vp.y / 1920.0
+	_art.res_pills = (1 if double_coins > 0 else 0) + (1 if refund > 0 else 0)
 	_art.add_button("details", "Details", _art.res_stack()["details"], 0, "", -1, -1, {"kind": 4, "glyph": "chev_up" if _art.details_open else "chev_down"})
-	_art.add_button("again", "Next shift", Rect2(cx - 450.0, vp.y - 380.0 - Style.safe_bottom, 900.0, 250.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
 	var n := (1 if double_coins > 0 else 0) + (1 if refund > 0 else 0)
-	var pw := 560.0 if n == 1 else 440.0
-	var x := cx - (n * pw + (n - 1) * 20.0) * 0.5
+	_art.res_pills = n
+	_art.add_button("again", "Next shift", _art.res_again(), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
+	var ph := maxf(100.0, Style.tap_px())
+	var py := vp.y - Style.safe_bottom - 36.0 - float(n) * ph - float(maxi(n - 1, 0)) * 14.0
 	if double_coins > 0:
-		_art.add_button("ad_double", "Watch to double", Rect2(x, vp.y - 112.0 - Style.safe_bottom, pw, 76.0), 0, "+%d" % double_coins, -1, -1, {"kind": 6, "glyph": "ad"})
-		x += pw + 20.0
+		_art.add_button("ad_double", "Watch to double", Rect2(cx - 450.0, py, 900.0, ph), 0, "+%d" % double_coins, -1, -1, {"kind": 6, "glyph": "ad"})
+		py += ph + 14.0
 	if refund > 0:
-		_art.add_button("ad_refund", "Refund fine", Rect2(x, vp.y - 112.0 - Style.safe_bottom, pw, 76.0), 0, "+%d" % refund, -1, -1, {"kind": 6, "glyph": "ad"})
+		_art.add_button("ad_refund", "Refund fine", Rect2(cx - 450.0, py, 900.0, ph), 0, "+%d" % refund, -1, -1, {"kind": 6, "glyph": "ad"})
 	_art.add_button("menu", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "home"})
 	_art.queue_redraw()
 
@@ -2948,7 +3081,9 @@ func _use_panel(kind: String, sig: String, layout: Callable) -> void:
 		_hdr_on[1] = false
 	if priming:
 		_art = prev                # (it stays parked off the screen: drawn once, out of sight)
+		_scroll_cur = null
 	else:
+		_scroll_cur = _scrolls.get(kind)
 		_main_art.visible = false
 		pa.position = Vector2.ZERO
 		_apply_transition()          # (its opacity follows the screen's transition from the first frame)
@@ -3061,21 +3196,35 @@ func show_list(title: String, coins: int, tabs: Array, cards: Array, compact: bo
 			for k in tabs.size():
 				_art.add_button(tabs[k]["id"], tabs[k]["title"], Rect2(40.0 + k * (w + 20.0), y, w, th), 2 if tabs[k]["selected"] else 0)
 			y += th + 30.0
-		if compact:          # two columns of small cards: a picture, the name and one line (a price, or where it comes from)
-			var cw := (vp.x - 80.0 - 16.0) * 0.5
-			var ch := maxf(130.0, tap)
+		if compact:          # one column of cards (a picture, the name, one or two lines: a price, or where it comes from), in a list that scrolls
+			var ch := maxf(190.0, tap)
+			var region := Rect2(0.0, y, vp.x, vp.y - y - Style.safe_bottom - 16.0)
+			var sa := _scroll_for("shop", region, 8.0 + cards.size() * (ch + 14.0) + 16.0)
 			for n in cards.size():
 				var c: Dictionary = cards[n]
-				var rc := Rect2(40.0 + (n % 2) * (cw + 16.0), y + (n / 2) * (ch + 16.0), cw, ch)
+				var rc := Rect2(40.0, 8.0 + n * (ch + 14.0), vp.x - 80.0, ch)
 				var tint: Color = Color(0, 0, 0, 0)
 				var sw: Array = c.get("swatch", [])
-				_art.add_button(c["id"], c["title"], rc, c["state"], c["sub"], -1, c.get("icon", -1), {"kind": 16, "lock": 1 if c.get("locked", false) else 0, "tint": sw[0] if not sw.is_empty() else tint, "tint2": sw[1] if not sw.is_empty() else tint})
+				sa.add_button(c["id"], c["title"], rc, c["state"], c["sub"], -1, c.get("icon", -1), {"kind": 16, "lock": 1 if c.get("locked", false) else 0, "tint": sw[0] if not sw.is_empty() else tint, "tint2": sw[1] if not sw.is_empty() else tint})
+			sa.queue_redraw()
 			_art.queue_redraw()
 			return
 		for c in cards:
 			_art.add_button(c["id"], c["title"], Rect2(40.0, y, vp.x - 80.0, 160.0), c["state"], c["sub"], c.get("stars", -1), c.get("icon", -1), {"kind": 1, "cost": c.get("cost", -1), "glyph": c.get("glyph", "")})
 			y += 176.0
 		_art.queue_redraw())
+
+## How many lines `s` takes at `size_px` in a box `w` wide (the card layouts and their drawing agree on it).
+static func wrap_lines(s: String, size_px: int, w: float) -> int:
+	if s == "":
+		return 1
+	var f := Style.font_for(s, size_px)
+	return maxi(1, roundi(f.get_multiline_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, w, size_px).y / maxf(f.get_height(size_px), 1.0)))
+
+## The height of a goal / achievement row: its name and its second line, each as many lines as they need.
+static func row_height(name: String, sub: String, card_w: float) -> float:
+	var tw := card_w - 120.0 - 250.0
+	return maxf(26.0 + Hud.wrap_lines(name, Style.SZ_BUTTON, tw) * 54.0 + 48.0 - 54.0 + 10.0 + Hud.wrap_lines(sub, Style.SZ_BODY, tw) * 46.0 + 20.0, Style.tap_px())
 
 ## The Tower (the upgrade shop): a card per upgrade with an icon, its name, one line of effect, level pips and the next price.
 func show_upgrades(coins: int, levels: PackedInt32Array) -> void:
@@ -3121,17 +3270,27 @@ func show_goals(v: Dictionary) -> void:
 		var y := _ytop()
 		var tap := Style.tap_px()
 		var items: Array = v["items"]
+		var gh := []
+		var total := 8.0
+		for it in items:
+			var hh := Hud.row_height(it["text"], it["sub"], vp.x - 80.0)
+			gh.append(hh)
+			total += hh + 10.0 + (maxf(56.0, tap) + 10.0 if it["can_reroll"] else 0.0) + 10.0
+		total += maxf(150.0, tap) + 30.0 + 250.0 + 16.0
+		var sa := _scroll_for("goals", Rect2(0.0, y, vp.x, vp.y - y - Style.safe_bottom - 16.0), total)
+		var ry := 8.0
 		for i in items.size():
-			var it: Dictionary = items[i]
-			_art.add_button("goal:%d" % i, it["text"], Rect2(40.0, y, vp.x - 80.0, maxf(150.0, tap)), 2 if it["done"] else 0, it["sub"], -1, -1, {"kind": 13, "pips": int(it["tier"]), "cost": int(it["reward"])})
-			y += maxf(150.0, tap) + 10.0
-			if it["can_reroll"]:
-				_art.add_button("greroll:%d" % i, "Reroll", Rect2(vp.x - 40.0 - 240.0, y, 240.0, maxf(56.0, tap)), 0, "", -1, -1, {"kind": 4})
-				y += maxf(56.0, tap) + 10.0
-			y += 10.0
-		_art.add_button("chest", "Bonus chest: all three", Rect2(40.0, y, vp.x - 80.0, maxf(130.0, tap)), 2 if v["chest_done"] else 0, "Finish every goal today", -1, -1, {"kind": 13, "pips": 1, "cost": int(v["chest"])})
-		y += maxf(130.0, tap) + 30.0
-		_art.add_button("streak", v["streak_title"], Rect2(40.0, y, vp.x - 80.0, 200.0), 0, v["streak_sub"], -1, -1, {"kind": 15, "pips": int(v["week_pos"])})
+			var it2: Dictionary = items[i]
+			sa.add_button("goal:%d" % i, it2["text"], Rect2(40.0, ry, vp.x - 80.0, gh[i]), 2 if it2["done"] else 0, it2["sub"], -1, -1, {"kind": 13, "pips": int(it2["tier"]), "cost": int(it2["reward"])})
+			ry += gh[i] + 10.0
+			if it2["can_reroll"]:
+				sa.add_button("greroll:%d" % i, "Reroll", Rect2(vp.x - 40.0 - 240.0, ry, 240.0, maxf(56.0, tap)), 0, "", -1, -1, {"kind": 4})
+				ry += maxf(56.0, tap) + 10.0
+			ry += 10.0
+		sa.add_button("chest", "Bonus chest: all three", Rect2(40.0, ry, vp.x - 80.0, Hud.row_height("Bonus chest: all three", "Finish every goal today", vp.x - 80.0)), 2 if v["chest_done"] else 0, "Finish every goal today", -1, -1, {"kind": 13, "pips": 1, "cost": int(v["chest"])})
+		ry += Hud.row_height("Bonus chest: all three", "Finish every goal today", vp.x - 80.0) + 30.0
+		sa.add_button("streak", v["streak_title"], Rect2(40.0, ry, vp.x - 80.0, 250.0), 0, v["streak_sub"], -1, -1, {"kind": 15, "pips": int(v["week_pos"])})
+		sa.queue_redraw()
 		_art.queue_redraw())
 
 ## The Achievements sheet: four group tabs, then a card per achievement (done ones in gold) with its progress and reward.
@@ -3150,29 +3309,44 @@ func show_achievements(v: Dictionary) -> void:
 		var y := _ytop()
 		var tap := Style.tap_px()
 		var tabs: Array = v["tabs"]
-		var w := (vp.x - 80.0 - 12.0 * (tabs.size() - 1)) / tabs.size()
-		var th := maxf(84.0, tap)
+		var w := (vp.x - 80.0 - 14.0) / 2.0              # (the four group tabs sit two by two: "Collection" does not fit in a quarter)
+		var th := maxf(90.0, tap)
 		for k in tabs.size():
-			_art.add_button("ach_tab:%d" % k, tabs[k], Rect2(40.0 + k * (w + 12.0), y, w, th), 2 if k == int(v["tab"]) else 0)
-		y += th + 22.0
-		var rh := maxf(134.0, tap)
-		for it in v["items"]:
-			_art.add_button("ach:" + it["id"], it["name"], Rect2(40.0, y, vp.x - 80.0, rh), 2 if it["done"] else 0, it["sub"], -1, -1, {"kind": 13, "pips": int(it["size"]), "cost": int(it["coins"])})
-			y += rh + 14.0
+			_art.add_button("ach_tab:%d" % k, tabs[k], Rect2(40.0 + (k % 2) * (w + 14.0), y + (k / 2) * (th + 12.0), w, th), 2 if k == int(v["tab"]) else 0)
+		y += ceilf(tabs.size() / 2.0) * (th + 12.0) + 14.0
+		var items: Array = v["items"]
+		var hs := []
+		var total := 8.0
+		for it in items:
+			var hh := Hud.row_height(it["name"], it["sub"], vp.x - 80.0)
+			hs.append(hh)
+			total += hh + 14.0
+		var sa := _scroll_for("achievements", Rect2(0.0, y, vp.x, vp.y - y - Style.safe_bottom - 16.0), total + 16.0)
+		var ry := 8.0
+		for n in items.size():
+			var it2: Dictionary = items[n]
+			sa.add_button("ach:" + it2["id"], it2["name"], Rect2(40.0, ry, vp.x - 80.0, hs[n]), 2 if it2["done"] else 0, it2["sub"], -1, -1, {"kind": 13, "pips": int(it2["size"]), "cost": int(it2["coins"])})
+			ry += hs[n] + 14.0
+		sa.queue_redraw()
 		_art.queue_redraw())
 
 ## The id of the enabled button under `pos` ("" if none).
 func button_at(pos: Vector2) -> String:
+	var a: Art = _art
 	var k := _art.button_at(pos)
 	if k < 0:
-		return ""
-	if _art.btn_state[k] == 1 and not (_art.btn_id[k].begins_with("theme:") or _art.btn_id[k].begins_with("livery:") or _art.btn_id[k].begins_with("windsock:") or _art.btn_id[k].begins_with("hangar:") or _art.btn_id[k].begins_with("locked:")):
+		var sh := _scroll_hit(pos)
+		if sh[1] < 0:
+			return ""
+		a = sh[0]
+		k = sh[1]
+	if a.btn_state[k] == 1 and not (a.btn_id[k].begins_with("theme:") or a.btn_id[k].begins_with("livery:") or a.btn_id[k].begins_with("windsock:") or a.btn_id[k].begins_with("hangar:") or a.btn_id[k].begins_with("locked:")):
 		return ""             # (a shop card is dimmed when it is out of reach, but it still opens its preview: "Need 480 more"; so does a locked airport's card, view only)
-	return _art.btn_id[k]
+	return a.btn_id[k]
 
 ## True if `pos` is on any button (even a disabled one): the tap belongs to the UI, not the game.
 func ui_hit(pos: Vector2) -> bool:
-	return _art.button_at(pos) >= 0
+	return _art.button_at(pos) >= 0 or _scroll_hit(pos)[1] >= 0
 
 func hide_screens() -> void:
 	_hide_all_screens()
@@ -3202,13 +3376,13 @@ func show_menu(airport_name: String, coins: int, stars: int, _best_coins: int, _
 	# The airport under the title is a button (it opens the Airports screen): it is drawn as one.
 	var tag_y := 250.0 * vp.y / 1920.0 + Style.safe_top + 398.0
 	_art.add_button("airports_tag", airport_name, Rect2(56.0 + Style.safe_left, tag_y, _art.text_width(airport_name, 34) + 250.0, 76.0), 0, "", airport_stars, -1, {"kind": 9})
-	_art.add_button("goals", "Daily goals  %d/3" % goals_done, Rect2(56.0 + Style.safe_left, tag_y + 92.0, 700.0, 108.0), 0, goals_line, goals_done, -1, {"kind": 14, "badge": -2 if goals_done == 0 else 0})
+	_art.add_button("goals", "Daily goals  %d/3" % goals_done, Rect2(56.0 + Style.safe_left, tag_y + 92.0, 760.0, 160.0), 0, goals_line, goals_done, -1, {"kind": 14, "badge": -2 if goals_done == 0 else 0})
 	_art.add_button("airports", "Airports", row2, 0, "", -1, -1, {"kind": 0, "glyph": "airport"})
 	_art.add_button("bad", "Bad pilot day", Rect2(row2.position.x + 464.0, row2.position.y, 436.0, 150.0), 0, "", -1, -1, {"kind": 0, "glyph": "bad"})
-	_art.add_button("noeng_bad", "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(row2.position.x + 464.0, row2.position.y - ne_h - 14.0, 436.0, ne_h), 2 if bad_no_engines else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
+	_art.add_button("noeng_bad", "No engines \u00d7%s" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Rect2(row2.position.x, row2.position.y - ne_h - 14.0, 900.0, ne_h), 2 if bad_no_engines else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
 	var items := [["upgrades", "Tower", "upgrades", 0], ["shop", "Hangar", "hangar", 0], ["ach", "Awards", "star", -2 if ach_unseen else 0]]
 	for k in items.size():
-		_art.add_button(items[k][0], items[k][1], Rect2(vp.x - 36.0 - Style.safe_right - 130.0, 150.0 + Style.safe_top + k * 176.0, 130.0, 160.0), 0, "", -1, -1, {"kind": 7, "glyph": items[k][2], "badge": items[k][3]})
+		_art.add_button(items[k][0], items[k][1], Rect2(vp.x - 30.0 - Style.safe_right - 190.0, 150.0 + Style.safe_top + k * 236.0, 190.0, 216.0), 0, "", -1, -1, {"kind": 7, "glyph": items[k][2], "badge": items[k][3]})
 	_art.queue_redraw()
 
 # ---------- The HUD of a shift ----------
@@ -3383,7 +3557,7 @@ func popup(text: String, color: Color, at: Vector2) -> void:
 	l.text = text
 	var pfs := SZ_M          # (the largest size on the ladder at which its longest line fits the label: no popup runs off the screen)
 	for ln in text.split("\n"):
-		pfs = mini(pfs, Style.fit_size(ln, SZ_M, 28, 540.0))
+		pfs = mini(pfs, Style.fit_size(ln, SZ_M, Style.SZ_BODY, 540.0))
 	l.add_theme_font_size_override("font_size", pfs)
 	l.add_theme_color_override("font_color", color.lerp(Style.WORLD_TEXT, 0.55))       # cream with a hint of its meaning (gold, red, green)
 	l.rotation = deg_to_rad(randf_range(-6.0, 6.0))                                     # score pops lean a few degrees, a different way each time
@@ -3475,7 +3649,7 @@ func _start_banner(text: String, color: Color, glyph: String, secs: float) -> vo
 	var lines := 1
 	var pw := tw
 	if tw > avail:
-		var fs := Style.fit_size(text, SZ_M, 28, avail)
+		var fs := Style.fit_size(text, SZ_M, Style.SZ_BODY, avail)
 		var fw := Style.font_for(text, fs).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		if fw > avail:       # still too long at the smallest size: two lines of it
 			lines = 2
@@ -3484,7 +3658,7 @@ func _start_banner(text: String, color: Color, glyph: String, secs: float) -> vo
 			pw = avail
 	var ph := 90.0 if lines == 1 else 2.0 * 28.0 * 1.3 + 44.0
 	_art.banner_lines = lines
-	_art.banner_rect = Rect2(vp.x * 0.5 - (pw + chrome) * 0.5, 262.0 + Style.safe_top, pw + chrome, ph)
+	_art.banner_rect = Rect2(vp.x * 0.5 - (pw + chrome) * 0.5, 312.0 + Style.safe_top, pw + chrome, ph)
 	_art.banner_alpha = 0.0
 
 func banner_text() -> String:
@@ -3624,6 +3798,7 @@ var _stamp: Label
 ## or ?perf, small, in the bottom-left corner. Players never see it.
 func _build_stamp() -> void:
 	_stamp = _label(20, HORIZONTAL_ALIGNMENT_LEFT)
+	_stamp.add_theme_font_size_override("font_size", Style.SZ_CAPTION)       # (developer overlays: small, never in a player's build)
 	_stamp.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	_stamp.offset_left = 12
 	_stamp.modulate = Color(1, 1, 1, 0.45)
@@ -3631,6 +3806,7 @@ func _build_stamp() -> void:
 	refresh_stamp()
 	if DebugFlags.perf_enabled():
 		_perf_label = _label(26, HORIZONTAL_ALIGNMENT_LEFT)
+		_perf_label.add_theme_font_size_override("font_size", Style.SZ_CAPTION)       # (developer overlays: small, never in a player's build)
 		_perf_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 		_perf_label.offset_left = 14
 		_perf_label.offset_top = 112       # (below the pause button)

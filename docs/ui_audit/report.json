@@ -1,6 +1,31 @@
 {
 	"allowed": 0,
 	"problems": [],
+	"scrolling": {
+		"achievements": {
+			"320x568": 3,
+			"375x667": 3,
+			"390x844": 2,
+			"430x932": 2,
+			"768x1024": 2
+		},
+		"detail": {
+			"1280x720": 31,
+			"320x568": 31,
+			"375x667": 31,
+			"390x844": 31,
+			"430x932": 31,
+			"768x1024": 31
+		},
+		"shop": {
+			"1280x720": 50,
+			"320x568": 50,
+			"375x667": 50,
+			"390x844": 50,
+			"430x932": 50,
+			"768x1024": 50
+		}
+	},
 	"states": 846,
 	"unreachable": [
 		"privacy policy page: it opens the system browser (web/privacy.html), it is not an in-game screen",

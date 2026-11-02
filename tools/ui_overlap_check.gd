@@ -6,7 +6,7 @@ extends SceneTree
 ##   - off-screen  anything partly outside the screen;
 ##   - safe-area   anything under the notch / Dynamic Island / home bar;
 ##   - tap-size    a button smaller than 44 points (Apple's minimum), or one another button sits on top of (a tap cannot reach it);
-##   - small-text  text under the style guide's minimum (Style.MIN_TEXT, in viewport units).
+##   - small-text  text under the floor of its role (caption 11 pt, body 15 pt, button label 17 pt, on a 390-pt phone), or at a size the pre-warm does not rasterise.
 ## Each problem gets a line; each screen at each size can be saved as a picture with the problems outlined in red.
 ##
 ##   godot --headless --path . --script tools/ui_overlap_check.gd                          (the check only: fast, no pictures)
@@ -61,6 +61,7 @@ var unreachable: Array = [
 ]
 var rendering := false
 var screens_seen := {}
+var scrolling := {}                   # "screen family" -> {size name -> true}: states whose content is taller than the room, so they scroll
 var cur_boxes: Array = []             # the panels / cards / pills drawn in the state being checked
 
 func _initialize() -> void:
@@ -157,6 +158,13 @@ func _open_game(sz: Dictionary) -> void:
 # collecting what is on screen
 # ------------------------------------------------------------------------------------------------------------------
 
+func _all_arts() -> Array:
+	var out: Array = hud._panel_arts.values() + [hud._main_art]
+	if hud.get("_scrolls") != null:
+		for e in hud._scrolls.values():
+			out.append(e["art"])
+	return out
+
 func _arts() -> Array:
 	var out := []
 	for a in [hud._main_art] + hud._panel_arts.values():
@@ -235,12 +243,66 @@ func _collect() -> Array:
 				var sh: Rect2 = art.slider_rect[i].grow_individual(40.0, 20.0, 40.0, 20.0)
 				els.append({"k": "button", "id": "slider:%d" % i, "text": art.slider_name[i], "rect": art.slider_rect[i], "hit": art._slop(sh) if has_hits else sh, "inter": true, "state": 0, "src": "art"})
 		for t in art.rec_texts:
-			els.append({"k": "text", "id": "", "text": t["text"], "rect": t["rect"], "inter": false, "size": t["size"], "over": t["over"], "limit": t["limit"], "natural": t["natural"], "src": "art", "layer": str(art.name)})
+			els.append({"k": "text", "id": "", "text": t["text"], "rect": t["rect"], "inter": false, "size": t["size"], "over": t["over"], "limit": t["limit"], "natural": t["natural"], "src": "art", "layer": str(art.name), "role": t.get("role", "")})
 		for g in art.rec_glyphs:
 			els.append({"k": "glyph", "id": g["id"], "text": "", "rect": g["rect"], "inter": false, "src": "art", "layer": str(art.name)})
+	if hud.get("_scrolls") != null and not (hud._panel_arts.has("preview") and hud._panel_arts["preview"].pv_on):
+		for e in hud._scrolls.values():
+			_collect_scroll(e, els)
 	_walk(hud, els)
 	_dedupe(els)
 	return els
+
+## Which states scroll at this size: a list whose content is taller than its box, or the detail sheet's content taller than its scroll area.
+func _note_scrolls(name: String) -> void:
+	var tall := false
+	for e in (hud._scrolls.values() if hud.get("_scrolls") != null else []):
+		if e["host"].is_visible_in_tree() and e["host"].global_position.x > -5000.0 and e["art"].custom_minimum_size.y > e["host"].size.y + 1.0:
+			tall = true
+	var ds = hud.detail_sheet()
+	if ds != null and ds.scroll != null and ds.scroll.is_visible_in_tree() and ds.scroll.global_position.x > -5000.0:
+		var sb: VScrollBar = ds.scroll.get_v_scroll_bar()
+		if sb.max_value > sb.page + 1.0:
+			tall = true
+	if tall:
+		var fam := name.split(" ")[0]
+		if fam == "shop" or fam == "preview":
+			fam = "shop"
+		if not scrolling.has(fam):
+			scrolling[fam] = {}
+		scrolling[fam][cur_size["name"]] = int(scrolling[fam].get(cur_size["name"], 0)) + 1
+
+## A list that scrolls: its buttons, text and icons, in screen coordinates and cut to the visible part of its container.
+func _collect_scroll(e: Dictionary, els: Array) -> void:
+	var host: ScrollContainer = e["host"]
+	var sa = e["art"]
+	if not host.is_visible_in_tree() or host.global_position.x < -5000.0:
+		return
+	var xf: Transform2D = sa.get_global_transform()
+	var clip := host.get_global_rect()
+	if sa.hits_dirty:
+		sa.refresh_hits()
+	for k in sa.btn_count:
+		var full: Rect2 = xf * sa.btn_rect[k]
+		var vis := full.intersection(clip)
+		if vis.size.x <= 0.0 or vis.size.y <= 0.0:
+			continue
+		els.append({"k": "button", "id": sa.btn_id[k], "text": sa.btn_text[k], "rect": vis, "full": full, "hit": xf * sa.btn_hit[k], "inter": true, "state": sa.btn_state[k], "src": "art"})
+	for t in sa.rec_texts:
+		var tr: Rect2 = xf * (t["rect"] as Rect2)
+		var tv := tr.intersection(clip)
+		if tv.size.x <= 0.0 or tv.size.y <= 0.0:
+			continue
+		els.append({"k": "text", "id": "", "text": t["text"], "rect": tv, "inter": false, "size": t["size"], "over": t["over"] and tr.position.y >= clip.position.y and tr.end.y <= clip.end.y, "limit": t["limit"], "natural": t["natural"], "src": "art", "layer": "scroll", "role": t.get("role", "")})
+	for g in sa.rec_glyphs:
+		var gr: Rect2 = xf * (g["rect"] as Rect2)
+		var gv := gr.intersection(clip)
+		if gv.size.x > 0.0 and gv.size.y > 0.0:
+			els.append({"k": "glyph", "id": g["id"], "text": "", "rect": gv, "inter": false, "src": "art", "layer": "scroll"})
+	for bx in sa.rec_boxes:
+		var br: Rect2 = xf * (bx as Rect2)
+		if br.size.x >= 24.0 and br.size.y >= 24.0:
+			cur_boxes.append(br)
 
 ## The part of `r` that shows: cut by every ancestor that clips (a ScrollContainer). An empty rectangle: scrolled out of view.
 func _visible_part(c: Control, r: Rect2) -> Rect2:
@@ -276,7 +338,7 @@ func _walk(n: Node, els: Array) -> void:
 							over = nat > l.size.x + 1.0 and l.size.x > 0.0 and l.clip_text
 						else:
 							over = l.get_visible_line_count() < l.get_line_count() or l.get_minimum_size().y > l.size.y + 1.0 and false
-						els.append({"k": "label", "id": l.name, "text": l.text, "rect": r, "inter": false, "size": fs, "over": over, "limit": l.size.x, "natural": r.size.x, "src": "ctl", "node": l})
+						els.append({"k": "label", "id": l.name, "text": l.text, "rect": r, "inter": false, "size": fs, "over": over, "limit": l.size.x, "natural": r.size.x, "src": "ctl", "node": l, "role": str(l.get_meta("role", "body"))})
 				elif ctl.has_signal("down") and ctl.get("id") != null:       # a DetailSheet.Chip
 					var cr := _visible_part(ctl, ctl.get_global_rect())
 					if cr.size.x > 0.0 and cr.size.y > 0.0:
@@ -393,8 +455,12 @@ func _analyze(els: Array) -> Array:
 						longest = maxf(longest, lf.get_string_size(wd, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x)
 					if longest > lb.size.x + 1.0:
 						found.append({"type": "clipped", "a": e, "b": null, "detail": "a word (%d wide) is broken across lines in a %d wide label" % [roundi(longest), roundi(lb.size.x)]})
-			if int(e["size"]) < Style.MIN_TEXT:
-				found.append({"type": "small-text", "a": e, "b": null, "detail": "%d units (minimum %d); %.1f pt" % [int(e["size"]), Style.MIN_TEXT, float(e["size"]) / ppp]})
+			var role := _role_of(e, els, owner[i])
+			var need: int = int(ROLE_MIN_PT[role] * PT + 0.999) if ROLE_MIN_PT.has(role) else 0
+			if need > 0 and int(e["size"]) < need:
+				found.append({"type": "small-text", "a": e, "b": null, "detail": "%s text at %d units = %.1f pt on a 390-pt phone (minimum %d pt for a %s)" % [role, int(e["size"]), float(e["size"]) / PT, ROLE_MIN_PT[role], role]})
+			if not (int(e["size"]) in Style.PREWARM_SIZES):
+				found.append({"type": "small-text", "a": e, "b": null, "detail": "size %d is not one the start-up pre-warm rasterises (Style.PREWARM_SIZES): its first use would hitch" % int(e["size"])})
 		# tap size
 		if e["inter"]:
 			var fr: Rect2 = e.get("hit", e.get("full", r))
@@ -443,6 +509,17 @@ func _outside(r: Rect2) -> String:
 		parts.append("bottom %d" % roundi(r.end.y - vp.y))
 	return ", ".join(parts)
 
+## The role of a text: set where it is drawn (caption), a button's own label, a heading (big, as designed), or body.
+func _role_of(e: Dictionary, els: Array, owner_idx: int) -> String:
+	var r: String = str(e.get("role", ""))
+	if r != "":
+		return r
+	if int(e["size"]) >= 54:
+		return "heading"
+	if owner_idx >= 0 and str(els[owner_idx]["text"]) == str(e["text"]):
+		return "button"
+	return "body"
+
 func _allowed(state: String, p: Dictionary) -> String:
 	for al in ALLOW:
 		if state.match(al["screen"]) and al["type"] == p["type"]:
@@ -468,15 +545,16 @@ func _check(name: String) -> void:
 	state_count += 1
 	hud.skip_animations()
 	await _frames(3)
-	for art in hud._panel_arts.values() + [hud._main_art]:
+	for art in _all_arts():
 		art.rec_texts.clear()
 		art.rec_glyphs.clear()
 		art.rec_on = true
 		art.queue_redraw()
 	await _frames(3)
 	var els := _collect()
-	for art in hud._panel_arts.values() + [hud._main_art]:
+	for art in _all_arts():
 		art.rec_on = false
+	_note_scrolls(name)
 	var found := _analyze(els)
 	var live: Array = []
 	for p in found:
@@ -532,6 +610,9 @@ func _outline(img: Image, r: Rect2, k: float) -> void:
 # ------------------------------------------------------------------------------------------------------------------
 
 const BIG := 9999999
+const PT := 1080.0 / 390.0          # units per point on the 390-point-wide design phone
+## Text floors by role, in points on a 390-point-wide phone (docs/style.md, "Text sizes"). Headings are as designed.
+const ROLE_MIN_PT := {"caption": 11.0, "body": 15.0, "button": 17.0}
 
 func _all_states() -> void:
 	await _states_menu()
@@ -876,6 +957,7 @@ func _finish() -> void:
 		by_type[p["type"]] = int(by_type.get(p["type"], 0)) + 1
 	print("")
 	print("ui_overlap_check: %d states x sizes checked, %d pictures, %d problem(s) %s, %d allowed by the allowlist" % [state_count, shot_count, problems.size(), str(by_type), allowed_count])
+	print("screens that scroll (content taller than the room), by size: ", scrolling)
 	print("not opened by the tool:")
 	for u in unreachable:
 		print("  - ", u)
@@ -884,6 +966,6 @@ func _finish() -> void:
 		for p in problems:
 			rows.append({"size": p["size"], "screen": p["screen"], "type": p["type"], "a": _name_of(p["a"]), "b": _name_of(p["b"]) if p["b"] != null else "", "detail": p["detail"]})
 		var f := FileAccess.open(report_path, FileAccess.WRITE)
-		f.store_string(JSON.stringify({"problems": rows, "states": state_count, "allowed": allowed_count, "unreachable": unreachable}, "\t"))
+		f.store_string(JSON.stringify({"problems": rows, "states": state_count, "allowed": allowed_count, "unreachable": unreachable, "scrolling": scrolling}, "\t"))
 		f.close()
 	quit(1 if problems.size() > 0 else 0)
