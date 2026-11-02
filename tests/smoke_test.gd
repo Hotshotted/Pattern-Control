@@ -6112,6 +6112,135 @@ func _initialize() -> void:
 	main._update_awake()
 	check(not main.keeping_awake, "...and not on the menu")
 
+	print("36. iOS: interruptions, haptics, safe areas")
+	# A call or a pulled-down notification centre makes the app inactive; going home puts it in the background: both pause the shift and hold the
+	# sound, and nothing comes back by itself.
+	save.reset_all()
+	main.restart()
+	tr.auto_spawn = false
+	var ios_sx = main.sfx
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)         # (a call comes in)
+	check(main.screen == main.SCREEN_PAUSE and ios_sx.held and AudioServer.is_bus_mute(0), "an interruption (a call, the notification centre) pauses the shift and holds the sound")
+	main._notification(Node.NOTIFICATION_APPLICATION_PAUSED)            # (and the app is sent to the background)
+	main._notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)          # (the call ends, the app is active again)
+	check(main.screen == main.SCREEN_PAUSE and ios_sx.held and AudioServer.is_bus_mute(0) and not main.keeping_awake, "back in the app it is still paused and silent, and the screen may sleep")
+	for ios_i in 120:
+		main.step(1.0 / 60.0)
+	check(main.screen == main.SCREEN_PAUSE and main.alive, "...and the clock does not run")
+	main._on_button("resume")
+	check(main.screen == main.SCREEN_PLAY and not ios_sx.held and not AudioServer.is_bus_mute(0), "a tap on Resume brings the shift and the sound back")
+	main._notification(Node.NOTIFICATION_APPLICATION_PAUSED)
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	check(main.screen == main.SCREEN_PAUSE, "going to the background and the inactive notice together still pause once")
+	main._notification(Node.NOTIFICATION_APPLICATION_RESUMED)
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+	main.resume_game()
+	# Menu: coming back from the background starts nothing, the music waits for a tap.
+	main._show_menu()
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	check(ios_sx.held and main.screen == main.SCREEN_MENU, "on the menu the sound is held in the background")
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+	check(ios_sx.held, "...and stays held until a tap")
+	main.resume_game()
+	# Haptics: every buzz goes through Haptics, and on iOS each carries a strength for the Taptic Engine.
+	var hp_src = ""
+	for hp_f in ["Main.gd", "Traffic.gd", "Hud.gd", "Airfield.gd"]:
+		hp_src += FileAccess.get_file_as_string("res://scripts/" + hp_f)
+	var hp_direct = 0
+	for hp_line in hp_src.split("\n"):
+		if hp_line.contains("Input.vibrate_handheld") and not hp_line.contains("browsers only allow"):
+			hp_direct += 1
+	check(hp_direct == 0, "no script calls Input.vibrate_handheld directly (%d)" % hp_direct)
+	Haptics.force_platform = "ios"
+	Haptics.calls.clear()
+	save.reset_all()
+	main.select_airport(0)
+	main.restart()
+	tr.auto_spawn = false
+	earn_coins(main, 0)
+	main._vibrate(12, Haptics.LIGHT)
+	main._vibrate(150, Haptics.HEAVY)
+	var hp_ios = Haptics.calls.duplicate()
+	check(hp_ios.size() >= 3 and hp_ios[hp_ios.size() - 2] == [12, Haptics.LIGHT, "ios"] and hp_ios[hp_ios.size() - 1] == [150, Haptics.HEAVY, "ios"], "on iOS a light tap and a heavy buzz go out with their strengths (%s)" % str(hp_ios.slice(-2)))
+	var hp_landing = false
+	for hp_c in hp_ios:
+		hp_landing = hp_landing or (hp_c[0] == tuning.haptic_ms and hp_c[1] == Haptics.MEDIUM)
+	check(hp_landing, "a landing buzzes with the medium strength")
+	check(Haptics.LIGHT < Haptics.MEDIUM and Haptics.MEDIUM < Haptics.HEAVY and Haptics.LIGHT >= 0.05 and Haptics.HEAVY <= 1.0, "the strengths rise and stay in the 0.05 to 1.0 the Taptic Engine takes")
+	Haptics.force_platform = ""
+	Haptics.calls.clear()
+	# The save lives in user:// (the app's own folder on iOS).
+	check(save.path.begins_with("user://") or save.path.begins_with("user:"), "the save file is in user://")
+	# The safe area: an iPhone's notch (or Dynamic Island) and home bar, in the 1080-wide viewport, on every screen.
+	var sa_profiles = [["iPhone 16 Pro", 402.0, 62.0, 34.0], ["iPhone 15", 390.0, 47.0, 34.0], ["iPhone 16 Pro Max", 440.0, 62.0, 34.0], ["iPhone SE", 375.0, 0.0, 0.0]]
+	var sa_bad = []
+	var sa_vp = main.get_viewport().get_visible_rect().size
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	save.coins = 2000
+	for sa_p in sa_profiles:
+		var sa_k = 1080.0 / sa_p[1]
+		Style.set_safe(sa_p[2] * sa_k, sa_p[3] * sa_k, 0.0, 0.0)
+		main.hud.apply_safe()
+		var sa_screens = ["menu", "select", "detail", "upgrades", "shop0", "shop1", "shop2", "goals", "ach", "pause", "results"]
+		for sa_s in sa_screens:
+			match sa_s:
+				"menu":
+					main._show_menu()
+				"select":
+					main._show_select()
+				"detail":
+					main.open_detail(2)
+				"upgrades":
+					main._show_upgrades()
+				"shop0":
+					main.shop_tab = 0
+					main._show_shop()
+				"shop1":
+					main.shop_tab = 1
+					main._show_shop()
+				"shop2":
+					main.shop_tab = 2
+					main._show_shop()
+				"goals":
+					main._show_goals()
+				"ach":
+					main._show_achievements()
+				"pause":
+					main.restart()
+					tr.auto_spawn = false
+					main.pause_game()
+				"results":
+					main.restart()
+					tr.auto_spawn = false
+					earn_coins(main, 100)
+					tr.spawn_until = 0.0
+					tr.run_time = tuning.par_eff() + 0.01
+					main.step(1.0 / 60.0)
+			main.hud.skip_animations()
+			var sa_art = main.hud._art
+			for sa_b in sa_art.btn_count:
+				if sa_art.btn_kind[sa_b] == 11:
+					continue
+				var sa_r = sa_art.btn_rect[sa_b]
+				if sa_r.position.y < sa_p[2] * sa_k - 0.5 or sa_r.end.y > sa_vp.y - sa_p[3] * sa_k + 0.5:
+					sa_bad.append("%s %s %s %s" % [sa_p[0], sa_s, sa_art.btn_id[sa_b], str(sa_r)])
+		if sa_p[0] == "iPhone 16 Pro":
+			main.restart()
+			tr.auto_spawn = false
+			main.hud.apply_safe()
+			var sa_pause = main.hud._art.pause_rect
+			if sa_pause.position.y < sa_p[2] * sa_k - 0.5:
+				sa_bad.append("play pause button %s" % str(sa_pause))
+			if main.hud._score.offset_top < sa_p[2] * sa_k - 0.5:
+				sa_bad.append("play coin total %f" % main.hud._score.offset_top)
+	check(sa_bad.is_empty(), "no button on any screen sits under the notch or the home bar on four iPhone shapes: %s" % str(sa_bad.slice(0, 6)))
+	Style.set_safe(0.0, 0.0, 0.0, 0.0)
+	main.hud.apply_safe()
+	main._show_menu()
+	save.reset_all()
+
 	print("34. Mastery, achievements and the new cosmetics")
 	main.progress_enabled = true
 	# Mastery data: rising thresholds, rank 5 about three times rank 3, a livery at rank 3 and a field detail at rank 5 for every airport.

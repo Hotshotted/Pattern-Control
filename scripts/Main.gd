@@ -1112,7 +1112,7 @@ func _on_landed(p: Aircraft) -> void:
 		hud.popup("Hangar fee +%d" % hangar_fee, Color(0.75, 0.95, 1.0), overlay.world_to_screen(land_at) + Vector2(0, -118))
 	_star_feedback(land_at)
 	if not DebugFlags.off("haptic"):
-		_vibrate(Tuning.haptic_ms)
+		_vibrate(Tuning.haptic_ms, Haptics.MEDIUM)
 
 ## A star threshold was just crossed: a gold burst and a "STAR!" popup.
 func _star_feedback(at: Vector2) -> void:
@@ -1131,7 +1131,7 @@ func _apply_fine(amount: int, kind: String, label: String, world_at: Vector2) ->
 	hud.popup("%s  -%d" % [label, amount], Color(1.0, 0.25, 0.2), overlay.world_to_screen(world_at))
 	hud.flash(Color(1.0, 0.2, 0.15))
 	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(80)
+		_vibrate(80, Haptics.HEAVY)
 
 ## An aircraft flew into terrain or a storm cell: lost, and a medium fine.
 func _on_crashed(p: Aircraft, kind: int) -> void:
@@ -1151,7 +1151,7 @@ func _on_go_around(p: Aircraft, reason: int) -> void:
 	hud.popup("Go-around!" if why == "" else "Go-around!\n%s" % why, Color(1, 0.85, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
 	overlay.ripple(p.pos, Color(1, 0.85, 0.3), 0.7)
 	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(30)
+		_vibrate(30, Haptics.MEDIUM)
 
 ## A coin reaches the counter: a soft plink, each one a note higher in the key while they keep arriving.
 func _on_coin_arrived() -> void:
@@ -1166,14 +1166,14 @@ func _on_star_reached(_i: int) -> void:
 		return              # (the end of a shift lights stars too: the results card slams them in with its own sounds)
 	sfx.play("star")
 	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(20)
+		_vibrate(20, Haptics.LIGHT)
 
 ## A results star slammed in: an impact sound that rises with each star.
 func _on_star_slam(i: int) -> void:
 	sfx.play("slam", 1.0 + 0.14 * i)
 	shake(0.12, 0.18)
 	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(25)
+		_vibrate(25, Haptics.MEDIUM)
 
 ## The aircraft can't follow a path or tap (and the reason is shown where it happened).
 func _on_refused(_p: Aircraft, text: String, at: Vector2) -> void:
@@ -1225,16 +1225,13 @@ func _on_snapped(p: Aircraft, at: Vector2) -> void:
 	overlay.ripple(at, col, 0.45)
 	overlay.ripple(at, Color.WHITE, 0.3)
 	sfx.play("tap")
-	_vibrate(Tuning.snap_haptic_ms)
+	_vibrate(Tuning.snap_haptic_ms, Haptics.LIGHT)
 
 ## A short buzz: the browser's navigator.vibrate on the web (Godot's own call is a no-op there on some browsers), else the handheld's.
-func _vibrate(ms: int) -> void:
+func _vibrate(ms: int, strength: float = Haptics.MEDIUM) -> void:
 	if DebugFlags.off("haptic"):
 		return
-	if OS.has_feature("web"):
-		JavaScriptBridge.eval("if (navigator.vibrate) navigator.vibrate(%d)" % ms)
-	else:
-		Input.vibrate_handheld(ms)
+	Haptics.play(ms, strength)
 
 func _on_cleared(p: Aircraft) -> void:
 	overlay.ripple(Airports.land_threshold(p.tkind, p.runway, p.land_end), Airports.land_color(p.tkind, p.runway), 0.5)
@@ -1341,7 +1338,7 @@ func _conflict(a: Aircraft, b: Aircraft, label: String) -> void:
 	overlay.ripple(mid, Color.WHITE, 2.4)
 	shake(0.32, 0.32)
 	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(150)
+		_vibrate(150, Haptics.HEAVY)
 	traffic.lose(a)
 	traffic.lose(b)
 	_cancel_drag()
@@ -1393,7 +1390,7 @@ func _end_shift() -> void:
 	hud.set_shift(shift)
 	_show_results(false)
 	if not DebugFlags.off("haptic"):
-		_later(2, func(): Input.vibrate_handheld(150))      # (not in the frame that lays the results card out)
+		_later(2, func(): _vibrate(150, Haptics.HEAVY))      # (not in the frame that lays the results card out)
 
 var _daily_note := ""
 
@@ -1598,7 +1595,7 @@ func _touch_down(index: int, pos: Vector2) -> void:
 			# Down: the button squashes with a soft click and a light buzz; the action itself fires on release.
 			sfx.play("press")
 			if not DebugFlags.off("haptic"):
-				Input.vibrate_handheld(12)
+				_vibrate(12, Haptics.LIGHT)
 			return
 		if hud.ui_hit(pos):
 			sfx.play("error")
@@ -1758,7 +1755,7 @@ func buy_improvement(airport_i: int, id: String) -> bool:
 	var vp := get_viewport().get_visible_rect().size
 	hud.popup("%s level %d!" % [Improvements.improvement_name(id), Save.imp_level(airport_i, id)], Color(0.6, 1.0, 0.7), Vector2(vp.x * 0.5, vp.y * 0.2))
 	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(40)
+		_vibrate(40, Haptics.MEDIUM)
 	if screen == SCREEN_DETAIL and detail_airport == airport_i:
 		_show_detail()
 	return true
@@ -1772,7 +1769,7 @@ func buy_upgrade(id: String) -> bool:
 	var vp := get_viewport().get_visible_rect().size
 	hud.popup("%s level %d!" % [Upgrades.upgrade_name(id), Save.upgrade_level(id)], Color(0.6, 1.0, 0.7), Vector2(vp.x * 0.5, vp.y * 0.2))
 	if not DebugFlags.off("haptic"):
-		Input.vibrate_handheld(40)
+		_vibrate(40, Haptics.MEDIUM)
 	if screen == SCREEN_UPGRADES:
 		_show_upgrades()
 	return true
