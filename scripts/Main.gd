@@ -882,6 +882,16 @@ func _log_process_time(ms: float) -> void:
 		_proc_max = 0.0
 		_proc_over = 0
 
+## The screen stays awake while a shift is being played, and only then (the menu, the pause menu and the results may dim and lock the phone as
+## usual; project.godot turns the engine's own keep-awake off). Asked of the display server only when it changes.
+var keeping_awake := false
+
+func _update_awake() -> void:
+	var want := screen == SCREEN_PLAY and alive and not _suspended
+	if want != keeping_awake:
+		keeping_awake = want
+		DisplayServer.screen_set_keep_on(want)
+
 func _process(raw_delta: float) -> void:
 	_probe_t0 = Time.get_ticks_usec()
 	_poll_page(raw_delta)
@@ -890,6 +900,7 @@ func _process(raw_delta: float) -> void:
 	_tick_shake(raw_delta)
 	_tick_preview(raw_delta)
 	_idle_build()
+	_update_awake()
 	# Music: the shift's own while playing; the calm menu bed everywhere else; the two crossfade.
 	if screen != SCREEN_PLAY and screen != SCREEN_PAUSE:
 		sfx.set_music(false)

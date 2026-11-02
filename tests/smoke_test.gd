@@ -6085,6 +6085,33 @@ func _initialize() -> void:
 	save.reset_all()
 	main.goals_enabled = false
 
+	print("35. iOS: the export preset, the screen staying awake in a shift")
+	var ios_cfg = ConfigFile.new()
+	check(ios_cfg.load("res://export_presets.cfg") == OK, "export_presets.cfg loads")
+	var ios_sec = ""
+	for ios_s in ios_cfg.get_sections():
+		if ios_s.ends_with(".options") == false and ios_cfg.get_value(ios_s, "platform", "") == "iOS":
+			ios_sec = ios_s
+	var ios_o = ios_sec + ".options"
+	check(ios_sec != "" and ios_cfg.get_value(ios_sec, "name") == "iOS", "there is an iOS export preset")
+	check(ios_cfg.get_value(ios_o, "application/bundle_identifier") == "com.clearpropgames.patternwork" and ProjectSettings.get_setting("application/config/name") == "Pattern Work", "bundle ID com.clearpropgames.patternwork, display name Pattern Work")
+	check(ios_cfg.get_value(ios_o, "application/targeted_device_family") == 0 and ios_cfg.get_value(ios_o, "application/min_ios_version") == "15.0", "iPhone only, minimum iOS 15.0")
+	check(int(ProjectSettings.get_setting("display/window/handheld/orientation")) == 1 and ProjectSettings.get_setting("rendering/renderer/rendering_method.mobile") == "gl_compatibility", "portrait only, the Compatibility renderer")
+	check(ProjectSettings.get_setting("rendering/textures/vram_compression/import_etc2_astc") == true, "ETC2/ASTC textures are imported (the iOS export needs them)")
+	check(ProjectSettings.get_setting("display/window/energy_saving/keep_screen_on") == false, "the engine's own keep-awake is off: the shift asks for it")
+	main.restart()
+	main._update_awake()
+	check(main.keeping_awake, "the screen is kept awake while a shift is being played")
+	main.pause_game()
+	main._update_awake()
+	check(not main.keeping_awake, "...and not behind the pause menu")
+	main.resume_game()
+	main._update_awake()
+	check(main.keeping_awake, "...awake again when the shift resumes")
+	main._show_menu()
+	main._update_awake()
+	check(not main.keeping_awake, "...and not on the menu")
+
 	print("34. Mastery, achievements and the new cosmetics")
 	main.progress_enabled = true
 	# Mastery data: rising thresholds, rank 5 about three times rank 3, a livery at rank 3 and a field detail at rank 5 for every airport.
