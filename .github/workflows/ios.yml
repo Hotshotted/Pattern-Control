@@ -1,0 +1,258 @@
+name: iOS TestFlight
+
+# Builds the iOS app on a macOS runner and uploads it to TestFlight: Godot exports the Xcode project, xcodebuild archives it with automatic
+# signing (an App Store Connect API key + -allowProvisioningUpdates: no certificates or profiles are stored anywhere), and xcrun altool uploads
+# the .ipa. Runs on a tag v* (the tag is the version: v1.2.0 -> 1.2.0) and by hand (Actions > iOS TestFlight > Run workflow).
+# By hand, "upload" off does everything except signing and uploading (an unsigned compile of the exported project): a check that needs no secrets.
+# The build number is the commit count, so every build is higher than the one before.
+#
+# Secrets (Settings > Secrets and variables > Actions): see docs/ios.md
+#   APP_STORE_CONNECT_API_KEY_P8   the contents of the AuthKey_XXXXXXXXXX.p8 file (including the BEGIN / END lines)
+#   APP_STORE_CONNECT_KEY_ID       the key's ID (10 characters)
+#   APP_STORE_CONNECT_ISSUER_ID    the issuer ID (a UUID, on the API keys page)
+#   APPLE_TEAM_ID                  the developer team ID (10 characters)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Sign and upload to TestFlight (needs the four secrets); off = export and compile only"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: "4.5-stable"
+  GODOT_TEMPLATE_DIR: "4.5.stable"
+  APP_NAME: PatternWork
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 75
+    env:
+      DO_UPLOAD: ${{ github.event_name == 'push' || inputs.upload }}
+      ASC_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # the build number is the commit count
+
+      - name: Check the secrets (when uploading)
+        if: env.DO_UPLOAD == 'true'
+        shell: bash
+        run: |
+          missing=""
+          [ -n "$ASC_KEY_P8" ] || missing="$missing APP_STORE_CONNECT_API_KEY_P8"
+          [ -n "$ASC_KEY_ID" ] || missing="$missing APP_STORE_CONNECT_KEY_ID"
+          [ -n "$ASC_ISSUER_ID" ] || missing="$missing APP_STORE_CONNECT_ISSUER_ID"
+          [ -n "$APPLE_TEAM_ID" ] || missing="$missing APPLE_TEAM_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing (see docs/ios.md)"
+            exit 1
+          fi
+
+      # The newest Xcode on the runner (App Store Connect only takes builds made with a recent SDK).
+      - name: Select Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC/Contents/Developer"; fi
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Version and build number
+        id: ver
+        shell: bash
+        run: |
+          BUILD=$(git rev-list --count HEAD)
+          VERSION=$(sed -n 's/^application\/short_version="\(.*\)"/\1/p' export_presets.cfg | tail -1)
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" =~ ^v([0-9]+(\.[0-9]+){1,2})$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          fi
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version $VERSION, build $BUILD"
+
+      - name: Download Godot
+        run: |
+          BASE=https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}
+          curl -fsSL -o godot.zip $BASE/Godot_v${GODOT_VERSION}_macos.universal.zip
+          unzip -q godot.zip
+          echo "GODOT=$PWD/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
+          Godot.app/Contents/MacOS/Godot --version
+
+      # Only the iOS template is kept (cached): the full .tpz is ~1.3 GB.
+      - name: Cache iOS export template
+        id: tpl-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Application Support/Godot/export_templates/${{ env.GODOT_TEMPLATE_DIR }}
+          key: godot-ios-templates-${{ env.GODOT_VERSION }}
+
+      - name: Download export templates
+        if: steps.tpl-cache.outputs.cache-hit != 'true'
+        run: |
+          BASE=https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}
+          curl -fsSL -o templates.tpz $BASE/Godot_v${GODOT_VERSION}_export_templates.tpz
+          mkdir -p tpl "$HOME/Library/Application Support/Godot/export_templates/${GODOT_TEMPLATE_DIR}"
+          unzip -q templates.tpz 'templates/ios.zip' 'templates/version.txt' -d tpl
+          mv tpl/templates/* "$HOME/Library/Application Support/Godot/export_templates/${GODOT_TEMPLATE_DIR}/"
+          rm -rf tpl templates.tpz
+
+      - name: Stamp build info
+        run: |
+          SHORT=${GITHUB_SHA::7}
+          printf 'class_name BuildInfo\nextends RefCounted\nconst COMMIT := "%s"\nconst TIME := "%s"\n' \
+            "$SHORT" "$(date -u +'%Y-%m-%d %H:%M UTC')" > scripts/BuildInfo.gd
+
+      # The preset in the repo has no team ID (it is not a secret, but it is yours): it, the version and the build number are filled in here.
+      - name: Fill in the export preset
+        shell: bash
+        run: |
+          TEAM="${APPLE_TEAM_ID:-0000000000}"
+          sed -i '' \
+            -e "s|^application/app_store_team_id=.*|application/app_store_team_id=\"$TEAM\"|" \
+            -e "s|^application/short_version=.*|application/short_version=\"${{ steps.ver.outputs.version }}\"|" \
+            -e "s|^application/version=.*|application/version=\"${{ steps.ver.outputs.build }}\"|" \
+            export_presets.cfg
+          grep -n "^application/\(app_store_team_id\|short_version\|version\|bundle_identifier\|min_ios_version\|targeted_device_family\)" export_presets.cfg
+
+      - name: Import project
+        run: $GODOT --headless --import || true      # a first import can exit non-zero; the export below is the real check
+
+      - name: Export the Xcode project
+        shell: bash
+        run: |
+          mkdir -p build/ios
+          $GODOT --headless --path . --export-release "iOS" build/ios/${APP_NAME}.ipa
+          ls -la build/ios
+          test -d build/ios/${APP_NAME}.xcodeproj || { echo "::error::The export produced no ${APP_NAME}.xcodeproj"; exit 1; }
+
+      # What the store build must say, read back from the exported files (the same promises docs/ios.md makes).
+      - name: Check the exported Info.plist and project
+        shell: bash
+        run: |
+          PL=build/ios/${APP_NAME}/${APP_NAME}-Info.plist
+          PB=build/ios/${APP_NAME}.xcodeproj/project.pbxproj
+          pb() { /usr/libexec/PlistBuddy -c "Print :$1" "$PL"; }
+          fail() { echo "::error::$1"; exit 1; }
+          [ "$(pb UIStatusBarHidden)" = "true" ] || fail "the status bar is not hidden"
+          [ "$(pb ITSAppUsesNonExemptEncryption)" = "false" ] || fail "the export-compliance flag (ITSAppUsesNonExemptEncryption) is not false"
+          [ "$(pb UIRequiresFullScreen)" = "true" ] || fail "UIRequiresFullScreen is not set"
+          ORI=$(pb UISupportedInterfaceOrientations | grep -c UIInterfaceOrientation)
+          [ "$ORI" = "1" ] && pb UISupportedInterfaceOrientations | grep -q UIInterfaceOrientationPortrait || fail "the app is not portrait only"
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.clearpropgames.patternwork;' "$PB" || fail "wrong bundle identifier"
+          grep -q 'INFOPLIST_KEY_CFBundleDisplayName = "Pattern Work";' "$PB" || fail "wrong display name"
+          grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 15.0;' "$PB" || fail "the minimum iOS is not 15.0"
+          [ "$(grep -c 'TARGETED_DEVICE_FAMILY = "1";' "$PB")" -ge 2 ] || fail "the app is not iPhone only"
+          grep -q 'CODE_SIGN_STYLE = "Automatic";' "$PB" || fail "signing is not automatic"
+          test -f build/ios/PrivacyInfo.xcprivacy || fail "no privacy manifest"
+          echo "Info.plist and project: ok"
+
+      # No secrets: an unsigned build proves the exported project compiles and links against the iPhone SDK.
+      - name: Build without signing (compile check)
+        if: env.DO_UPLOAD != 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild build -project build/ios/${APP_NAME}.xcodeproj -scheme ${APP_NAME} -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ steps.ver.outputs.build }} MARKETING_VERSION=${{ steps.ver.outputs.version }} | tail -40
+          ls "$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/"
+
+      - name: Install the App Store Connect API key
+        if: env.DO_UPLOAD == 'true'
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s\n' "$ASC_KEY_P8" > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+
+      # Automatic signing: Xcode asks Apple (with the API key) for the development certificate and profile it needs for the archive.
+      - name: Archive
+        if: env.DO_UPLOAD == 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild archive -project build/ios/${APP_NAME}.xcodeproj -scheme ${APP_NAME} -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/${APP_NAME}.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION=${{ steps.ver.outputs.build }} MARKETING_VERSION=${{ steps.ver.outputs.version }} | tail -60
+
+      # The archive is re-signed for the App Store (Apple Distribution, also cloud-managed through the API key) and written out as an .ipa.
+      - name: Export the .ipa
+        if: env.DO_UPLOAD == 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>destination</key><string>export</string>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/${APP_NAME}.xcarchive" -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" | tail -30
+          ls -la "$RUNNER_TEMP/export"
+          test -f "$RUNNER_TEMP/export/${APP_NAME}.ipa"
+
+      - name: Upload to TestFlight
+        if: env.DO_UPLOAD == 'true'
+        shell: bash
+        run: |
+          xcrun altool --upload-app --type ios -f "$RUNNER_TEMP/export/${APP_NAME}.ipa" \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Keep the .ipa and the Xcode project
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pattern-work-ios-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.build }}
+          path: |
+            ${{ runner.temp }}/export/*.ipa
+            build/ios/${{ env.APP_NAME }}/${{ env.APP_NAME }}-Info.plist
+            build/ios/PrivacyInfo.xcprivacy
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### iOS build"
+            echo ""
+            echo "| version | build | uploaded to TestFlight |"
+            echo "|---|---|---|"
+            echo "| ${{ steps.ver.outputs.version }} | ${{ steps.ver.outputs.build }} | ${{ job.status == 'success' && env.DO_UPLOAD == 'true' && 'yes' || 'no' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the API key
+        if: always()
+        shell: bash
+        run: rm -f "$HOME"/.appstoreconnect/private_keys/AuthKey_*.p8
