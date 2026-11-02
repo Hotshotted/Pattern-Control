@@ -3914,14 +3914,14 @@ func begin_prewarm() -> void:
 	ascii += "\u2212\u00b7\u2014\u2013\u2019\u00d7\u2026"       # (the minus on the fines chip, the middle dot, dashes, an apostrophe, a times sign: not ASCII, and a first sight of one costs a frame)
 	var row := 0
 	# (the sizes the interface draws text at: a glyph is rasterised once per face and size, so each size gets its row)
-	for face in 2:
+	for face in 3:
 		for sz in Style.PREWARM_SIZES:
-			if face == 1 and sz >= SZ_M:       # (the text face is for small text; digits and big text are the display face)
+			if face >= 1 and sz >= SZ_M:       # (the text face is for small text; digits and big text are the display face)
 				continue
 			var wl := Label.new()
 			wl.text = ascii
 			wl.add_theme_font_size_override("font_size", sz)
-			wl.add_theme_font_override("font", Style.display() if face == 0 else Style.text())
+			wl.add_theme_font_override("font", Style.display() if face == 0 else (Style.text() if face == 1 else Style.body()))
 			wl.add_theme_color_override("font_outline_color", Style.INK)
 			wl.add_theme_constant_override("outline_size", maxi(sz / 8, 4))
 			wl.position = Vector2(0.0, 60.0 + row * 150.0)
