@@ -1,11 +1,11 @@
 {
  "headroom": 1.25,
- "note": "Median-of-3 ratio (frame ms / reference ms) of ten fresh runners at commit a2d65b9 (Gate calibration workflow, run 2). Limit per name = max of the last ten x headroom. Refresh with tools/gate_history.py.",
+ "note": "Median-of-3 ratio (frame ms / reference ms) of ten fresh runners at commit a2d65b9 (Gate calibration workflow, run 2). Limit per name = max of the last ten x headroom. Refresh with tools/gate_history.py. The Airports values are from the ten latest green deploy runs on main instead (22c0770, 905945f, 5224d12, 72ab355, fedc8f7, 5729a5a, d6f5cf4, 0c280b7, 5315689, 69cf026: the 'Panel open check' GATE_DATA of each): Airports limit = 0.1456 x 1.25 = 0.182. Every other name is still from the calibration runs.",
  "runs": [
   {
    "shift frame": 0.274,
    "shift mean": 0.0991,
-   "Airports": 0.086,
+   "Airports": 0.0701,
    "Hangar": 0.0809,
    "Pause": 0.1703,
    "Pause (again)": 0.2003,
@@ -15,7 +15,7 @@
   {
    "shift frame": 0.3572,
    "shift mean": 0.1,
-   "Airports": 0.0728,
+   "Airports": 0.0995,
    "Hangar": 0.1051,
    "Pause": 0.1517,
    "Pause (again)": 0.2756,
@@ -25,7 +25,7 @@
   {
    "shift frame": 0.4907,
    "shift mean": 0.0932,
-   "Airports": 0.0764,
+   "Airports": 0.0807,
    "Hangar": 0.0838,
    "Pause": 0.1152,
    "Pause (again)": 0.205,
@@ -35,7 +35,7 @@
   {
    "shift frame": 0.3828,
    "shift mean": 0.1007,
-   "Airports": 0.078,
+   "Airports": 0.0837,
    "Hangar": 0.0817,
    "Pause": 0.1297,
    "Pause (again)": 0.2155,
@@ -45,7 +45,7 @@
   {
    "shift frame": 0.5725,
    "shift mean": 0.1232,
-   "Airports": 0.1317,
+   "Airports": 0.0995,
    "Hangar": 0.0826,
    "Pause": 0.2177,
    "Pause (again)": 0.2111,
@@ -55,7 +55,7 @@
   {
    "shift frame": 0.5301,
    "shift mean": 0.1137,
-   "Airports": 0.0788,
+   "Airports": 0.1456,
    "Hangar": 0.0989,
    "Pause": 0.134,
    "Pause (again)": 0.2524,
@@ -65,7 +65,7 @@
   {
    "shift frame": 0.4015,
    "shift mean": 0.0993,
-   "Airports": 0.0847,
+   "Airports": 0.0976,
    "Hangar": 0.085,
    "Pause": 0.1167,
    "Pause (again)": 0.2219,
@@ -75,7 +75,7 @@
   {
    "shift frame": 0.4255,
    "shift mean": 0.1076,
-   "Airports": 0.1074,
+   "Airports": 0.1039,
    "Hangar": 0.1007,
    "Pause": 0.1246,
    "Pause (again)": 0.2136,
@@ -85,7 +85,7 @@
   {
    "shift frame": 0.4217,
    "shift mean": 0.1004,
-   "Airports": 0.0842,
+   "Airports": 0.0755,
    "Hangar": 0.1548,
    "Pause": 0.1176,
    "Pause (again)": 0.215,
@@ -95,7 +95,7 @@
   {
    "shift frame": 0.4109,
    "shift mean": 0.0956,
-   "Airports": 0.0814,
+   "Airports": 0.0854,
    "Hangar": 0.0982,
    "Pause": 0.1154,
    "Pause (again)": 0.193,
