@@ -2127,7 +2127,7 @@ const LOGO_FADE := 0.3
 ## A new screen is about to show: arm its transition (slide forward / back, or a scale pop for sheets). Redrawing the
 ## same screen (a shop tab, a purchase) does not replay it.
 func _go(kind: String) -> void:
-	if DebugFlags.perf_enabled() and OS.has_feature("web"):
+	if DebugFlags.stamp_enabled() and OS.has_feature("web"):
 		call_deferred("_publish_buttons")
 	if _prewarming or kind == _tr_kind:
 		_tr_kind = kind
@@ -2527,7 +2527,7 @@ func show_preview(p: Dictionary) -> void:
 			bst = 1
 	pa.add_button("pv_buy", label, Rect2(card.position.x + 60.0, card.end.y - 60.0 - 220.0, card.size.x - 120.0, 220.0), bst, "", -1, -1, {"kind": 10})
 	pa.queue_redraw()
-	if DebugFlags.perf_enabled() and OS.has_feature("web"):
+	if DebugFlags.stamp_enabled() and OS.has_feature("web"):
 		call_deferred("_publish_buttons")
 	pa.position = Vector2.ZERO
 	pa.btn_age = 99.0
@@ -2548,7 +2548,7 @@ func hide_preview() -> void:
 	pa.rel_k = -1
 	if _panel_arts.has("shop"):
 		_art = _panel_arts["shop"]
-	if DebugFlags.perf_enabled() and OS.has_feature("web"):
+	if DebugFlags.stamp_enabled() and OS.has_feature("web"):
 		call_deferred("_publish_buttons")
 
 func preview_open() -> bool:

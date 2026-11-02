@@ -9,6 +9,12 @@ const http = require('http');
 let playwright;
 try { playwright = require('playwright-core'); } catch (e) { playwright = require('playwright'); }
 const { chromium } = playwright;
+
+// Tap a button where the game says it is (window.__btn, published by the game under ?debug / ?perf), not at a hard-coded spot: the layout moves.
+async function tapButton(page, id, fallback) {
+  const p = await page.evaluate((i) => window.__btn && window.__btn[i], id);
+  if (p) await page.touchscreen.tap(p[0], p[1]); else await page.touchscreen.tap(fallback[0], fallback[1]);
+}
 const { measureReference } = require('./web_ref.js');
 
 const root = path.resolve(process.argv[2] || 'build/web');
@@ -89,7 +95,7 @@ srv.listen(0, async () => {
     await page.waitForTimeout(500);
     await page.evaluate(() => { window.__frames.length = 0; });
     for (let tries = 0; tries < 20; tries++) {
-      await page.touchscreen.tap(195, 715);               // START SHIFT
+      await tapButton(page, 'play', [195, 715]);               // START SHIFT
       await page.waitForTimeout(1500);
       const playing = await page.evaluate(() => (window.__boot || []).some(m => m[0] === 'shift started'));
       if (playing) break;

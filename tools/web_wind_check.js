@@ -10,6 +10,12 @@ let playwright;
 try { playwright = require('playwright-core'); } catch (e) { playwright = require('playwright'); }
 const { chromium } = playwright;
 
+// Tap a button where the game says it is (window.__btn, published by the game under ?debug / ?perf), not at a hard-coded spot: the layout moves.
+async function tapButton(page, id, fallback) {
+  const p = await page.evaluate((i) => window.__btn && window.__btn[i], id);
+  if (p) await page.touchscreen.tap(p[0], p[1]); else await page.touchscreen.tap(fallback[0], fallback[1]);
+}
+
 const root = path.resolve(process.argv[2] || 'build/web');
 const chrome = process.argv[3] || process.env.CHROME_PATH || '/opt/pw-browsers/chromium';
 const THROTTLE = +(process.env.THROTTLE || 4);
@@ -59,7 +65,7 @@ srv.listen(0, async () => {
       // START SHIFT, again until the shift is under way (a tap during loading is lost on a slow machine), then 5 s of the game's own time
       for (let tries = 0; tries < 40; tries++) {
         if (await page.evaluate(() => !!(window.__wt && window.__wt.t > 5))) break;
-        if (!(await page.evaluate(() => !!window.__wt))) await page.touchscreen.tap(195, 715);
+        if (!(await page.evaluate(() => !!window.__wt))) await tapButton(page, 'play', [195, 715]);
         await page.waitForTimeout(3000);
       }
       await page.waitForFunction(() => window.__wt && window.__wt.t > 5, null, { timeout: 60000 });
