@@ -12,3 +12,9 @@ export/
 # Editor / OS
 .DS_Store
 *.tmp
+
+# UI audit pictures are CI artifacts, never committed
+docs/ui_audit/*/
+!docs/ui_audit/before/
+docs/ui_audit/before/*/
+*.jpg.audit

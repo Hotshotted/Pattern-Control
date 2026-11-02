@@ -27,13 +27,13 @@ By screen size (before / after):
 | 768x1024 | iPad | 152 / 0 | 66 / 0 | 9 / 0 | 0 / 0 | 244 / 0 | 0 / 0 | 44 / 0 | **515 / 0** |
 | 1280x720 | landscape web | 112 / 0 | 64 / 0 | 1 / 0 | 0 / 0 | 306 / 0 | 0 / 0 | 44 / 0 | **527 / 0** |
 
-The first run of the tool (the numbers above) was made on the game as it stood before this work (commit `28821f2`, with the tool's text recorder added to a copy of it by `tools/ui_audit_instrument.py`), so it includes the old hand-placed airport detail screen. The pictures of every state that had a problem, with each problem outlined in red, are in `docs/ui_audit/before/<size>/`; the same states after the fixes (and every other state) are in `docs/ui_audit/<size>/`.
+The first run of the tool (the numbers above) was made on the game as it stood before this work (commit `28821f2`, with the tool's text recorder added to a copy of it by `tools/ui_audit_instrument.py`), so it includes the old hand-placed airport detail screen. Pictures are not kept in the repository (they were 37 MB): every CI run writes one per state and size, with each problem outlined in red, to the `ui-overlap-pictures` artifact (`<size>/<state>.jpg`).
 
 ## The airport detail screen: what covered what, and why
 
 The screen with *Fly here* drew everything itself, each thing at its own hard-coded offset from the top of the card (`y0 = 0.667 x height`), and the *Fly here* button at a fixed distance from the bottom. Nothing owned the space, so later additions landed on top of earlier ones:
 
-* **No engines (a chip at x = width - 370, y0 + 92 .. 144)** sat on the **mastery block** (rank line, bar and `N / N to rank N` at the same corner, y0 + 108 .. 154), added after it: the rank, its bar and the progress text were under the chip and could not be read or reached. This was the case on every airport with three stars (`docs/ui_audit/before/detail_regional_old_layout.png`).
+* **No engines (a chip at x = width - 370, y0 + 92 .. 144)** sat on the **mastery block** (rank line, bar and `N / N to rank N` at the same corner, y0 + 108 .. 154), added after it: the rank, its bar and the progress text were under the chip and could not be read or reached. This was the case on every airport with three stars (the picture of the old layout was removed with the other pictures; the numbers below come from `docs/ui_audit/before/report.json`).
 * **Stars and Improve (two chips at y0 + 26 .. 78)** were fine alone, but the name and the tag were fitted to `width - 360` assuming those chips were all there was on the right, so on a long name the text ran under them, and the chips were 52 units tall (15 pt on a phone: under half a tap).
 * **The improvement chips (y0 + 150 .. 326)** on the Improve tab covered the mastery progress text (y0 + 154) of the same card.
 * **`Hangar N, profit after N landings` (y0 + 372)** ran into the **Fly here** button on screens whose height moved the button up relative to the card: the text was anchored to the top, the button to the bottom.
@@ -153,15 +153,15 @@ One row per screen, pair of elements and type (a pair that occurs in several sta
 
 ## The worst five screens (the worst state of each kind of screen, by number of problems in the first run)
 
-| # | Screen at size | Problems | Before | After |
-|---|---|---:|---|---|
-| 1 | shop tab 1 at 320x568 | 22 | `docs/ui_audit/before/320x568/shop_tab_1.jpg` | `docs/ui_audit/320x568/shop_tab_1.jpg` |
-| 2 | achievements airports at 320x568 | 16 | `docs/ui_audit/before/320x568/achievements_airports.jpg` | `docs/ui_audit/320x568/achievements_airports.jpg` |
-| 3 | detail 0 grass strip mastered improve at 320x568 | 14 | `docs/ui_audit/before/320x568/detail_0_grass_strip_mastered_improve.jpg` | `docs/ui_audit/320x568/detail_0_grass_strip_mastered_improve.jpg` |
-| 4 | airports all locked at 320x568 | 13 | `docs/ui_audit/before/320x568/airports_all_locked.jpg` | `docs/ui_audit/320x568/airports_all_locked.jpg` |
-| 5 | results rankup at 390x844 | 13 | `docs/ui_audit/before/390x844/results_rankup.jpg` | `docs/ui_audit/390x844/results_rankup.jpg` |
+| # | Screen at size | Problems in the first run |
+|---|---|---:|
+| 1 | shop tab 1 at 320x568 | 22 |
+| 2 | achievements airports at 320x568 | 16 |
+| 3 | detail 0 grass strip mastered improve at 320x568 | 14 |
+| 4 | airports all locked at 320x568 | 13 |
+| 5 | results rankup at 390x844 | 13 |
 
-(The airport detail screen that started this, as it was drawn by hand: `docs/ui_audit/before/detail_regional_old_layout.png`; after: `docs/ui_audit/390x844/detail_2_regional_mastered,_no_engines_on.jpg`.)
+(Each of them now has 0 problems; the CI artifact has the current picture, `<size>/<state>.jpg`.)
 
 ## The allowlist
 
@@ -186,5 +186,5 @@ Nothing is skipped silently: the tool prints this list with its totals.
 * **Small text**: under `Style.MIN_TEXT` (22 units), the smallest size the interface draws; see `docs/style.md`, *Layout and legibility rules*.
 * Every state is also run with the largest numbers (9,999,999 coins, an eight-digit payout) and the longest real strings (the longest toast, achievement and mastery lines).
 
-Run it: `godot --headless --path . --script tools/ui_overlap_check.gd` (the check, about 6 minutes), or under `xvfb-run -a godot --path . --rendering-driver opengl3 --script tools/ui_overlap_check.gd -- shots=docs/ui_audit report=docs/ui_audit/report.json` for the pictures. Options: `only=<text>`, `sizes=390x844,...`, `quiet`, `plant` (the CI self-test).
+Run it: `godot --headless --path . --script tools/ui_overlap_check.gd` (the check, about 6 minutes), or under `xvfb-run -a godot --path . --rendering-driver opengl3 --script tools/ui_overlap_check.gd -- shots=<dir> report=docs/ui_audit/report.json` for the pictures. Options: `only=<text>`, `sizes=390x844,...`, `quiet`, `plant` (the CI self-test).
 

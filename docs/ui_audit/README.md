@@ -1,10 +1,7 @@
-# UI audit pictures
+# UI audit data
 
-Every screen, panel, popup, tab and state of the game at six screen sizes, written by `tools/ui_overlap_check.gd` (see `docs/ui_audit.md`):
+`before/report.json` is the first run of `tools/ui_overlap_check.gd` over the game as it was before the fixes; `report.json` is the latest run.
+`docs/ui_audit.md` is generated from them (`python3 tools/ui_audit_report.py`).
 
-* `before/<size>/<screen>.jpg`: the screens that had a problem, as they were when the tool was first run, each problem outlined in red;
-* `before/report.json`: the problems found then (the numbers in `docs/ui_audit.md`);
-* `<size>/<screen>.jpg`: the same screens after the fixes (a red outline would be a problem still open).
-
-Sizes are logical points: 320x568 (iPhone SE 1st gen), 375x667 (SE 2/3), 390x844 (iPhone 14), 430x932 (14 Pro Max), 768x1024 (iPad), 1280x720 (landscape web).
-Pictures are scaled so that the long side is at most 640 pixels.
+The pictures (every state at six sizes, each problem outlined in red) are not stored in the repository. Every CI run writes them to the
+`ui-overlap-pictures` artifact of the run; or make them locally: `xvfb-run -a godot --path . --rendering-driver opengl3 --script tools/ui_overlap_check.gd -- shots=<dir>`.

@@ -169,15 +169,15 @@ def main():
         w("| %s | %s | %s | **%d / %d** |" % (s, DEVICES[s], " | ".join(row), tb, ta))
     w("")
     w("The first run of the tool (the numbers above) was made on the game as it stood before this work (commit `28821f2`, with the tool's text recorder added to a copy of it by "
-      "`tools/ui_audit_instrument.py`), so it includes the old hand-placed airport detail screen. The pictures of every state that had a problem, "
-      "with each problem outlined in red, are in `docs/ui_audit/before/<size>/`; the same states after the fixes (and every other state) are in `docs/ui_audit/<size>/`.\n")
+      "`tools/ui_audit_instrument.py`), so it includes the old hand-placed airport detail screen. Pictures are not kept in the repository "
+      "(they were 37 MB): every CI run writes one per state and size, with each problem outlined in red, to the `ui-overlap-pictures` artifact (`<size>/<state>.jpg`).\n")
 
     w("## The airport detail screen: what covered what, and why\n")
     w("The screen with *Fly here* drew everything itself, each thing at its own hard-coded offset from the top of the card (`y0 = 0.667 x height`), and the *Fly here* "
       "button at a fixed distance from the bottom. Nothing owned the space, so later additions landed on top of earlier ones:\n")
     w("* **No engines (a chip at x = width - 370, y0 + 92 .. 144)** sat on the **mastery block** (rank line, bar and `N / N to rank N` at the same corner, y0 + 108 .. 154), "
       "added after it: the rank, its bar and the progress text were under the chip and could not be read or reached. This was the case on every airport with three stars "
-      "(`docs/ui_audit/before/detail_regional_old_layout.png`).")
+      "(the picture of the old layout was removed with the other pictures; the numbers below come from `docs/ui_audit/before/report.json`).")
     w("* **Stars and Improve (two chips at y0 + 26 .. 78)** were fine alone, but the name and the tag were fitted to `width - 360` assuming those chips were all there was on the right, "
       "so on a long name the text ran under them, and the chips were 52 units tall (15 pt on a phone: under half a tap).")
     w("* **The improvement chips (y0 + 150 .. 326)** on the Improve tab covered the mastery progress text (y0 + 154) of the same card.")
@@ -234,13 +234,13 @@ def main():
             best_of_family[fam] = (size, screen, n)
     worst = sorted(best_of_family.values(), key=lambda t: -t[2])[:5]
     w("## The worst five screens (the worst state of each kind of screen, by number of problems in the first run)\n")
-    w("| # | Screen at size | Problems | Before | After |")
-    w("|---|---|---:|---|---|")
+    w("| # | Screen at size | Problems in the first run |")
+    w("|---|---|---:|")
     for i, (size, screen, n) in enumerate(worst, 1):
         fn = screen.replace(" ", "_").replace("/", "-") + ".jpg"
-        w("| %d | %s at %s | %d | `docs/ui_audit/before/%s/%s` | `docs/ui_audit/%s/%s` |" % (i, screen, size, n, size, fn, size, fn))
+        w("| %d | %s at %s | %d |" % (i, screen, size, n))
     w("")
-    w("(The airport detail screen that started this, as it was drawn by hand: `docs/ui_audit/before/detail_regional_old_layout.png`; after: `docs/ui_audit/390x844/detail_2_regional_mastered,_no_engines_on.jpg`.)\n")
+    w("(Each of them now has 0 problems; the CI artifact has the current picture, `<size>/<state>.jpg`.)\n")
 
     w("## The allowlist\n")
     w("Intentional overlaps are allowed only through the `ALLOW` list at the top of `tools/ui_overlap_check.gd`, one entry per case, each with a `why` "
@@ -266,7 +266,7 @@ def main():
     w("* **Small text**: under `Style.MIN_TEXT` (22 units), the smallest size the interface draws; see `docs/style.md`, *Layout and legibility rules*.")
     w("* Every state is also run with the largest numbers (9,999,999 coins, an eight-digit payout) and the longest real strings (the longest toast, achievement and mastery lines).\n")
     w("Run it: `godot --headless --path . --script tools/ui_overlap_check.gd` (the check, about 6 minutes), or under `xvfb-run -a godot --path . --rendering-driver opengl3 --script "
-      "tools/ui_overlap_check.gd -- shots=docs/ui_audit report=docs/ui_audit/report.json` for the pictures. Options: `only=<text>`, `sizes=390x844,...`, `quiet`, `plant` (the CI self-test).\n")
+      "tools/ui_overlap_check.gd -- shots=<dir> report=docs/ui_audit/report.json` for the pictures. Options: `only=<text>`, `sizes=390x844,...`, `quiet`, `plant` (the CI self-test).\n")
     open(ROOT + "/docs/ui_audit.md", "w").write("\n".join(out) + "\n")
     print("wrote docs/ui_audit.md: %d rows, before %d, after %d" % (len(rows), nb, na))
 
