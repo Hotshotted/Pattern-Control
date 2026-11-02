@@ -259,7 +259,7 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 				var ci := Icon.new()
 				ci.setup("coin", 28.0, art_factory)
 				cr.add_child(ci)
-				cr.add_child(label("after fines", 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text()))
+				cr.add_child(label("after fines", 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, false, Style.text()))
 				cellv.add_child(cr)
 	if not locked and tab == 0:
 		body.add_child(label("Hangar %d, profit after %d landings" % [int(info["hangar"]), int(info["land"][0])], 28, Style.TEXT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text()))

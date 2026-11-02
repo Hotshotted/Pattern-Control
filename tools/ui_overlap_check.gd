@@ -50,9 +50,16 @@ var problems: Array = []              # every problem, across sizes: {size, scre
 var allowed_count := 0
 var state_count := 0
 var shot_count := 0
-var unreachable: Array = []
+## What the tool does not open, and why (printed with the totals, so nothing is skipped silently).
+var unreachable: Array = [
+	"privacy policy page: it opens the system browser (web/privacy.html), it is not an in-game screen",
+	"TUNE panel and perf overlay: developer tools behind ?tune / ?perf in the page address, never shown to players",
+	"confirmation dialogs: the game has none (the shop's hold-to-buy sheet is covered: 'preview ...' states)",
+	"popups: where one appears depends on where the aircraft is; they are checked at the screen's left, middle and right edges",
+]
 var rendering := false
 var screens_seen := {}
+var cur_boxes: Array = []             # the panels / cards / pills drawn in the state being checked
 
 func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -176,11 +183,11 @@ func _label_rect(l: Label) -> Rect2:
 	var th := float(lines) * lh
 	var tw := 0.0
 	if l.autowrap_mode != TextServer.AUTOWRAP_OFF:
-		tw = minf(f.get_string_size(l.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x, g.size.x)
+		tw = minf(f.get_multiline_string_size(l.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x, g.size.x)
 		if lines > 1:
 			tw = g.size.x
 	else:
-		tw = f.get_string_size(l.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		tw = f.get_multiline_string_size(l.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var x := g.position.x
 	match l.horizontal_alignment:
 		HORIZONTAL_ALIGNMENT_CENTER:
@@ -203,20 +210,27 @@ func _label_rect(l: Label) -> Rect2:
 ##   {"k": "text" | "glyph" | "button" | "label" | "icon", "id", "text", "rect", "inter": bool, "size": int, "over": bool, "limit": float}
 func _collect() -> Array:
 	var els: Array = []
+	cur_boxes = []
 	for art in _arts():
+		for bx in art.rec_boxes:
+			var br: Rect2 = bx
+			if br.size.x >= 24.0 and br.size.y >= 24.0 and br.size.x * br.size.y < 0.6 * vp.x * vp.y:
+				cur_boxes.append(br)
+		if art.hits_dirty:
+			art.refresh_hits()
 		for k in art.btn_count:
 			if art.btn_kind[k] == 11:
 				continue                       # (an invisible catcher: a sheet's scrim)
-			els.append({"k": "button", "id": art.btn_id[k], "text": art.btn_text[k], "rect": art.btn_rect[k], "inter": true, "state": art.btn_state[k], "src": "art"})
+			els.append({"k": "button", "id": art.btn_id[k], "text": art.btn_text[k], "rect": art.btn_rect[k], "hit": art.btn_hit[k], "inter": true, "state": art.btn_state[k], "src": "art"})
 		if art.show_play and art.pause_rect.size.x > 0.0:
-			els.append({"k": "button", "id": "pause", "text": "", "rect": art.pause_rect, "inter": true, "state": 0, "src": "art"})
+			els.append({"k": "button", "id": "pause", "text": "", "rect": art.pause_rect, "hit": art._slop(art.pause_rect.grow(6.0)), "inter": true, "state": 0, "src": "art"})
 		if art.show_pause and art == hud._art and art.slider_rect[0].size.x > 0.0:
 			for i in 3:
-				els.append({"k": "button", "id": "slider:%d" % i, "text": art.slider_name[i], "rect": art.slider_rect[i].grow_individual(40.0, 20.0, 40.0, 20.0), "inter": true, "state": 0, "src": "art"})
+				els.append({"k": "button", "id": "slider:%d" % i, "text": art.slider_name[i], "rect": art.slider_rect[i], "hit": art._slop(art.slider_rect[i].grow_individual(40.0, 20.0, 40.0, 20.0)), "inter": true, "state": 0, "src": "art"})
 		for t in art.rec_texts:
-			els.append({"k": "text", "id": "", "text": t["text"], "rect": t["rect"], "inter": false, "size": t["size"], "over": t["over"], "limit": t["limit"], "natural": t["natural"], "src": "art"})
+			els.append({"k": "text", "id": "", "text": t["text"], "rect": t["rect"], "inter": false, "size": t["size"], "over": t["over"], "limit": t["limit"], "natural": t["natural"], "src": "art", "layer": str(art.name)})
 		for g in art.rec_glyphs:
-			els.append({"k": "glyph", "id": g["id"], "text": "", "rect": g["rect"], "inter": false, "src": "art"})
+			els.append({"k": "glyph", "id": g["id"], "text": "", "rect": g["rect"], "inter": false, "src": "art", "layer": str(art.name)})
 	_walk(hud, els)
 	_dedupe(els)
 	return els
@@ -251,7 +265,7 @@ func _walk(n: Node, els: Array) -> void:
 						var fs := l.get_theme_font_size("font_size")
 						var over := false
 						if l.autowrap_mode == TextServer.AUTOWRAP_OFF:
-							var nat := l.get_theme_font("font").get_string_size(l.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+							var nat := l.get_theme_font("font").get_multiline_string_size(l.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 							over = nat > l.size.x + 1.0 and l.size.x > 0.0 and l.clip_text
 						else:
 							over = l.get_visible_line_count() < l.get_line_count() or l.get_minimum_size().y > l.size.y + 1.0 and false
@@ -298,7 +312,7 @@ func _name_of(e: Dictionary) -> String:
 		s = "icon %s" % e["id"]
 	elif e["k"] == "icon":
 		s = "icon (%s)" % e["id"]
-	return "%s '%s' %s" % [e["k"], s.replace("\n", " "), _rs(e["rect"])]
+	return "%s '%s' %s%s" % [e["k"], s.replace("\n", " "), _rs(e["rect"]), (" @" + str(e["layer"])) if e.has("layer") else ""]
 
 func _rs(r: Rect2) -> String:
 	return "(%d,%d %dx%d)" % [roundi(r.position.x), roundi(r.position.y), roundi(r.size.x), roundi(r.size.y)]
@@ -351,11 +365,32 @@ func _analyze(els: Array) -> Array:
 				var ob: Rect2 = els[o]["rect"]
 				if r.position.x < ob.position.x - 2.0 or r.end.x > ob.end.x + 2.0 or r.position.y < ob.position.y - 2.0 or r.end.y > ob.end.y + 2.0:
 					found.append({"type": "clipped", "a": e, "b": els[o], "detail": "text leaves the button it belongs to"})
+			if e["src"] == "art":              # text that leaves the panel, card or pill it is drawn on
+				var best := Rect2()
+				var best_a := INF
+				var c: Vector2 = r.get_center()
+				for bx in cur_boxes:
+					var b: Rect2 = bx
+					if b.has_point(c) and b.size.x * b.size.y < best_a and b.size.x * b.size.y > 1.0:
+						best = b
+						best_a = b.size.x * b.size.y
+				if best_a < INF and not best.grow(3.0).encloses(r) and (r.size.x < best.size.x * 1.5):
+					found.append({"type": "clipped", "a": e, "b": null, "detail": "text leaves the panel it is on %s" % _rs(best)})
+			if e["k"] == "label" and e.has("node"):
+				var lb: Label = e["node"]
+				if lb.autowrap_mode != TextServer.AUTOWRAP_OFF:
+					var lf := lb.get_theme_font("font")
+					var lfs := lb.get_theme_font_size("font_size")
+					var longest := 0.0
+					for wd in lb.text.split(" "):
+						longest = maxf(longest, lf.get_string_size(wd, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x)
+					if longest > lb.size.x + 1.0:
+						found.append({"type": "clipped", "a": e, "b": null, "detail": "a word (%d wide) is broken across lines in a %d wide label" % [roundi(longest), roundi(lb.size.x)]})
 			if int(e["size"]) < Style.MIN_TEXT:
 				found.append({"type": "small-text", "a": e, "b": null, "detail": "%d units (minimum %d); %.1f pt" % [int(e["size"]), Style.MIN_TEXT, float(e["size"]) / ppp]})
 		# tap size
 		if e["inter"]:
-			var fr: Rect2 = e.get("full", r)
+			var fr: Rect2 = e.get("hit", e.get("full", r))
 			var m := minf(fr.size.x, fr.size.y)
 			if m < tap - 0.5 and e["state"] != 1:
 				found.append({"type": "tap-size", "a": e, "b": null, "detail": "%.0f x %.0f pt (minimum 44 x 44)" % [fr.size.x / ppp, fr.size.y / ppp]})
@@ -364,14 +399,18 @@ func _analyze(els: Array) -> Array:
 		var a: Dictionary = els[i]
 		for j in range(i + 1, n):
 			var b: Dictionary = els[j]
+			if a["inter"] and b["inter"]:
+				var har := _inter_area(a.get("hit", a["rect"]), b.get("hit", b["rect"]))
+				if har > 6.0:
+					found.append({"type": "covered", "a": a, "b": b, "detail": "tap areas overlap by %d px: a tap on the shared part reaches only one" % roundi(har)})
+				continue
 			var ar := _inter_area(a["rect"], b["rect"])
 			if ar <= 6.0:
 				continue
-			if a["inter"] and b["inter"]:
-				found.append({"type": "covered" if a["k"] == "button" and b["k"] == "button" else "overlap", "a": a, "b": b, "detail": "buttons overlap by %d px: a tap on the shared part reaches only one" % roundi(ar)})
+			# nested on purpose: a label / icon / text inside its own button (all of it: one that sticks out of the button is not nested)
+			if a["inter"] and owner[j] == i and (a["rect"] as Rect2).grow(2.0).encloses(b["rect"]):
 				continue
-			# nested on purpose: a label / icon / text inside its own button
-			if (a["inter"] and owner[j] == i) or (b["inter"] and owner[i] == j):
+			if b["inter"] and owner[i] == j and (b["rect"] as Rect2).grow(2.0).encloses(a["rect"]):
 				continue
 			if a["inter"] or b["inter"]:
 				# a text or icon over a button that is not its own
@@ -780,6 +819,7 @@ func _states_results() -> void:
 
 func _states_misc() -> void:
 	save.reset_all()
+	_check_splash()
 	for title in ["Reward: double your coins", "Reward: refund your biggest fine", "Between shifts: a short break"]:
 		main.hud.show_ad(title)
 		main.hud.set_ad_progress(0.4)
@@ -793,6 +833,21 @@ func _states_misc() -> void:
 	main._show_menu()
 	await _check("menu again")
 
+## The boot splash (the studio mark and a progress bar over the start-up pre-warm) is drawn by a class of its own, centred and at fixed
+## sizes: check by measuring that its wordmark and bar fit the screen, with room to spare.
+func _check_splash() -> void:
+	state_count += 1
+	var f := Style.display()
+	var gap := Style.SZ_M * 0.32
+	var total := -gap
+	for w in Style.STUDIO_WORDS:
+		total += f.get_string_size(w, HORIZONTAL_ALIGNMENT_LEFT, -1, Style.SZ_M).x + gap
+	var inside := total <= vp.x - 80.0 and 420.0 <= vp.x - 80.0
+	if not quiet:
+		print("  %-44s wordmark %d wide on a %d wide screen  %s" % ["boot splash (measured)", total, vp.x, "ok" if inside else "TOO WIDE"])
+	if not inside:
+		problems.append({"size": cur_size["name"], "screen": "boot splash", "type": "clipped", "a": {"k": "text", "id": "", "text": "CLEAR PROP GAMES", "rect": Rect2((vp.x - total) * 0.5, vp.y * 0.5 - 40.0, total, 60.0), "inter": false}, "b": null, "detail": "wordmark wider than the screen"})
+
 # ------------------------------------------------------------------------------------------------------------------
 
 func _finish() -> void:
@@ -801,8 +856,9 @@ func _finish() -> void:
 		by_type[p["type"]] = int(by_type.get(p["type"], 0)) + 1
 	print("")
 	print("ui_overlap_check: %d states x sizes checked, %d pictures, %d problem(s) %s, %d allowed by the allowlist" % [state_count, shot_count, problems.size(), str(by_type), allowed_count])
-	if not unreachable.is_empty():
-		print("not reached: ", unreachable)
+	print("not opened by the tool:")
+	for u in unreachable:
+		print("  - ", u)
 	if report_path != "":
 		var rows := []
 		for p in problems:

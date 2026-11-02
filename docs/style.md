@@ -306,6 +306,30 @@ box of radius r; strokes are r / 6 (at least 3 px).
 Scale: 8, 16, 24, 40, 64. Screen gutter 40. Cards are 160-170 tall with 10 gap. The primary button is at least 230 tall.
 One primary element per screen; secondary things are smaller and quieter; the rest is behind a "Details" tap.
 
+## Layout and legibility rules
+
+These are checked on every screen, panel, popup, tab and state at six screen sizes (320 x 568, 375 x 667, 390 x 844, 430 x 932,
+768 x 1024 and a 1280 x 720 landscape web window) by `tools/ui_overlap_check.gd`, which CI runs on every push (`docs/ui_audit.md` has the
+findings and the allowlist). A change that breaks one fails the build.
+
+* **Nothing sits on anything else.** Visible texts, labels, icons and buttons never overlap, unless one is nested inside its own button
+  or panel (all of it: a label that sticks out of its button is a problem). Prefer real layout to nudged pixels: containers
+  (`DetailSheet`: Margin / VBox / HBox / Scroll), content that flows from the top down (`Art.res_stack` on the results card, the pause
+  stack), widths taken from the text (`Style.fit_size`) and wrapping onto a second line, not an overlap.
+* **Text is never clipped, truncated or cut by the edge of its box.** Longest real strings and the biggest numbers are used in the checks:
+  9,999,999 coins, an eight-digit payout, the longest toast, the longest achievement line.
+* **The smallest text is 22 units** (`Style.MIN_TEXT`; 1080 units across the screen: about 8 points on a 390-point-wide phone). Text is
+  only made smaller than its design size as a last resort, down the size ladder, never below that; past it, it wraps.
+* **A tap target is at least 44 x 44 points** (Apple's minimum). The viewport is 1080 units wide whatever the phone, so a point is
+  `Style.px_per_pt` units (3.4 on a 320-point-wide phone, 2.8 on a 390 one) and 44 points is `Style.tap_px()`. A button drawn smaller than that
+  keeps its looks and gets a larger hit area (`Art.btn_hit`, worked out by `refresh_hits`: grown about its centre, then handed back where it meets
+  another button, and grown again on its free side); a card, a row or a tab is made at least that tall (`maxf(design height, Style.tap_px())`).
+  No two hit areas overlap, so a tap never reaches the wrong control.
+* **Nothing important sits under the notch, the Dynamic Island or the home indicator,** and nothing is partly off the screen. Content starts
+  below the Back button's tap area (`Hud._ytop()`).
+* The Back button's tap area and the screen title: the title is left-aligned after the button and fitted to the room before the total in
+  the corner, which grows with its digits (`Hud._fit_select_title`).
+
 ## Safe areas
 
 `Style.safe_top / bottom / left / right` (viewport pixels) come from the device (`DisplayServer.get_display_safe_area`) or,

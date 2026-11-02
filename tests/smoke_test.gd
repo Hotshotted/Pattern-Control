@@ -3087,14 +3087,14 @@ func _initialize() -> void:
 		if ch is Label and ch != main.hud._perf_label and ch != main.hud._stamp:
 			var sz = ch.get_theme_font_size("font_size")
 			sizes_seen[sz] = true
-			sizes_ok = sizes_ok and (sz == main.hud.SZ_XL or sz == main.hud.SZ_M or sz == main.hud.SZ_S or sz == 26)
+			sizes_ok = sizes_ok and (sz == main.hud.SZ_XL or sz == main.hud.SZ_M or sz == main.hud.SZ_S or sz == 26 or (sz in Style.FIT and sz >= Style.MIN_TEXT and sz < main.hud.SZ_XL))     # (the popups fit their text down the ladder)
 	for scr in [main.hud._menu, main.hud._over, main.hud._select, main.hud._pause, main.hud._ad]:
 		for ch in scr.get_children():
 			if ch is Label:
 				var sz2 = ch.get_theme_font_size("font_size")
 				sizes_seen[sz2] = true
-				sizes_ok = sizes_ok and (sz2 == main.hud.SZ_XL or sz2 == main.hud.SZ_M or sz2 == main.hud.SZ_S)
-	check(sizes_ok, "every label uses one of the three text sizes %s (seen %s)" % [str([main.hud.SZ_XL, main.hud.SZ_M, main.hud.SZ_S]), str(sizes_seen.keys())])
+				sizes_ok = sizes_ok and (sz2 == main.hud.SZ_XL or sz2 == main.hud.SZ_M or sz2 == main.hud.SZ_S or (sz2 in Style.FIT and sz2 >= Style.MIN_TEXT and sz2 < main.hud.SZ_XL))        # (a title that has to fit its room steps down the size ladder)
+	check(sizes_ok, "every label uses one of the three text sizes %s, or a step down the size ladder for one that must fit (seen %s)" % [str([main.hud.SZ_XL, main.hud.SZ_M, main.hud.SZ_S]), str(sizes_seen.keys())])
 	# Airport select: just a name, stars and a lock.
 	main._on_button("airports")
 	var pa = main.hud._art
@@ -6263,6 +6263,72 @@ func _initialize() -> void:
 	main._on_button("privacy")
 	check(main.privacy_opened == pv_before + 1 and main.screen == main.SCREEN_PAUSE, "...and it opens the page and leaves the shift paused")
 	main.resume_game()
+
+	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	var ly_old_ppp = Style.px_per_pt
+	for ly_ppp in [3.375, 2.77, 1.88]:
+		Style.px_per_pt = ly_ppp
+		var ly_tap = Style.tap_px()
+		check(is_equal_approx(ly_tap, 44.0 * ly_ppp), "a tap target is 44 points: %d units at %.2f units per point" % [ly_tap, ly_ppp])
+		var ly_art = main.hud.Art.new()
+		main.hud.add_child(ly_art)
+		ly_art.add_button("a", "A", Rect2(10.0, 400.0, 80.0, 80.0), 0, "", -1, -1, {"kind": 4})
+		ly_art.add_button("b", "B", Rect2(100.0, 400.0, 80.0, 80.0), 0, "", -1, -1, {"kind": 4})
+		ly_art.add_button("c", "C", Rect2(10.0, 1000.0, 300.0, 300.0), 0, "", -1, -1, {"kind": 4})
+		ly_art.refresh_hits()
+		var ly_ha = ly_art.btn_hit[0]
+		var ly_hb = ly_art.btn_hit[1]
+		check(ly_ha.size.y >= ly_tap - 1.0 and ly_hb.size.y >= ly_tap - 1.0, "a small button's tap area grows to 44 points tall (%d, %d)" % [ly_ha.size.y, ly_hb.size.y])
+		check(not ly_ha.intersects(ly_hb), "...and two neighbours' tap areas never overlap")
+		check(ly_ha.encloses(ly_art.btn_rect[0]) and ly_art.button_at(ly_art.btn_rect[0].get_center()) == 0, "...it contains the button, and a tap on the button reaches it")
+		check(ly_art.btn_hit[2] == ly_art.btn_rect[2], "a button that is big enough keeps its own rectangle")
+		ly_art.queue_free()
+	Style.px_per_pt = ly_old_ppp
+	# the results card, laid out from the top: whatever is on it, the pieces do not overlap and stay above the Next shift button
+	main.hud.show_results("DONE", "x|1", main.shift, 100, 500, 50, false)
+	var ly_res = main.hud._panel_arts["results"]
+	var ly_cases = [[0, 0, ""], [1, 0, ""], [3, 120, "Streak: day 3 done\nBonus chest  +90\nAchievement: a long one  +60"], [2, 0, "unlock"]]
+	var ly_ok = true
+	for ly_c in ly_cases:
+		ly_res.res_goals = []
+		for gi in ly_c[0]:
+			ly_res.res_goals.append({"text": "A goal", "reward": 40})
+		ly_res.res_protected = ly_c[1]
+		ly_res.res_unlock = "County" if ly_c[2] == "unlock" else ""
+		ly_res.res_goals_extra = ly_c[2] if ly_c[2] != "unlock" else ""
+		var ly_stk = ly_res.res_stack()
+		var ly_rects = [ly_stk["details"]]
+		for ly_k in ["pill", "unlock"]:
+			if ly_stk.has(ly_k):
+				ly_rects.append(ly_stk[ly_k])
+		ly_rects.append_array(ly_stk["goals"])
+		for ly_i in ly_rects.size():
+			for ly_j in range(ly_i + 1, ly_rects.size()):
+				if ly_rects[ly_i].intersects(ly_rects[ly_j]):
+					ly_ok = false
+		var ly_limit = ly_res.size.y - 380.0 - Style.safe_bottom
+		ly_ok = ly_ok and ly_stk["details"].end.y <= ly_limit and ly_stk["card"].end.y <= ly_limit + 1.0
+	check(ly_ok, "the results card's pieces (goals, pay-protected pill, new-airport row, Details) do not overlap and end above the Next shift button")
+	# the pause sheet: three sliders a tap apart, RESUME above the card
+	main.restart()
+	main.pause_game()
+	var ly_p = main.hud._panel_arts["pause"]
+	var ly_sl = [ly_p.slider_rect[1].position.y, ly_p.slider_rect[0].position.y, ly_p.slider_rect[2].position.y]
+	check(ly_sl[1] - ly_sl[0] >= Style.tap_px() and ly_sl[2] - ly_sl[1] >= Style.tap_px() and ly_sl[0] > ly_p.btn_rect[ly_p.btn_id.find("resume")].end.y, "the pause sheet's sliders are a tap apart and under RESUME")
+	main.resume_game()
+	# the detail sheet: Fly here is pinned under the scroll, never inside it
+	main.open_detail(2)
+	main.hud.skip_animations()
+	var ly_sheet = main.hud.detail_sheet()
+	ly_sheet.settle()
+	check(ly_sheet.scroll != null and ly_sheet.fly != null and not ly_sheet.fly.get_global_rect().intersects(ly_sheet.scroll.get_global_rect()) and ly_sheet.fly.get_global_rect().position.y >= ly_sheet.scroll.get_global_rect().end.y, "the detail sheet keeps Fly here pinned under its scroll area")
+	var ly_fits = true
+	for ly_n in ly_sheet.find_children("*", "Label", true, false):
+		ly_fits = ly_fits and not (ly_n.autowrap_mode != TextServer.AUTOWRAP_OFF and ly_n.get_line_count() > 1 and ly_n.size.x < 40.0)
+	check(ly_fits, "...and no label in it is squeezed into a column of letters")
+	main._show_menu()
 
 	print("34. Mastery, achievements and the new cosmetics")
 	main.progress_enabled = true
