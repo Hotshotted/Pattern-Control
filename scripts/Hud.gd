@@ -62,8 +62,8 @@ class Art extends Control:
 	var details_lines := PackedStringArray()
 	# ---- the pause menu ----
 	var show_pause := false
-	var det_on := false                # an airport's detail screen is up (see Hud.show_detail): its card is drawn under the buttons
-	var det := {}
+	var icon_id := ""                  # set: this Art is only that glyph, filling its box (see DetailSheet.Icon)
+	var icon_col := Color.WHITE
 	var pv_on := false                 # the shop's preview sheet is up (see Hud.show_preview)
 	var pv := {}
 	var pv_t := 0.0
@@ -969,48 +969,6 @@ class Art extends Control:
 
 	## The airport detail screen's card, in the lower third (the live airport is above it): the name in the display face, the best shift, the
 	## three stars with what each needs, and for a locked airport the unlock requirement in place of the Fly here button.
-	func _draw_detail() -> void:
-		var d := det
-		var y0 := size.y * 0.667
-		var card := Rect2(18.0, y0, size.x - 36.0, size.y - y0 + 40.0)
-		panel(_sb_sheet, card, _sheen_l)
-		var locked: bool = not bool(d["open"])
-		var x0 := card.position.x + 40.0
-		var wide := card.size.x - 80.0
-		var nfs := Style.fit_size(d["name"], 64, 36, wide - 360.0)
-		ptext(d["name"], Vector2(x0, y0 + 84.0), nfs, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_LEFT, wide - 360.0)
-		var tag_txt: String = d["tag"] + ((" \u00b7 Best %d" % int(d["best"])) if (not locked and int(d["best"]) > 0) else "")
-		draw_string(Style.body(), Vector2(x0, y0 + 124.0), tag_txt, HORIZONTAL_ALIGNMENT_LEFT, wide - 360.0, 27, C_SOFT)
-		if not locked and d.has("rank"):         # mastery: the rank, its name, a bar to the next one and the landings (under the tab chips)
-			var mx := card.end.x - 40.0 - 320.0
-			ptext("Rank %d  \u00b7  %s" % [int(d["rank"]), Mastery.rank_name(int(d["rank"]))], Vector2(mx, y0 + 108.0), 28, C_GOLD_TXT if int(d["rank"]) >= Mastery.MAX_RANK else C_TEXT, HORIZONTAL_ALIGNMENT_RIGHT, 320.0)
-			_mastery_bar(Rect2(mx, y0 + 118.0, 320.0, 16.0), float(d["frac"]), int(d["rank"]))
-			var mtxt := "%d landings  \u00b7  top rank" % int(d["landings"]) if int(d["need"]) <= 0 else "%d / %d to rank %d" % [int(d["into"]), int(d["need"]), int(d["rank"]) + 1]
-			draw_string(Style.text(), Vector2(mx, y0 + 154.0), mtxt, HORIZONTAL_ALIGNMENT_RIGHT, 320.0, 22, C_SOFT)
-		var tab := int(d.get("tab", 0))
-		# the three stars: lit if earned, each with what it takes (star 1: a landing count; stars 2 and 3: net coins after fines)
-		var col_w := wide / 3.0
-		if tab == 0 or locked:
-			for k in 3:
-				var cx := x0 + col_w * (float(k) + 0.5)
-				var have: bool = k < int(d["stars"]) and not locked
-				glyph("star" if have else "star_off", Vector2(cx, y0 + 200.0), 30.0)
-				if k == 0:        # star 1: land enough aircraft and finish the shift
-					ptext("Land %d" % int(d["land"][0]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
-					draw_string(Style.text(), Vector2(cx - col_w * 0.5, y0 + 314.0), "and finish the shift", HORIZONTAL_ALIGNMENT_CENTER, col_w, 24, C_SOFT)
-				else:             # stars 2 and 3: the net coins after fines
-					ptext("Net %d" % int(d["coins"][k]), Vector2(cx - col_w * 0.5, y0 + 268.0), 32, C_TEXT if not locked else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, col_w)
-					glyph("coin", Vector2(cx - 34.0, y0 + 304.0), 13.0, Color(1, 1, 1, 1.0))
-					draw_string(Style.text(), Vector2(cx - 14.0, y0 + 314.0), "after fines", HORIZONTAL_ALIGNMENT_LEFT, col_w * 0.5, 24, C_SOFT)
-		if not locked:         # the hangar: its places and the landings after which the shift is in profit
-			draw_string(Style.text(), Vector2(x0, y0 + 372.0), "Hangar %d, profit after %d landings" % [int(d["hangar"]), int(d["land"][0])], HORIZONTAL_ALIGNMENT_CENTER, wide, 28, C_TEXT)
-		if locked:
-			var pill := Rect2(x0, size.y - 250.0, wide, 100.0)
-			draw_style_box(_sb_lockpill, pill)
-			glyph("lock", Vector2(pill.position.x + 62.0, pill.get_center().y), 24.0, Color.WHITE)
-			draw_string(Style.display(), Vector2(pill.position.x + 108.0, pill.get_center().y + 14.0), "Unlock with %d %s" % [int(d["lock"]), "star" if int(d["lock"]) == 1 else "stars"], HORIZONTAL_ALIGNMENT_LEFT, pill.size.x - 160.0, 40, Color.WHITE)
-			glyph("star", Vector2(pill.end.x - 60.0, pill.get_center().y), 24.0)
-
 	## A thin progress bar (mastery): a dark track, a fill (gold at the top rank) and a pip for each rank.
 	func _mastery_bar(r: Rect2, frac: float, rank: int) -> void:
 		draw_rect(r, Style.INK)
@@ -1534,6 +1492,10 @@ class Art extends Control:
 		Boot.add("interface art redraw", float(last_draw_us) / 1000.0)
 
 	func _draw_all() -> void:
+		if icon_id != "":              # (a layout element of a Control-built sheet that is just one picture: see DetailSheet.Icon)
+			var ir := minf(size.x, size.y) * 0.5
+			glyph(icon_id, size * 0.5, maxf(ir - 4.0, 4.0), icon_col)
+			return
 		if logo_t >= 0.0:
 			_draw_logo()
 			return
@@ -1563,8 +1525,6 @@ class Art extends Control:
 			_draw_unlock()
 		if pv_on:
 			_draw_preview_base()
-		if det_on:
-			_draw_detail()
 		_draw_buttons()
 		if pv_on:
 			_draw_preview_top()
@@ -2716,29 +2676,25 @@ func show_detail(info: Dictionary) -> void:
 	_use_panel("detail", _sig([info]), func() -> void:
 		var vp := get_viewport().get_visible_rect().size
 		_art.clear_buttons()
-		_art.det_on = true
-		_art.det = info.duplicate(true)
 		_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
-		var y0 := vp.y * 0.667
-		_art.add_button("detail_card", "", Rect2(18.0, y0, vp.x - 36.0, vp.y - y0), 0, "", -1, -1, {"kind": 11})
-		var i: int = info["i"]
-		if bool(info["open"]):
-			if bool(info["no_engines_ok"]):
-				_art.add_button("noeng:%d" % i, "No engines \u00d7%s" % str(snappedf(float(info["no_engines_mult"]), 0.1)), Rect2(vp.x - 40.0 - 330.0, y0 + 118.0 - 26.0, 330.0, 52.0), 2 if bool(info["no_engines"]) else 0, "", -1, -1, {"kind": 4, "glyph": "glider"})
-			_art.add_button("airport:%d" % i, "Fly here", Rect2(40.0, vp.y - 250.0 - Style.safe_bottom, vp.x - 80.0, 130.0), 0, "", -1, -1, {"kind": 2})
-			var tab := int(info.get("tab", 0))
-			_art.add_button("dtab:0", "Stars", Rect2(vp.x - 40.0 - 190.0 - 10.0 - 150.0, y0 + 26.0, 150.0, 52.0), 2 if tab == 0 else 0, "", -1, -1, {"kind": 4, "glyph": "star"})
-			_art.add_button("dtab:1", "Improve", Rect2(vp.x - 40.0 - 190.0, y0 + 26.0, 190.0, 52.0), 2 if tab == 1 else 0, "", -1, -1, {"kind": 4, "glyph": "upgrades"})
-			if tab == 1:
-				var imps: Array = info["imps"]
-				var gap := 10.0
-				var cw := (vp.x - 36.0 - 80.0 - gap * (imps.size() - 1)) / imps.size()
-				for k in imps.size():
-					var im: Dictionary = imps[k]
-					var price: int = im["price"]
-					var st := 2 if price < 0 else (1 if int(info["bank"]) < price else 0)
-					_art.add_button("imp:%d:%s" % [i, im["id"]], im["name"], Rect2(18.0 + 40.0 + k * (cw + gap), y0 + 150.0, cw, 176.0), st, "", -1, -1, {"kind": 12, "glyph": im["id"], "pips": int(im["level"]), "cost": maxi(price, 0)})
+		# the card below the airfield is a Control tree of containers (DetailSheet), a child of this panel so it opens, parks and fades with it
+		if _detail_sheet == null:
+			_detail_sheet = DetailSheet.new()
+			_detail_sheet.art_factory = func() -> Control: return Art.new()
+			_detail_sheet.name = "DetailSheet"
+			_detail_sheet.pressed.connect(func(id: String) -> void: sheet_pressed.emit(id))
+			_detail_sheet.tapped.connect(func(id: String) -> void: sheet_tapped.emit(id))
+			_art.add_child(_detail_sheet)
+		_detail_sheet.build(info, vp, Style.safe_bottom, Style.safe_left, Style.safe_right)
 		_art.queue_redraw())
+
+## The airport detail sheet (containers), for the screen's tests and the overlap audit.
+func detail_sheet() -> DetailSheet:
+	return _detail_sheet
+
+var _detail_sheet: DetailSheet = null
+signal sheet_pressed(id: String)         # a finger went down on one of the detail sheet's buttons
+signal sheet_tapped(id: String)          # ...and came up on it: that is a tap
 
 ## The airport select screen: one big card per airport, with just its name, stars and lock state.
 func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Array, _best_scores: PackedInt32Array, selected: int, no_engines: PackedByteArray = PackedByteArray()) -> void:

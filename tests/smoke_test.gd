@@ -129,6 +129,14 @@ func touch(main: Node, index: int, pressed: bool, screen: Vector2) -> void:
 	ev.position = screen
 	main._input(ev)
 
+## A tap on one of the detail sheet's buttons, as the sheet reports it (finger down, finger up on the same button).
+func sheet_tap(main: Node, id: String) -> void:
+	var c = main.hud.detail_sheet().chips.get(id)
+	if c == null:
+		return
+	c.down.emit(id)
+	c.up.emit(id)
+
 func drag_ev(main: Node, index: int, screen: Vector2) -> void:
 	var ev = InputEventScreenDrag.new()
 	ev.index = index
@@ -895,7 +903,7 @@ func _initialize() -> void:
 	var sel_locked = main.airport
 	touch(main, 0, true, locked_pos)
 	touch(main, 0, false, locked_pos)
-	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 1 and not main.hud._art.btn_id.has("airport:1") and main.hud._art.det_on and not bool(main.hud._art.det["open"]), "tapping a locked airport opens its detail screen, view only (no Fly here)")
+	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 1 and not main.hud.detail_sheet().chips.has("airport:1") and main.hud.detail_sheet().fly == null, "tapping a locked airport opens its detail screen, view only (no Fly here)")
 	touch(main, 0, true, main.hud._art.btn_rect[main.hud._art.btn_id.find("back")].get_center())
 	touch(main, 0, false, main.hud._art.btn_rect[main.hud._art.btn_id.find("back")].get_center())
 	check(main.screen == main.SCREEN_SELECT and main.airport == sel_locked, "...and Back returns to the list without changing the airport")
@@ -906,10 +914,8 @@ func _initialize() -> void:
 	var sel_before = main.airport
 	touch(main, 0, true, cards["locked:1"].get_center())
 	touch(main, 0, false, cards["locked:1"].get_center())
-	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 1 and main.airport == sel_before and main.hud._art.btn_id.has("airport:1"), "tapping an open airport's card opens its detail screen with a Fly here button (nothing starts, nothing is selected yet)")
-	var fly_at = main.hud._art.btn_rect[main.hud._art.btn_id.find("airport:1")].get_center()
-	touch(main, 0, true, fly_at)
-	touch(main, 0, false, fly_at)
+	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 1 and main.airport == sel_before and main.hud.detail_sheet().chips.has("airport:1"), "tapping an open airport's card opens its detail screen with a Fly here button (nothing starts, nothing is selected yet)")
+	sheet_tap(main, "airport:1")
 	check(main.screen == main.SCREEN_PLAY and main.airport == 1 and Airports.rw_count() == 2 and main.airfield.selected == 1, "tapping an open airport starts a shift there")
 	check(save.selected_airport == 1, "the choice is remembered")
 	set_wind(main, 40.0)
@@ -1534,7 +1540,7 @@ func _initialize() -> void:
 	# The detail screen says it: Hangar N, profit after M landings.
 	main._show_menu()
 	main.open_detail(0)
-	check(int(main.hud._art.det["hangar"]) == bay_n and int(main.hud._art.det["land"][0]) == bay_n, "the detail screen: Hangar %d, profit after %d landings" % [main.hud._art.det["hangar"], main.hud._art.det["land"][0]])
+	check(main.hud.detail_sheet().find_children("*", "Label", true, false).any(func(n): return n.text == "Hangar %d, profit after %d landings" % [bay_n, bay_n]), "the detail screen: Hangar %d, profit after %d landings" % [bay_n, bay_n])
 	# Runway lights: fewer go-arounds in fog, weather and at dusk, none to gain in clear daylight.
 	var rl_clear = tuning.light_go_around_mult(0.0)
 	save.improvements = {"0": {"rwlights": 3}}
@@ -1653,28 +1659,26 @@ func _initialize() -> void:
 	main._show_menu()
 	main.open_detail(2)
 	main.hud.skip_animations()
-	check(not main.hud._art.btn_id.has("imp:2:fuel") and main.hud._art.btn_id.has("dtab:1"), "the detail screen has an Improve tab; the improvements show only on it")
+	check(not main.hud.detail_sheet().chips.has("imp:2:fuel") and main.hud.detail_sheet().chips.has("dtab:1"), "the detail screen has an Improve tab; the improvements show only on it")
 	main._on_button("dtab:1")
 	main.hud.skip_animations()
 	var det_ids = []
 	for iid in Improvements.IDS:
-		det_ids.append(main.hud._art.btn_id.has("imp:2:%s" % iid))
+		det_ids.append(main.hud.detail_sheet().chips.has("imp:2:%s" % iid))
 	check(not det_ids.has(false) and main.detail_tab == 1, "...five improvement chips, one for each")
 	save.add_coins(Improvements.cost(2, "fuel", 0) - 1)
 	main._show_detail()
 	main.hud.skip_animations()
-	var imp_fk = main.hud._art.btn_id.find("imp:2:fuel")
-	check(main.hud._art.btn_state[imp_fk] == 1, "a chip is dim when it is out of reach")
+	check(main.hud.detail_sheet().chips["imp:2:fuel"].state == 1, "a chip is dim when it is out of reach")
 	var det_coins0 = save.coins
-	main._on_button("imp:2:fuel")
+	sheet_tap(main, "imp:2:fuel")
 	check(save.imp_level(2, "fuel") == 0 and save.coins == det_coins0, "tapping an unaffordable chip buys nothing")
 	save.add_coins(1)
 	main._show_detail()
 	main.hud.skip_animations()
-	main._on_button("imp:2:fuel")
+	sheet_tap(main, "imp:2:fuel")
 	main.hud.skip_animations()
-	imp_fk = main.hud._art.btn_id.find("imp:2:fuel")
-	check(save.imp_level(2, "fuel") == 1 and save.coins == 0 and main.hud._art.btn_pips[imp_fk] == 1 and main.airfield.improvement_nodes_visible("fuel") >= 1, "tapping an affordable chip buys it, the pips fill and the new tank stands on the field")
+	check(save.imp_level(2, "fuel") == 1 and save.coins == 0 and main.hud.detail_sheet().chips["imp:2:fuel"].find_children("*", "Control", true, false).any(func(n): return n is DetailSheet.Pips and n.level == 1) and main.airfield.improvement_nodes_visible("fuel") >= 1, "tapping an affordable chip buys it, the pips fill and the new tank stands on the field")
 	check(main.screen == main.SCREEN_DETAIL, "...and the screen stays")
 
 	print("9f. weather events")
@@ -3819,9 +3823,9 @@ func _initialize() -> void:
 	var lab_bad = []
 	for lb in main.hud.find_children("*", "Label", true, false):
 		var lf = lb.get_theme_font("font")
-		if lf != Style.display() and lf != Style.text():
+		if lf != Style.display() and lf != Style.text() and lf != Style.body():
 			lab_bad.append(lb.text)
-	check(lab_bad.is_empty() and main.overlay._font == Style.text(), "every label and the overlay tags use the two style fonts (%s)" % str(lab_bad))
+	check(lab_bad.is_empty() and main.overlay._font == Style.text(), "every label and the overlay tags use the style fonts (%s)" % str(lab_bad))
 	var fallback_uses = 0
 	for fn in DirAccess.get_files_at("res://scripts"):
 		if fn.ends_with(".gd") and fn != "TunePanel.gd" and FileAccess.get_file_as_string("res://scripts/" + fn).contains("ThemeDB.fallback_font"):
@@ -5570,15 +5574,14 @@ func _initialize() -> void:
 	main.select_airport(0)          # (Bad Pilot Day moved the selection to its own airport, which depends on the date)
 	main.open_detail(main.airport)
 	main.hud.skip_animations()
-	check(main.hud._art.btn_id.find("noeng:%d" % main.airport) < 0, "an airport with fewer than three stars has no No engines switch on its detail screen")
+	check(not main.hud.detail_sheet().chips.has("noeng:%d" % main.airport), "an airport with fewer than three stars has no No engines switch on its detail screen")
 	for ne_i in 3:
 		save.stars[main.airport * save.STARS_PER_AIRPORT + ne_i] = 1
 	main.open_detail(main.airport)
 	main.hud.skip_animations()
-	var ne_ck = main.hud._art.btn_id.find("noeng:%d" % main.airport)
-	check(ne_ck >= 0 and main.hud._art.btn_state[ne_ck] == 0, "...with three stars its detail screen offers it (off)")
-	main._on_button("noeng:%d" % main.airport)
-	check(save.no_engines_on(main.airport) and main.hud._art.btn_state[main.hud._art.btn_id.find("noeng:%d" % main.airport)] == 2, "...tapping it switches it on")
+	check(main.hud.detail_sheet().chips.has("noeng:%d" % main.airport) and main.hud.detail_sheet().chips["noeng:%d" % main.airport].state == 0, "...with three stars its detail screen offers it (off)")
+	sheet_tap(main, "noeng:%d" % main.airport)
+	check(save.no_engines_on(main.airport) and main.hud.detail_sheet().chips["noeng:%d" % main.airport].state == 2, "...tapping it switches it on")
 	var ne_coin0 = tuning.landing_pay(SMALL)
 	main.restart()
 	check(main.no_engines and main.traffic.no_engines, "a normal shift there is a No engines shift")
@@ -5803,13 +5806,15 @@ func _initialize() -> void:
 	main.open_detail(2)
 	main.hud.skip_animations()
 	var dt_art = main.hud._art
-	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 2 and Airports.current == 2 and main.airfield.selected == 2 and dt_art.det_on, "a card tap opens the detail screen of that airport (the field behind is that airport)")
+	var dt_sheet = main.hud.detail_sheet()
+	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 2 and Airports.current == 2 and main.airfield.selected == 2 and dt_sheet != null, "a card tap opens the detail screen of that airport (the field behind is that airport)")
 	check(main.airport == 0 and save.selected_airport == 0, "...and does not start a shift or select it")
-	check(dt_art.btn_id.has("back") and dt_art.btn_id.has("airport:2") and not dt_art.btn_id.has("noeng:2") and dt_art.btn_text[dt_art.btn_id.find("airport:2")] == "Fly here", "it has a back button and a large Fly here button (no No engines switch before three stars)")
-	var dt_fly = dt_art.btn_rect[dt_art.btn_id.find("airport:2")]
+	check(dt_art.btn_id.has("back") and dt_sheet.chips.has("airport:2") and not dt_sheet.chips.has("noeng:2"), "it has a back button and a large Fly here button (no No engines switch before three stars)")
+	var dt_fly = dt_sheet.chips["airport:2"].get_global_rect()
 	check(dt_fly.size.x > 800.0 and dt_fly.size.y >= 120.0 and dt_fly.position.y > 1280.0, "...the button is big and in the lower third (%s)" % str(dt_fly))
-	var dt_land = dt_art.det["land"]
-	check(dt_land.size() == 3 and dt_land[0] >= 1 and dt_land[1] >= 1 and dt_land[1] <= dt_land[2] and int(dt_art.det["stars"]) == 2 and int(dt_art.det["coins"][0]) > 0, "...three stars, each with what it needs to land (%s)" % str(dt_land))
+	var dt_land = tuning.star_thresholds(2)
+	var dt_texts = dt_sheet.find_children("*", "Label", true, false).map(func(n): return n.text)
+	check(dt_texts.has("Land %d" % int(dt_land[0])) and dt_texts.has("Net %d" % int(dt_land[1])) and dt_texts.has("Net %d" % int(dt_land[2])), "...three stars, each with what it needs to land (%s)" % str(dt_land))
 	main.detail_t = 1.0
 	main._update_camera()
 	var dt_vp = main.get_viewport().get_visible_rect().size
@@ -5847,7 +5852,7 @@ func _initialize() -> void:
 	main._show_select()
 	main._on_button("locked:4")
 	var dt_lart = main.hud._art
-	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 4 and not dt_lart.btn_id.has("airport:4") and not dt_lart.btn_id.has("noeng:4") and int(dt_lart.det["lock"]) > 0, "a locked airport opens the same screen in view-only mode, with its unlock requirement instead of Fly here")
+	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 4 and main.hud.detail_sheet().fly == null and not main.hud.detail_sheet().chips.has("noeng:4") and main.hud.detail_sheet().find_children("*", "Label", true, false).any(func(n): return n.text.begins_with("Unlock with")), "a locked airport opens the same screen in view-only mode, with its unlock requirement instead of Fly here")
 	main._on_button("back")
 	check(main.screen == main.SCREEN_SELECT and Airports.current == main.airport, "Back returns to the list, and the field behind is the selected airport again")
 	# the No engines switch and Fly here
@@ -5855,7 +5860,7 @@ func _initialize() -> void:
 	for dt_k in 3:
 		save.stars[2 * save.STARS_PER_AIRPORT + dt_k] = 1
 	main.open_detail(2)
-	check(main.hud._art.btn_id.has("noeng:2"), "with three stars the detail screen offers No engines")
+	check(main.hud.detail_sheet().chips.has("noeng:2"), "with three stars the detail screen offers No engines")
 	main._on_button("airport:2")
 	check(main.screen == main.SCREEN_PLAY and main.airport == 2 and main.airfield.selected == 2 and is_equal_approx(main.detail_t, 0.0), "Fly here starts a shift at that airport, in the shift's own view")
 	save.unlocks["all_airports"] = false
@@ -6319,7 +6324,7 @@ func _initialize() -> void:
 	var ms_ci = main.hud._art.btn_id.find("pick:1")
 	check(ms_ci >= 0 and main.hud._art.btn_pips[ms_ci] == 5 and main.hud._art.btn_badge[ms_ci] == 100, "the airport card carries the rank (5) and its progress (%d: %d / %d, mastery %d)" % [ms_ci, main.hud._art.btn_pips[maxi(ms_ci, 0)], main.hud._art.btn_badge[maxi(ms_ci, 0)], save.mastery_landings(1)])
 	main.open_detail(1)
-	check(int(main.hud._art.det["rank"]) == 5 and int(main.hud._art.det["need"]) == 0 and int(main.hud._art.det["landings"]) >= Mastery.THRESHOLDS[1][4], "the detail screen carries the rank, the progress and the landings")
+	check(main.hud.detail_sheet().find_children("*", "Label", true, false).any(func(n): return n.text.begins_with("Rank 5") and n.text.contains(Mastery.rank_name(5))) and main.hud.detail_sheet().find_children("*", "Label", true, false).any(func(n): return n.text.ends_with("top rank") and int(n.text) >= Mastery.THRESHOLDS[1][4]), "the detail screen carries the rank, the progress and the landings")
 	main.close_detail()
 	# Achievements: about thirty, in four groups, three sizes; a third give a cosmetic.
 	var ac_groups = [0, 0, 0, 0]

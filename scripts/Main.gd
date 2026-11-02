@@ -142,6 +142,8 @@ func _ready() -> void:
 	hud.unlock_shown.connect(func(): sfx.play("unlock"))
 	hud.confetti_started.connect(func(): sfx.play("unlock"))
 	hud.star_slam.connect(_on_star_slam)
+	hud.sheet_pressed.connect(_on_sheet_pressed)
+	hud.sheet_tapped.connect(_on_sheet_tapped)
 	traffic.refused.connect(_on_refused)
 	wind.reopened.connect(_on_runway_reopened)
 	weather.warned.connect(_on_weather_warned)
@@ -1638,6 +1640,22 @@ func _touch_down(index: int, pos: Vector2) -> void:
 	_touch_ms = Time.get_ticks_msec()
 	_last_world = w
 	overlay.selected = p
+
+## A finger went down on a button of the detail sheet (its Control tree has its own buttons): the same click and buzz as a drawn one.
+func _on_sheet_pressed(_id: String) -> void:
+	sfx.play("press")
+	if not DebugFlags.off("haptic"):
+		_vibrate(12, Haptics.LIGHT)
+
+## ...and came up on it. A dimmed chip (an improvement out of reach) only answers with the error sound, as a dimmed drawn one does.
+func _on_sheet_tapped(id: String) -> void:
+	if screen != SCREEN_DETAIL:
+		return
+	var c = hud.detail_sheet().chips.get(id)
+	if c != null and c.state == 1:
+		sfx.play("error")
+		return
+	_on_button(id)
 
 ## A button / card on the menu, results or airport screen.
 func _on_button(id: String) -> void:

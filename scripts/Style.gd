@@ -146,6 +146,14 @@ static var safe_bottom := 0.0
 static var safe_left := 0.0
 static var safe_right := 0.0
 
+## Viewport units per point (a point is the phone's logical pixel: 390 across on an iPhone 15). A tap target is at least 44 points
+## (Apple's rule), whatever the screen: `tap_px()` is that in viewport units. Set from the window by `detect_safe` (the audit tool sets it).
+static var px_per_pt := 2.77
+const TAP_PT := 44.0
+
+static func tap_px() -> float:
+	return TAP_PT * px_per_pt
+
 static func set_safe(top: float, bottom: float, left: float = 0.0, right: float = 0.0) -> void:
 	safe_top = maxf(top, 0.0)
 	safe_bottom = maxf(bottom, 0.0)
@@ -158,12 +166,16 @@ static func detect_safe(viewport: Vector2) -> void:
 	if win.x <= 0 or win.y <= 0 or viewport.x <= 0.0:
 		return
 	var k := viewport.x / float(win.x)       # window pixels -> viewport units (the stretch keeps the width)
+	if not OS.has_feature("web"):
+		var scale := DisplayServer.screen_get_scale() if OS.get_name() == "iOS" else 1.0
+		px_per_pt = clampf(k * scale, 1.0, 4.0)      # (a window pixel is 1/scale of a point)
 	if OS.has_feature("web"):
 		var js = JavaScriptBridge.eval("(function(){var d=document.createElement('div');d.style.cssText='position:fixed;left:0;top:0;width:0;height:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';document.body.appendChild(d);var s=getComputedStyle(d);var r=[parseFloat(s.paddingTop)||0,parseFloat(s.paddingBottom)||0,parseFloat(s.paddingLeft)||0,parseFloat(s.paddingRight)||0,window.innerWidth||1];document.body.removeChild(d);return r.join(',');})()")
 		if js is String:
 			var p: PackedStringArray = (js as String).split(",")
 			if p.size() == 5 and float(p[4]) > 0.0:
 				var kc := viewport.x / float(p[4])      # css px -> viewport units
+				px_per_pt = clampf(kc, 1.0, 4.0)        # (a css pixel is a point)
 				set_safe(float(p[0]) * kc, float(p[1]) * kc, float(p[2]) * kc, float(p[3]) * kc)
 		return
 	var sa := DisplayServer.get_display_safe_area()
