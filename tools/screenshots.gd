@@ -8,6 +8,7 @@ var only := ""          # "types": just the aircraft line-up (a quick look while
 var prefix := "cozy"    # file name prefix of the "cozy" shots (docs/screens/cozy_<phase>_<screen>.png)
 var airports_arg := ""   # airport=countryside,island,mountain (or indices): the "cozy" shots are taken once per airport, prefix_<name>_<screen>.png
 var main: Node
+var rgb := false         # the store shots are saved without an alpha channel (App Store Connect screenshots have none)
 
 func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -128,6 +129,8 @@ func _initialize() -> void:
 		for i in 50:
 			await process_frame
 		await _shot("p4_preview_locked")
+	elif only == "store":           # the App Store screenshots: iPhone 6.7" (1290 x 2796), with an iPhone's notch and home bar as the safe area
+		await _store_shots(save)
 	elif only == "layout":
 		for idx in Airports.COUNT:
 			if airports_arg == "" or airports_arg.split(",").has(str(idx)) or airports_arg.split(",").has(Airports.airport_name(idx).to_lower().replace(" ", "_")):
@@ -146,6 +149,8 @@ func _shot(name: String) -> void:
 	main.hud.skip_animations()
 	await _frames(6)
 	var img := root.get_viewport().get_texture().get_image()
+	if rgb:
+		img.convert(Image.FORMAT_RGB8)
 	img.save_png("%s/%s.png" % [out, name])
 	print("saved ", name, " ", img.get_size())
 
@@ -223,9 +228,6 @@ func _walk(save) -> void:
 	await _shot("13c_results_bad_shift")
 	main._show_menu()
 	await _shot("14_menu_after")
-	main.start_daily()
-	await _shot("15_daily_hud")
-	main._show_menu()
 	main.start_bad_day()
 	await _shot("16_bad_day_hud")
 	await _motion_shots()
@@ -537,3 +539,78 @@ func _game_feel_shots(save) -> void:
 	tr.run_time = main.get_node("/root/Tuning").par_eff() - 4.0
 	main.step(1.0 / 60.0)
 	await _shot("%s_results" % prefix)
+
+
+## The five App Store screenshots (menu, a shift, the airports, the daily goals, the results card). Run it at the phone's size:
+##   xvfb-run -a -s "-screen 0 1290x2796x24" godot --path . --resolution 1290x2796 --script tools/screenshots.gd -- only=store out=docs/store/screenshots
+## The safe area is an iPhone 15 Pro Max's (430 x 932 points: 59 at the top, 34 at the bottom), which the desktop does not report.
+func _store_shots(save) -> void:
+	rgb = true
+	var k := 1080.0 / 430.0
+	Style.set_safe(59.0 * k, 34.0 * k, 0.0, 0.0)
+	main.hud.apply_safe()
+	main.progress_enabled = false        # (no achievement toasts or lines on the cards)
+	main.goals_enabled = false
+	for tag in main.hud.find_children("VersionTag", "Label", true, false):
+		tag.visible = false
+	save.reset_all()
+	save.coins = 1840
+	save.day_override = 70000
+	for i in [0, 1, 2, 3, 4, 6, 7, 9, 10, 12]:
+		save.stars[i] = 1
+	save.best_coins = PackedInt32Array([180, 220, 260, 150, 0, 0])
+	save.upgrades = {"radar": 2, "approach": 1, "tower": 2, "comms": 3, "holding": 2, "turnoffs": 1}
+	save.mastery = PackedInt32Array([160, 120, 70, 12, 0, 0])
+	save.mastery_paid = PackedInt32Array([3, 2, 2, 1, 0, 0])
+	save.unlocks["livery:fox"] = true
+	save.unlocks["livery:bee"] = true
+	save.selected_airport = 2
+	main.select_airport(2)
+	main._show_menu()
+	for i in 40:
+		await process_frame
+	await _shot("01-menu")
+	# the goals sheet, one goal done and one part way
+	var ctx = main.goals_ctx()
+	save.goals = Goals.make_day(70000, ctx)
+	save.goals["list"][0]["done"] = true
+	save.goals["list"][0]["p"] = save.goals["list"][0]["n"]
+	if int(save.goals["list"][1]["n"]) > 1:
+		save.goals["list"][1]["p"] = int(save.goals["list"][1]["n"]) / 2
+	save.goal_streak = {"count": 3, "last": 70000, "freezes": 1, "best": 3}
+	main._show_menu()
+	await _frames(10)
+	main._show_goals()
+	await _shot("04-goals")
+	main._show_select()
+	await _shot("03-airports")
+	# a shift in progress at Regional: planes on their way in, some landed
+	main._show_menu()
+	main.select_airport(2)
+	main.restart()
+	var tr = main.traffic
+	tr.auto_spawn = false
+	var spots := [Vector2(-3.0, -4.6), Vector2(1.4, -4.4), Vector2(-2.2, -0.6), Vector2(3.6, 1.8)]
+	for n in spots.size():
+		var p = tr.place(n % 2, spots[n], 0.35 * n, 2 + (n % 4))
+		p.timer_left = p.timer_max * (0.9 - 0.2 * n)
+	for i in 30:
+		main.step(1.0 / 60.0)
+	main.shift.on_landed(3, 40, 6)
+	main.shift.on_landed(2, 30, 0)
+	main.shift.on_landed(3, 40, 8)
+	main.shift.on_landed(4, 60, 0)
+	main.hud.set_shift(main.shift)
+	main.hud.set_landed(4, true)
+	await _shot("02-shift")
+	# the results card: a good shift, three stars
+	tr.release_all()
+	main.restart()
+	tr.auto_spawn = false
+	for n in 12:
+		main.shift.on_landed(3, 40 + (n % 3) * 20, 6 if n % 4 == 0 else 0)
+	main.hud.set_shift(main.shift)
+	tr.run_time = main.get_node("/root/Tuning").par_eff() - 6.0
+	main.step(1.0 / 60.0)
+	await _frames(20)
+	await _shot("05-results")
