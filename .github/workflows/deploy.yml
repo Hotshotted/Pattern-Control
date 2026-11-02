@@ -97,6 +97,12 @@ jobs:
           grep -q "Clear Prop" build/web/index.html
           ! grep -q '\$GODOT_' build/web/index.html
           ls -la build/web
+          # The download size, in the log and the run summary (the .pck, everything, and everything gzipped): a jump shows up here.
+          PCK=$(stat -c %s build/web/*.pck)
+          TOTAL=$(find build/web -type f -printf '%s\n' | awk '{s+=$1} END {print s}')
+          GZ=$(tar -c build/web | gzip -9 | wc -c)
+          echo "web size: pck $PCK bytes, total $TOTAL bytes, total gzipped $GZ bytes"
+          printf '### Web download size\n\n| .pck | everything | everything gzipped |\n|---|---|---|\n| %s | %s | %s |\n' "$PCK" "$TOTAL" "$GZ" >> "$GITHUB_STEP_SUMMARY"
 
       # The exported game, loaded in headless Chrome and tapped like a phone: sound must really come out of it
       # (the menu music after the first tap, the shift music after PLAY).
