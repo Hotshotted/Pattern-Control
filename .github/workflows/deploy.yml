@@ -78,9 +78,15 @@ jobs:
       - name: UI overlap check catches a planted overlap
         shell: bash
         run: |
-          set +e
-          timeout 300 godot --headless --path . --script tools/ui_overlap_check.gd -- sizes=390x844 only="menu planted" plant quiet > /dev/null 2>&1
-          test $? -eq 1
+          # three planted defects: a label across a button, a label sticking out of the Improve row it sits on, text under the results card
+          for planted in "menu planted" "planted tile" "planted card"; do
+            set +e
+            timeout 300 godot --headless --path . --script tools/ui_overlap_check.gd -- sizes=390x844 only="$planted" plant quiet > /dev/null 2>&1
+            code=$?
+            set -e
+            echo "planted '$planted': exit code $code"
+            test $code -eq 1
+          done
 
       - name: UI overlap check
         id: uioverlap

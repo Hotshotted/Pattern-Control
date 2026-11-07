@@ -1451,7 +1451,7 @@ class Art extends Control:
 			glyph(str(rw["glyph"]), Vector2(gr.position.x + 52.0, gr.get_center().y), 22.0 if rw["glyph"] != "check" else 16.0, Style.SUCCESS_DARK if rw["glyph"] == "check" else Color.WHITE)
 			var coins := int(rw["coins"])
 			var gw := gr.size.x - 110.0 - (330.0 if coins > 0 else 40.0)
-			var gtxt := str(rw["text"])
+			var gtxt := Hud.fit_lines(str(rw["text"]), Style.SZ_BODY, gw, 2)
 			var gl := Hud.wrap_lines(gtxt, Style.SZ_BODY, gw)
 			if gl > 1:
 				_dms(Style.text(), Vector2(gr.position.x + 96.0, gr.get_center().y - 10.0), gtxt, HORIZONTAL_ALIGNMENT_LEFT, gw, Style.SZ_BODY, 2, C_TEXT)
@@ -3199,6 +3199,18 @@ func show_list(title: String, coins: int, tabs: Array, cards: Array, compact: bo
 		_art.queue_redraw())
 
 ## How many lines `s` takes at `size_px` in a box `w` wide (the card layouts and their drawing agree on it).
+## `s` cut at a word, with an ellipsis, until it fits in `max_lines` lines of `w` units.
+static func fit_lines(s: String, size_px: int, w: float, max_lines: int) -> String:
+	if wrap_lines(s, size_px, w) <= max_lines:
+		return s
+	var words := s.split(" ")
+	while words.size() > 1:
+		words.remove_at(words.size() - 1)
+		var t := " ".join(words) + "\u2026"
+		if wrap_lines(t, size_px, w) <= max_lines:
+			return t
+	return s
+
 static func wrap_lines(s: String, size_px: int, w: float) -> int:
 	if s == "":
 		return 1

@@ -6,7 +6,10 @@ extends SceneTree
 ##   - off-screen  anything partly outside the screen;
 ##   - safe-area   anything under the notch / Dynamic Island / home bar;
 ##   - tap-size    a button smaller than 44 points (Apple's minimum), or one another button sits on top of (a tap cannot reach it);
+##   - (clipped, also) a label or drawn text that sticks out of the tile / row / card it sits on, even inside a scroll list (a row cut by the
+##                 scroll's edge is allowed: only its width counts then), and, on the results screen, text under or beside the card
 ##   - small-text  text under the floor of its role (caption 11 pt, body 15 pt, button label 17 pt, on a 390-pt phone), or at a size the pre-warm does not rasterise.
+## Every state is measured after it has settled: panel animations and tweens run to their end, then frames pass until nothing moves (`_settle`).
 ## Each problem gets a line; each screen at each size can be saved as a picture with the problems outlined in red.
 ##
 ##   godot --headless --path . --script tools/ui_overlap_check.gd                          (the check only: fast, no pictures)
@@ -14,7 +17,8 @@ extends SceneTree
 ##
 ## Arguments (after --):  shots=<dir>   save the pictures there        only=<text>   only states whose name contains it
 ##                        sizes=<a,b>   only those sizes ("390x844")    report=<file> write every problem as JSON there
-##                        plant         self-test: a label is put across the PLAY button; the exit code must then be 1
+##                        plant         self-test: a label across the PLAY button, one pushed out of an Improve row, one under the results card
+##                                      (each with only="menu planted" / "planted tile" / "planted card"); the exit code must then be 1
 ##                        quiet         print only the totals          baseline=<file> compare with an earlier report: print what is new
 ## The exit code is 1 if there is any problem that is not in ALLOW (the allowlist below), 0 otherwise.
 
@@ -293,7 +297,7 @@ func _collect_scroll(e: Dictionary, els: Array) -> void:
 		var tv := tr.intersection(clip)
 		if tv.size.x <= 0.0 or tv.size.y <= 0.0:
 			continue
-		els.append({"k": "text", "id": "", "text": t["text"], "rect": tv, "inter": false, "size": t["size"], "over": t["over"] and tr.position.y >= clip.position.y and tr.end.y <= clip.end.y, "limit": t["limit"], "natural": t["natural"], "src": "art", "layer": "scroll", "role": t.get("role", "")})
+		els.append({"k": "text", "id": "", "text": t["text"], "rect": tv, "full": tr, "inter": false, "size": t["size"], "over": t["over"] and tr.position.y >= clip.position.y and tr.end.y <= clip.end.y, "limit": t["limit"], "natural": t["natural"], "src": "art", "layer": "scroll", "role": t.get("role", "")})
 	for g in sa.rec_glyphs:
 		var gr: Rect2 = xf * (g["rect"] as Rect2)
 		var gv := gr.intersection(clip)
@@ -314,6 +318,27 @@ func _visible_part(c: Control, r: Rect2) -> Rect2:
 				return Rect2()
 		n = n.get_parent()
 	return r
+
+## The tile a label sits on: the global rectangle of its nearest ancestor that is a chip (a row, a button) or a panel; empty when it has none.
+func _tile_ctl(l: Control) -> Control:
+	var n: Node = l.get_parent()
+	while n != null and n is Control:
+		if n is PanelContainer or (n.has_signal("down") and n.get("id") != null):
+			return n as Control
+		n = n.get_parent()
+	return null
+
+func _tile_rect(l: Control) -> Rect2:
+	var t := _tile_ctl(l)
+	return t.get_global_rect() if t != null else Rect2()
+
+## The tile is cut by a scroll's edge (a row half scrolled out of view): its edge says nothing about the text in it.
+func _tile_cut(l: Control) -> bool:
+	var t := _tile_ctl(l)
+	if t == null:
+		return false
+	var g := t.get_global_rect()
+	return _visible_part(t, g).size.is_equal_approx(g.size) == false
 
 func _add_leaf(els: Array, ctl: Control, id: String) -> void:
 	var r := _visible_part(ctl, ctl.get_global_rect())
@@ -338,7 +363,7 @@ func _walk(n: Node, els: Array) -> void:
 							over = nat > l.size.x + 1.0 and l.size.x > 0.0 and l.clip_text
 						else:
 							over = l.get_visible_line_count() < l.get_line_count() or l.get_minimum_size().y > l.size.y + 1.0 and false
-						els.append({"k": "label", "id": l.name, "text": l.text, "rect": r, "inter": false, "size": fs, "over": over, "limit": l.size.x, "natural": r.size.x, "src": "ctl", "node": l, "role": str(l.get_meta("role", "body"))})
+						els.append({"k": "label", "id": l.name, "text": l.text, "rect": r, "full": _label_rect(l), "tile": _tile_rect(l), "tile_cut": _tile_cut(l), "inter": false, "size": fs, "over": over, "limit": l.size.x, "natural": r.size.x, "src": "ctl", "node": l, "role": str(l.get_meta("role", "body"))})
 				elif ctl.has_signal("down") and ctl.get("id") != null:       # a DetailSheet.Chip
 					var cr := _visible_part(ctl, ctl.get_global_rect())
 					if cr.size.x > 0.0 and cr.size.y > 0.0:
@@ -434,17 +459,30 @@ func _analyze(els: Array) -> Array:
 				var ob: Rect2 = els[o]["rect"]
 				if r.position.x < ob.position.x - 2.0 or r.end.x > ob.end.x + 2.0 or r.position.y < ob.position.y - 2.0 or r.end.y > ob.end.y + 2.0:
 					found.append({"type": "clipped", "a": e, "b": els[o], "detail": "text leaves the button it belongs to"})
-			if e["src"] == "art":              # text that leaves the panel, card or pill it is drawn on
+			if e["src"] == "art":              # text that leaves the panel, card or pill it is drawn on (a row cut by a scroll's edge is fine: only its width counts then)
 				var best := Rect2()
 				var best_a := INF
-				var c: Vector2 = r.get_center()
+				var fr0: Rect2 = e.get("full", r)
+				var c: Vector2 = fr0.get_center()
 				for bx in cur_boxes:
 					var b: Rect2 = bx
 					if b.has_point(c) and b.size.x * b.size.y < best_a and b.size.x * b.size.y > 1.0:
 						best = b
 						best_a = b.size.x * b.size.y
-				if best_a < INF and not best.grow(3.0).encloses(r) and (r.size.x < best.size.x * 1.5):
-					found.append({"type": "clipped", "a": e, "b": null, "detail": "text leaves the panel it is on %s" % _rs(best)})
+				if best_a < INF and (fr0.size.x < best.size.x * 1.5):
+					var cut: bool = not (e["rect"] as Rect2).is_equal_approx(fr0)        # (partly scrolled out of view)
+					var g3 := best.grow(3.0)
+					var x_ok: bool = fr0.position.x >= g3.position.x and fr0.end.x <= g3.end.x
+					var y_ok: bool = cut or (fr0.position.y >= g3.position.y and fr0.end.y <= g3.end.y)
+					if not (x_ok and y_ok):
+						found.append({"type": "clipped", "a": e, "b": null, "detail": "text leaves the panel it is on %s" % _rs(best)})
+			if e["k"] == "label" and (e["tile"] as Rect2).size.x > 0.0:      # a label that sticks out of the tile (row, button, card) it sits on
+				var tl: Rect2 = e["tile"]
+				var fl: Rect2 = e["full"]
+				var tg := tl.grow(2.0)
+				var tile_cut: bool = e["tile_cut"]
+				if fl.position.x < tg.position.x or fl.end.x > tg.end.x or ((fl.position.y < tg.position.y or fl.end.y > tg.end.y) and not tile_cut):
+					found.append({"type": "clipped", "a": e, "b": null, "detail": "text leaves the tile it is in %s" % _rs(tl)})
 			if e["k"] == "label" and e.has("node"):
 				var lb: Label = e["node"]
 				if lb.autowrap_mode != TextServer.AUTOWRAP_OFF:
@@ -497,7 +535,29 @@ func _analyze(els: Array) -> Array:
 			if a["k"] == "glyph" and b["k"] == "glyph":
 				continue                       # (glyphs are layered on purpose: coins in a pile, a badge on a circle)
 			found.append({"type": "overlap", "a": a, "b": b, "detail": "%d px overlap" % roundi(ar)})
+	_results_outside_card(els, found)
 	return found
+
+## The results screen: whatever is written between the top of the card and the Next shift button belongs inside the card. (Rows drawn under it
+## sat on the dimmed field, faint and hard to read, and no rule noticed: they were over no button and no box.)
+func _results_outside_card(els: Array, found: Array) -> void:
+	if not cur_state.begins_with("results") or cur_state.contains("details"):
+		return
+	var ra = hud._panel_arts.get("results")
+	if ra == null or not ra.show_result:
+		return
+	var stk: Dictionary = ra.res_stack()
+	var card: Rect2 = stk["card"]
+	var next_top: float = ra.res_again().position.y
+	for e in els:
+		if e["k"] != "text" and e["k"] != "label":
+			continue
+		var r: Rect2 = e["rect"]
+		var c := r.get_center()
+		if c.y > card.position.y and c.y < next_top and (r.position.x < card.position.x - 3.0 or r.end.x > card.end.x + 3.0 or r.end.y > card.end.y + 3.0):
+			found.append({"type": "clipped", "a": e, "b": null, "detail": "text on the results screen outside the card %s" % _rs(card)})
+		elif c.y >= card.end.y and c.y < next_top:
+			found.append({"type": "clipped", "a": e, "b": null, "detail": "text on the results screen under the card %s" % _rs(card)})
 
 ## One is a descendant of the other in the sheet's node tree and its rectangle lies inside the other's: a part of it, not something on top of it.
 func _nested_in_tree(a: Dictionary, b: Dictionary) -> bool:
@@ -552,13 +612,45 @@ func _allowed(state: String, p: Dictionary) -> String:
 # ------------------------------------------------------------------------------------------------------------------
 
 ## Call after the state is set up. Waits for it to settle, records, analyses, saves the picture.
+## Wait until the screen has stopped moving before it is measured: every panel animation and every tween is run to its end, then frames
+## pass until no control has moved for two frames in a row (a sheet that grows, a row that settles, a counter that rolls up).
+func _settle() -> void:
+	var last := ""
+	var same := 0
+	for pass_k in 40:
+		hud.skip_animations()
+		for tw in get_processed_tweens():
+			if tw.is_valid() and tw.is_running():
+				tw.custom_step(60.0)
+		await _frames(2)
+		var sig := _layout_sig(hud)
+		if sig == last:
+			same += 1
+			if same >= 2:
+				return
+		else:
+			same = 0
+			last = sig
+
+## A fingerprint of where every visible control is: it changes while anything is still moving or growing.
+func _layout_sig(n: Node) -> String:
+	var acc := PackedStringArray()
+	_sig_walk(n, acc)
+	return "|".join(acc)
+
+func _sig_walk(n: Node, acc: PackedStringArray) -> void:
+	for c in n.get_children():
+		if c is Control and (c as Control).is_visible_in_tree():
+			var ctl := c as Control
+			acc.append("%d,%d,%d,%d,%.2f" % [roundi(ctl.global_position.x), roundi(ctl.global_position.y), roundi(ctl.size.x), roundi(ctl.size.y), ctl.modulate.a])
+		_sig_walk(c, acc)
+
 func _check(name: String) -> void:
 	if only != "" and not name.contains(only):
 		return
 	cur_state = name
 	state_count += 1
-	hud.skip_animations()
-	await _frames(3)
+	await _settle()
 	for art in _all_arts():
 		art.rec_texts.clear()
 		art.rec_glyphs.clear()
@@ -711,6 +803,34 @@ func _states_detail() -> void:
 		main.detail_tab = 1
 		main._show_detail()
 		await _check(nm + " open improve")
+		if plant:                          # self-test: a label pushed out of its row must be reported (CI expects exit code 1)
+			var rows: Array = hud.detail_sheet().chips.keys().filter(func(k): return str(k).begins_with("imp:"))
+			var row = hud.detail_sheet().chips[rows[0]]
+			var rr: Rect2 = row.get_global_rect()
+			var pl2 := Label.new()
+			pl2.text = "PLANTED NAME"
+			pl2.add_theme_font_size_override("font_size", 56)
+			pl2.top_level = true
+			row.add_child(pl2)
+			pl2.global_position = Vector2(rr.end.x - 120.0, rr.position.y + 20.0)
+			await _check(nm + " planted tile")
+			main._show_detail()
+		# the Improve sheet in its other states: a row selected (the preview), money in the bank (orange buttons), and a maxed row
+		save.coins = BIG
+		main.imp_selected = "hangar"
+		main._show_detail()
+		await _check(nm + " improve rich, hangar selected")
+		save.improvements = {str(i): {"hangar": Improvements.max_level("hangar"), "rwlights": 1, "applights": 2, "fuel": 0, "exit": 0}}
+		main.imp_selected = "rwlights"
+		main._show_detail()
+		await _check(nm + " improve rich, hangar maxed, runway lights selected")
+		save.coins = 7
+		main.imp_selected = "fuel"
+		main._show_detail()
+		await _check(nm + " improve poor, fuel selected")
+		main.imp_selected = ""
+		save.improvements = {}
+		save.coins = 0
 		for k in 3:
 			save.stars[i * save.STARS_PER_AIRPORT + k] = 1
 		save.mastery[i] = 40
@@ -892,7 +1012,7 @@ func _states_play() -> void:
 	main._show_menu()
 
 func _states_results() -> void:
-	for variant in ["win", "fail", "record", "unlock", "rankup"]:
+	for variant in ["win", "fail", "record", "unlock", "rankup", "long"]:
 		save.reset_all()
 		save.unlocks["all_airports"] = variant != "unlock"
 		main.restart()
@@ -916,17 +1036,35 @@ func _states_results() -> void:
 			"rankup":
 				main.shift.earned = 1200
 				main.shift.landed = 55
+			"long":
+				main.shift.earned = 3400
+				main.shift.landed = 88
 		main._end_shift()
-		if variant == "win" or variant == "rankup":
+		if variant == "win" or variant == "rankup" or variant == "long":
 			main.goal_results = [{"text": "Land 25 aircraft at Mountain Field", "reward": 40}, {"text": "A shift with no fines at all", "reward": 60}, {"text": "Fly with no engines", "reward": 90}]
+			if variant == "long":              # the longest content: wordy goals, a long streak line, two ranks, three achievements, a long subtitle
+				main.goal_results = [{"text": "Land 40 aircraft at International Airport without a single go-around", "reward": 1250}, {"text": "A shift with no fines at all, in a crosswind, at dusk", "reward": 600}]
 			main.hud.goal_note = main.goal_results
 			main.goal_streak_text = "Streak: day 7 done  \u00b7  a free cosmetic"
 			main.goal_streak_row = {"glyph": "flame", "text": "Day 7 of the streak  \u00b7  new: A free cosmetic", "coins": 150}
 			main.goal_chest = 9999
-			main.toast_results.assign(_longest_rows() if variant == "rankup" else [{"glyph": "star", "text": "Achievement: Clean sheet", "coins": 60}])
+			main.toast_results.assign(_longest_rows() if variant == "rankup" or variant == "long" else [{"glyph": "star", "text": "Achievement: Clean sheet", "coins": 60}])
 			main._show_results(false)
+			if variant == "long":
+				hud._panel_arts["results"].res_sub = "%s \u00b7 99 landed \u00b7 Hangar full \u00b7 14 on the ramp" % Airports.airport_name(5)
+				hud._panel_arts["results"].queue_redraw()
 		await _frames_ui(30)
 		await _check("results %s" % variant)
+		if plant and variant == "win":          # self-test: text written under the card, on the dimmed field, must be reported
+			var pra = hud._panel_arts["results"]
+			var pcard: Rect2 = pra.res_stack()["card"]
+			var pl3 := Label.new()
+			pl3.text = "Day 1 of the streak +15"
+			pl3.add_theme_font_size_override("font_size", 56)
+			pra.add_child(pl3)
+			pl3.position = Vector2(pcard.position.x + 60.0, pcard.end.y + 20.0)
+			await _check("results planted card")
+			pl3.queue_free()
 		main.hud.toggle_details()
 		await _check("results %s details" % variant)
 		main.hud.toggle_details()
