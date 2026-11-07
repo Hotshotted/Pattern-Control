@@ -216,6 +216,9 @@ const DETAIL_ZOOM_MIN := 0.45         # how far a pinch zooms in (x the default 
 const DETAIL_ZOOM_MAX := 1.12         # ...and out
 var detail_airport := -1
 var detail_tab := 0                    # the detail screen's tab: 0 stars, 1 improvements
+var imp_selected := ""                # the Improve sheet's selected row (shows what the next level changes)
+var _imp_hold_t := 0.0
+var _imp_hold_id := ""
 var _wanted_detail := false           # the airport being built is for its detail screen (not to be selected)
 var detail_t := 0.0                    # 0 = the shift's view, 1 = the detail screen's
 var detail_zoom := 1.0
@@ -413,8 +416,9 @@ func restart() -> void:
 	goal_results = []
 	goal_chest = 0
 	goal_streak_text = ""
+	goal_streak_row = {}
 	hud.goal_note = []
-	hud.goal_extra = ""
+	hud.goal_rows = []
 	_finale = 0
 	_last_over = -1
 	hud.set_finale("", Color.WHITE, false)
@@ -517,14 +521,24 @@ func _goal_event(ev: Dictionary) -> void:
 	_check_achievements()
 	if not (r["streak"] as Dictionary).is_empty():
 		goal_streak_text = _streak_text(r)
+		var srow := {"glyph": "flame", "text": "Day %d of the streak" % int((r["streak"] as Dictionary)["pos"]), "coins": int(r["streak_coins"])}
+		if r["cosmetic"] != "":
+			srow["text"] += "  \u00b7  new: " + str(r["cosmetic"]).split(":")[1].capitalize()
+		goal_streak_row = srow
 	hud.goal_note = goal_results
-	var extra: Array[String] = []
-	if goal_streak_text != "":
-		extra.append(goal_streak_text)
-	if goal_chest > 0:
-		extra.append("Bonus chest  +%d" % goal_chest)
-	hud.goal_extra = "  \u00b7  ".join(extra)
+	hud.goal_rows = _extra_rows(false)
 	Save.write_file()
+
+## The results card's rows beyond the goals: the streak day, the bonus chest and (when `with_toasts`) the achievements and ranks of the shift. Each is {"glyph", "text", "coins"}.
+func _extra_rows(with_toasts: bool) -> Array:
+	var rows: Array = []
+	if goal_streak_row.size() > 0:
+		rows.append(goal_streak_row)
+	if goal_chest > 0:
+		rows.append({"glyph": "star", "text": "Bonus chest", "coins": goal_chest})
+	if with_toasts:
+		rows.append_array(toast_results)
+	return rows
 
 func _streak_text(r: Dictionary) -> String:
 	var sr: Dictionary = r["streak"]
@@ -625,7 +639,10 @@ func _on_progress_landing(p: Aircraft) -> void:
 		var cid := Mastery.cosmetic_for(airport, rank)
 		if cid != "":
 			line += "  \u00b7  new: " + _cosmetic_name(cid)
-		_toast(line, Color(0.55, 0.85, 1.0))
+		var mtxt := "%s rank %d: %s" % [Airports.airport_name(airport), rank, Mastery.rank_name(rank)]
+		if cid != "":
+			mtxt += "  \u00b7  new: " + _cosmetic_name(cid)
+		_toast(line, Color(0.55, 0.85, 1.0), {"glyph": "airport", "text": mtxt, "coins": Mastery.coins_for(airport, rank, Goals.AVG_PAY[clampi(airport, 0, 5)])})
 		if rank >= Mastery.MAX_RANK:
 			airfield.show_mastery()
 	if p.emergency:
@@ -671,7 +688,10 @@ func _check_achievements() -> void:
 			var line := "Achievement: %s  +%d" % [a["name"], int(g["coins"])]
 			if g["cosmetic"] != "":
 				line += "  \u00b7  new: " + _cosmetic_name(g["cosmetic"])
-			_toast(line, Color(1.0, 0.85, 0.3))
+			var rtxt: String = "Achievement: %s" % a["name"]
+			if g["cosmetic"] != "":
+				rtxt += "  \u00b7  new: " + _cosmetic_name(g["cosmetic"])
+			_toast(line, Color(1.0, 0.85, 0.3), {"glyph": "star", "text": rtxt, "coins": int(g["coins"])})
 
 func _cosmetic_name(cid: String) -> String:
 	var kind := cid.get_slice(":", 0)
@@ -679,9 +699,9 @@ func _cosmetic_name(cid: String) -> String:
 	return str(Cosmetics.items(kind)[Cosmetics.index_of(kind, id)]["name"])
 
 ## Queue a toast; it shows at the next calm moment (see _tick_toasts), or on the results card.
-func _toast(text: String, color: Color) -> void:
+func _toast(text: String, color: Color, row: Dictionary = {}) -> void:
 	toast_queue.append({"text": text, "color": color})
-	toast_results.append(text)
+	toast_results.append(row if not row.is_empty() else {"glyph": "star", "text": text, "coins": 0})
 
 ## In a shift a toast waits until no path is being drawn and nothing is about to happen (no alert, no go-around signalled); a few seconds apart.
 func _tick_toasts(delta: float) -> void:
@@ -916,6 +936,7 @@ func _process(raw_delta: float) -> void:
 		JavaScriptBridge.eval("window.__wt = {t: %.2f}" % traffic.run_time)       # (the web wind check waits for the shift to be under way)
 	_tick_shake(raw_delta)
 	_tick_preview(raw_delta)
+	_tick_imp_hold(raw_delta)
 	_idle_build()
 	_update_awake()
 	# Music: the shift's own while playing; the calm menu bed everywhere else; the two crossfade.
@@ -1415,7 +1436,8 @@ var _daily_note := ""
 var goal_coins_total := 0              # (everything the goals have paid since the game started: the sims read it)
 var ach_tab := 0
 var toast_queue: Array = []             # [{"text", "color"}] waiting for a calm moment (an achievement, a mastery rank)
-var toast_results: Array[String] = []   # ...what happened this shift, listed on the results card
+var goal_streak_row: Dictionary = {}
+var toast_results: Array = []   # ...what happened this shift, listed on the results card
 var _toast_gap := 0.0
 var hangar_full_t := -1.0               # when this shift's hangar filled (star 1's landings), for 'a full hangar in under 45 s'
 var progress_enabled := true            # (the tests switch mastery and achievements off like the goals, to keep coin counts exact)
@@ -1508,14 +1530,7 @@ func _reason_text() -> String:
 func _show_results(doubled: bool) -> void:
 	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
 	hud.ramp_note = airfield.ramp.summary() if airfield.ramp_active or airfield.ramp.landed > 0 else ""
-	var extra_lines: Array[String] = []
-	if goal_streak_text != "":
-		extra_lines.append(goal_streak_text)
-	if goal_chest > 0:
-		extra_lines.append("Bonus chest  +%d" % goal_chest)
-	for tl in toast_results:
-		extra_lines.append(tl)
-	hud.goal_extra = "\n".join(extra_lines.slice(0, 4))
+	hud.goal_rows = _extra_rows(true)
 	toast_queue.clear()
 	hud.show_results(HEADER_DONE, last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_coins_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], doubled)
 	hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
@@ -1686,11 +1701,15 @@ func _on_button(id: String) -> void:
 		Save.no_engines_bad = not Save.no_engines_bad
 		Save.write_file()
 		_show_menu()
-	elif id.begins_with("dtab:"):
-		detail_tab = int(id.substr(5))
+	elif id.begins_with("dtab:") or id == "imp_done":
+		detail_tab = int(id.substr(5)) if id != "imp_done" else 0
 		_show_detail()
 	elif id.begins_with("imp:"):
-		buy_improvement(int(id.get_slice(":", 1)), id.get_slice(":", 2))
+		var sel := id.get_slice(":", 2)
+		imp_selected = "" if imp_selected == sel else sel          # (a tap on a row selects it: it shows what the next level changes)
+		_show_detail()
+	elif id.begins_with("impbuy:"):         # (a tap, not a hold: a hold that fills buys and rebuilds the sheet before the finger lifts)
+		hud.popup("Hold to buy", Color(1.0, 0.85, 0.45), get_viewport().get_visible_rect().size * Vector2(0.5, 0.42))
 	elif id.begins_with("pick:") or id.begins_with("locked:"):
 		open_detail(int(id.get_slice(":", 1)))
 	elif id == "airport_prev" or id == "airport_next":
@@ -1766,7 +1785,9 @@ func _on_button(id: String) -> void:
 func _ui_sound(id: String) -> String:
 	if id == "back" or id == "menu" or id == "quit" or id == "restart" or id == "resume":
 		return "back"
-	if id == "details" or id.begins_with("shop_tab:") or id.begins_with("dtab:") or id.begins_with("noeng") or id.begins_with("greroll:") or id.begins_with("ach_tab:"):
+	if id.begins_with("imp:"):
+		return "toggle"
+	if id == "details" or id.begins_with("shop_tab:") or id.begins_with("dtab:") or id == "imp_done" or id.begins_with("noeng") or id.begins_with("greroll:") or id.begins_with("ach_tab:"):
 		return "toggle"
 	if id == "unlock_ok" or id.begins_with("ad_"):
 		return "unlock"
@@ -1782,11 +1803,44 @@ func _show_upgrades() -> void:
 		levels.append(Save.upgrade_level(id))
 	hud.show_upgrades(Save.coins, levels)
 
+## While a finger is held on a row's cost button the fill runs across it; a full one buys (once), like the shop's sheet.
+func _tick_imp_hold(delta: float) -> void:
+	if screen != SCREEN_DETAIL or detail_tab != 1:
+		_imp_hold_t = 0.0
+		_imp_hold_id = ""
+		return
+	var sheet := hud.detail_sheet()
+	var held := ""
+	if sheet != null:
+		for id in sheet.holds.keys():
+			var c = sheet.chips.get(id)
+			if c != null and c.state == 0 and c._held:
+				held = id
+				break
+	if held == "":
+		if _imp_hold_id != "":
+			sheet.set_hold(_imp_hold_id, 0.0) if sheet != null else null
+		_imp_hold_t = 0.0
+		_imp_hold_id = ""
+		return
+	if held != _imp_hold_id:
+		_imp_hold_id = held
+		_imp_hold_t = 0.0
+	_imp_hold_t += delta
+	sheet.set_hold(held, minf(_imp_hold_t / maxf(Tuning.buy_hold_seconds, 0.05), 1.0))
+	if _imp_hold_t >= Tuning.buy_hold_seconds:
+		var ai := int(held.get_slice(":", 1))
+		var iid := held.get_slice(":", 2)
+		_imp_hold_t = 0.0
+		_imp_hold_id = ""
+		buy_improvement(ai, iid)
+
 ## Buy the next level of one of an airport's improvements: coins, saved, and built on the airport (the detail screen's Improve tab).
 func buy_improvement(airport_i: int, id: String) -> bool:
 	if not Save.buy_improvement(airport_i, id):
 		return false
 	airfield.show_upgrades()
+	sfx.play("buy")
 	hud.flash(Color(0.4, 1.0, 0.6))
 	var vp := get_viewport().get_visible_rect().size
 	hud.popup("%s level %d!" % [Improvements.improvement_name(id), Save.imp_level(airport_i, id)], Color(0.6, 1.0, 0.7), Vector2(vp.x * 0.5, vp.y * 0.2))
@@ -2144,6 +2198,7 @@ func open_detail(i: int) -> void:
 	_dt_touch.clear()
 	_dt_dist = 0.0
 	detail_tab = 0
+	imp_selected = ""
 	screen = SCREEN_DETAIL
 	alive = false
 	_show_detail()
@@ -2164,11 +2219,14 @@ func _show_detail() -> void:
 		need.append(maxi(ceili(float(th[k]) / pay), 1))
 	var imps := []
 	for iid in Improvements.IDS:
-		imps.append({"id": iid, "name": Improvements.improvement_name(iid), "level": Save.imp_level(i, iid), "price": Improvements.cost(i, iid, Save.imp_level(i, iid))})
+		var lv := Save.imp_level(i, iid)
+		var mx := Improvements.max_level(iid)
+		imps.append({"id": iid, "name": Improvements.improvement_name(iid), "level": lv, "max": mx, "price": Improvements.cost(i, iid, lv),
+			"now": Improvements.effect_text(iid, lv) if lv > 0 else "", "next": Improvements.effect_text(iid, lv + 1) if lv < mx else ""})
 	var mp := Mastery.progress(i, Save.mastery_landings(i))
 	hud.show_detail({
 		"rank": mp["rank"], "into": mp["into"], "need": mp["need"], "frac": mp["frac"], "landings": Save.mastery_landings(i),
-		"tab": detail_tab, "imps": imps, "bank": Save.coins, "hangar": Ramp.capacity(i),
+		"tab": detail_tab, "imps": imps, "imp_sel": imp_selected, "bank": Save.coins, "hangar": Ramp.capacity(i),
 		"i": i, "name": Airports.airport_name(i), "tag": Airports.tag(i), "open": Save.airport_open(i), "lock": Airports.unlock_stars(i),
 		"stars": Save.stars_of(i), "best": Save.best_for(i), "coins": th, "land": need,
 		"no_engines": Save.no_engines_at[i] != 0, "no_engines_ok": Save.stars_of(i) >= 3 and Save.airport_open(i),

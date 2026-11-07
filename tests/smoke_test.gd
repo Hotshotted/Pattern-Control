@@ -141,6 +141,23 @@ func sheet_tap(main: Node, id: String) -> void:
 	c.down.emit(id)
 	c.up.emit(id)
 
+## Hold a cost button for `secs` seconds: finger down, the sheet's hold timer ticking, finger up (as a hold that fills rebuilds the sheet, up may find nothing).
+func sheet_hold(main: Node, id: String, secs: float) -> void:
+	var c = main.hud.detail_sheet().chips.get(id)
+	if c == null:
+		return
+	var sheet = main.hud.detail_sheet()
+	c._held = true
+	c.down.emit(id)
+	var left := secs
+	while left > 0.0:
+		main._tick_imp_hold(0.05)
+		left -= 0.05
+	if is_instance_valid(c) and c._held:
+		c._held = false
+		if sheet.chips.get(id) == c:
+			c.up.emit(id)
+
 func drag_ev(main: Node, index: int, screen: Vector2) -> void:
 	var ev = InputEventScreenDrag.new()
 	ev.index = index
@@ -1668,22 +1685,49 @@ func _initialize() -> void:
 	main.hud.skip_animations()
 	var det_ids = []
 	for iid in Improvements.IDS:
-		det_ids.append(main.hud.detail_sheet().chips.has("imp:2:%s" % iid))
-	check(not det_ids.has(false) and main.detail_tab == 1, "...five improvement chips, one for each")
+		det_ids.append(main.hud.detail_sheet().chips.has("imp:2:%s" % iid) and main.hud.detail_sheet().chips.has("impbuy:2:%s" % iid))
+	check(not det_ids.has(false) and main.detail_tab == 1, "...five improvement rows, one for each, each with its own cost button")
 	save.add_coins(Improvements.cost(2, "fuel", 0) - 1)
 	main._show_detail()
 	main.hud.skip_animations()
-	check(main.hud.detail_sheet().chips["imp:2:fuel"].state == 1, "a chip is dim when it is out of reach")
+	check(main.hud.detail_sheet().chips["impbuy:2:fuel"].state == 1, "a cost button is dim when it is out of reach")
 	var det_coins0 = save.coins
-	sheet_tap(main, "imp:2:fuel")
-	check(save.imp_level(2, "fuel") == 0 and save.coins == det_coins0, "tapping an unaffordable chip buys nothing")
+	sheet_hold(main, "impbuy:2:fuel", tuning.buy_hold_seconds + 0.2)
+	check(save.imp_level(2, "fuel") == 0 and save.coins == det_coins0, "holding an unaffordable cost button buys nothing")
 	save.add_coins(1)
 	main._show_detail()
 	main.hud.skip_animations()
-	sheet_tap(main, "imp:2:fuel")
+	sheet_tap(main, "impbuy:2:fuel")
+	check(save.imp_level(2, "fuel") == 0, "a tap on the cost button does not buy: it says to hold")
+	sheet_hold(main, "impbuy:2:fuel", tuning.buy_hold_seconds * 0.5)
+	check(save.imp_level(2, "fuel") == 0, "...half a hold does not buy either")
+	sheet_hold(main, "impbuy:2:fuel", tuning.buy_hold_seconds + 0.2)
 	main.hud.skip_animations()
-	check(save.imp_level(2, "fuel") == 1 and save.coins == 0 and main.hud.detail_sheet().chips["imp:2:fuel"].find_children("*", "Control", true, false).any(func(n): return n is DetailSheet.Pips and n.level == 1) and main.airfield.improvement_nodes_visible("fuel") >= 1, "tapping an affordable chip buys it, the pips fill and the new tank stands on the field")
+	check(save.imp_level(2, "fuel") == 1 and save.coins == 0 and main.hud.detail_sheet().chips["imp:2:fuel"].find_children("*", "Control", true, false).any(func(n): return n is DetailSheet.Pips and n.level == 1) and main.airfield.improvement_nodes_visible("fuel") >= 1, "holding an affordable cost button buys it, the pips fill and the new tank stands on the field")
 	check(main.screen == main.SCREEN_DETAIL, "...and the screen stays")
+	# the sheet: full height, one column, rows at least 64 points tall, the cost button on the right, tapping a row previews the next level
+	var imp_sheet = main.hud.detail_sheet()
+	await process_frame          # (wrapped labels re-measure when frames run)
+	await process_frame
+	imp_sheet.settle()
+	var imp_vp = main.get_viewport().get_visible_rect().size
+	check(imp_sheet.size.y >= imp_vp.y - 1.0 and imp_sheet.card.size.x >= imp_vp.x - 1.0, "the Improve sheet is the whole screen")
+	var imp_rows_ok = true
+	var imp_diag = ""
+	var imp_prev_y = -1.0
+	for iid in Improvements.IDS:
+		var row = imp_sheet.chips["imp:2:%s" % iid]
+		var btn = imp_sheet.chips["impbuy:2:%s" % iid]
+		var imp_rr = row.get_global_rect()
+		imp_rows_ok = imp_rows_ok and imp_rr.size.y >= 64.0 * Style.px_per_pt - 1.0 and imp_rr.position.y > imp_prev_y and btn.get_global_rect().end.x <= imp_rr.end.x + 0.5 and btn.get_global_rect().position.x > imp_rr.position.x + imp_rr.size.x * 0.4
+		imp_diag += " %s:%s/%s" % [iid, str(imp_rr), str(btn.get_global_rect())]
+		imp_prev_y = imp_rr.end.y
+	check(imp_rows_ok, "...a single column of rows, each at least 64 points tall with its cost button on the right (%.1f px per point)%s" % [Style.px_per_pt, "" if imp_rows_ok else imp_diag])
+	check(imp_sheet.chips.has("dtab:0") and imp_sheet.chips["dtab:0"].get_global_rect().position.y < imp_vp.y * 0.2 and imp_sheet.chips.has("imp_done"), "...with a Back at the top and a Done at the bottom")
+	var imp_before = imp_sheet.find_children("*", "Label", true, false).filter(func(n): return n.text.begins_with("Now:")).size()
+	sheet_tap(main, "imp:2:hangar")
+	imp_sheet = main.hud.detail_sheet()
+	check(imp_before == 0 and main.imp_selected == "hangar" and imp_sheet.find_children("*", "Label", true, false).any(func(n): return n.text.begins_with("Now:")) and imp_sheet.find_children("*", "Label", true, false).any(func(n): return n.text.begins_with("Level 1:")), "tapping a row previews what the next level changes")
 
 	print("9f. weather events")
 	save.reset_all()
@@ -6094,7 +6138,7 @@ func _initialize() -> void:
 	tr.spawn_until = 0.0
 	tr.run_time = tuning.par_eff() + 0.01
 	main.step(1.0 / 60.0)
-	check(main.screen == main.SCREEN_OVER and main.hud._art.res_goals.size() >= 1 and main.hud._art.res_goals_extra.contains("Day 1"), "the results card lists the goal that was finished, with the streak day")
+	check(main.screen == main.SCREEN_OVER and main.hud._art.res_rows.size() >= 2 and str(main.hud._art.res_rows[-1]["text"]).contains("Day 1"), "the results card lists the goal that was finished, with the streak day")
 	main._show_menu()
 	check(main.hud._art.btn_text[main.hud._art.btn_id.find("goals")].begins_with("Daily goals  1/3") or main.hud._art.btn_text[main.hud._art.btn_id.find("goals")].begins_with("Daily goals  2/3"), "back on the menu the card counts the finished goals")
 	save.day_override = -1
@@ -6325,27 +6369,32 @@ func _initialize() -> void:
 	# the results card, laid out from the top: whatever is on it, the pieces do not overlap and stay above the Next shift button
 	main.hud.show_results("DONE", "x|1", main.shift, 100, 500, 50, false)
 	var ly_res = main.hud._panel_arts["results"]
-	var ly_cases = [[0, 0, ""], [1, 0, ""], [3, 120, "Streak: day 3 done\nBonus chest  +90\nAchievement: a long one  +60"], [2, 0, "unlock"]]
+	var ly_cases = [[0, 0, 0, false], [1, 0, 0, false], [3, 120, 3, false], [2, 0, 1, true], [4, 120, 4, true]]
 	var ly_ok = true
+	var ly_inside = true
 	for ly_c in ly_cases:
-		ly_res.res_goals = []
+		ly_res.res_rows = []
 		for gi in ly_c[0]:
-			ly_res.res_goals.append({"text": "A goal", "reward": 40})
+			ly_res.res_rows.append({"glyph": "check", "text": "A goal", "coins": 40})
+		for gi in ly_c[2]:
+			ly_res.res_rows.append({"glyph": "flame", "text": "Day %d of the streak" % (gi + 1) if gi == 0 else "Achievement: a long one that wraps onto a second line", "coins": 60})
 		ly_res.res_protected = ly_c[1]
-		ly_res.res_unlock = "County" if ly_c[2] == "unlock" else ""
-		ly_res.res_goals_extra = ly_c[2] if ly_c[2] != "unlock" else ""
+		ly_res.res_unlock = "County" if ly_c[3] else ""
 		var ly_stk = ly_res.res_stack()
 		var ly_rects = [ly_stk["details"]]
 		for ly_k in ["pill", "unlock"]:
 			if ly_stk.has(ly_k):
 				ly_rects.append(ly_stk[ly_k])
-		ly_rects.append_array(ly_stk["goals"])
+		for ly_r in ly_stk["rows"]:
+			ly_rects.append(ly_r["rect"])
+			ly_inside = ly_inside and ly_stk["card"].encloses(ly_r["rect"])
 		for ly_i in ly_rects.size():
 			for ly_j in range(ly_i + 1, ly_rects.size()):
 				if ly_rects[ly_i].intersects(ly_rects[ly_j]):
 					ly_ok = false
 		var ly_limit = ly_res.size.y - 380.0 - Style.safe_bottom
 		ly_ok = ly_ok and ly_stk["details"].end.y <= ly_limit and ly_stk["card"].end.y <= ly_limit + 1.0
+	check(ly_inside, "every row of the results card (goals, streak, chest, achievements) sits inside the card")
 	check(ly_ok, "the results card's pieces (goals, pay-protected pill, new-airport row, Details) do not overlap and end above the Next shift button")
 	# the pause sheet: three sliders a tap apart, RESUME above the card
 	main.restart()

@@ -97,8 +97,7 @@ class Art extends Control:
 	var res_chips := PackedInt32Array([0, 0, 0])   # results: landings, early clear, fines
 	var res_sub := ""                # results: "Grass Strip · 14 landed"
 	var res_unlock := ""             # results: a new airport opened (shown as a card)
-	var res_goals: Array = []        # results: daily goals this shift finished ({"text", "reward"}), and a line under them
-	var res_goals_extra := ""
+	var res_rows: Array = []         # results: what the shift earned besides the pay, a row each ({"glyph", "text", "coins"}): goals, the streak day, the bonus chest, achievements, mastery ranks
 	var res_pills := 0               # results: how many rewarded-ad pills sit under the Next shift button (0 to 2)
 	var res_protected := 0           # results: coins the pay floor added (0 = the net was above the floor)
 	var pause_card := Rect2()        # the sheet behind the pause menu's sliders
@@ -1364,6 +1363,8 @@ class Art extends Control:
 			if parts.size() > 1:
 				_ds(Style.text(), Vector2(details_rect.position.x + 40.0, y), parts[1], HORIZONTAL_ALIGNMENT_RIGHT, details_rect.size.x - 80.0, SZ_S, C_GOLD_TXT if last else C_TEXT)
 
+	const RES_LIFT := 100.0               # the results screen sits this much higher than the 1080 x 1920 design, so a few rows fit in the card
+
 	func _draw_results() -> void:
 		var cx := size.x * 0.5
 		if details_open:
@@ -1375,15 +1376,18 @@ class Art extends Control:
 		var dyn := res_layer != 1
 		if stat:
 			var tfs := Style.fit_size("SHIFT COMPLETE", 104, 50, 1000.0)
-			Style.draw_ext(self, Vector2(cx - 520.0, 290.0 * s2 + top), "SHIFT COMPLETE", tfs, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
+			Style.draw_ext(self, Vector2(cx - 520.0, 290.0 * s2 + top - RES_LIFT), "SHIFT COMPLETE", tfs, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
 		if dyn and res_sub != "":
-			text(res_sub, Vector2(cx - 520.0, 350.0 * s2 + top), SZ_S, C_CREAM, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
+			if Hud.wrap_lines(res_sub, SZ_S, 1040.0) > 1:       # (long: two lines, the first break at a " · ")
+				_dms(Style.text(), Vector2(cx - 520.0, 338.0 * s2 + top - RES_LIFT), res_sub, HORIZONTAL_ALIGNMENT_CENTER, 1040.0, SZ_S, 2, C_CREAM)
+			else:
+				text(res_sub, Vector2(cx - 520.0, 350.0 * s2 + top - RES_LIFT), SZ_S, C_CREAM, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
 		# The stars, one after another: each slams down from big with an impact ring, rays and a little shake. Three, big and tilted.
 		for i in 3:
 			var t0 := STAR_T0 + STAR_GAP * i
 			var rot := (i - 1) * deg_to_rad(12.0)
 			var rad := 150.0 if i == 1 else 118.0
-			var c := Vector2(cx + (i - 1) * 285.0, (520.0 if i == 1 else 580.0) * s2 + top)
+			var c := Vector2(cx + (i - 1) * 285.0, (520.0 if i == 1 else 580.0) * s2 + top - RES_LIFT)
 			if stat:
 				star(c, rad, Color(Style.WORLD_TEXT), true, rot)
 			if dyn and i < res_stars and res_t >= t0:
@@ -1440,27 +1444,22 @@ class Art extends Control:
 			var pr: Rect2 = stk["pill"]
 			_dsb(_sb_chip, pr)
 			ptext("Shift pay protected", Vector2(pr.position.x, pr.get_center().y + 12.0), SZ_M, Style.SUCCESS_DARK, HORIZONTAL_ALIGNMENT_CENTER, pr.size.x)
-		# Daily goals this shift finished (up to two cards, the rest counted), and the streak / chest line.
-		var grows: Array = stk["goals"]
-		for gi in grows.size():
-			var gr: Rect2 = grows[gi]
+		# What the shift earned besides the pay: goals, the streak day, the bonus chest, achievements, ranks: one row each, all alike (icon, text, +coins)
+		for rw in stk["rows"]:
+			var gr: Rect2 = rw["rect"]
 			_dsb(_sb_unlock, gr)
-			glyph("check", Vector2(gr.position.x + 50.0, gr.get_center().y), 14.0, Style.SUCCESS_DARK)
-			var gtxt: String = str(res_goals[gi]["text"]) if res_goals.size() <= grows.size() or (gi == 0 and grows.size() > 1) else ("%d goals done" % res_goals.size() if grows.size() == 1 else "+%d more goals" % (res_goals.size() - gi))
-			var gw := gr.size.x - 300.0
-			if Hud.wrap_lines(gtxt, Style.SZ_BODY, gw) > 1:
-				_dms(Style.text(), Vector2(gr.position.x + 90.0, gr.get_center().y - 8.0), gtxt, HORIZONTAL_ALIGNMENT_LEFT, gw, Style.SZ_BODY, 2, C_TEXT)
+			glyph(str(rw["glyph"]), Vector2(gr.position.x + 52.0, gr.get_center().y), 22.0 if rw["glyph"] != "check" else 16.0, Style.SUCCESS_DARK if rw["glyph"] == "check" else Color.WHITE)
+			var coins := int(rw["coins"])
+			var gw := gr.size.x - 110.0 - (330.0 if coins > 0 else 40.0)
+			var gtxt := str(rw["text"])
+			var gl := Hud.wrap_lines(gtxt, Style.SZ_BODY, gw)
+			if gl > 1:
+				_dms(Style.text(), Vector2(gr.position.x + 96.0, gr.get_center().y - 10.0), gtxt, HORIZONTAL_ALIGNMENT_LEFT, gw, Style.SZ_BODY, 2, C_TEXT)
 			else:
-				ptext(gtxt, Vector2(gr.position.x + 90.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, gw)
-			var rsum := 0
-			for q in range(gi, res_goals.size() if (gi == grows.size() - 1) else gi + 1):         # (the last row also counts the goals that did not get a row)
-				rsum += int(res_goals[q]["reward"])
-			ptext("+%d" % rsum, Vector2(gr.end.x - 230.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_RIGHT, 170.0)
-			glyph("coin", Vector2(gr.end.x - 40.0, gr.get_center().y), 14.0)
-		var xl: Array = stk["extra"]
-		for li in xl.size():
-			var xe: Dictionary = xl[li]
-			_dms(Style.body(), Vector2(cx - 465.0, float(xe["y"])), xe["text"], HORIZONTAL_ALIGNMENT_CENTER, 930.0, int(xe["size"]), int(xe["lines"]), C_SOFT)
+				ptext(gtxt, Vector2(gr.position.x + 96.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, gw)
+			if coins > 0:
+				ptext("+%d" % coins, Vector2(gr.end.x - 330.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_RIGHT, 270.0)
+				glyph("coin", Vector2(gr.end.x - 40.0, gr.get_center().y), 14.0)
 		# A new airport opened with this shift.
 		if stk.has("unlock"):
 			var ur: Rect2 = stk["unlock"]
@@ -1484,59 +1483,40 @@ class Art extends Control:
 		var cx := size.x * 0.5
 		var tap := Style.tap_px()
 		var out := {}
-		var ctop := 700.0 * s2 + top
+		var ctop := 700.0 * s2 + top - RES_LIFT
 		var y := ctop + 270.0 * s2 + 150.0 + 16.0
 		var limit := res_again().position.y - 20.0                # (the Next shift button's top, and a gap)
 		var det_h := maxf(80.0, tap)
 		var avail := limit - y - det_h - 12.0
-		var goals: Array[Rect2] = []
-		var rects := {}
-		var order := []
-		if res_unlock != "":
-			order.append("unlock")
-		if not res_goals.is_empty():
-			order.append("goal0")
-		if res_protected > 0:
-			order.append("pill")
-		if res_goals.size() > 1:
-			order.append("goal1")
-		var used := 0.0
-		for it in order:
-			var h := 160.0 if it == "unlock" else (100.0 if it == "pill" else 112.0)
-			if used + h + 8.0 <= avail:
-				rects[it] = h
-				used += h + 8.0
+		# in this order of importance, as much as the room allows: the new-airport row, the pay-protected pill, then the rows; what does not fit
+		# is folded into the last row that fits ("3 more  +120")
 		var yy := y
-		var gs: Array[Rect2] = []
-		for it in ["unlock", "goal0", "pill", "goal1"]:
-			if not rects.has(it):
-				continue
-			var h2: float = rects[it]
-			var r := Rect2(cx - 465.0 + (45.0 if it == "pill" else 0.0), yy, 930.0 - (90.0 if it == "pill" else 0.0), h2)
-			if it == "unlock":
-				out["unlock"] = r
-			elif it == "pill":
-				out["pill"] = r
-			else:
-				gs.append(r)
-			yy += h2 + 8.0
-		out["goals"] = gs
-		# the extra lines (streak, chest, toasts): each fitted to the card's width, wrapped to two lines when it still does not fit, as many as the room allows
-		var xl: Array = []
-		if res_goals_extra != "":
-			for ln in res_goals_extra.split("\n"):
-				var fs := Style.fit_size(ln, SZ_S, 42, 930.0)
-				var f := Style.body()
-				var lines := 1
-				if f.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > 930.0:
-					lines = 2
-				var lh := float(fs) + 8.0
-				var need := lh * float(lines) + 4.0
-				if used + need + 8.0 <= avail:
-					xl.append({"text": ln, "y": yy + float(fs), "size": fs, "lines": lines})
-					yy += need
-					used += need
-		out["extra"] = xl
+		var used := 0.0
+		if res_unlock != "" and used + 168.0 <= avail:
+			out["unlock"] = Rect2(cx - 465.0, yy, 930.0, 160.0)
+			yy += 168.0
+			used += 168.0
+		if res_protected > 0 and used + 108.0 <= avail:
+			out["pill"] = Rect2(cx - 465.0 + 45.0, yy, 930.0 - 90.0, 100.0)
+			yy += 108.0
+			used += 108.0
+		var rows_out: Array = []
+		var n := res_rows.size()
+		var placed := 0
+		while placed < n and used + 112.0 <= avail:
+			placed += 1
+			used += 112.0
+		for q in placed:
+			var row: Dictionary = res_rows[q].duplicate()
+			if q == placed - 1 and placed < n:       # (fold the rest in)
+				var more := 0
+				for z in range(q, n):
+					more += int(res_rows[z]["coins"])
+				row = {"glyph": "star", "text": "%d more" % (n - q), "coins": more}
+			row["rect"] = Rect2(cx - 465.0, yy, 930.0, 104.0)
+			rows_out.append(row)
+			yy += 112.0
+		out["rows"] = rows_out
 		var details := Rect2(cx - 150.0, yy + 6.0, 300.0, det_h)
 		out["details"] = details
 		out["card"] = Rect2(cx - 465.0, ctop, 930.0, details.end.y + 18.0 - ctop)
@@ -1922,7 +1902,7 @@ var ach_unseen := false              # the menu's Awards button wears a red dot 
 var goals_done := 0                  # the menu's goals card: goals finished today, the streak line, and a red dot while none is done
 var goals_line := ""
 var goal_note: Array = []            # the goals the shift just finished (the results card lists them)
-var goal_extra := ""                 # ...and the streak day / bonus chest line under them
+var goal_rows: Array = []             # ...and the other rows of the card (the streak day, the bonus chest, achievements, ranks): {"glyph", "text", "coins"}
 var bad_streak := 0
 var bad_done := false
 var ramp_note := ""             # the results card says where the landed aircraft ended up ("Hangar full · 4 on the ramp")
@@ -2930,8 +2910,11 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	var sub_extra := (" \u00b7 " + ramp_note) if ramp_note != "" else ((" \u00b7 cleared %d s early" % shift.early_seconds) if shift.early_seconds > 0 else "")
 	_art.res_sub = "%s \u00b7 %d landed%s" % [Airports.airport_name(), shift.landed, sub_extra]
 	_art.res_unlock = ""
-	_art.res_goals = goal_note.duplicate()
-	_art.res_goals_extra = goal_extra
+	var rows: Array = []
+	for g in goal_note:                  # (the goals first, then the rest: the streak day, the chest, achievements, ranks)
+		rows.append({"glyph": "check", "text": str(g["text"]), "coins": int(g["reward"])})
+	rows.append_array(goal_rows)
+	_art.res_rows = rows
 	if not _art.show_result or _art.res_t > 60.0:
 		_art.res_t = 0.0
 	_slam_next = 0
@@ -3111,7 +3094,8 @@ func show_detail(info: Dictionary) -> void:
 	_use_panel("detail", _sig([info]), func() -> void:
 		var vp := get_viewport().get_visible_rect().size
 		_art.clear_buttons()
-		_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
+		if not (bool(info.get("open", false)) and int(info.get("tab", 0)) == 1):         # (the Improve sheet covers the screen and has its own Back)
+			_art.add_button("back", "", Rect2(10.0 + Style.safe_left, 10.0 + Style.safe_top, 80.0, 80.0), 0, "", -1, -1, {"kind": 4, "glyph": "back"})
 		# the card below the airfield is a Control tree of containers (DetailSheet), a child of this panel so it opens, parks and fades with it
 		if _detail_sheet == null:
 			_detail_sheet = DetailSheet.new()

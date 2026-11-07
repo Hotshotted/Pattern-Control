@@ -318,7 +318,7 @@ func _visible_part(c: Control, r: Rect2) -> Rect2:
 func _add_leaf(els: Array, ctl: Control, id: String) -> void:
 	var r := _visible_part(ctl, ctl.get_global_rect())
 	if r.size.x > 0.0 and r.size.y > 0.0:
-		els.append({"k": "icon", "id": id, "text": "", "rect": r, "inter": false, "src": "ctl"})
+		els.append({"k": "icon", "id": id, "text": "", "rect": r, "inter": false, "src": "ctl", "node": ctl})
 
 func _walk(n: Node, els: Array) -> void:
 	for c in n.get_children():
@@ -472,6 +472,8 @@ func _analyze(els: Array) -> Array:
 		var a: Dictionary = els[i]
 		for j in range(i + 1, n):
 			var b: Dictionary = els[j]
+			if _nested_in_tree(a, b):
+				continue                       # (a button on a row that is itself a button, a label in the row: one is inside the other in the node tree, on purpose)
 			if a["inter"] and b["inter"]:
 				var har := _inter_area(a.get("hit", a["rect"]), b.get("hit", b["rect"]))
 				if har > 6.0:
@@ -496,6 +498,18 @@ func _analyze(els: Array) -> Array:
 				continue                       # (glyphs are layered on purpose: coins in a pile, a badge on a circle)
 			found.append({"type": "overlap", "a": a, "b": b, "detail": "%d px overlap" % roundi(ar)})
 	return found
+
+## One is a descendant of the other in the sheet's node tree and its rectangle lies inside the other's: a part of it, not something on top of it.
+func _nested_in_tree(a: Dictionary, b: Dictionary) -> bool:
+	if not a.has("node") or not b.has("node"):
+		return false
+	var na: Node = a["node"]
+	var nb: Node = b["node"]
+	if na.is_ancestor_of(nb):
+		return (a["rect"] as Rect2).grow(2.0).encloses(b["rect"])
+	if nb.is_ancestor_of(na):
+		return (b["rect"] as Rect2).grow(2.0).encloses(a["rect"])
+	return false
 
 func _outside(r: Rect2) -> String:
 	var parts := PackedStringArray()
@@ -783,6 +797,12 @@ func _clear_popups() -> void:
 		a.banner_text = ""
 
 ## Toast lines as the game words them, the longest few (they are the ones that can overflow).
+func _longest_rows() -> Array:
+	var rows: Array = []
+	for ln in _longest_toasts().slice(0, 4):
+		rows.append({"glyph": "star", "text": str(ln).get_slice("  +", 0), "coins": 90})
+	return rows
+
 func _longest_toasts() -> Array:
 	var lines: Array = []
 	for ap in Airports.COUNT:
@@ -901,8 +921,9 @@ func _states_results() -> void:
 			main.goal_results = [{"text": "Land 25 aircraft at Mountain Field", "reward": 40}, {"text": "A shift with no fines at all", "reward": 60}, {"text": "Fly with no engines", "reward": 90}]
 			main.hud.goal_note = main.goal_results
 			main.goal_streak_text = "Streak: day 7 done  \u00b7  a free cosmetic"
+			main.goal_streak_row = {"glyph": "flame", "text": "Day 7 of the streak  \u00b7  new: A free cosmetic", "coins": 150}
 			main.goal_chest = 9999
-			main.toast_results.assign(_longest_toasts() if variant == "rankup" else ["Achievement: Clean sheet  +60"])
+			main.toast_results.assign(_longest_rows() if variant == "rankup" else [{"glyph": "star", "text": "Achievement: Clean sheet", "coins": 60}])
 			main._show_results(false)
 		await _frames_ui(30)
 		await _check("results %s" % variant)
