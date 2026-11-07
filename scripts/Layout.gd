@@ -95,6 +95,93 @@ static func in_funnel(p: Vector2, half: float) -> bool:
 				return true
 	return false
 
+# ---------- Props out of the paths ----------
+
+## (The geometry lives here so the layout check, which runs without the autoloads, can use it: Airfield.in_strip calls it.)
+static func in_strip(p: Vector2, r: float = 0.0, pads: bool = true, hud: bool = true) -> bool:
+	for i in Airports.rw_count():
+		var h := deg_to_rad(Airports.rw_heading_deg(i))
+		var dir := Vector2(sin(h), -cos(h))
+		var rel := p - Airports.rw_center(i)
+		var along := absf(rel.dot(dir))
+		var lat := absf(rel.dot(Vector2(-dir.y, dir.x)))
+		var half := Airports.rw_length(i) * 0.5
+		var w: float = Airports.rw_width(i)
+		if along < half + r and lat < w * 0.5 + 0.55 + r:
+			return true
+		if along >= half and along < half + 3.6 + r and lat < w * 0.5 + 0.65 + 1.4 * minf(along - half, 3.4) / 3.4 + r:
+			return true
+	for lane in Airports.lanes():
+		var lh := deg_to_rad(lane["heading"])
+		var ld := Vector2(sin(lh), -cos(lh))
+		var lrel: Vector2 = p - (lane["center"] as Vector2)
+		if absf(lrel.dot(Vector2(-ld.y, ld.x))) < lane["width"] * 0.5 + 1.0 + r and absf(lrel.dot(ld)) < lane["length"] * 0.5 + 1.0 + r:
+			return true
+	if pads:
+		for pad in Airports.pads():
+			if p.distance_to(pad["center"]) < pad["radius"] + 0.9 + r:
+				return true
+	return hud and Layout.in_hud(p, r)
+
+
+
+## Where trees may stand (the scenery picks the ones that are clear of every path: see `tree_spots`).
+const TREE_SPOTS := [Vector2(-4.4, 6.4), Vector2(-3.6, 7.6), Vector2(4.3, 6.9), Vector2(4.5, -6.5), Vector2(-4.4, -6.9), Vector2(3.7, -7.8), Vector2(-4.2, -3.9), Vector2(4.5, 4.4), Vector2(4.6, 8.0), Vector2(-4.6, 2.6), Vector2(-4.6, -1.5), Vector2(4.5, -4.9), Vector2(-2.0, -7.9), Vector2(1.5, -8.2)]
+const APPROACH_REACH := 7.0       # how far out the approach corridors are kept clear of props (aircraft come in from there, low)
+const APPROACH_HALF := 0.9
+const TAXI_HALF := 0.85           # half width of the strip kept clear along every taxiway edge
+
+## Is a prop of radius `r` at `p` in the way of anything an aircraft follows: the runways and their funnels, the lanes and pads, the interface, the
+## approach corridors (straight out of every runway end, 7 units), the taxiways and the ramp's slab? Then it looks as if a plane flies through it.
+static func prop_blocked(p: Vector2, r: float = 0.45, ground: bool = true) -> bool:
+	if in_strip(p, r):
+		return true
+	for i in Airports.rw_count():
+		for e in 2:
+			var thr := Airports.end_threshold(i, e)
+			var d := Airports.end_dir(i, e)
+			var rel := p - thr
+			var along := -rel.dot(d)            # (behind the threshold, where the approach comes from)
+			var lat := absf(rel.dot(Vector2(-d.y, d.x)))
+			if along > -0.2 and along < APPROACH_REACH + r and lat < APPROACH_HALF + r:
+				return true
+	if not ground:
+		return false          # (scenery that stands on the ramp or by a taxiway on purpose is only kept out of the approach corridors)
+	var n := Taxi.net()
+	for ed in n.get("edges", []):
+		var a := Taxi.pos(n, ed[0])
+		var b := Taxi.pos(n, ed[1])
+		var ab := b - a
+		var u := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 0.0001), 0.0, 1.0)
+		if p.distance_to(a + ab * u) < TAXI_HALF + r:
+			return true
+	var ap := Airports.apron()
+	if not ap.is_empty() and slab(ap["center"], ap["s"]).grow(r + 0.3).has_point(p):
+		return true
+	return false
+
+## The tree spots of airport `a` that are clear (what the scenery plants).
+static func tree_spots(a: int) -> Array[Vector2]:
+	var keep := Airports.current
+	Airports.current = a
+	var out: Array[Vector2] = []
+	for t in TREE_SPOTS:
+		if not prop_blocked(t, 0.45):
+			out.append(t)
+	Airports.current = keep
+	return out
+
+## Props (world x, z) that stand in an aircraft's way: one line each. Used by the layout check and the smoke test, with the props actually planted.
+static func prop_problems(a: int, props: Array, r: float = 0.3, ground: bool = true) -> Array[String]:
+	var out: Array[String] = []
+	var keep := Airports.current
+	Airports.current = a
+	for p in props:
+		if prop_blocked(p, r, ground):
+			out.append("a prop at (%.1f, %.1f) is in a runway funnel, an approach corridor, a taxiway or the ramp" % [p.x, p.y])
+	Airports.current = keep
+	return out
+
 ## Samples along every taxi edge, a point each 0.1.
 static func edge_samples(n: Dictionary) -> Array:
 	var out: Array = []
@@ -117,6 +204,7 @@ static func on_pavement(n: Dictionary, p: Vector2, slab_r: Rect2, slack: float) 
 
 static func problems(a: int) -> Array[String]:
 	var out: Array[String] = []
+	out.append_array(prop_problems(a, tree_spots(a)))
 	var keep := Airports.current
 	Airports.current = a
 	var n := Taxi.net()

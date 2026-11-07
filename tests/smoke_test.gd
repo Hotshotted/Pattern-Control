@@ -5262,15 +5262,15 @@ func _initialize() -> void:
 	check(id_slot["kind"] == "heli" and id_tr._heli_groups[id_mi].visible and not id_tr._plane_groups[id_mi].visible, "the helicopter that landed is the one that air-taxis, to the heli spot")
 	var id_pad = Airports.land_far(Aircraft.Kind.PAD, 0, 0)
 	id_af.step_taxi(2.9)
-	var id_still = Vector2(id_tr.ramp_node(id_mi).position.x, id_tr.ramp_node(id_mi).position.z).distance_to(id_pad)
+	var id_still = Vector2((id_tr.ramp_node(id_mi).position - id_tr.cam_lift()).x, (id_tr.ramp_node(id_mi).position - id_tr.cam_lift()).z).distance_to(id_pad)
 	check(id_still < 0.05, "it sits on the pad for 3 s (%.2f from it after 2.9 s)" % id_still)
 	id_af.step_taxi(0.6)
-	var id_moved = Vector2(id_tr.ramp_node(id_mi).position.x, id_tr.ramp_node(id_mi).position.z).distance_to(id_pad)
-	check(id_moved > 0.3 and id_tr.ramp_node(id_mi).position.y > 0.1, "...then air-taxis away, a little above the ground (%.2f)" % id_moved)
+	var id_moved = Vector2((id_tr.ramp_node(id_mi).position - id_tr.cam_lift()).x, (id_tr.ramp_node(id_mi).position - id_tr.cam_lift()).z).distance_to(id_pad)
+	check(id_moved > 0.3 and (id_tr.ramp_node(id_mi).position - id_tr.cam_lift()).y > 0.1, "...then air-taxis away, a little above the ground (%.2f)" % id_moved)
 	for id_k in 600:
 		id_af.step_taxi(0.1)
 	var id_spot = (id_af.cur.slots["heli"] as Array)[0]
-	check(id_af.taxis.is_empty() and id_spot["mi"] == id_mi and Vector2(id_tr.ramp_node(id_mi).position.x, id_tr.ramp_node(id_mi).position.z).distance_to(id_spot["pos"]) < 0.05, "and lands on its marked spot")
+	check(id_af.taxis.is_empty() and id_spot["mi"] == id_mi and Vector2((id_tr.ramp_node(id_mi).position - id_tr.cam_lift()).x, (id_tr.ramp_node(id_mi).position - id_tr.cam_lift()).z).distance_to(id_spot["pos"]) < 0.05, "and lands on its marked spot")
 	main.restart()
 	check(id_tr.ramp_in_use() == 0, "a restart frees every ramp aircraft in place")
 
@@ -6274,6 +6274,31 @@ func _initialize() -> void:
 	main._on_button("privacy")
 	check(main.privacy_opened == pv_before + 1 and main.screen == main.SCREEN_PAUSE, "...and it opens the page and leaves the shift paused")
 	main.resume_game()
+
+	print("39. Aircraft draw above the scenery; props stay out of the paths")
+	var ap_ok := true
+	var ap_msgs := []
+	for ap_i in Airports.COUNT:
+		main.airfield.select(ap_i)
+		var ap_bad := Layout.prop_problems(ap_i, Layout.tree_spots(ap_i), 0.3)
+		var ap_sc: Array = []
+		for ap_s in main.airfield.variants[ap_i].scenery:
+			ap_sc.append(ap_s)
+		ap_bad.append_array(Layout.prop_problems(ap_i, ap_sc, 0.1, false))
+		if not ap_bad.is_empty():
+			ap_ok = false
+			ap_msgs.append("%d: %s" % [ap_i, str(ap_bad.slice(0, 2))])
+	check(ap_ok, "no tree or scenery piece stands in an approach corridor, a funnel, a taxiway or the ramp at any airport %s" % str(ap_msgs))
+	check(Layout.prop_blocked(Airports.end_threshold(0, 0) - Airports.end_dir(0, 0) * 3.0, 0.3), "the layout rule catches a prop in an approach corridor")
+	var lf = main.traffic.cam_lift()
+	check(lf.length() > 3.0 and lf.y > 0.0 and lf.z > 0.0, "aircraft are moved toward the camera along the view direction (depth only: nothing moves on the screen)")
+	main.restart()
+	var lf_p = main.traffic.place(0, Vector2(2.0, 1.0), 0.0, 2)
+	main.traffic.step(0.001)
+	var lf_n: Node3D = main.traffic._nodes[main.traffic.planes.find(lf_p)]
+	check(lf_n.position.y > lf.y and absf(lf_n.position.z - (1.0 + lf.z)) < 0.01, "a flying aircraft's model is lifted by exactly that; its shadow quad stays on the ground (y 0.14)")
+	check(main.traffic._shadows[main.traffic.planes.find(lf_p)].position.y < 0.2, "...")
+	main._show_menu()
 
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
 	save.reset_all()

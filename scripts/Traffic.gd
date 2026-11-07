@@ -30,6 +30,15 @@ var shadow_scale := 1.0                 # the aircraft's shadow offsets grow ove
 var scenic := false                     # the menu diorama: no timers, conflicts or random go-arounds
 const MAX_HAZARDS := 16
 const PLANE_Y := 0.35
+## Aircraft always draw above the scenery (trees, buildings, props, cloud shadows): each model is moved toward the camera along the view direction.
+## In the orthographic camera that changes nothing on the screen, only the depth, so a tree that is nearer the camera than an aircraft on the ground
+## (the camera is tilted, the crowns are tall) can no longer cover it. Their own shadows stay on the ground (separate quads / counter-offset below).
+const CAM_LIFT := 5.0
+
+func cam_lift() -> Vector3:
+	var t := deg_to_rad(Tuning.camera_tilt_deg)
+	return Vector3(0.0, cos(t), sin(t)) * CAM_LIFT
+
 const TOUCH_POP := 0.3
 const TRAIL_N := 8                     # contrail puffs kept per aircraft
 const TRAIL_EVERY := 0.1               # seconds between puffs
@@ -1195,7 +1204,7 @@ func _sync(p: Aircraft, i: int) -> void:
 	if landing:
 		pitch = 0.14 * (1.0 - minf(p.roll_t / maxf(Tuning.touchdown_fraction, 0.01), 1.0))
 	var h := PLANE_Y * alt + lift
-	n.position = Vector3(p.pos.x, h, p.pos.y)
+	n.position = Vector3(p.pos.x, h, p.pos.y) + cam_lift()
 	var wobble := deg_to_rad(Tuning.telegraph_wobble_deg) * sin(p.age * 38.0) * clampf(1.0 - p.ga_t / maxf(Tuning.go_around_telegraph, 0.01) * 0.5, 0.5, 1.0) if p.ga_pending else 0.0
 	n.rotation = Vector3(pitch, -p.vis_heading, -p.bank + wobble)
 	var pop := 1.0 + 0.22 * sin(PI * clampf(1.0 - p.pop_t / TOUCH_POP, 0.0, 1.0)) if p.pop_t > 0.0 else 1.0
@@ -1359,11 +1368,12 @@ func ramp_configure(i: int, type: int, cls: int, kind: int, runway: int, student
 ## the prop and rotor blur and turns the rotor.
 func ramp_place(i: int, pos: Vector2, heading: float, scale: float, hover: float, moving: bool, clock: float, type: int) -> void:
 	var n := _nodes[i]
-	n.position = Vector3(pos.x, 0.16 * scale + 0.02 + hover, pos.y)
+	var lift := cam_lift()
+	n.position = Vector3(pos.x, 0.16 * scale + 0.02 + hover, pos.y) + lift
 	n.rotation = Vector3(0.0, -heading, 0.0)
 	n.scale = Vector3.ONE * scale
 	var sh := _ramp_shadows[i - _ramp_first]
-	sh.position = Vector3(0.1, -(n.position.y - 0.026) / maxf(scale, 0.01) - hover * 0.0, 0.08)
+	sh.position = Vector3(0.1, -(n.position.y - lift.y - 0.026) / maxf(scale, 0.01) - hover * 0.0, 0.08) + n.basis.inverse() * (-lift)       # (the shadow stays on the ground)
 	_prop_discs[i].visible = moving and (type == Aircraft.Type.SMALL or type == Aircraft.Type.MEDIUM or type == Aircraft.Type.SEAPLANE)
 	_rotor_discs[i].visible = moving and type == Aircraft.Type.HELI
 	if type == Aircraft.Type.HELI and moving:

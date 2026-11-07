@@ -524,29 +524,7 @@ func _clear_of_paths(p: Vector2, margin: float = 0.4, pads: bool = true) -> bool
 ## Is `p` (with `r` to spare) inside something the player's eye follows: a runway and its lights, the approach funnel drawn behind each
 ## runway end (it widens from the threshold to 3.4 behind it), a water lane's or a helipad's approach? Nothing built, planted or parked goes there.
 static func in_strip(p: Vector2, r: float = 0.0, pads: bool = true, hud: bool = true) -> bool:
-	for i in Airports.rw_count():
-		var h := deg_to_rad(Airports.rw_heading_deg(i))
-		var dir := Vector2(sin(h), -cos(h))
-		var rel := p - Airports.rw_center(i)
-		var along := absf(rel.dot(dir))
-		var lat := absf(rel.dot(Vector2(-dir.y, dir.x)))
-		var half := Airports.rw_length(i) * 0.5
-		var w: float = Airports.rw_width(i)
-		if along < half + r and lat < w * 0.5 + 0.55 + r:
-			return true
-		if along >= half and along < half + 3.6 + r and lat < w * 0.5 + 0.65 + 1.4 * minf(along - half, 3.4) / 3.4 + r:
-			return true
-	for lane in Airports.lanes():
-		var lh := deg_to_rad(lane["heading"])
-		var ld := Vector2(sin(lh), -cos(lh))
-		var lrel: Vector2 = p - (lane["center"] as Vector2)
-		if absf(lrel.dot(Vector2(-ld.y, ld.x))) < lane["width"] * 0.5 + 1.0 + r and absf(lrel.dot(ld)) < lane["length"] * 0.5 + 1.0 + r:
-			return true
-	if pads:
-		for pad in Airports.pads():
-			if p.distance_to(pad["center"]) < pad["radius"] + 0.9 + r:
-				return true
-	return hud and in_hud(p, r)
+	return Layout.in_strip(p, r, pads, hud)
 
 ## The interface's footprint on the field: pause, the timer / coins pill with the star bar, the wind card and the wind-shift banner,
 ## each with a 12 px margin, as world rectangles (the 1080 x 1920 layout at the closest view, `Tuning.ortho_size`, so a radar upgrade
@@ -684,9 +662,9 @@ func _trees(v: AirportScene) -> void:
 	await _slice()
 	v.trunk_mat = Prim.mat(Color(0.45, 0.3, 0.18))
 	await _slice()
-	for t in [Vector2(-4.4, 6.4), Vector2(-3.6, 7.6), Vector2(4.3, 6.9), Vector2(4.5, -6.5), Vector2(-4.4, -6.9), Vector2(3.7, -7.8), Vector2(-4.2, -3.9), Vector2(4.5, 4.4), Vector2(4.6, 8.0), Vector2(-4.6, 2.6), Vector2(-4.6, -1.5), Vector2(4.5, -4.9), Vector2(-2.0, -7.9), Vector2(1.5, -8.2)]:
+	for t in Layout.TREE_SPOTS:
 		await _slice()
-		var blocked := in_strip(t, 0.45)
+		var blocked := Layout.prop_blocked(t, 0.45)
 		await _slice()
 		for st in v.strips:
 			await _slice()
