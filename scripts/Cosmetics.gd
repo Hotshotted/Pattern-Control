@@ -5,9 +5,9 @@ extends RefCounted
 ## Pure data: no Tuning / Save references.
 
 const THEME_COUNT := 9
-const LIVERY_COUNT := 17
-const SOCK_COUNT := 7
-const PAINT_COUNT := 7
+const LIVERY_COUNT := 23
+const SOCK_COUNT := 13
+const PAINT_COUNT := 19
 
 ## Where an item comes from: "src" is "shop" (coins, "cost"), "mastery" ("ap" and "rank": that airport's mastery rank) or "ach" ("ach": an
 ## achievement's id, see Achievements). "from" is the line a locked item shows. Items without a "src" are in the shop.
@@ -51,6 +51,12 @@ const LIVERIES := [
 	{"id": "raven", "name": "Raven Night", "pilot": "Captain Raven", "animal": 14, "cost": 0, "src": "ach", "ach": "s_fast_hangar", "from": "Achievement: fill the hangar in 45 seconds", "body": Color(0.12, 0.12, 0.18), "stripe": Color(0.85, 0.85, 0.95), "quote": "Quoth the tower: cleared to land."},
 	{"id": "panda", "name": "Panda Pacific", "pilot": "Captain Panda", "animal": 15, "cost": 0, "src": "ach", "ach": "s_locked10", "from": "Achievement: ten locked finals in a row", "body": Color(0.96, 0.96, 0.96), "stripe": Color(0.1, 0.1, 0.1), "quote": "Calm and steady."},
 	{"id": "lion", "name": "Lion Gold", "pilot": "Captain Lion", "animal": 16, "cost": 0, "src": "ach", "ach": "a_l1000", "from": "Achievement: 1,000 landings", "body": Color(0.78, 0.7, 0.5), "stripe": Color(0.45, 0.25, 0.12), "quote": "The pride of the pattern."},
+	{"id": "lark", "name": "Meadow Lark", "pilot": "Captain Lark", "animal": 1, "cost": 0, "src": "level", "ap": 0, "level": 6, "from": "Grass Strip, level 6", "body": Color("f1efe0"), "stripe": Color("4f9a3a"), "quote": "Fields below, sky ahead."},
+	{"id": "wren", "name": "County Wren", "pilot": "Captain Wren", "animal": 2, "cost": 0, "src": "level", "ap": 1, "level": 6, "from": "County, level 6", "body": Color("f4e9a8"), "stripe": Color("7a4a22"), "quote": "Small, quick, on the numbers."},
+	{"id": "swift", "name": "Regional Swift", "pilot": "Captain Swift", "animal": 3, "cost": 0, "src": "level", "ap": 2, "level": 6, "from": "Regional, level 6", "body": Color("cfe6f7"), "stripe": Color("333a44"), "quote": "Fast and lined up."},
+	{"id": "ibex", "name": "Peak Ibex", "pilot": "Captain Ibex", "animal": 4, "cost": 0, "src": "level", "ap": 3, "level": 6, "from": "Mountain Field, level 6", "body": Color("b9bcc2"), "stripe": Color("6b4a2a"), "quote": "Steady on the ridge."},
+	{"id": "gull", "name": "Island Gull", "pilot": "Captain Gull", "animal": 5, "cost": 0, "src": "level", "ap": 4, "level": 6, "from": "Island, level 6", "body": Color("ffffff"), "stripe": Color("5a7a6a"), "quote": "Salt air and short rolls."},
+	{"id": "eagle", "name": "Global Eagle", "pilot": "Captain Eagle", "animal": 6, "cost": 0, "src": "level", "ap": 5, "level": 6, "from": "International, level 6", "body": Color("e9e5d8"), "stripe": Color("16161c"), "quote": "Long haul, soft touch."},
 ]
 
 static func theme_index(id: String) -> int:
@@ -60,7 +66,7 @@ static func theme_index(id: String) -> int:
 	return 0
 
 static func livery_index(id: String) -> int:
-	for i in LIVERY_COUNT:
+	for i in LIVERIES.size():
 		if LIVERIES[i]["id"] == id:
 			return i
 	return 0
@@ -74,6 +80,12 @@ const SOCKS := [
 	{"id": "coral", "name": "Coral sock", "cost": 0, "src": "mastery", "ap": 4, "rank": 5, "from": "Island, rank 5", "a": Color("f08a8a"), "b": Color("fbe9d0")},
 	{"id": "rainbow", "name": "Rainbow sock", "cost": 0, "src": "ach", "ach": "a_l5000", "from": "Achievement: 5,000 landings", "a": Color("c05ad8"), "b": Color("f2d83a")},
 	{"id": "midnight", "name": "Midnight sock", "cost": 0, "src": "ach", "ach": "s_noeng_intl", "from": "Achievement: No engines at International", "a": Color("27356b"), "b": Color("c8d2f0")},
+	{"id": "sunset", "name": "Sunset sock", "cost": 0, "src": "level", "ap": 0, "level": 8, "from": "Grass Strip, level 8", "a": Color("f08a3d"), "b": Color("fbe0b0")},
+	{"id": "ocean", "name": "Ocean sock", "cost": 0, "src": "level", "ap": 1, "level": 8, "from": "County, level 8", "a": Color("2f7fd0"), "b": Color("e8f3ff")},
+	{"id": "berry", "name": "Berry sock", "cost": 0, "src": "level", "ap": 2, "level": 8, "from": "Regional, level 8", "a": Color("b03a7a"), "b": Color("f9e0ee")},
+	{"id": "mint", "name": "Mint sock", "cost": 0, "src": "level", "ap": 3, "level": 8, "from": "Mountain Field, level 8", "a": Color("4fc7a0"), "b": Color("effff8")},
+	{"id": "slate", "name": "Slate sock", "cost": 0, "src": "level", "ap": 4, "level": 8, "from": "Island, level 8", "a": Color("58667a"), "b": Color("dfe4ec")},
+	{"id": "gold", "name": "Gold sock", "cost": 0, "src": "level", "ap": 5, "level": 8, "from": "International, level 8", "a": Color("e0b030"), "b": Color("fff4c8")},
 ]
 const PAINTS := [
 	{"id": "standard", "name": "Airport paint", "cost": 0, "src": "shop", "color": null},
@@ -83,6 +95,18 @@ const PAINTS := [
 	{"id": "steel", "name": "Steel roof", "cost": 0, "src": "mastery", "ap": 5, "rank": 5, "from": "International, rank 5", "color": Color("6f86a0")},
 	{"id": "plum", "name": "Plum roof", "cost": 0, "src": "ach", "ach": "p_imp_one", "from": "Achievement: every improvement at one airport", "color": Color("8a4f7d")},
 	{"id": "teal", "name": "Teal roof", "cost": 0, "src": "ach", "ach": "p_imp_all", "from": "Achievement: every improvement everywhere", "color": Color("2f8f93")},
+	{"id": "sand", "name": "Sand roof", "cost": 0, "src": "level", "ap": 0, "level": 18, "from": "Grass Strip, level 18", "color": Color("d8c79a")},
+	{"id": "brick", "name": "Brick roof", "cost": 0, "src": "level", "ap": 1, "level": 18, "from": "County, level 18", "color": Color("b4533a")},
+	{"id": "sage", "name": "Sage roof", "cost": 0, "src": "level", "ap": 2, "level": 18, "from": "Regional, level 18", "color": Color("8aa886")},
+	{"id": "navy", "name": "Navy roof", "cost": 0, "src": "level", "ap": 3, "level": 18, "from": "Mountain Field, level 18", "color": Color("2c3e6b")},
+	{"id": "rose", "name": "Rose roof", "cost": 0, "src": "level", "ap": 4, "level": 18, "from": "Island, level 18", "color": Color("d98aa0")},
+	{"id": "ivory", "name": "Ivory roof", "cost": 0, "src": "level", "ap": 5, "level": 18, "from": "International, level 18", "color": Color("f3eedc")},
+	{"id": "clay", "name": "Clay roof", "cost": 0, "src": "level", "ap": 0, "level": 20, "from": "Grass Strip, level 20", "color": Color("c4784f")},
+	{"id": "moss", "name": "Moss roof", "cost": 0, "src": "level", "ap": 1, "level": 20, "from": "County, level 20", "color": Color("5d7a3a")},
+	{"id": "sky", "name": "Cloud roof", "cost": 0, "src": "level", "ap": 2, "level": 20, "from": "Regional, level 20", "color": Color("aab9d4")},
+	{"id": "ink", "name": "Ink roof", "cost": 0, "src": "level", "ap": 3, "level": 20, "from": "Mountain Field, level 20", "color": Color("353b48")},
+	{"id": "lilac", "name": "Lilac roof", "cost": 0, "src": "level", "ap": 4, "level": 20, "from": "Island, level 20", "color": Color("a58fc4")},
+	{"id": "amber", "name": "Amber roof", "cost": 0, "src": "level", "ap": 5, "level": 20, "from": "International, level 20", "color": Color("e0a23a")},
 ]
 
 ## The list of items of a kind ("theme", "livery", "windsock" or "hangar").
@@ -107,5 +131,6 @@ static func source(d: Dictionary) -> String:
 static func source_line(d: Dictionary) -> String:
 	match source(d):
 		"mastery": return "Mastery: " + str(d.get("from", ""))
+		"level": return "Airport level: " + str(d.get("from", ""))
 		"ach": return str(d.get("from", "Achievement"))
 		_: return "%d coins" % int(d.get("cost", 0))

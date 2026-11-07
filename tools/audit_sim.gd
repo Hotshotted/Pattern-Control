@@ -23,6 +23,7 @@ var GOALS := 0                    # goals=1: the career plays one SESSION-minute
 var SESSION := 20.0
 var PROG := 1                      # prog=0 switches mastery and achievements off (the phase 1 to 3 careers)
 var GUNIT := -1.0                  # gunit=X: the goals' reward factor (Tuning.goal_unit) for the run
+var LVL := 1                      # lvl=N: the surveyed airport is at airport level N (Progression)
 var IMP := 0                      # imp=N: every improvement of the airport being surveyed at level N
 var UPHALF := false              # up=half: the nine cheapest upgrade levels (about half of the 18)
 const HALF_LEVELS := {"comms": 2, "holding": 2, "turnoffs": 2, "tower": 1, "radar": 1, "approach": 1}
@@ -111,6 +112,8 @@ func _initialize() -> void:
 			SESSION = float(a.substr(8))
 		elif a.begins_with("imp="):
 			IMP = int(a.substr(4))
+		elif a.begins_with("lvl="):
+			LVL = int(a.substr(4))
 		elif a.begins_with("up="):
 			UP = int(a.substr(3))
 		elif a.begins_with("progress="):
@@ -149,7 +152,9 @@ func _survey() -> void:
 			if IMP > 0:
 				save.improvements = {str(ap): {}}
 				for iid in Improvements.IDS:
-					save.improvements[str(ap)][iid] = IMP
+					save.improvements[str(ap)][iid] = mini(IMP, Improvements.max_level(iid))
+			save.ap_xp[ap] = Progression.xp_at_level(ap, LVL)
+			save.sync_levels()
 			rng.seed = hash(who) + 100 * ap + 3
 			var dist := [0, 0, 0, 0]
 			var tot_land := 0

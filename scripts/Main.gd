@@ -99,6 +99,8 @@ var _last_world := Vector2.ZERO
 
 func _ready() -> void:
 	Boot.mark("main: children ready")
+	_offline = _offline_now()               # (what the parked planes earned while the game was closed: read before anything writes the save)
+	Save.touch()
 	if DebugFlags.perf_enabled():
 		Tuning.menu_log_all = true
 		if OS.has_feature("web"):          # (the web checks end a shift on demand)
@@ -211,7 +213,8 @@ var _idle_since_ms := 0
 var _idle_transitions := 0
 var wanted_airport := -1               # an airport the player picked that is still being built
 # The airport detail screen: the live airport in the top two thirds (zoomed out to fit), pinch to zoom and drag to pan, it eases back when let go.
-const DETAIL_FACTOR := 1.5            # the camera's size on the detail screen, x the shift's (so the whole field fits in two thirds of the screen)
+const DETAIL_SPLIT := 0.38            # the field fills the top 46% of the detail screen; the airport's card (level, unlock, objectives, mastery, goals) the rest
+const DETAIL_FACTOR := 1.5 * 0.667 / DETAIL_SPLIT      # the camera's size on the detail screen, x the shift's (so the whole field fits above the card)
 const DETAIL_ZOOM_MIN := 0.45         # how far a pinch zooms in (x the default size)...
 const DETAIL_ZOOM_MAX := 1.12         # ...and out
 var detail_airport := -1
@@ -417,6 +420,12 @@ func restart() -> void:
 	goal_chest = 0
 	goal_streak_text = ""
 	goal_streak_row = {}
+	xp_this_shift = 0
+	welcome_paid = 0
+	_event_counted = false
+	_xp_paid = 0
+	_goal_xp_pending = 0
+	level_ups = []
 	hud.goal_note = []
 	hud.goal_rows = []
 	_finale = 0
@@ -479,7 +488,8 @@ func restart() -> void:
 	hud.set_shift(shift)
 
 ## What the daily goals need to know about the player: the open airports, what they spawn, their weather, ordinary shift sizes.
-func goals_ctx() -> Dictionary:
+func goals_ctx(ap: int = -1) -> Dictionary:
+	var a := airport if ap < 0 else ap
 	var open: Array = []
 	var types := {}
 	var weather := {}
@@ -498,7 +508,7 @@ func goals_ctx() -> Dictionary:
 			noeng = true
 	if Save.no_engines_bad:
 		noeng = true
-	return {"open": open, "types": types, "weather": weather, "typical": typical, "t2": t2, "noeng": noeng, "unit": Goals.unit_for(open, Tuning.goal_unit)}
+	return {"ap": a, "open": [a], "types": types, "weather": weather, "typical": typical, "t2": t2, "noeng": noeng, "unit": Goals.unit_for([a], Tuning.goal_unit)}
 
 ## A landing or the end of a shift happened: the goals move along, and what they pay is credited (and noted for the results card).
 func _goal_event(ev: Dictionary) -> void:
@@ -510,6 +520,7 @@ func _goal_event(ev: Dictionary) -> void:
 		return
 	for f in r["finished"]:
 		var g: Dictionary = Save.goals["list"][f["i"]]
+		_goal_xp_pending += int(Progression.XP_GOAL[clampi(int(g["tier"]), 0, 2)])
 		goal_results.append({"text": Goals.text(g, Airports.airport_name(maxi(int(g["ap"]), 0))), "reward": int(f["reward"]), "tier": int(g["tier"])})
 		if screen == SCREEN_PLAY:
 			hud.popup("Goal done!  +%d" % int(f["reward"]), Color(1.0, 0.85, 0.3), Vector2(get_viewport().get_visible_rect().size.x * 0.5, get_viewport().get_visible_rect().size.y * 0.3))
@@ -534,6 +545,8 @@ func _extra_rows(with_toasts: bool) -> Array:
 	var rows: Array = []
 	if goal_streak_row.size() > 0:
 		rows.append(goal_streak_row)
+	if welcome_paid > 0:
+		rows.append({"glyph": "star", "text": "Welcome bonus", "coins": welcome_paid})
 	if goal_chest > 0:
 		rows.append({"glyph": "star", "text": "Bonus chest", "coins": goal_chest})
 	if with_toasts:
@@ -720,6 +733,54 @@ func _tick_toasts(delta: float) -> void:
 	hud.post_banner(t["text"], t["color"], "star", 3.2)
 	_toast_gap = 3.4
 
+## What the parked planes earned since the game was last played: the hangars and the average pay of every airport, from the game's own numbers.
+func _offline_now() -> Dictionary:
+	var caps := []
+	var pays := []
+	for a in Airports.COUNT:
+		caps.append(Ramp.capacity(a))
+		pays.append(Ramp.mean_pay(a))
+	return Save.offline_pending(caps, pays)
+
+var _offline := {"total": 0}                  # the offline income waiting to be collected (the tally screen)
+var _tally: Tally = null
+
+## The welcome-back screen over the menu, once, if the planes earned something while the game was closed.
+func _maybe_tally() -> void:
+	if int(_offline.get("total", 0)) <= 0 or _tally != null:
+		return
+	var lines := []
+	for a in (_offline["per"] as Dictionary):
+		lines.append([Airports.airport_name(int(a)), int((_offline["per"] as Dictionary)[a])])
+	_tally = Tally.new()
+	_tally.art_factory = func() -> Control: return hud.Art.new()
+	hud.add_child(_tally)
+	_tally.build({"total": _offline["total"], "hours": _offline["hours"], "lines": lines}, get_viewport().get_visible_rect().size, Style.safe_bottom)
+	_tally.collected.connect(_collect_tally)
+
+func _collect_tally() -> void:
+	if _tally == null:
+		return
+	var total := int(_offline.get("total", 0))
+	_offline = {"total": 0}
+	Save.add_coins(total)
+	Save.stats["offline_coins"] = int(Save.stats.get("offline_coins", 0)) + total
+	Save.touch()
+	Save.write_file()
+	_tally.queue_free()
+	_tally = null
+	sfx.play("buy")
+	hud.flash(Color(0.6, 1.0, 0.7))
+	if screen == SCREEN_MENU:
+		_show_menu()
+
+func _maybe_tally_later() -> void:
+	if int(_offline.get("total", 0)) > 0 and _tally == null:
+		_later(2, _maybe_tally)
+
+func tally_active() -> bool:
+	return _tally != null
+
 func _show_menu() -> void:
 	preview_kind = ""
 	Boot.mark("menu shown")
@@ -732,6 +793,7 @@ func _show_menu() -> void:
 	hud.mode = ""
 	_goals_for_hud()
 	_check_achievements()
+	_maybe_tally_later()
 	hud.ach_unseen = Save.achievements.size() > int(Save.stats.get("ach_seen", 0))
 	hud.bad_streak = Save.daily_streak("bad")
 	hud.bad_done = Save.daily_done_today("bad")
@@ -1108,6 +1170,9 @@ func _on_landed(p: Aircraft) -> void:
 	if landing_no > Ramp.star_landings() and landing_no <= Ramp.capacity():
 		hangar_fee = roundi(base * Tuning.imp_hangar_fee)
 		extra += hangar_fee
+		if not bool(Save.stats.get("bay_seen_%d" % airport, 0)):          # the first time a plane parks in a bay bought at this airport: say so
+			Save.stats["bay_seen_%d" % airport] = 1
+			hud.post_banner("Your new hangar bay: it parks here instead of on the ramp, and pays a fee", Color(0.6, 1.0, 0.7), "hangar", 3.6)
 	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
 	goal_locked_run = goal_locked_run + 1 if p.locked else 0
 	goal_max_locked = maxi(goal_max_locked, goal_locked_run)
@@ -1409,6 +1474,9 @@ func _end_shift() -> void:
 	_goal_event({"t": "shift", "ap": airport, "landed": shift.landed, "go_arounds": goal_go_arounds, "fines": shift.fines, "stars": shift.stars(), "net": shift.balance(), "hangar_full": shift.landed >= Ramp.star_landings(), "locked_run": goal_max_locked, "weather": goal_weather, "bad": bad_mode})
 	if progress_enabled:
 		_on_progress_shift_end()
+	if not daily_mode and _goal_xp_pending > 0:
+		_award_xp(_goal_xp_pending)
+		_goal_xp_pending = 0
 	if not daily_mode:
 		Save.submit_best(airport, shift.landed)
 	Save.shifts_played += 1
@@ -1419,7 +1487,8 @@ func _end_shift() -> void:
 	over_header = HEADER_DONE
 	_log_go_arounds()
 	new_best = gained["new_best"]
-	last_result = {"header": HEADER_DONE, "reason": _reason_text(), "coins": gained["coins"], "payout": shift.payout(), "stars": shift.stars(), "first_stars": gained["first_stars"], "new_best": new_best, "unlocked": gained["unlocked"]}
+	var coins_before := Save.coins - int(gained["coins"])
+	last_result = {"goal": _nearest_goal(coins_before), "header": HEADER_DONE, "reason": _reason_text(), "coins": gained["coins"], "payout": shift.payout(), "stars": shift.stars(), "first_stars": gained["first_stars"], "new_best": new_best, "unlocked": gained["unlocked"]}
 	over_reason = last_result["reason"]
 	_cancel_drag()
 	hud.set_alert(false)
@@ -1449,6 +1518,12 @@ var goal_weather := false
 var goal_results: Array = []           # the goals this shift finished (for the results card): {"text", "reward"}
 var goal_chest := 0
 var goal_streak_text := ""
+var _event_counted := false             # this shift has already counted toward the weekly event
+var welcome_paid := 0                  # the welcome floor's top-up in this shift's pay (a row on the results card)
+var xp_this_shift := 0                 # XP this shift has earned (landings, clean sheet, stars, goals), at the airport played
+var _xp_paid := 0                      # ...of the shift's own XP (landings, clean sheet, stars) already credited (a refund settles again)
+var _goal_xp_pending := 0              # XP of goals finished during the shift: credited at its end, so the airport never levels up mid-shift
+var level_ups: Array = []              # the airport levels this shift reached: Save.add_xp's unlock entries
 
 ## Run `c` after `frames` frames: work that is not part of drawing a screen waits for the frames after it.
 func _later(frames: int, c: Callable) -> void:
@@ -1466,8 +1541,14 @@ func _stinger_later(sound: String) -> void:
 ## Safe to call again after a refund: it pays only the difference, and each star and daily bonus only once.
 func _settle() -> Dictionary:
 	var payout := shift.payout()
-	var coins := payout - _paid_payout
-	_paid_payout = payout
+	# A welcome floor: the first two shifts at an airport pay at least this much (a share of its first improvement's price), so a player who struggles
+	# is still a shift or two from the first thing to buy (the average player has it after one).
+	var welcome_total := 0
+	if not daily_mode and Save.airport_plays[airport] < Tuning.welcome_shifts:
+		welcome_total = maxi(roundi(Tuning.welcome_floor_share * float(Improvements.cost(airport, "hangar", 0))) - payout, 0)
+	welcome_paid = welcome_total
+	var coins := payout + welcome_total - _paid_payout
+	_paid_payout = payout + welcome_total
 	var first_stars := 0
 	var stars := shift.stars()
 	var open_before := PackedByteArray()
@@ -1490,6 +1571,20 @@ func _settle() -> Dictionary:
 			coins += bonus
 			note = "\nBad day bonus|+%d (streak %d)" % [bonus, streak_now]
 			_daily_note = note
+	if not daily_mode:       # the shift's XP at this airport: landings, a clean sheet, the star objectives it met (every time, not only the first)
+		var xp_total := Progression.shift_xp(shift.landed, shift.fines == 0, [stars >= 1, stars >= 2, stars >= 3], [])
+		_award_xp(xp_total - _xp_paid)
+		_xp_paid = xp_total
+		if progress_enabled and not _event_counted and shift.landed >= 1:
+			_event_counted = true
+			var open_ids: Array = []
+			for ai in Airports.COUNT:
+				if Save.airport_open(ai):
+					open_ids.append(ai)
+			var ev_name: String = str(Airports.event.get("name", "Weekly event"))
+			for er in Save.event_add_shift(stars, Goals.unit_for(open_ids, 1.0)):
+				var etxt := "%s: reward %d" % [ev_name, int(er["i"]) + 1]
+				_toast("%s  +%d" % [etxt, int(er["coins"])], Color(1.0, 0.75, 0.4), {"glyph": "star", "text": etxt, "coins": int(er["coins"])})
 	Save.add_coins(coins)
 	var is_best := (not daily_mode) and Save.submit_best_coins(airport, payout)
 	Save.write_file()
@@ -1498,6 +1593,47 @@ func _settle() -> Dictionary:
 		if open_before[i] == 0 and Save.airport_open(i):
 			unlocked.append(i)
 	return {"coins": coins, "first_stars": first_stars, "new_best": is_best, "note": note, "unlocked": unlocked}
+
+## The nearest goal after a shift, for the results card: the cheapest improvement that can be bought here (a bar to its price, filling from where the bank was
+## before the shift to where it is now), or the next airport level when that is closer. {"text", "glyph", "frac0", "frac1", "tail", "ready"}.
+func _nearest_goal(coins_before: int) -> Dictionary:
+	var ap := airport
+	var coin_goal := {}
+	for iid in Improvements.IDS:
+		if Save.imp_unlocked(ap, iid):
+			var p := Improvements.cost(ap, iid, Save.imp_level(ap, iid))
+			if coin_goal.is_empty() or p < int(coin_goal["price"]):
+				coin_goal = {"price": p, "name": "%s %d" % [Improvements.improvement_name(iid), Save.imp_level(ap, iid) + 1]}
+	var xp := Save.ap_progress(ap)
+	var coin_frac := minf(float(Save.coins) / float(coin_goal["price"]), 1.0) if not coin_goal.is_empty() else -1.0
+	var first := Save.imp_total(ap) == 0
+	if not coin_goal.is_empty() and (first or Save.coins >= int(coin_goal["price"]) or coin_frac >= float(xp["frac"]) or int(xp["need"]) <= 0):
+		var have := Save.coins
+		var price: int = coin_goal["price"]
+		if have >= price:
+			return {"text": str(coin_goal["name"]), "glyph": "coin", "frac0": minf(float(coins_before) / float(price), 1.0), "frac1": 1.0, "tail": "Ready to buy!", "ready": true}
+		return {"text": "%d coins to %s" % [price - have, coin_goal["name"]], "glyph": "coin", "frac0": minf(float(coins_before) / float(price), 1.0), "frac1": coin_frac, "tail": "%d more" % (price - have), "ready": false}
+	if int(xp["need"]) > 0:
+		var left := int(xp["left"])
+		var before := maxf(float(int(xp["into"]) - xp_this_shift), 0.0) / float(xp["need"])
+		return {"text": "%d XP to level %d" % [left, int(xp["level"]) + 1], "glyph": "star", "frac0": before, "frac1": float(xp["frac"]), "tail": "%d XP" % left, "ready": false}
+	return {}
+
+## Credit XP at the airport being played; each level it reaches is a row on the results card (with what it unlocks) and a banner.
+func _award_xp(n: int) -> void:
+	if n <= 0:
+		return
+	xp_this_shift += n
+	var r := Save.add_xp(airport, n, progress_enabled)
+	for h in r["half"]:
+		var htxt := "Halfway to level %d" % (int(h["level"]) + 1)
+		_toast("%s  +%d" % [htxt, int(h["coins"])], Color(1.0, 0.85, 0.4), {"glyph": "star", "text": htxt, "coins": int(h["coins"])})
+	for u in r["unlocks"]:
+		level_ups.append(u)
+		var txt := "Level %d: %s" % [int(u["level"]), str(u["title"])]
+		_toast("%s  \u00b7  %s" % [Airports.airport_name(airport), txt], Color(0.55, 0.9, 1.0), {"glyph": "airport", "text": txt, "coins": 0})
+		if u.has("opens"):
+			Save.write_file()
 
 ## After a shift: how many go-arounds were signalled and how many the player cancelled by redrawing a cleaner final in time, printed to the
 ## console (the browser's, on the web) so the window can be tuned: the share is the human cancel rate.
@@ -1531,6 +1667,7 @@ func _show_results(doubled: bool) -> void:
 	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
 	hud.ramp_note = airfield.ramp.summary() if airfield.ramp_active or airfield.ramp.landed > 0 else ""
 	hud.goal_rows = _extra_rows(true)
+	hud.goal_strip = last_result.get("goal", {})
 	toast_queue.clear()
 	hud.show_results(HEADER_DONE, last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_coins_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], doubled)
 	hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
@@ -1637,7 +1774,7 @@ func _touch_down(index: int, pos: Vector2) -> void:
 		hud.skip_animations()         # a tap on the empty screen finishes the reveal; the buttons do the rest
 		return
 	if screen == SCREEN_DETAIL:
-		if pos.y < get_viewport().get_visible_rect().size.y * 0.667:
+		if pos.y < get_viewport().get_visible_rect().size.y * DETAIL_SPLIT:
 			_dt_touch[index] = pos          # (a finger on the live field: it pans, two of them pinch)
 			_dt_dist = _dt_fingers_dist()
 		return
@@ -1839,7 +1976,7 @@ func _tick_imp_hold(delta: float) -> void:
 func buy_improvement(airport_i: int, id: String) -> bool:
 	if not Save.buy_improvement(airport_i, id):
 		return false
-	airfield.show_upgrades()
+	airfield.show_upgrades(true)
 	sfx.play("buy")
 	hud.flash(Color(0.4, 1.0, 0.6))
 	var vp := get_viewport().get_visible_rect().size
@@ -1848,6 +1985,9 @@ func buy_improvement(airport_i: int, id: String) -> bool:
 		_vibrate(40, Haptics.MEDIUM)
 	if screen == SCREEN_DETAIL and detail_airport == airport_i:
 		_show_detail()
+		var first := Save.imp_total(airport_i) == 1
+		if hud.detail_sheet() != null:
+			hud.detail_sheet().peek(1.6 if first else 0.9)          # (the sheet fades away for a moment: the new building grows on the field behind it)
 	return true
 
 ## Buy the next level of an upgrade: coins, saved, and visible on the airport (the radar re-frames the view).
@@ -2222,16 +2362,51 @@ func _show_detail() -> void:
 		var lv := Save.imp_level(i, iid)
 		var mx := Improvements.max_level(iid)
 		imps.append({"id": iid, "name": Improvements.improvement_name(iid), "level": lv, "max": mx, "price": Improvements.cost(i, iid, lv),
-			"now": Improvements.effect_text(iid, lv) if lv > 0 else "", "next": Improvements.effect_text(iid, lv + 1) if lv < mx else ""})
+			"now": Improvements.short_effect(iid, lv) if lv > 0 else "", "next": Improvements.short_effect(iid, lv + 1) if lv < mx else "",
+			"locked": lv < mx and not Save.imp_unlocked(i, iid), "gate": Progression.imp_gate(lv + 1, iid) if lv < mx else 0})
 	var mp := Mastery.progress(i, Save.mastery_landings(i))
-	hud.show_detail({
+	var nx := Progression.next_unlock(i, Save.ap_level(i))
+	var es := Save.event_state()
+	var next_pts := 0
+	for ti in Rhythm.TRACK.size():
+		if not bool(es["claimed"][ti]):
+			next_pts = int(Rhythm.TRACK[ti]["points"])
+			break
+	var event_info := {"name": str(es["event"]["name"]), "text": str(es["event"]["text"]), "points": int(es["points"]), "next": next_pts}
+	var info_extra := {"event": event_info, "split": DETAIL_SPLIT, "level": Save.ap_progress(i), "next": nx, "star_names": Progression.STAR_NAMES[i], "daily": _daily_for_detail(i)}
+	if Save.imp_total(i) == 0 and Save.airport_open(i):
+		var fg := _first_goal(i)
+		if not fg.is_empty():
+			info_extra["first_goal"] = fg
+	var info := {
 		"rank": mp["rank"], "into": mp["into"], "need": mp["need"], "frac": mp["frac"], "landings": Save.mastery_landings(i),
 		"tab": detail_tab, "imps": imps, "imp_sel": imp_selected, "bank": Save.coins, "hangar": Ramp.capacity(i),
-		"i": i, "name": Airports.airport_name(i), "tag": Airports.tag(i), "open": Save.airport_open(i), "lock": Airports.unlock_stars(i),
+		"i": i, "name": Airports.airport_name(i), "tag": Airports.tag(i), "open": Save.airport_open(i), "lock": Progression.GATE_LEVEL,
 		"stars": Save.stars_of(i), "best": Save.best_for(i), "coins": th, "land": need,
 		"no_engines": Save.no_engines_at[i] != 0, "no_engines_ok": Save.stars_of(i) >= 3 and Save.airport_open(i),
 		"no_engines_mult": Tuning.no_engines_pay_mult,
-	})
+		"lock_text": _lock_text(i),
+	}
+	info.merge(info_extra)
+	hud.show_detail(info)
+
+## What a closed airport says it needs: "Reach level 8 at County".
+func _lock_text(i: int) -> String:
+	return "Reach level %d at %s" % [Progression.GATE_LEVEL, Airports.airport_name(maxi(i - 1, 0))]
+
+## The first thing to buy at an airport and what it costs (the detail screen's "first goal"): the hangar bay.
+func _first_goal(i: int) -> Dictionary:
+	var p := Improvements.cost(i, "hangar", 0)
+	if p < 0:
+		return {}
+	return {"name": Improvements.improvement_name("hangar"), "price": p, "have": Save.coins}
+
+## Today's goals at an airport for its detail screen: [{"text", "reward", "done"}].
+func _daily_for_detail(i: int) -> Array:
+	var out := []
+	for g in (Save.goals_for(i, goals_ctx(i)).get("list", []) as Array):
+		out.append({"text": Goals.text(g, Airports.airport_name(maxi(int(g["ap"]), 0))), "reward": int(g["reward"]), "done": bool(g["done"])})
+	return out
 
 func _mastery_for_hud() -> void:
 	var ranks := []
@@ -2393,7 +2568,7 @@ func _update_camera() -> void:
 	camera.position = Vector3(0, cos(tilt), sin(tilt)) * 30.0
 	if k > 0.0:        # the detail screen: the field sits in the top two thirds (the camera moves south), shifted by the player's pan
 		var vp := get_viewport().get_visible_rect().size
-		var down := vp.y / 6.0 * (size_now / vp.x) / cos(tilt)
+		var down := vp.y * (0.5 - DETAIL_SPLIT * 0.5) * (size_now / vp.x) / cos(tilt)
 		camera.position += Vector3(detail_pan.x * k, 0.0, (down + detail_pan.y) * k)
 	camera.rotation = Vector3(-(PI / 2 - tilt), 0, 0)
 

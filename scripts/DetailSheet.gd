@@ -206,7 +206,7 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var keep_scroll := scroll.scroll_vertical if (scroll != null and is_instance_valid(scroll)) else 0
 	var improve: bool = bool(info["open"]) and int(info.get("tab", 0)) == 1
-	var y0 := 0.0 if improve else vp.y * 0.667       # (the Improve sheet is the whole screen: a list needs the height)
+	var y0 := 0.0 if improve else vp.y * float(info.get("split", 0.667))       # (the Improve sheet is the whole screen: a list needs the height)
 	position = Vector2(0.0, y0)
 	size = Vector2(vp.x, vp.y - y0)
 	holds.clear()
@@ -278,32 +278,21 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 		tabs.add_child(_chip("dtab:1", "Improve", "upgrades", 2 if tab == 1 else 0, tap))
 
 	# ---- the tab's content ----
-	if tab == 0 or locked:
+	if tab == 0 and not locked:
+		_glance(body, info, tap)
+	elif locked:
 		var stars_row := hbox(8)
 		body.add_child(stars_row)
 		for k in 3:
 			var cellv := vbox(6)
 			_fill(cellv)
 			stars_row.add_child(cellv)
-			var have: bool = k < int(info["stars"]) and not locked
 			var ic := Icon.new()
-			ic.setup("star" if have else "star_off", 64.0, art_factory)
+			ic.setup("star_off", 64.0, art_factory)
 			ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			cellv.add_child(ic)
 			var htxt := ("Land %d" % int(info["land"][0])) if k == 0 else ("Net %d" % int(info["coins"][k]))
-			cellv.add_child(label(htxt, 32, Style.TEXT if not locked else Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.display()))
-			if k == 0:
-				cellv.add_child(label("and finish the shift", 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text(), "caption"))
-			else:
-				var cr := hbox(6)
-				cr.alignment = BoxContainer.ALIGNMENT_CENTER
-				var ci := Icon.new()
-				ci.setup("coin", 28.0, art_factory)
-				cr.add_child(ci)
-				cr.add_child(label("after fines", 24, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, false, Style.text(), "caption"))
-				cellv.add_child(cr)
-	if not locked and tab == 0:
-		body.add_child(label("Hangar %d, profit after %d landings" % [int(info["hangar"]), int(info["land"][0])], 28, Style.TEXT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text()))
+			cellv.add_child(label(htxt, 32, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.display()))
 	if improve:
 		for im in info["imps"]:
 			body.add_child(_imp_row(i, im, str(info.get("imp_sel", "")) == str(im["id"]), int(info["bank"]), tap))
@@ -328,7 +317,7 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 		li.setup("lock", 48.0, art_factory)
 		pr.add_child(li)
 		var n := int(info["lock"])
-		var ul := label("Unlock with %d %s" % [n, "star" if n == 1 else "stars"], 40, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, true, Style.display())
+		var ul := label(str(info.get("lock_text", "Unlock with %d %s" % [n, "star" if n == 1 else "stars"])), 40, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, true, Style.display())
 		_fill(ul)
 		pr.add_child(ul)
 		var si := Icon.new()
@@ -344,6 +333,79 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 	settle()
 	if improve and keep_scroll > 0:
 		scroll.scroll_vertical = keep_scroll
+
+## The airport at a glance (everything on one scroll, nothing to dig for): the level and its bar, the next unlock, the first goal (until something is
+## bought here), the three star objectives, the mastery rank, today's goals and the No engines switch.
+func _glance(body: VBoxContainer, info: Dictionary, tap: float) -> void:
+	var lv: Dictionary = info["level"]
+	# ---- the level, and how far to the next ----
+	var lrow := hbox(16)
+	body.add_child(lrow)
+	var big := label("Level %d" % int(lv["level"]), Style.SZ_M, Style.TEXT, HORIZONTAL_ALIGNMENT_LEFT, false, Style.display())
+	lrow.add_child(big)
+	var lcol := vbox(4)
+	_fill(lcol)
+	lcol.custom_minimum_size.x = 8.0
+	lcol.alignment = BoxContainer.ALIGNMENT_CENTER
+	lrow.add_child(lcol)
+	var ltxt := "%d XP to level %d" % [int(lv["left"]), int(lv["level"]) + 1] if int(lv["need"]) > 0 else "Top level"
+	lcol.add_child(label(ltxt, Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_RIGHT, true, Style.text(), "caption"))
+	var lbar := Bar.new()
+	lbar.frac = float(lv["frac"])
+	lbar.top = int(lv["need"]) <= 0
+	lcol.add_child(lbar)
+	# ---- the next unlock ----
+	var nx: Dictionary = info["next"]
+	if not nx.is_empty():
+		body.add_child(_card("upgrades", "Level %d: %s" % [int(nx["level"]), str(nx["title"])], str(nx["detail"])))
+	# ---- the first goal ----
+	if info.has("first_goal"):
+		var fg: Dictionary = info["first_goal"]
+		var c := _card("coin", "First goal: %s for %d" % [str(fg["name"]), int(fg["price"])], "You have %d: %s" % [int(fg["have"]), "enough, buy it on the Improve tab" if int(fg["have"]) >= int(fg["price"]) else "%d to go" % (int(fg["price"]) - int(fg["have"]))], true)
+		body.add_child(c)
+	# ---- the three star objectives ----
+	var names: Array = info["star_names"]
+	for k in 3:
+		var have: bool = k < int(info["stars"])
+		var req := "Land %d and finish the shift" % int(info["land"][0]) if k == 0 else "Net %d after fines" % int(info["coins"][k])
+		body.add_child(_card("star" if have else "star_off", str(names[k]), "%s  \u00b7  +%d XP each shift" % [req, int(Progression.XP_STAR[k])]))
+	body.add_child(label("Hangar %d, profit after %d landings" % [int(info["hangar"]), int(info["land"][0])], Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text(), "caption"))
+	_extras(body, info, tap)
+	# ---- the weekly event ----
+	if info.has("event"):
+		var ev: Dictionary = info["event"]
+		var prog := "%d points" % int(ev["points"]) + ("  \u00b7  next reward at %d" % int(ev["next"]) if int(ev["next"]) > 0 else "  \u00b7  every reward earned")
+		body.add_child(_card("flame", "This week: %s" % str(ev["name"]), "%s  \u00b7  %s" % [str(ev["text"]), prog]))
+	# ---- today's goals at this airport ----
+	if info.has("daily"):
+		for g in info["daily"]:
+			body.add_child(_card("check" if bool(g["done"]) else "daily", str(g["text"]), "%s  \u00b7  +%d coins" % ["Done" if bool(g["done"]) else "Today", int(g["reward"])]))
+
+## A read-only card: a picture, a line and a smaller line under it.
+func _card(glyph: String, title: String, sub: String, accent: bool = false) -> PanelContainer:
+	var pc := PanelContainer.new()
+	pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := Style.box(Style.SURFACE_DARK, Style.ORANGE if accent else Style.EDGE, Style.R_M, 5 if accent else 0, not accent)
+	sb.content_margin_left = 20.0
+	sb.content_margin_right = 20.0
+	sb.content_margin_top = 12.0
+	sb.content_margin_bottom = 12.0
+	pc.add_theme_stylebox_override("panel", sb)
+	pc.custom_minimum_size.y = 64.0 * Style.px_per_pt
+	var r := hbox(16)
+	pc.add_child(r)
+	var ic := Icon.new()
+	ic.setup(glyph, 64.0, art_factory, Style.TEXT)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	r.add_child(ic)
+	var v := vbox(2)
+	_fill(v)
+	v.custom_minimum_size.x = 8.0
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	r.add_child(v)
+	v.add_child(label(title, Style.SZ_BODY, Style.TEXT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "body"))
+	v.add_child(label(sub, Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "caption"))
+	return pc
 
 ## Under the tab's content: the mastery rank (and how far to the next one, over a bar) and the No engines switch.
 func _extras(body: VBoxContainer, info: Dictionary, tap: float) -> void:
@@ -450,7 +512,8 @@ func _improve_header(col: VBoxContainer, info: Dictionary, tap: float) -> void:
 func _imp_row(i: int, im: Dictionary, selected: bool, bank: int, tap: float) -> Chip:
 	var price: int = im["price"]
 	var maxed := price < 0
-	var can := not maxed and bank >= price
+	var locked: bool = bool(im.get("locked", false))
+	var can := not maxed and not locked and bank >= price
 	var c := Chip.new()
 	c.setup("imp:%d:%s" % [i, im["id"]], 2 if selected else 0, 0, maxf(64.0 * Style.px_per_pt, tap), Vector2(18.0, 12.0))
 	c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -478,16 +541,32 @@ func _imp_row(i: int, im: Dictionary, selected: bool, bank: int, tap: float) -> 
 		var now_txt: String = ("Now: " + str(im["now"])) if str(im["now"]) != "" else "Now: not built yet"
 		tv.add_child(label(now_txt, Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "caption"))
 		tv.add_child(label("Level %d: %s" % [int(im["level"]) + 1, str(im["next"])], Style.SZ_CAPTION, Style.ACCENT_DARK, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "caption"))
+	elif locked:
+		tv.add_child(label("%s  \u00b7  needs airport level %d" % [str(im["next"]), int(im["gate"])], Style.SZ_CAPTION, Style.TEXT_QUIET, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "caption"))
 	else:
 		tv.add_child(label(str(im["next"]) if not maxed else "Fully built: " + str(im["now"]), Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "caption"))
 	if maxed:
 		var mx := label("MAX", Style.SZ_BUTTON, Style.ACCENT_DARK, HORIZONTAL_ALIGNMENT_RIGHT, false, Style.display())
 		mx.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(mx)
+	elif locked:
+		row.add_child(_lock_badge(int(im["gate"])))
 	else:
 		row.add_child(_buy_button("impbuy:%d:%s" % [i, im["id"]], price, can, tap))
 	_wire(c)
 	return c
+
+## Where a locked row's cost button would be: a lock and the airport level that opens it.
+func _lock_badge(gate: int) -> Control:
+	var v := hbox(8)
+	v.alignment = BoxContainer.ALIGNMENT_END
+	v.custom_minimum_size.x = 250.0
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var li := Icon.new()
+	li.setup("lock", 44.0, art_factory, Style.TEXT_QUIET)
+	v.add_child(li)
+	v.add_child(label("Level %d" % gate, Style.SZ_BUTTON, Style.TEXT_QUIET, HORIZONTAL_ALIGNMENT_RIGHT, false, Style.text(), "button"))
+	return v
 
 ## The cost button of a row: the price over a fill that runs across it while held (Tuning.buy_hold_seconds), orange when it can be bought.
 func _buy_button(id: String, price: int, can: bool, tap: float) -> Chip:
@@ -509,6 +588,13 @@ func _buy_button(id: String, price: int, can: bool, tap: float) -> Chip:
 	b.add_child(inner)
 	_wire(b)
 	return b
+
+## Fade away for `secs` and come back: a purchase's building grows on the field behind the full-height sheet.
+func peek(secs: float) -> void:
+	var tw := create_tween()
+	tw.tween_property(self, "modulate:a", 0.0, 0.18)
+	tw.tween_interval(maxf(secs - 0.4, 0.1))
+	tw.tween_property(self, "modulate:a", 1.0, 0.22)
 
 ## The fill of a hold-to-buy button (0..1).
 func set_hold(id: String, frac: float) -> void:

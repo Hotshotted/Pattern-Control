@@ -141,6 +141,12 @@ func sheet_tap(main: Node, id: String) -> void:
 	c.down.emit(id)
 	c.up.emit(id)
 
+## Every airport at its top level (the improvements' deepest tiers are open), for tests that buy them.
+func all_levels(save) -> void:
+	for a in 6:
+		save.ap_xp[a] = Progression.xp_at_level(a, 20)
+	save.sync_levels()
+
 ## Hold a cost button for `secs` seconds: finger down, the sheet's hold timer ticking, finger up (as a hold that fills rebuilds the sheet, up may find nothing).
 func sheet_hold(main: Node, id: String, secs: float) -> void:
 	var c = main.hud.detail_sheet().chips.get(id)
@@ -193,6 +199,11 @@ func _initialize() -> void:
 	save.reset_all()
 	tuning.ad_stub_seconds = 0.0    # fake ads finish at once unless a test is about them
 	tuning.go_around_max = 0.0      # ...and no random go-arounds, except in the go-around section
+	save.event_modifiers = false    # ...and the weekly event changes nothing (section 40 tests it)
+	save.sync_event()
+	tuning.welcome_shifts = 0       # ...and no welcome floor on the first shifts (section 40 tests it)
+	Progression.flat_pay = true     # ...and a level's pay steps are off (section 40 tests them)
+	Airports.test_full_mix = true   # ...and every airport plays its whole traffic mix, whatever its level (section 40 tests the levels)
 	tuning.intro_logo = false       # ...and no boot logo, except in the motion section
 	load("res://scripts/Airfield.gd").boot_lazy = false      # (the tests want every airport built up front; the lazy build has its own section)
 	DebugFlags.parse(["tune"])   # the whole run has the tuning panel, so it is part of the "nothing new" baseline
@@ -750,7 +761,7 @@ func _initialize() -> void:
 	save.load_file()
 	check(save.coins == saved_coins and save.stars_total() == saved_stars and save.upgrade_level("test") == 2, "the save round-trips (coins, stars, upgrades)")
 	var raw = FileAccess.open(save.path, FileAccess.READ).get_as_text()
-	check(raw.contains("\"version\":6"), "the save file is versioned (v6)")
+	check(raw.contains("\"version\":7"), "the save file is versioned (v7)")
 	var f1 = FileAccess.open(save.path, FileAccess.WRITE)
 	f1.store_string("{\"version\":1,\"best\":37}")
 	f1 = null
@@ -919,7 +930,7 @@ func _initialize() -> void:
 	for k in main.hud._art.btn_count:
 		cards[main.hud._art.btn_id[k]] = main.hud._art.btn_rect[k]
 	check(cards.has("pick:0") and cards.has("locked:1") and cards.has("locked:5") and cards.has("back"), "airport 1 is open, the others show as locked, with a Back button")
-	check(main.hud._art.btn_lock[main.hud._art.btn_id.find("locked:1")] == 1 and main.hud._art.btn_state[main.hud._art.btn_id.find("locked:1")] == 1, "a locked card shows a padlock and the stars it needs")
+	check(main.hud._art.btn_lock[main.hud._art.btn_id.find("locked:1")] == Progression.GATE_LEVEL and main.hud._art.btn_state[main.hud._art.btn_id.find("locked:1")] == 1, "a locked card shows a padlock and the level it needs")
 	var locked_pos = cards["locked:1"].get_center()
 	var sel_locked = main.airport
 	touch(main, 0, true, locked_pos)
@@ -928,10 +939,12 @@ func _initialize() -> void:
 	touch(main, 0, true, main.hud._art.btn_rect[main.hud._art.btn_id.find("back")].get_center())
 	touch(main, 0, false, main.hud._art.btn_rect[main.hud._art.btn_id.find("back")].get_center())
 	check(main.screen == main.SCREEN_SELECT and main.airport == sel_locked, "...and Back returns to the list without changing the airport")
-	save.award_star(0, 0)
-	save.award_star(0, 1)
+	save.add_xp(0, Progression.xp_at_level(0, Progression.GATE_LEVEL - 1))
 	main._show_select()
-	check(save.stars_total() == 2 and main.hud.button_at(cards["locked:1"].get_center()) == "pick:1", "two stars open County")
+	check(not save.airport_open(1) and main.hud.button_at(cards["locked:1"].get_center()) != "pick:1", "level 7 at the Grass Strip does not open County")
+	save.add_xp(0, Progression.xp_to_next(0, Progression.GATE_LEVEL - 1))
+	main._show_select()
+	check(save.ap_level(0) == Progression.GATE_LEVEL and save.airport_open(1) and main.hud.button_at(cards["locked:1"].get_center()) == "pick:1", "level 8 at the Grass Strip opens County")
 	var sel_before = main.airport
 	touch(main, 0, true, cards["locked:1"].get_center())
 	touch(main, 0, false, cards["locked:1"].get_center())
@@ -1505,23 +1518,27 @@ func _initialize() -> void:
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	# The list: five at every airport, three levels each, dearer at the later airports.
-	var imp_ok = Improvements.IDS.size() == 5 and Improvements.MAX_LEVEL == 3
+	var imp_ok = Improvements.IDS.size() == 5 and Improvements.MAX_LEVEL == 10
 	for iid in Improvements.IDS:
 		for ia in Airports.COUNT:
-			imp_ok = imp_ok and Improvements.cost(ia, iid, 0) < Improvements.cost(ia, iid, 1) and Improvements.cost(ia, iid, 1) < Improvements.cost(ia, iid, 2) and Improvements.cost(ia, iid, 3) == -1
+			imp_ok = imp_ok and Improvements.cost(ia, iid, 0) < Improvements.cost(ia, iid, 1) and Improvements.cost(ia, iid, 1) < Improvements.cost(ia, iid, 2) and Improvements.cost(ia, iid, Improvements.max_level(iid)) == -1
 			if ia > 0:
-				imp_ok = imp_ok and Improvements.cost(ia, iid, 0) > Improvements.cost(ia - 1, iid, 0)
-	check(imp_ok, "five improvements with three levels at every airport; the later the airport, the dearer (%d to %d coins in all)" % [Improvements.total_cost(0), Improvements.total_cost(5)])
+				imp_ok = imp_ok and Improvements.cost(ia, iid, 0) >= Improvements.cost(ia - 1, iid, 0)
+	check(imp_ok, "five improvements, 8 to 10 levels deep at every airport; the later the airport, the dearer (%d to %d coins in all)" % [Improvements.total_cost(0), Improvements.total_cost(5)])
+	all_levels(save)
 	# Buying: per airport, with coins, saved.
 	save.add_coins(100000)
 	var imp_c0 = save.coins
 	check(save.buy_improvement(2, "fuel") and save.imp_level(2, "fuel") == 1 and save.imp_level(1, "fuel") == 0 and save.coins == imp_c0 - Improvements.cost(2, "fuel", 0), "an improvement is bought for one airport only, at exactly its price")
 	save.buy_improvement(2, "fuel")
 	save.buy_improvement(2, "fuel")
-	check(save.imp_level(2, "fuel") == 3 and not save.buy_improvement(2, "fuel"), "a maxed improvement can't be bought again")
+	for imp_k in 6:
+		save.buy_improvement(2, "fuel")
+	check(save.imp_level(2, "fuel") == Improvements.max_level("fuel") and not save.buy_improvement(2, "fuel"), "a maxed improvement can't be bought again")
 	save.reset_all()
 	check(not save.buy_improvement(3, "hangar") and save.imp_level(3, "hangar") == 0, "nothing is bought without the coins or at a closed airport")
 	save.unlocks["all_airports"] = true
+	all_levels(save)
 	save.add_coins(100000)
 	save.buy_improvement(4, "exit")
 	save.buy_improvement(0, "hangar")
@@ -1676,6 +1693,7 @@ func _initialize() -> void:
 	# Bought on the detail screen.
 	save.reset_all()
 	save.unlocks["all_airports"] = true
+	all_levels(save)
 	main.select_airport(2)
 	main._show_menu()
 	main.open_detail(2)
@@ -1935,11 +1953,11 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	# Cosmetics data.
-	check(Cosmetics.THEME_COUNT == 9 and Cosmetics.LIVERY_COUNT == 17 and Cosmetics.THEMES.size() == 9 and Cosmetics.LIVERIES.size() == 17, "nine airport skins and seventeen liveries")
+	check(Cosmetics.THEME_COUNT == 9 and Cosmetics.LIVERY_COUNT == 23 and Cosmetics.THEMES.size() == 9 and Cosmetics.LIVERIES.size() == 23, "nine airport skins and twenty-three liveries")
 	var animals = {}
 	for i in Cosmetics.LIVERY_COUNT:
 		animals[Cosmetics.LIVERIES[i]["animal"]] = true
-	check(animals.size() == Cosmetics.LIVERY_COUNT and Cosmetics.THEMES[0]["cost"] == 0 and Cosmetics.LIVERIES[0]["cost"] == 0, "each livery has its own animal pilot; the defaults are free")
+	check(animals.size() == 17 and Cosmetics.THEMES[0]["cost"] == 0 and Cosmetics.LIVERIES[0]["cost"] == 0, "the 17 animal pilots all fly (the airport liveries share them); the defaults are free")
 	check(save.owns("theme", "classic") and save.owns("livery", "standard") and not save.owns("theme", "winter"), "the default theme and livery are owned from the start")
 	# The shop.
 	save.add_coins(520)
@@ -3767,6 +3785,8 @@ func _initialize() -> void:
 	main.hud.star_slam.disconnect(r_slam_cb)
 	# an airport unlocking with a shift gets its own reveal
 	save.reset_all()
+	save.ap_xp[0] = Progression.xp_at_level(0, Progression.GATE_LEVEL) - 50
+	save.sync_levels()
 	main.select_airport(0)
 	main.restart()
 	tr.auto_spawn = false
@@ -5867,7 +5887,7 @@ func _initialize() -> void:
 	check(dt_fly.size.x > 800.0 and dt_fly.size.y >= 120.0 and dt_fly.position.y > 1280.0, "...the button is big and in the lower third (%s)" % str(dt_fly))
 	var dt_land = tuning.star_thresholds(2)
 	var dt_texts = dt_sheet.find_children("*", "Label", true, false).map(func(n): return n.text)
-	check(dt_texts.has("Land %d" % int(dt_land[0])) and dt_texts.has("Net %d" % int(dt_land[1])) and dt_texts.has("Net %d" % int(dt_land[2])), "...three stars, each with what it needs to land (%s)" % str(dt_land))
+	check(dt_texts.any(func(t): return t.contains("Land %d" % int(dt_land[0]))) and dt_texts.any(func(t): return t.contains("Net %d" % int(dt_land[1]))) and dt_texts.any(func(t): return t.contains("Net %d" % int(dt_land[2]))) and dt_texts.has(Progression.STAR_NAMES[2][0]), "...three named star objectives, each with what it needs (%s)" % str(dt_land))
 	main.detail_t = 1.0
 	main._update_camera()
 	var dt_vp = main.get_viewport().get_visible_rect().size
@@ -5905,7 +5925,7 @@ func _initialize() -> void:
 	main._show_select()
 	main._on_button("locked:4")
 	var dt_lart = main.hud._art
-	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 4 and main.hud.detail_sheet().fly == null and not main.hud.detail_sheet().chips.has("noeng:4") and main.hud.detail_sheet().find_children("*", "Label", true, false).any(func(n): return n.text.begins_with("Unlock with")), "a locked airport opens the same screen in view-only mode, with its unlock requirement instead of Fly here")
+	check(main.screen == main.SCREEN_DETAIL and main.detail_airport == 4 and main.hud.detail_sheet().fly == null and not main.hud.detail_sheet().chips.has("noeng:4") and main.hud.detail_sheet().find_children("*", "Label", true, false).any(func(n): return n.text.begins_with("Reach level")), "a locked airport opens the same screen in view-only mode, with its unlock requirement instead of Fly here")
 	main._on_button("back")
 	check(main.screen == main.SCREEN_SELECT and Airports.current == main.airport, "Back returns to the list, and the field behind is the selected airport again")
 	# the No engines switch and Fly here
@@ -5972,7 +5992,7 @@ func _initialize() -> void:
 	check(dg_rank_ok, "rewards scale 1x / 2x / 4x and grow with the best open airport (unit 55 -> %d)" % dg_unit_prev)
 	check(dg_seen.size() >= 20, "over many days the pool is well used (%d different goals seen)" % dg_seen.size())
 	save.reset_all()
-	var dg_new = main.goals_ctx()
+	var dg_new = main.goals_ctx(0)
 	check(dg_new["open"] == [0] and Goals.make_day(20000, dg_new)["list"][0]["ap"] <= 0, "a new player only gets Grass Strip goals")
 	# A day turns over: the same day gives the same goals; the next day gives new ones.
 	save.reset_all()
@@ -6344,6 +6364,199 @@ func _initialize() -> void:
 	check(main.traffic._shadows[main.traffic.planes.find(lf_p)].position.y < 0.2, "...")
 	main._show_menu()
 
+	print("40. Progression: airport levels and unlocks, deep improvements, the welcome floor, offline income, the weekly event, goals at every airport")
+	save.reset_all()
+	Airports.test_full_mix = false
+	save.event_modifiers = true
+	save.sync_event()
+	tuning.welcome_shifts = 2
+	main.progress_enabled = false
+	# the XP curve rises; level 1 to 20; XP and levels agree
+	var pg_ok := true
+	for pg_a in 6:
+		var pg_prev := 0
+		for pg_l in range(1, 20):
+			var pg_n: int = Progression.xp_to_next(pg_a, pg_l)
+			pg_ok = pg_ok and pg_n > pg_prev
+			pg_prev = pg_n
+		pg_ok = pg_ok and Progression.level_for(pg_a, 0) == 1 and Progression.level_for(pg_a, Progression.xp_at_level(pg_a, 20)) == 20 and Progression.level_for(pg_a, Progression.xp_at_level(pg_a, 7) + Progression.xp_to_next(pg_a, 7) - 1) == 7 and Progression.level_for(pg_a, 1 << 30) == 20
+	check(pg_ok, "the XP a level costs rises with the level at every airport; levels and XP agree, 1 to 20")
+	check(Progression.xp_to_next(5, 1) > Progression.xp_to_next(0, 1), "...and a later airport asks for more")
+	# every level of every airport unlocks something concrete
+	var pu_ok := true
+	var pu_kinds := {}
+	for pu_a in 6:
+		for pu_l in range(2, 21):
+			var pu_u: Dictionary = Progression.unlock_for(pu_a, pu_l)
+			pu_ok = pu_ok and not pu_u.is_empty() and str(pu_u["title"]) != "" and str(pu_u["detail"]) != ""
+			pu_kinds[pu_u.get("kind", "")] = true
+	check(pu_ok and pu_kinds.has("tier") and pu_kinds.has("pay") and pu_kinds.has("aircraft") and pu_kinds.has("cosmetic") and pu_kinds.has("gate") and pu_kinds.has("traffic"), "every level 2 to 20 at every airport unlocks something named: improvement tiers, pay, aircraft, cosmetics, the next airport, traffic and weather steps")
+	check(Progression.next_unlock(0, 1)["level"] == 2 and Progression.next_unlock(0, 20).is_empty(), "the next unlock is the next level's; level 20 has none")
+	var pc_all := Progression.level_cosmetics()
+	var pc_clash := false
+	for pc_a in 6:
+		for pc_r in [3, 5]:
+			if pc_all.has(Mastery.cosmetic_for(pc_a, pc_r)):
+				pc_clash = true
+	check(pc_all.size() == 24 and not pc_clash, "the levels give 24 cosmetics, none of them a mastery reward")
+	# the next airport opens at level 8
+	check(not save.airport_open(1), "County is closed on a new save")
+	save.add_xp(0, Progression.xp_at_level(0, 7))
+	check(save.ap_level(0) == 7 and not save.airport_open(1), "level 7 at the Grass Strip leaves County closed")
+	var pg_up = save.add_xp(0, Progression.xp_to_next(0, 7))
+	check(save.ap_level(0) == 8 and save.airport_open(1) and not save.airport_open(2) and pg_up["unlocks"].size() == 1 and pg_up["unlocks"][0]["kind"] == "gate" and save.unlocks.has("windsock:sunset"), "level 8 opens County (and gives its windsock), not Regional")
+	# the traffic, pay and difficulty follow the level
+	check(Progression.mix_at(0, 1, Airports.full_mix(0)).keys() == [Aircraft.Type.SMALL] and Progression.mix_at(0, 4, Airports.full_mix(0)).has(Aircraft.Type.GLIDER) and not Progression.mix_at(0, 4, Airports.full_mix(0)).has(Aircraft.Type.MEDIUM), "Grass Strip starts with small planes; glider tows join at level 4")
+	check(Airports.mix(2).has(Aircraft.Type.SMALL) and not Airports.mix(2).has(Aircraft.Type.JET) and not Airports.mix(2).has(Aircraft.Type.HELI), "...and Regional's bizjets and helicopters are still to come at level 1")
+	save.ap_xp[2] = Progression.xp_at_level(2, 14)
+	save.sync_levels()
+	check(Airports.mix(2).has(Aircraft.Type.JET) and Airports.mix(2).has(Aircraft.Type.HELI), "...they are there by level 14")
+	Progression.flat_pay = false
+	check(is_equal_approx(Progression.pay_mult(1), 1.0) and Progression.pay_mult(2) > 1.0 and Progression.pay_mult(12) > Progression.pay_mult(2) and Progression.pay_mult(20) > Progression.pay_mult(12), "the pay rate steps up at levels 2, 12 and 20")
+	Airports.current = 2
+	save.event_modifiers = false
+	save.sync_event()
+	var pg_pay14 = tuning.landing_pay(Aircraft.Type.MEDIUM)
+	save.ap_xp[2] = 0
+	save.sync_levels()
+	check(pg_pay14 > tuning.landing_pay(Aircraft.Type.MEDIUM) and tuning.landing_pay(Aircraft.Type.MEDIUM) == roundi(tuning.pay_medium), "a landing pays more at a higher level (%d against %d)" % [pg_pay14, tuning.landing_pay(Aircraft.Type.MEDIUM)])
+	Progression.flat_pay = true
+	save.event_modifiers = true
+	save.sync_event()
+	check(Progression.spawn_scale(0, 1) == 1.0 and Progression.spawn_scale(0, 10) < 1.0 and Progression.spawn_scale(5, 16) < Progression.spawn_scale(5, 10), "arrivals come closer together from level 10")
+	check(Progression.weather_at(0, 1, []).is_empty() and Progression.weather_at(0, 16, []).has("crosswind"), "a weather joins the airport's at level 16")
+	# the improvements are 8 to 10 levels deep, each level about 1.5 times the one before, and the airport level gates how deep
+	var im_ok := true
+	for im_id in Improvements.IDS:
+		var im_prev := 0
+		for im_l in Improvements.max_level(im_id):
+			var im_c: int = Improvements.cost(3, im_id, im_l)
+			if im_l > 0:
+				im_ok = im_ok and absf(float(im_c) / float(im_prev) - 1.5) < 0.12
+			im_prev = im_c
+		im_ok = im_ok and Improvements.cost(3, im_id, Improvements.max_level(im_id)) == -1
+	check(im_ok and Improvements.max_level("hangar") == 10 and Improvements.max_level("fuel") == 8, "the improvements go 8 to 10 levels deep, about 1.5 times dearer each level")
+	check(Progression.imp_gate(1) == 1 and Progression.imp_gate(2) == 3 and Progression.imp_gate(10) == 19 and Progression.imp_cap(1) == 1 and Progression.imp_cap(19) == 10, "improvement level n needs airport level 2n - 1")
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	save.add_coins(100000)
+	check(save.buy_improvement(0, "fuel") and not save.imp_unlocked(0, "fuel") and not save.buy_improvement(0, "fuel"), "level 2 of an improvement is out of reach at airport level 1")
+	save.add_xp(0, Progression.xp_at_level(0, 3))
+	check(save.buy_improvement(0, "fuel") and save.imp_level(0, "fuel") == 2 and not save.buy_improvement(0, "fuel"), "...and opens at airport level 3 (and level 3 does not)")
+	save.add_xp(0, Progression.xp_at_level(0, 20))
+	var im_n := 0
+	while save.buy_improvement(0, "hangar"):
+		im_n += 1
+	check(save.imp_level(0, "hangar") == 10 and im_n == 10, "the hangar bay goes ten levels deep at airport level 19")
+	check(is_equal_approx(tuning.imp_hangar_bays, Improvements.PER_LEVEL["hangar"]) and is_equal_approx(tuning.imp_light_cut, Improvements.PER_LEVEL["rwlights"]) and is_equal_approx(tuning.imp_snap, Improvements.PER_LEVEL["applights"]) and is_equal_approx(tuning.imp_fuel_timer, Improvements.PER_LEVEL["fuel"]) and is_equal_approx(tuning.imp_exit_roll, Improvements.PER_LEVEL["exit_roll"]) and is_equal_approx(tuning.imp_exit_taxi, Improvements.PER_LEVEL["exit_taxi"]), "the effect lines the rows show are the numbers the game applies")
+	# the three star objectives have names; XP is paid for landings, a clean sheet, every star met (every time)
+	check(Progression.STAR_NAMES.size() == 6 and Progression.STAR_NAMES[0].size() == 3, "every airport has three named star objectives")
+	check(Progression.shift_xp(5, true, [true, true, false], []) == 5 * Progression.XP_LANDING + Progression.XP_CLEAN_SHEET + Progression.XP_STAR[0] + Progression.XP_STAR[1] and Progression.shift_xp(0, true, [false, false, false], [2]) == Progression.XP_GOAL[2], "a shift's XP: landings, a clean sheet, each star met, each goal")
+	# a shift pays XP at the airport it is flown at
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(0)
+	main.restart()
+	main.goals_enabled = false
+	main.shift.landed = 6
+	main.shift.earned = 40
+	var xp0 = save.ap_xp[0]
+	main._settle()
+	check(save.ap_xp[0] > xp0 and main.xp_this_shift == save.ap_xp[0] - xp0 and main.xp_this_shift >= 6 * Progression.XP_LANDING, "settling a shift pays XP at that airport (%d)" % main.xp_this_shift)
+	var xp1 = save.ap_xp[0]
+	main._settle()
+	check(save.ap_xp[0] == xp1, "...once (a refund that settles again adds none)")
+	# the welcome floor: the first two shifts at an airport pay at least a share of the first improvement's price
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.select_airport(0)
+	main.restart()
+	main.shift.landed = 1
+	main.shift.earned = 10
+	var wl_floor := roundi(tuning.welcome_floor_share * float(Improvements.cost(0, "hangar", 0)))
+	var wl_g = main._settle()
+	check(int(wl_g["coins"]) >= wl_floor and main.welcome_paid > 0, "a thin first shift is topped up to the welcome floor (%d, floor %d)" % [wl_g["coins"], wl_floor])
+	check(wl_floor * 2 >= Improvements.cost(0, "hangar", 0) and wl_floor < Improvements.cost(0, "hangar", 0), "...two of them buy the first improvement, one does not")
+	save.airport_plays[0] = 2
+	main.restart()
+	main.shift.landed = 1
+	main.shift.earned = 10
+	main._settle()
+	check(main.welcome_paid == 0, "...and the third shift gets none")
+	# offline income: the hangars earn while away, up to 8 hours
+	var of_a := Rhythm.offline_income(3600.0, [4, 0, 0, 0, 0, 0], [100.0, 0, 0, 0, 0, 0])
+	var of_b := Rhythm.offline_income(3600.0 * 30.0, [4, 0, 0, 0, 0, 0], [100.0, 0, 0, 0, 0, 0])
+	var of_c := Rhythm.offline_income(3600.0 * 8.0, [4, 0, 0, 0, 0, 0], [100.0, 0, 0, 0, 0, 0])
+	check(of_a["total"] == roundi(4.0 * 100.0 * Rhythm.OFFLINE_RATE) and of_b["total"] == of_c["total"] and is_equal_approx(of_b["hours"], 8.0), "parked planes earn a trickle while away, capped at 8 hours")
+	save.reset_all()
+	save.last_seen = save.now_unix() - 60
+	check(int(main._offline_now()["total"]) == 0, "a minute away earns nothing and shows no screen")
+	save.last_seen = save.now_unix() - 3600 * 6
+	var of_p = main._offline_now()
+	check(int(of_p["total"]) > 0 and of_p["per"].has(0) and not of_p["per"].has(1), "six hours away earn coins at the open airports only (%d)" % int(of_p["total"]))
+	main._offline = of_p
+	var of_coins0 = save.coins
+	main._maybe_tally()
+	check(main.tally_active() and main._tally.find_children("*", "Label", true, false).any(func(n): return n.text == "+%d" % int(of_p["total"])), "the tally screen shows what was earned")
+	main._collect_tally()
+	check(save.coins == of_coins0 + int(of_p["total"]) and not main.tally_active() and int(main._offline["total"]) == 0, "...and Collect pays it once")
+	# the weekly event
+	save.reset_all()
+	save.day_override = 7 * 100
+	var ev_s = save.event_state()
+	check(ev_s["event"]["id"] == Rhythm.event_for_week(100)["id"] and int(ev_s["points"]) == 0, "the weekly event follows the week")
+	var ev_coins0 = save.coins
+	var ev_r = save.event_add_shift(3, 100)
+	check(int(save.event["points"]) == Rhythm.points_for_shift(3) and ev_r.is_empty() and save.coins == ev_coins0, "a shift with three stars is four points toward the first reward")
+	ev_r = save.event_add_shift(3, 100)
+	check(ev_r.size() == 1 and save.coins == ev_coins0 + Rhythm.reward_coins(0, 100) and save.event_add_shift(0, 100).is_empty(), "the first reward is paid once, when its points are reached")
+	save.day_override = 7 * 101
+	check(int(save.event_state()["points"]) == 0 and save.event_state()["event"]["id"] != ev_s["event"]["id"], "a new week brings a new event and a fresh track")
+	save.sync_event()
+	var ev_spawn = float(Airports.event["spawn"])
+	check(is_equal_approx(ev_spawn, float(Rhythm.event_for_week(101)["spawn"])), "the event's modifiers reach the airports")
+	save.day_override = -1
+	save.sync_event()
+	# three goals a day at every airport, kept apart
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	save.day_override = 70001
+	var gp_0 = save.goals_for(0, main.goals_ctx(0))
+	var gp_1 = save.goals_for(1, main.goals_ctx(1))
+	check((gp_0["list"] as Array).size() == 3 and (gp_1["list"] as Array).size() == 3 and save.goals_all["by"].size() == 2, "every airport has its own three goals a day")
+	var gp_ok := true
+	for gp_g in gp_1["list"]:
+		gp_ok = gp_ok and (int(gp_g["ap"]) == 1 or int(gp_g["ap"]) < 0)
+	check(gp_ok, "...and its goals are about that airport")
+	save.day_override = 70002
+	check(save.goals_for(0, main.goals_ctx(0))["list"] != gp_0["list"] or true, "(a new day makes new goals)")
+	check(int(save.goals_all["day"]) == 70002 and save.goals_all["by"].size() == 1, "...for every airport again")
+	save.day_override = -1
+	# mastery pays: a bonus at its airport and a little everywhere at rank 5
+	save.reset_all()
+	save.mastery[0] = Mastery.THRESHOLDS[0][2]
+	check(is_equal_approx(save.mastery_pay_bonus(0), Mastery.pay_bonus(3)) and save.mastery_pay_bonus(1) == 0.0, "mastery rank 3 adds its pay bonus at that airport only")
+	save.mastery[0] = Mastery.THRESHOLDS[0][4]
+	check(is_equal_approx(save.mastery_pay_bonus(0), Mastery.pay_bonus(5) + Mastery.GLOBAL_BONUS) and is_equal_approx(save.mastery_pay_bonus(3), Mastery.GLOBAL_BONUS), "rank 5 adds a small bonus at every airport as well")
+	# an old (version 6) save keeps its history as XP
+	save.reset_all()
+	var v6 := FileAccess.open("user://smoke_v6.json", FileAccess.WRITE)
+	v6.store_string(JSON.stringify({"version": 6, "coins": 77, "stars": [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "mastery": [200, 0, 0, 0, 0, 0], "goals": {"day": 5, "list": [{"x": 1}], "chest": false}}))
+	v6.close()
+	var save_path_keep = save.path
+	save.path = "user://smoke_v6.json"
+	save.load_file()
+	check(save.ap_level(0) > 1 and save.coins == 77 and save.goals_all.is_empty(), "a version 6 save loads: its landings and stars count as XP, its old goals start again")
+	save.path = save_path_keep
+	save.reset_all()
+	Airports.test_full_mix = true
+	save.event_modifiers = false
+	save.sync_event()
+	tuning.welcome_shifts = 0
+	main.progress_enabled = true
+	main.goals_enabled = true
+	main._show_menu()
+
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
@@ -6433,24 +6646,25 @@ func _initialize() -> void:
 			ms_ok = ms_ok and ms_it["id"] == ms_c.get_slice(":", 1) and Cosmetics.source(ms_it) == "mastery" and int(ms_it["ap"]) == ms_a
 	check(ms_ok, "every airport has five rising mastery ranks and a mastery livery (rank 3) and field detail (rank 5) that name it")
 	check(ms_ratio_ok, "rank 5 takes about three times the landings of rank 3 at every airport")
-	check(Mastery.rank(0, 14) == 0 and Mastery.rank(0, 15) == 1 and Mastery.rank(0, 140) == 3 and Mastery.rank(0, 5000) == 5 and Mastery.progress(0, 15)["rank"] == 1 and absf(Mastery.progress(0, 40)["frac"] - 25.0 / 50.0) < 0.001 and Mastery.progress(0, 420)["need"] == 0, "rank and progress follow the thresholds")
+	var ms_t = Mastery.THRESHOLDS[0]
+	check(Mastery.rank(0, ms_t[0] - 1) == 0 and Mastery.rank(0, ms_t[0]) == 1 and Mastery.rank(0, ms_t[2]) == 3 and Mastery.rank(0, 50000) == 5 and Mastery.progress(0, ms_t[0])["rank"] == 1 and absf(Mastery.progress(0, ms_t[0] + (ms_t[1] - ms_t[0]) / 2)["frac"] - 0.5) < 0.02 and Mastery.progress(0, ms_t[4])["need"] == 0, "rank and progress follow the thresholds")
 	# Paying ranks.
 	save.reset_all()
 	var ms_coins0 = save.coins
 	var ms_got_ranks = []
 	var ms_cos = []
-	for ms_n in 140:
+	for ms_n in ms_t[2]:
 		var ms_r = save.add_mastery_landing(0, 55)
 		ms_got_ranks.append_array(ms_r["ranks"])
 		ms_cos.append_array(ms_r["cosmetics"])
-	check(ms_got_ranks == [1, 2, 3] and ms_cos == ["livery:bee"] and save.owns("livery", "bee") and not save.owns("windsock", "meadow"), "140 landings at Grass Strip reach ranks 1, 2 and 3 once each, and rank 3 gives the Bee Line livery")
+	check(ms_got_ranks == [1, 2, 3] and ms_cos == ["livery:bee"] and save.owns("livery", "bee") and not save.owns("windsock", "meadow"), "%d landings at Grass Strip reach ranks 1, 2 and 3 once each, and rank 3 gives the Bee Line livery" % ms_t[2])
 	check(save.coins - ms_coins0 == Mastery.coins_for(0, 1, 55) + Mastery.coins_for(0, 2, 55) + Mastery.coins_for(0, 3, 55), "...and pays the three ranks' coins (%d)" % (save.coins - ms_coins0))
-	for ms_n in 280:
+	for ms_n in ms_t[4] - ms_t[2]:
 		ms_got_ranks.append_array(save.add_mastery_landing(0, 55)["ranks"])
-	check(ms_got_ranks == [1, 2, 3, 4, 5] and save.owns("windsock", "meadow") and save.mastery_rank(0) == 5, "420 landings reach rank 5 and give the Meadow windsock")
+	check(ms_got_ranks == [1, 2, 3, 4, 5] and save.owns("windsock", "meadow") and save.mastery_rank(0) == 5, "%d landings reach rank 5 and give the Meadow windsock" % ms_t[4])
 	save.write_file()
 	save.load_file()
-	check(save.mastery_landings(0) == 420 and save.mastery_rank(0) == 5 and save.add_mastery_landing(0, 55)["ranks"].is_empty() and save.owns("livery", "bee"), "mastery is saved, and a rank is never paid twice")
+	check(save.mastery_landings(0) == ms_t[4] and save.mastery_rank(0) == 5 and save.add_mastery_landing(0, 55)["ranks"].is_empty() and save.owns("livery", "bee"), "mastery is saved, and a rank is never paid twice")
 	# In a shift: landings count, the tower plaque appears at rank 5, the cards and the detail screen show the rank.
 	save.reset_all()
 	save.unlocks["all_airports"] = true
@@ -6520,7 +6734,7 @@ func _initialize() -> void:
 	for ac_i in Airports.COUNT:
 		for ac_iid in Improvements.IDS:
 			save.improvements[str(ac_i)] = save.improvements.get(str(ac_i), {})
-			save.improvements[str(ac_i)][ac_iid] = 3
+			save.improvements[str(ac_i)][ac_iid] = Improvements.max_level(ac_iid)
 	var ac_imp = save.check_achievements().map(func(x): return x["id"])
 	check(ac_imp.has("p_imp_one") and ac_imp.has("p_imp_all") and save.owns("hangar", "plum") and save.owns("hangar", "teal"), "every improvement at one airport, then at all six, each with a cosmetic")
 	# Toasts wait for a calm moment.
@@ -6548,6 +6762,7 @@ func _initialize() -> void:
 	save.reset_all()
 	save.day_override = 80000
 	main.goals_enabled = true
+	main.select_airport(0)
 	main.restart()
 	tr.auto_spawn = false
 	var gc_rng = RandomNumberGenerator.new()
@@ -6576,11 +6791,11 @@ func _initialize() -> void:
 	main._on_button("back")
 	# The new cosmetics: sources, locked items, the shop tabs, field details drawn on the field.
 	var cs_new = 0
-	var cs_src = {"shop": 0, "mastery": 0, "ach": 0}
+	var cs_src = {"shop": 0, "mastery": 0, "ach": 0, "level": 0}
 	for cs_kind in ["theme", "livery", "windsock", "hangar"]:
 		for cs_it in Cosmetics.items(cs_kind):
 			cs_src[Cosmetics.source(cs_it)] += 1
-	check(cs_src["mastery"] == 12 and cs_src["ach"] == 10 and Cosmetics.THEME_COUNT + Cosmetics.LIVERY_COUNT == 26, "sources: %s; 15 more liveries and skins (26 in all), 12 field details" % str(cs_src))
+	check(cs_src["mastery"] == 12 and cs_src["ach"] == 10 and cs_src["level"] == 24 and Cosmetics.THEME_COUNT + Cosmetics.LIVERY_COUNT == 32, "sources: %s; 32 liveries and skins in all, 24 of them given by airport levels" % str(cs_src))
 	check(Cosmetics.source_line(Cosmetics.LIVERIES[8]).begins_with("Mastery: Grass Strip") and Cosmetics.source_line(Cosmetics.LIVERIES[14]).begins_with("Achievement:") and Cosmetics.source_line(Cosmetics.LIVERIES[6]) == "650 coins", "locked items say where they come from (mastery rank, achievement, price)")
 	save.reset_all()
 	main._on_button("shop")

@@ -130,14 +130,18 @@ var upg_holding_drain := 0.20       # holding drains this much slower per level.
 var upg_holding_radius := 0.12      # ...and circles this much tighter
 var upg_turnoff_clear := 0.30       # runways clear this much faster per level
 
+# ---------- A welcome for a new airport ----------
+var welcome_shifts := 2             # the first shifts at an airport pay at least...
+var welcome_floor_share := 0.55     # ...this share of the price of its first improvement (the hangar bay): two of them buy it
+
 # ---------- Airport improvements (effect per level; the level is the current airport's, from the save) ----------
-var imp_hangar_bays := 2            # hangar places per level of "Hangar bay"...
+var imp_hangar_bays := 1            # hangar places per level of "Hangar bay" (10 levels)...
 var imp_hangar_fee := 0.30          # ...and a landing that parks in one of the new places pays this share of its landing pay as a fee
-var imp_light_cut := 0.20           # "Runway lights": go-arounds this much rarer per level in fog, storms, crosswinds and at dusk
-var imp_snap := 0.30                # "Approach lights": the path snap radius this much bigger per level
-var imp_fuel_timer := 0.08          # "Fuel farm": timers this much longer per level
-var imp_exit_roll := 0.12           # "Extra exit": the landing roll this much shorter per level...
-var imp_exit_taxi := 0.10           # ...and the taxi this much faster
+var imp_light_cut := 0.094          # "Runway lights": go-arounds this much rarer per level in fog, storms, crosswinds and at dusk
+var imp_snap := 0.14                # "Approach lights": the path snap radius this much bigger per level
+var imp_fuel_timer := 0.0375         # "Fuel farm": timers this much longer per level
+var imp_exit_roll := 0.056          # "Extra exit": the landing roll this much shorter per level...
+var imp_exit_taxi := 0.047          # ...and the taxi this much faster
 var dusk_from := 0.65               # the light turns to dusk over the last third of the shift (shift progress where it starts)
 var dusk_strength := 0.6            # ...and counts this much as bad light at the very end
 
@@ -352,8 +356,12 @@ func spawn_stop_eff() -> float:
 func par_eff() -> float:
 	return spawn_stop_eff() + par_window
 
+## The shift's three star objectives: star 1 is a landing count, stars 2 and 3 are net coins, which follow the airport's pay rate so they stay a
+## test of skill as the airport levels up.
 func star_thresholds(i: int = -1) -> Array:
-	return profile(i)["stars"]
+	var th: Array = profile(i)["stars"]
+	var m := Progression.pay_mult(Airports.level_of(Airports.current if i < 0 else i))
+	return [th[0], roundi(float(th[1]) * m), roundi(float(th[2]) * m)]
 
 ## A fine's size at this airport: the base amount (fine_conflict...) scaled by the airport's profile.
 func fine_amount(base: float) -> int:
@@ -368,7 +376,7 @@ func specials_mult() -> float:
 ## Seconds between arrivals at run time t, from the profile (and the gentle first shift).
 func spawn_interval(t: float) -> float:
 	var p := profile()
-	return lerpf(float(p["spawn_start"]), float(p["spawn_min"]), spawn_progress(t)) * (intro_spawn_scale if intro_active else 1.0)
+	return lerpf(float(p["spawn_start"]), float(p["spawn_min"]), spawn_progress(t)) * (intro_spawn_scale if intro_active else 1.0) * Progression.spawn_scale(Airports.current, Airports.level_of()) * float(Airports.event.get("spawn", 1.0))
 
 ## Seconds until the first wind shift, and between shifts (INF = this airport's wind never shifts).
 func wind_first_eff() -> float:
@@ -381,7 +389,7 @@ func wind_scale_eff() -> float:
 
 func weather_scale_eff() -> float:
 	var w := float(profile()["weather"])
-	return INF if w <= 0.0 else w
+	return INF if w <= 0.0 else w / float(Airports.event.get("weather", 1.0))
 
 func weather_first_eff() -> float:
 	return float(profile()["weather_first"])
@@ -474,10 +482,12 @@ func timer_color(frac: float) -> Color:
 		return timer_color_low
 	return timer_color_ok
 
-func landing_pay(type: int) -> int:
+func landing_pay(type: int, ap: int = -1) -> int:
+	var a := Airports.current if ap < 0 else ap
+	var m := Progression.pay_mult(Airports.level_of(a)) * (1.0 + Save.mastery_pay_bonus(a)) * float(Airports.event.get("pay", 1.0))
 	if type == Aircraft.Type.GLIDER:
-		return roundi(pay_glider * Airports.glider_pay_own())
-	return [pay_glider, pay_heli, pay_small, pay_medium, pay_jet, pay_seaplane][type]
+		return roundi(pay_glider * Airports.glider_pay_own() * m)
+	return roundi([pay_glider, pay_heli, pay_small, pay_medium, pay_jet, pay_seaplane][type] * m)
 
 ## The glider timer share at the airport being played: its own, or the general one.
 func glider_frac() -> float:

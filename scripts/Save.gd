@@ -8,7 +8,7 @@ extends Node
 ## new best-coins records start at zero. Unknown or missing fields fall back to defaults, so adding a field
 ## never breaks an old save.
 
-const VERSION := 6
+const VERSION := 7
 const AIRPORT_SLOTS := 6
 const STARS_PER_AIRPORT := 3
 
@@ -24,10 +24,26 @@ var unlocks := {}                    # cosmetic id -> true (airport themes, live
 var equipped := {}                   # slot -> id
 var tips_seen := {}                  # aircraft-type tips already shown
 var bad_day := {}                    # Bad Pilot Day: the same fields, its own best and streak (version 3)
-var goals := {}                      # today's three daily goals: {"day", "list", "chest"} (version 5)
+var goals_all := {}                  # today's daily goals at every airport: {"day", "by": {airport -> {"list", "chest"}}} (version 7: three a day at each airport)
+var goals_ap := 0                    # ...the airport `goals` is about right now
+## The three goals of `goals_ap` for today ({"list", "chest"}, or {} before they are made): every part of the game that reads "the goals" reads these.
+var goals: Dictionary:
+	get:
+		return _dict((_dict(goals_all.get("by"))).get(str(goals_ap)))
+	set(v):
+		if not goals_all.has("by") or not (goals_all["by"] is Dictionary):
+			goals_all = {"day": today(), "by": {}}
+		goals_all["day"] = int(v.get("day", goals_all.get("day", today())))
+		(goals_all["by"] as Dictionary)[str(goals_ap)] = v
+var event_modifiers := true          # (the tests switch the weekly event's effects off to keep their pay exact)
+var last_seen := 0                   # when the game was last played (unix seconds): the offline hangar income runs from it (version 7)
+var event := {}                      # the weekly event: {"week", "points", "claimed": [bool x5]} (version 7)
 var goal_streak := {}                # the daily-goal streak: {"count", "last", "freezes", "best"} (version 5)
 var mastery := PackedInt32Array()    # landings made at each airport, ever (version 6)
 var mastery_paid := PackedInt32Array()   # the highest mastery rank already paid at each airport
+var ap_xp := PackedInt32Array()      # XP earned at each airport: its level 1 to 20 (Progression) (version 7)
+var ap_half := PackedInt32Array()    # the highest level whose halfway bonus has been paid at each airport (version 7)
+var ap_xp_seen := PackedInt32Array() # the airport level the player has already been told about (level-up banners, unlock rewards)
 var stats := {}                      # lifetime counters the achievements read (version 6)
 var achievements := {}               # achievement id -> the day it was earned (version 6)
 var shifts_played := 0
@@ -55,6 +71,12 @@ func _defaults() -> void:
 	mastery.fill(0)
 	mastery_paid.resize(AIRPORT_SLOTS)
 	mastery_paid.fill(0)
+	ap_xp.resize(AIRPORT_SLOTS)
+	ap_xp.fill(0)
+	ap_xp_seen.resize(AIRPORT_SLOTS)
+	ap_xp_seen.fill(1)
+	ap_half.resize(AIRPORT_SLOTS)
+	ap_half.fill(0)
 	airport_plays.resize(AIRPORT_SLOTS)
 	airport_plays.fill(0)
 	no_engines_at.resize(AIRPORT_SLOTS)
@@ -66,7 +88,10 @@ func _defaults() -> void:
 	equipped = {}
 	tips_seen = {}
 	bad_day = {}
-	goals = {}
+	goals_all = {}
+	goals_ap = 0
+	last_seen = 0
+	event = {}
 	goal_streak = {}
 	stats = {}
 	achievements = {}
@@ -76,6 +101,7 @@ func _defaults() -> void:
 	music_volume = 0.8
 	ambience_volume = 0.8
 	ads = {}
+	sync_levels()
 
 func load_file() -> void:
 	_defaults()
@@ -107,6 +133,17 @@ func load_file() -> void:
 	var mp: Array = data.get("mastery_paid", [])
 	for i in mini(mp.size(), mastery_paid.size()):
 		mastery_paid[i] = int(mp[i])
+	if data.has("ap_xp"):
+		var xs: Array = data.get("ap_xp", [])
+		for i in mini(xs.size(), ap_xp.size()):
+			ap_xp[i] = int(xs[i])
+	else:                         # a version 6 save: the landings and stars already made count as XP, so nobody starts at level 1 with a lot of history
+		for i in AIRPORT_SLOTS:
+			ap_xp[i] = mastery[i] * Progression.XP_LANDING + stars_of(i) * 120
+	var hs: Array = data.get("ap_half", [])
+	for i in AIRPORT_SLOTS:
+		ap_xp_seen[i] = ap_level(i)
+		ap_half[i] = int(hs[i]) if i < hs.size() else ap_level(i)         # (a save that predates the halfway bonus starts after the levels it already has)
 	stats = _dict(data.get("stats"))
 	achievements = _dict(data.get("achievements"))
 	var ap: Array = data.get("airport_plays", [])
@@ -122,7 +159,11 @@ func load_file() -> void:
 	equipped = _dict(data.get("equipped"))
 	tips_seen = _dict(data.get("tips_seen"))
 	bad_day = _dict(data.get("bad_day"))
-	goals = _dict(data.get("goals"))
+	goals_all = _dict(data.get("goals"))
+	last_seen = int(data.get("last_seen", 0))
+	event = _dict(data.get("event"))
+	if not goals_all.has("by"):             # (version 6: one set of goals for the whole game: they start again)
+		goals_all = {}
 	goal_streak = _dict(data.get("streak"))
 	shifts_played = int(data.get("shifts_played", 0))
 	selected_airport = clampi(int(data.get("selected_airport", 0)), 0, AIRPORT_SLOTS - 1)
@@ -130,6 +171,8 @@ func load_file() -> void:
 	sound_volume = clampf(float(data.get("sound_volume", 0.8)), 0.0, 1.0)
 	music_volume = clampf(float(data.get("music_volume", 0.8)), 0.0, 1.0)
 	ambience_volume = clampf(float(data.get("ambience_volume", 0.8)), 0.0, 1.0)
+	grant_level_rewards()
+	sync_levels()
 
 func _dict(v) -> Dictionary:
 	return v if v is Dictionary else {}
@@ -140,15 +183,120 @@ func write_file() -> void:
 		f.store_string(JSON.stringify({
 			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
 			"upgrades": upgrades, "improvements": improvements, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
-			"bad_day": bad_day, "goals": goals, "streak": goal_streak, "mastery": Array(mastery), "mastery_paid": Array(mastery_paid), "stats": stats, "achievements": achievements, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
+			"bad_day": bad_day, "goals": goals_all, "last_seen": last_seen, "event": event, "streak": goal_streak, "mastery": Array(mastery), "mastery_paid": Array(mastery_paid), "ap_xp": Array(ap_xp), "ap_half": Array(ap_half), "stats": stats, "achievements": achievements, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
 			"sound_volume": sound_volume, "music_volume": music_volume, "ambience_volume": ambience_volume,
 		}))
 
 # ---------- Stars ----------
 
-## Is airport `i` open? (By total stars; the debug unlock opens them all.)
+## Is airport `i` open? The first is; each next one opens at level 8 of the one before it (the debug unlock opens them all).
 func airport_open(i: int) -> bool:
-	return Airports.unlocked(i, stars_total()) or unlocks.has("all_airports") or DebugFlags.airports_enabled()
+	if i <= 0 or unlocks.has("all_airports") or DebugFlags.airports_enabled():
+		return true
+	return i < AIRPORT_SLOTS and ap_level(i - 1) >= Progression.GATE_LEVEL
+
+# ---------- The weekly event ----------
+
+## The event of this week, and the player's state in it: {"event": definition, "points", "claimed": [...], "week"} (a new week starts fresh).
+func event_state() -> Dictionary:
+	var wk := Rhythm.week_of(today())
+	if int(event.get("week", -1)) != wk:
+		event = {"week": wk, "points": 0, "claimed": [false, false, false, false, false]}
+	return {"event": Rhythm.event_for_week(wk), "week": wk, "points": int(event["points"]), "claimed": event["claimed"]}
+
+## A shift of `stars` stars was finished in the event week: its points count; the track's rewards that came within reach are paid. Returns
+## [{"i": track index, "coins": n}] for the rewards just earned.
+func event_add_shift(stars: int, unit: int) -> Array:
+	event_state()
+	event["points"] = int(event["points"]) + Rhythm.points_for_shift(stars)
+	var out := []
+	for i in Rhythm.TRACK.size():
+		if int(event["points"]) >= int(Rhythm.TRACK[i]["points"]) and not bool(event["claimed"][i]):
+			event["claimed"][i] = true
+			var c := Rhythm.reward_coins(i, unit)
+			add_coins(c)
+			out.append({"i": i, "coins": c})
+	return out
+
+## Tell the airports which event is on (the traffic, the pay and the weather follow it).
+func sync_event() -> void:
+	Airports.event = Rhythm.event_for_week(Rhythm.week_of(today())) if event_modifiers else {}
+
+# ---------- Offline income ----------
+
+func now_unix() -> int:
+	return int(Time.get_unix_time_from_system())
+
+## The game is being played now: the offline clock restarts from this moment.
+func touch() -> void:
+	last_seen = now_unix()
+
+## What the parked planes earned since the game was last played ({"total", "hours", "per"}: Rhythm.offline_income), or an empty result for a short absence or a first
+## run. `capacity` and `mean_pay` per airport come from the caller (this class does not know the hangars).
+func offline_pending(capacity: Array, mean_pay: Array) -> Dictionary:
+	if last_seen <= 0:
+		return {"total": 0}
+	var secs := float(now_unix() - last_seen)
+	if secs < Rhythm.OFFLINE_MIN_SECONDS:
+		return {"total": 0}
+	var caps := []
+	for a in AIRPORT_SLOTS:
+		caps.append(int(capacity[a]) if airport_open(a) else 0)
+	return Rhythm.offline_income(secs, caps, mean_pay)
+
+# ---------- Airport levels (XP) ----------
+
+func ap_level(i: int) -> int:
+	return Progression.level_for(i, ap_xp[clampi(i, 0, AIRPORT_SLOTS - 1)])
+
+## Tell the airports (traffic, weather, pay) what level each is at.
+func sync_levels() -> void:
+	for a in AIRPORT_SLOTS:
+		Airports.levels[a] = ap_level(a)
+	sync_event()
+
+## The level's progress at airport `i`: {"level", "into", "need", "left", "frac"} (Progression.progress).
+func ap_progress(i: int) -> Dictionary:
+	return Progression.progress(i, ap_xp[clampi(i, 0, AIRPORT_SLOTS - 1)])
+
+## Earn `n` XP at airport `i`. Returns {"from", "to" (levels), "unlocks": [one entry per level reached: Progression.unlock_for + "level"]}; the cosmetics
+## those levels give are yours at once.
+func add_xp(i: int, n: int, pay_half: bool = true) -> Dictionary:
+	var a := clampi(i, 0, AIRPORT_SLOTS - 1)
+	var before := ap_level(a)
+	ap_xp[a] += maxi(n, 0)
+	var after := ap_level(a)
+	var out := {"from": before, "to": after, "unlocks": [], "half": []}
+	for lv in range(before + 1, after + 1):
+		var u := Progression.unlock_for(a, lv)
+		u["level"] = lv
+		out["unlocks"].append(u)
+	# the halfway bonus: half way through a level's XP, two average shifts' pay at this airport
+	for lv in range(ap_half[a] + 1, after + 1):
+		if lv < Progression.MAX_LEVEL and ap_xp[a] >= Progression.xp_at_level(a, lv) + Progression.xp_to_next(a, lv) / 2:
+			var hc: int = Goals.AVG_PAY[a] * 2 if pay_half else 0
+			add_coins(hc)
+			ap_half[a] = lv
+			if hc > 0:
+				out["half"].append({"level": lv, "coins": hc})
+		elif lv >= Progression.MAX_LEVEL:
+			ap_half[a] = lv
+			break
+		else:
+			break
+	grant_level_rewards()
+	sync_levels()
+	return out
+
+## Hand over every cosmetic the airports' levels have given so far (a save that already had the levels gets them too).
+func grant_level_rewards() -> void:
+	for a in AIRPORT_SLOTS:
+		var lv := ap_level(a)
+		for l in [6, 8, 18, 20]:
+			if lv >= l:
+				var u := Progression.unlock_for(a, l)
+				if u.has("cosmetic"):
+					unlocks[u["cosmetic"]] = true
 
 # ---------- Bad Pilot Day ----------
 # One seeded shift per day with a streak and a best (its own record, bad_day). The old Daily Shift was retired for the daily goals.
@@ -214,6 +362,14 @@ func add_mastery_landing(airport: int, avg_pay: int) -> Dictionary:
 			out["cosmetics"].append(cid)
 	return out
 
+## The pay bonus mastery gives at `airport`: its rank's, and a little more for each airport at rank 5 (the gold badge's global bonus).
+func mastery_pay_bonus(airport: int) -> float:
+	var b := Mastery.pay_bonus(mastery_rank(airport))
+	for a in AIRPORT_SLOTS:
+		if mastery_rank(a) >= Mastery.MAX_RANK:
+			b += Mastery.GLOBAL_BONUS
+	return b
+
 func mastery_total_landings() -> int:
 	var n := 0
 	for v in mastery:
@@ -242,7 +398,7 @@ func ach_stats() -> Dictionary:
 			open_n += 1
 		var all3 := true
 		for iid in Improvements.IDS:
-			if imp_level(i, iid) < Improvements.MAX_LEVEL:
+			if imp_level(i, iid) < Improvements.max_level(iid):
 				all3 = false
 		if all3:
 			full_n += 1
@@ -287,8 +443,20 @@ func check_achievements() -> Array:
 
 ## Today's goals, made fresh when the day has changed (the context says what the player has unlocked, see Goals).
 func ensure_goals(ctx: Dictionary) -> void:
-	if int(goals.get("day", -1)) != today() or (goals.get("list", []) as Array).is_empty():
-		goals = Goals.make_day(today(), ctx)
+	goals_ap = int(ctx.get("ap", goals_ap))
+	if int(goals_all.get("day", -1)) != today() or not goals_all.has("by"):
+		goals_all = {"day": today(), "by": {}}
+	if (_dict((goals_all["by"] as Dictionary).get(str(goals_ap))).get("list", []) as Array).is_empty():
+		(goals_all["by"] as Dictionary)[str(goals_ap)] = Goals.make_day(today(), ctx)
+
+## Today's goals at airport `ap` (made if they are not yet): {"list", "chest"}.
+func goals_for(ap: int, ctx: Dictionary) -> Dictionary:
+	var keep := goals_ap
+	ctx["ap"] = ap
+	ensure_goals(ctx)
+	var g := goals
+	goals_ap = keep
+	return g
 
 ## One free reroll per goal per day.
 func reroll_goal(i: int, ctx: Dictionary) -> bool:
@@ -323,8 +491,11 @@ func goal_event(ev: Dictionary, ctx: Dictionary) -> Dictionary:
 		var g: Dictionary = goals["list"][i]
 		out["finished"].append({"i": i, "id": g["id"], "reward": int(g["reward"])})
 		paid += int(g["reward"])
+	var sr0 := {}
 	if was == 0:
-		var sr := Goals.streak_advance(goal_streak, today())
+		sr0 = Goals.streak_advance(goal_streak, today())     # (the day's first goal at any airport carries the streak: later airports' first goals find it done)
+	if was == 0 and not bool(sr0.get("already", false)):
+		var sr := sr0
 		var dr := Goals.day_reward(int(sr["pos"]), int(sr["count"]), int(ctx["unit"]))
 		sr["reward"] = dr
 		if dr["cosmetic"]:
@@ -445,7 +616,12 @@ func upgrade_level(id: String) -> int:
 ## The level of one of an airport's improvements (0 = not bought).
 func imp_level(airport: int, id: String) -> int:
 	var d = improvements.get(str(airport))
-	return clampi(int(d.get(id, 0)), 0, Improvements.MAX_LEVEL) if d is Dictionary else 0
+	return clampi(int(d.get(id, 0)), 0, Improvements.max_level(id)) if d is Dictionary else 0
+
+## Can the next level of this improvement be bought here yet? (The airport's level gates how deep: Progression.imp_gate.)
+func imp_unlocked(airport: int, id: String) -> bool:
+	var lvl := imp_level(airport, id)
+	return lvl < Improvements.max_level(id) and Progression.imp_gate(lvl + 1, id) <= ap_level(airport)
 
 ## Buy the next level of an airport's improvement. Returns false (and changes nothing) if the airport is closed, it is maxed or too dear.
 func buy_improvement(airport: int, id: String) -> bool:
@@ -453,7 +629,7 @@ func buy_improvement(airport: int, id: String) -> bool:
 		return false
 	var lvl := imp_level(airport, id)
 	var price := Improvements.cost(airport, id, lvl)
-	if price < 0 or coins < price:
+	if price < 0 or coins < price or not imp_unlocked(airport, id):
 		return false
 	coins -= price
 	var d = improvements.get(str(airport))
@@ -464,7 +640,7 @@ func buy_improvement(airport: int, id: String) -> bool:
 	write_file()
 	return true
 
-## How many improvement levels an airport has (0 to 15).
+## How many improvement levels an airport has (0 to 42).
 func imp_total(airport: int) -> int:
 	var n := 0
 	for id in Improvements.IDS:

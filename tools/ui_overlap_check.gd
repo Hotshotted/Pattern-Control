@@ -742,6 +742,8 @@ func _rich_save() -> void:
 		save.best_coins[i] = BIG
 		save.mastery[i] = 99999
 		save.mastery_paid[i] = 5
+		save.ap_xp[i] = Progression.xp_at_level(i, Progression.MAX_LEVEL) + 99999
+	save.sync_levels()
 	save.stats["ach_seen"] = 0
 
 func _frames_ui(n: int = 4) -> void:
@@ -838,9 +840,11 @@ func _states_detail() -> void:
 		await _frames_ui()
 		await _check(nm + " starred")
 		save.mastery[i] = 99999
+		save.ap_xp[i] = Progression.xp_at_level(i, Progression.MAX_LEVEL)
+		save.sync_levels()
 		save.coins = BIG
 		save.no_engines_at[i] = 1
-		save.improvements = {str(i): {"hangar": 3, "rwlights": 1, "applights": 2, "fuel": 3, "exit": 0}}
+		save.improvements = {str(i): {"hangar": 10, "rwlights": 3, "applights": 5, "fuel": 8, "exit": 0}}
 		main.open_detail(i)
 		await _frames_ui()
 		await _check(nm + " mastered, no engines on")
@@ -1052,6 +1056,7 @@ func _states_results() -> void:
 			main._show_results(false)
 			if variant == "long":
 				hud._panel_arts["results"].res_sub = "%s \u00b7 99 landed \u00b7 Hangar full \u00b7 14 on the ramp" % Airports.airport_name(5)
+				hud._panel_arts["results"].res_sub_two = true
 				hud._panel_arts["results"].queue_redraw()
 		await _frames_ui(30)
 		await _check("results %s" % variant)
@@ -1082,6 +1087,11 @@ func _states_misc() -> void:
 		main.hud.set_ad_progress(0.4)
 		await _check("ad screen %s" % title.substr(0, 14))
 		main.hud.hide_ad()
+	main._offline = {"total": 1234567, "hours": 8.0, "per": {0: 1200, 1: 34000, 2: 50000, 3: 123, 4: 99999, 5: 999999}}
+	main._maybe_tally()
+	await _check("tally welcome back (six airports)")
+	main._collect_tally()
+	save.reset_all()
 	main.hud.show_logo()
 	main.hud.set_process(false)             # (the intro's clock stands still: the plane that crosses the screen is in the same place every run)
 	main.hud._art.logo_t = 2.0

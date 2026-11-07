@@ -33,6 +33,8 @@ class AirportScene:
 	var sock_mats: Array = []           # the windsock's two stripe materials (a cosmetic recolours them)
 	var hangar_roofs: Array = []        # the roof meshes of the hangar and its bays (a cosmetic repaints them)
 	var plaque: Node3D                  # the gold plaque on the tower (mastery rank 5)
+	var flag: Node3D                    # the pennant on the tower (mastery rank 4: the landmark upgrade)
+	var landmark: Node3D                # the landmark of the field (airport level 20)
 	var ups: Array = []                 # [node, upgrade id, level it appears at]
 	var imps: Array = []                # [node, improvement id, level it appears at]: this airport's own improvements
 	var farm_at := Vector2.ZERO         # the fuel farm (the improvement adds tanks beside it)
@@ -389,6 +391,10 @@ func _dress(v: AirportScene) -> void:
 	_apply_details_to(v)
 	if v.plaque != null:
 		v.plaque.visible = Save.mastery_rank(v.airport) >= Mastery.MAX_RANK
+	if v.flag != null:
+		v.flag.visible = Save.mastery_rank(v.airport) >= 4
+	if v.landmark != null:
+		v.landmark.visible = Save.ap_level(v.airport) >= Progression.MAX_LEVEL
 
 ## A very faint static texture on the grass, and only on the grass (the ground mesh: runways, taxiways, aprons, buildings and water are
 ## separate meshes with none): a tileable blotchy noise that darkens the colour by 0-3%, baked to assets/textures/grass.png (see
@@ -1351,6 +1357,8 @@ func _ramp(v: AirportScene) -> void:
 	await _slice()
 	v.beacons.append_array(beacons)
 	v.plaque = _plaque(tower_node)
+	v.flag = _flag(tower_node)
+	v.landmark = _level_landmark(tower_node)
 	await _slice()
 	Models.hangar(root, c + Vector2(-0.7, -1.0) * s, s, pal["hangar"], pal["wall"], v.hangar_roofs)
 	await _slice()
@@ -2157,6 +2165,8 @@ func _imp_spots(c: Vector2, n: int, r: float, spacing: float, rings: Array) -> A
 		k += 1
 	return out
 
+const LIGHT_ORDER := [1, 5, 3, 7, 2, 6, 4, 8]       # (the level at which every runway light, by its place in the row of eight, lights up)
+
 ## The airport's own improvements (see Improvements): all of them are built, hidden, and shown by the level the player owns here. Each is
 ## drawn in the airport's style (its palette and the colour of its lights). Hangar bays beside the hangar, edge lights along every runway,
 ## approach lights flanking the centreline behind every runway end, more tanks at the fuel farm, and a long exit taxiway off every runway.
@@ -2172,14 +2182,24 @@ func _improvement_props(v: AirportScene) -> void:
 	var post := Prim.mat(Color(0.82, 0.84, 0.88))
 	var tower: Vector2 = v.apron_c if v.apron_s > 0.0 and not v.apron_c.is_equal_approx(Vector2.ZERO) else Airports.tower_pos()
 	var ar := 2.1 * v.apron_s if not v.apron_c.is_equal_approx(Vector2.ZERO) else 0.0
-	# Hangar bays: three more hangar blocks around the apron, in the airport's hangar colours (one per level).
-	var bays := await _imp_spots(tower, 3, 0.55, 1.0, [ar + 1.0, ar + 1.5, ar + 2.0, 2.2, 2.7, 3.2])
+	# Hangar bays: five more hangar blocks around the apron, in the airport's hangar colours: a block at levels 1, 3, 5, 7 and 9, and at levels 2, 4, 6, 8 and
+	# 10 the block gets a second door (a lean-to bay beside it), so every one of the ten levels changes the field.
+	var bays := await _imp_spots(tower, 5, 0.55, 1.0, [ar + 1.0, ar + 1.5, ar + 2.0, 2.2, 2.7, 3.2, 3.7, 4.2])
 	for k in bays.size():
 		await _slice()
 		var bay := Models.hangar(root, bays[k], 0.62, pal["hangar"], pal["wall"], v.hangar_roofs)
 		bay.rotation.y = 0.0 if k % 2 == 0 else PI * 0.5
-		v.imps.append([bay, "hangar", k + 1])
-	# Runway lights: a line of lights along each edge of every runway (every fourth at level 1, every other one at level 2, all at level 3).
+		v.imps.append([bay, "hangar", 2 * k + 1])
+		var annex := Node3D.new()
+		annex.position = Vector3(bays[k].x, 0.0, bays[k].y)
+		annex.rotation.y = bay.rotation.y
+		root.add_child(annex)
+		var lean := Prim.box(annex, Vector3(0.34, 0.2, 0.46), Vector3(0.5, 0.1, 0.0), Prim.mat(pal["wall"]))
+		Prim.box(annex, Vector3(0.38, 0.04, 0.5), Vector3(0.5, 0.21, 0.0), Prim.mat(pal["hangar"]), false)
+		Prim.box(annex, Vector3(0.2, 0.14, 0.03), Vector3(0.5, 0.08, 0.235), Prim.mat(Color(0.2, 0.22, 0.28)), false)
+		lean.visible = true
+		v.imps.append([annex, "hangar", 2 * k + 2])
+	# Runway lights: a line of lights along each edge of every runway: every eighth at level 1, filling in until every one burns at level 8.
 	for r in Airports.rw_count():
 		await _slice()
 		var rr := Node3D.new()
@@ -2192,18 +2212,18 @@ func _improvement_props(v: AirportScene) -> void:
 		for i in n + 1:
 			await _slice()
 			var z := -len * 0.5 + i * (len / float(n))
-			var lvl := 1 if i % 4 == 0 else (2 if i % 2 == 0 else 3)
+			var lvl: int = LIGHT_ORDER[i % 8]
 			for sx in [-1.0, 1.0]:
 				var lamp := Prim.box(rr, Vector3(0.08, 0.06, 0.08), Vector3(sx * edge, 0.04, z), glow, false)
 				v.imps.append([lamp, "rwlights", lvl])
-	# Approach lights: posts with a glowing head flanking the centreline behind each runway end (three more rows per level).
+	# Approach lights: posts with a glowing head flanking the centreline behind each runway end (one more row of eight per level).
 	for r in Airports.rw_count():
 		await _slice()
 		for e in 2:
 			var thr := Airports.end_threshold(r, e)
 			var dir := Airports.end_dir(r, e)
 			var side := Vector2(-dir.y, dir.x)
-			for k in 9:
+			for k in 8:
 				await _slice()
 				for sx in [-1.0, 1.0]:
 					var q: Vector2 = thr - dir * (1.25 + k * 0.5) + side * float(sx) * 0.52
@@ -2212,10 +2232,10 @@ func _improvement_props(v: AirportScene) -> void:
 					root.add_child(holder)
 					Prim.cyl(holder, 0.02, 0.025, 0.2, 5, Vector3(0, 0.1, 0), post, false)
 					Prim.box(holder, Vector3(0.1, 0.06, 0.1), Vector3(0, 0.23, 0), glow, false)
-					v.imps.append([holder, "applights", 1 + k / 3])
-	# Fuel farm: a tank more beside the farm at every level (a white tank with a band in the airport's hangar colour).
+					v.imps.append([holder, "applights", k + 1])
+	# Fuel farm: a tank more beside the farm at every one of the eight levels (a white tank with a band in the airport's hangar colour).
 	var farm_c: Vector2 = v.farm_at if v.farm_ok else tower
-	var tanks := await _imp_spots(farm_c, 3, 0.3, 0.5, [0.75, 1.05, 1.35, 1.6])
+	var tanks := await _imp_spots(farm_c, 8, 0.3, 0.5, [0.75, 1.05, 1.35, 1.6, 1.9, 2.2])
 	for k in tanks.size():
 		await _slice()
 		var tank := Node3D.new()
@@ -2225,7 +2245,7 @@ func _improvement_props(v: AirportScene) -> void:
 		Prim.cyl(tank, 0.205, 0.205, 0.05, 12, Vector3(0, 0.2, 0), Prim.mat(pal["hangar"]), false)
 		Prim.cyl(tank, 0.15, 0.16, 0.03, 12, Vector3(0, 0.315, 0), Prim.mat(Color("d9d4c6")), false)
 		v.imps.append([tank, "fuel", k + 1])
-	# Extra exit: one more long, angled exit taxiway (with a yellow centre line and edge lights) off every runway for each level.
+	# Extra exit: four long, angled exit taxiways off every runway: the pavement at levels 1, 3, 5 and 7, and its yellow centre line and edge lights at levels 2, 4, 6 and 8.
 	var asphalt := Prim.mat(Tuning.runway_asphalt.lightened(0.09))
 	var yellow := Prim.mat(Color(0.98, 0.82, 0.2))
 	for r in Airports.rw_count():
@@ -2236,21 +2256,26 @@ func _improvement_props(v: AirportScene) -> void:
 		root.add_child(rr)
 		var len := Airports.rw_length(r)
 		var w := Airports.rw_width(r)
-		for k in 3:
+		for k in 4:
 			await _slice()
 			var out_side := 1.0 if Airports.rw_center(r).x > 0.2 else (-1.0 if Airports.rw_center(r).x < -0.2 else (1.0 if (k + r) % 2 == 0 else -1.0))
 			var along := 1.0 if k % 2 == 0 else -1.0
-			var z := len * (0.44 - 0.12 * k) * along
+			var z := len * (0.44 - 0.09 * (k / 2) * 1.0 - 0.04 * (k % 2)) * along
 			var holder := Node3D.new()
 			holder.position = Vector3(out_side * (w * 0.5 + 0.42), 0.0, z)
 			holder.rotation.y = deg_to_rad(out_side * along * 32.0)      # (angled out and away from the runway's end it serves, away from the other runways)
 			rr.add_child(holder)
 			Prim.box(holder, Vector3(0.3, 0.09, 1.4), Vector3(0, 0.045, 0), asphalt)
-			Prim.box(holder, Vector3(0.03, 0.095, 1.25), Vector3(0, 0.05, 0), yellow, false)
+			v.imps.append([holder, "exit", 2 * k + 1])
+			var lit := Node3D.new()
+			lit.position = holder.position
+			lit.rotation.y = holder.rotation.y
+			rr.add_child(lit)
+			Prim.box(lit, Vector3(0.03, 0.095, 1.25), Vector3(0, 0.05, 0), yellow, false)
 			for ez in [-1.0, 0.0, 1.0]:
-				Prim.box(holder, Vector3(0.05, 0.06, 0.05), Vector3(-0.18, 0.06, ez * 0.55), glow, false)
-				Prim.box(holder, Vector3(0.05, 0.06, 0.05), Vector3(0.18, 0.06, ez * 0.55), glow, false)
-			v.imps.append([holder, "exit", k + 1])
+				Prim.box(lit, Vector3(0.05, 0.06, 0.05), Vector3(-0.18, 0.06, ez * 0.55), glow, false)
+				Prim.box(lit, Vector3(0.05, 0.06, 0.05), Vector3(0.18, 0.06, ez * 0.55), glow, false)
+			v.imps.append([lit, "exit", 2 * k + 2])
 
 ## A small gold plaque on the tower base's roof: it appears at mastery rank 5 (a gold plate with a darker frame and a lighter centre).
 func _plaque(tower_node: Node3D) -> Node3D:
@@ -2263,6 +2288,28 @@ func _plaque(tower_node: Node3D) -> Node3D:
 	Prim.box(n, Vector3(0.07, 0.034, 0.05), Vector3(0, 0.012, 0), Prim.mat(Color("fff0b0")), false)
 	return n
 
+## A red pennant on a mast on the tower (mastery rank 4).
+func _flag(tower_node: Node3D) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(-0.2, 0.445, -0.1)
+	n.visible = false
+	tower_node.add_child(n)
+	Prim.cyl(n, 0.012, 0.012, 0.42, 5, Vector3(0, 0.21, 0), Prim.mat(Color(0.85, 0.85, 0.88)), false)
+	Prim.box(n, Vector3(0.2, 0.12, 0.012), Vector3(0.1, 0.38, 0), Prim.mat(Color(0.9, 0.2, 0.2)), false)
+	return n
+
+## The landmark of a field that has reached airport level 20: a gold-topped beacon beside the tower.
+func _level_landmark(tower_node: Node3D) -> Node3D:
+	var n := Node3D.new()
+	n.position = Vector3(0.9, 0.0, 0.5)
+	n.visible = false
+	tower_node.add_child(n)
+	Prim.cyl(n, 0.16, 0.2, 0.18, 8, Vector3(0, 0.09, 0), Prim.mat(Color(0.92, 0.9, 0.84)))
+	Prim.cyl(n, 0.07, 0.1, 0.7, 8, Vector3(0, 0.5, 0), Prim.mat(Color(0.95, 0.95, 0.98)))
+	Prim.cyl(n, 0.13, 0.1, 0.12, 8, Vector3(0, 0.9, 0), Prim.mat(Color("f2c230")), false)
+	Prim.box(n, Vector3(0.1, 0.1, 0.1), Vector3(0, 1.02, 0), Prim.mat(Color("fff0b0")), false)
+	return n
+
 ## Is the gold plaque showing on the tower of the airport the field is showing now?
 func plaque_visible() -> bool:
 	return cur != null and cur.plaque != null and cur.plaque.visible
@@ -2272,6 +2319,10 @@ func show_mastery() -> void:
 	for v in variants:
 		if v != null and v.plaque != null:
 			v.plaque.visible = Save.mastery_rank(v.airport) >= Mastery.MAX_RANK
+		if v != null and v.flag != null:
+			v.flag.visible = Save.mastery_rank(v.airport) >= 4
+		if v != null and v.landmark != null:
+			v.landmark.visible = Save.ap_level(v.airport) >= Progression.MAX_LEVEL
 
 ## The equipped windsock colours and hangar paint, on every airport that is built.
 func apply_details() -> void:
@@ -2291,14 +2342,22 @@ func _apply_details_to(v: AirportScene) -> void:
 		((m as MeshInstance3D).material_override as StandardMaterial3D).albedo_color = paint
 
 ## Show each upgrade's scenery that has been bought (called at start-up and after a purchase).
-func show_upgrades() -> void:
+func show_upgrades(animate: bool = false) -> void:
 	for v in variants:
 		if v == null:
 			continue
 		for u in v.ups:
 			u[0].visible = Save.upgrade_level(u[1]) >= u[2]
 		for u in v.imps:
-			u[0].visible = Save.imp_level(v.airport, u[1]) >= u[2]
+			var now: bool = Save.imp_level(v.airport, u[1]) >= u[2]
+			var fresh: bool = animate and now and not u[0].visible
+			u[0].visible = now
+			if fresh:                   # what was just bought builds in: it grows from nothing with a small overshoot
+				var n3: Node3D = u[0]
+				var end_scale := n3.scale
+				n3.scale = end_scale * 0.05
+				var tw := create_tween()
+				tw.tween_property(n3, "scale", end_scale, 0.55).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 ## How many nodes of an improvement show at the airport the field is showing now.
 func improvement_nodes_visible(id: String) -> int:

@@ -236,7 +236,7 @@ static func tag(i: int = -1) -> String:
 
 ## Which weather events can happen here, and how far apart they come (a smaller scale = more often).
 static func weather_kinds() -> Array:
-	return def().get("weather", [])
+	return Progression.weather_at(current, level_of(current), def().get("weather", []))
 
 ## The middle of the airfield (fog hides aircraft beyond a radius from here).
 static func field_center() -> Vector2:
@@ -451,5 +451,23 @@ static func glider_go_around_own(i: int = -1) -> float:
 static func glider_pay_own(i: int = -1) -> float:
 	return float(def(i).get("glider_pay", 1.0))
 
+## The airport level of each airport (Progression), kept in step by Save: the traffic, the weather and the pay follow it.
+static var levels: Array = [1, 1, 1, 1, 1, 1]
+## The weekly event that is on (Rhythm.EVENTS): its spawn spacing, pay and weather factors apply to every airport.
+static var event: Dictionary = {}
+
+static func level_of(i: int = -1) -> int:
+	return int(levels[clampi(current if i < 0 else i, 0, levels.size() - 1)])
+
+## The airport's traffic at its level: the aircraft that have joined by then (weights as in its full mix).
+static var test_full_mix := false           # (the smoke test's older sections play with each airport's whole mix, whatever its level)
+
 static func mix(i: int = -1) -> Dictionary:
+	var a := current if i < 0 else i
+	if test_full_mix:
+		return def(a)["mix"]
+	return Progression.mix_at(a, level_of(a), def(a)["mix"])
+
+## The airport's whole mix, every aircraft it will ever get.
+static func full_mix(i: int = -1) -> Dictionary:
 	return def(i)["mix"]

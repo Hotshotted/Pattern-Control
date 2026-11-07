@@ -1,61 +1,84 @@
 class_name Improvements
 extends RefCounted
-## The improvements of one airport: five of them at every airport, three levels each, bought on the airport's detail screen with
-## coins. Unlike the Tower upgrades (which work everywhere) they only work at the airport they were bought for, and the airport
-## wears them: Airfield draws each in that airport's own style. Pure data, no Tuning / Save references.
-##   hangar     more hangar bays: room for more aircraft, and the ones that park in the new bays pay a hangar fee
-##   rwlights   runway lights: fewer go-arounds in fog, storms, crosswinds and at dusk
-##   applights  approach lights: a wider catch for the path snapping onto a final
-##   fuel       fuel farm: arrivals start with longer timers
-##   exit       extra exit: a shorter rollout and a faster taxi
+## The improvements of one airport: five of them at every airport, eight to ten levels deep, bought on the airport's Improve sheet with
+## coins. Unlike the Tower upgrades (which work everywhere) they only work at the airport they were bought for, and the airport wears them:
+## Airfield draws each level in that airport's own style. Each level costs about 1.5 times the one before, and the airport's level gates how deep
+## you can go (Progression.imp_gate: improvement level n needs airport level 2n - 1). Pure data, no Tuning / Save references.
+##   hangar     more hangar bays: room for more aircraft, and the ones that park in the new bays pay a hangar fee   (10 levels)
+##   rwlights   runway lights: fewer go-arounds in fog, storms, crosswinds and at dusk                             (8 levels)
+##   applights  approach lights: a wider catch for the path snapping onto a final                                   (8 levels)
+##   fuel       fuel farm: arrivals start with longer timers                                                        (8 levels)
+##   exit       extra exit: a shorter rollout and a faster taxi                                                     (8 levels)
 
-const MAX_LEVEL := 3
+const MAX_LEVEL := 10                    # the deepest any improvement goes
 const IDS := ["hangar", "rwlights", "applights", "fuel", "exit"]
+const GROWTH := 1.5                      # the price of a level over the one before
 
-## Prices of levels 1, 2 and 3 at the first airport; a later airport multiplies them (AIRPORT_COST).
 const DATA := {
-	"hangar": {"name": "Hangar bay", "text": "More room, and a fee for each", "costs": [140, 280, 560]},
-	"rwlights": {"name": "Runway lights", "text": "Fewer go-arounds in bad light", "costs": [105, 210, 420]},
-	"applights": {"name": "Approach lights", "text": "Paths snap on from further", "costs": [105, 210, 420]},
-	"fuel": {"name": "Fuel farm", "text": "Longer timers", "costs": [140, 280, 560]},
-	"exit": {"name": "Extra exit", "text": "Short rollout, quick taxi", "costs": [175, 350, 700]},
+	"hangar": {"name": "Hangar bay", "levels": 10, "mult": 1.0, "per": "+1 hangar spot"},
+	"rwlights": {"name": "Runway lights", "levels": 8, "mult": 2.2, "per": "fewer go-arounds in bad light"},
+	"applights": {"name": "Approach lights", "levels": 8, "mult": 2.4, "per": "paths snap on from further"},
+	"fuel": {"name": "Fuel farm", "levels": 8, "mult": 3.0, "per": "longer timers"},
+	"exit": {"name": "Extra exit", "levels": 8, "mult": 4.0, "per": "shorter rollout, quicker taxi"},
 }
 
-## How much dearer an airport's improvements are than the first airport's. (Dearer, but the airport earns more per minute, so they pay back sooner.)
-const AIRPORT_COST := [0.5, 0.7, 1.0, 1.4, 1.9, 2.6]
+## What each level adds, as the game applies it (Tuning.imp_*): the totals at the top level are about 1.25 times what three levels were worth
+## before this was deepened (hangar 10 spots, go-arounds -75% in bad light, snap radius +112%, timers +30%, rollout -45% and taxi +37%).
+const PER_LEVEL := {"hangar": 1.0, "rwlights": 0.094, "applights": 0.14, "fuel": 0.0375, "exit_roll": 0.056, "exit_taxi": 0.047}
 
-## What reaching a level adds, in one line ("+2 hangar spots"), for the Improve sheet's rows and their next-level preview.
-const EFFECT := {
-	"hangar": "+2 hangar spots",
-	"rwlights": "20% fewer go-arounds in bad light",
-	"applights": "Paths snap on from 30% further",
-	"fuel": "+8% on every aircraft's timer",
-	"exit": "12% shorter roll, 10% faster taxi",
-}
-
-static func max_level(_id: String) -> int:
-	return MAX_LEVEL
-
-## The one-line effect of reaching `level` (1-based).
-static func effect_text(id: String, _level: int) -> String:
-	return EFFECT[id]
+## The price of level 1 at each airport (a later airport pays more per shift, so its improvements pay back as fast): hangar level 1 is the first
+## thing to buy, priced so the average player has it after the first shift (see docs/content_audit.md).
+const L1_PRICE := [44, 85, 100, 115, 150, 180]
 
 static func improvement_name(id: String) -> String:
 	return DATA[id]["name"]
 
-static func description(id: String) -> String:
-	return DATA[id]["text"]
+static func max_level(id: String) -> int:
+	return int(DATA[id]["levels"])
 
-## Price of going from `level` to `level + 1` at `airport` (-1 at the top).
+## The one-line effect of reaching `level` (1-based): what it adds, and the total then.
+static func effect_text(id: String, level: int) -> String:
+	var l := clampi(level, 1, max_level(id))
+	match id:
+		"hangar":
+			return "+1 hangar spot (%d in all)" % l
+		"rwlights":
+			return "%d%% fewer go-arounds in bad light (%d%% in all)" % [roundi(float(PER_LEVEL["rwlights"]) * 100.0), roundi(float(PER_LEVEL["rwlights"]) * 100.0 * l)]
+		"applights":
+			return "Paths snap on from %d%% further (+%d%% in all)" % [roundi(float(PER_LEVEL["applights"]) * 100.0), roundi(float(PER_LEVEL["applights"]) * 100.0 * l)]
+		"fuel":
+			return "Timers +%.1f%% (+%d%% in all)" % [float(PER_LEVEL["fuel"]) * 100.0, roundi(float(PER_LEVEL["fuel"]) * 100.0 * l)]
+		"exit":
+			return "Roll -%d%%, taxi +%d%% (-%d%% / +%d%% in all)" % [roundi(float(PER_LEVEL["exit_roll"]) * 100.0), roundi(float(PER_LEVEL["exit_taxi"]) * 100.0), roundi(float(PER_LEVEL["exit_roll"]) * 100.0 * l), roundi(float(PER_LEVEL["exit_taxi"]) * 100.0 * l)]
+	return ""
+
+## A short effect line for a row ("+1 hangar spot"): the same without the running total.
+static func short_effect(id: String, level: int) -> String:
+	var t := effect_text(id, level)
+	var k := t.find(" (")
+	return t if k < 0 else t.substr(0, k)
+
+static func description(id: String) -> String:
+	return DATA[id]["per"]
+
+## Price of going from `level` to `level + 1` at `airport` (-1 at the top): the airport's level-1 price, the improvement's own factor, 1.5 times more each level.
 static func cost(airport: int, id: String, level: int) -> int:
-	if level >= MAX_LEVEL:
+	if level >= max_level(id):
 		return -1
-	return maxi(roundi(float(DATA[id]["costs"][level]) * float(AIRPORT_COST[clampi(airport, 0, AIRPORT_COST.size() - 1)]) / 5.0) * 5, 5)
+	var base := float(L1_PRICE[clampi(airport, 0, L1_PRICE.size() - 1)]) * float(DATA[id]["mult"])
+	return maxi(roundi(base * pow(GROWTH, float(level)) / 5.0) * 5, 5)
 
 ## What every improvement of an airport costs in all.
 static func total_cost(airport: int) -> int:
 	var n := 0
 	for id in IDS:
-		for l in MAX_LEVEL:
+		for l in max_level(id):
 			n += cost(airport, id, l)
+	return n
+
+## Levels in all (the most any airport can have).
+static func total_levels() -> int:
+	var n := 0
+	for id in IDS:
+		n += max_level(id)
 	return n

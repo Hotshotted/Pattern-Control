@@ -96,7 +96,9 @@ class Art extends Control:
 	var dock_rect := Rect2()         # the menu's bottom dock of colour tiles (empty = none)
 	var res_chips := PackedInt32Array([0, 0, 0])   # results: landings, early clear, fines
 	var res_sub := ""                # results: "Grass Strip · 14 landed"
+	var res_sub_two := false          # ...and whether it needs two lines (measured once when the results are set, not every frame)
 	var res_unlock := ""             # results: a new airport opened (shown as a card)
+	var res_goal: Dictionary = {}    # results: the nearest goal ({"text", "glyph", "frac0", "frac1", "tail", "ready"}): a bar that fills as the coins land
 	var res_rows: Array = []         # results: what the shift earned besides the pay, a row each ({"glyph", "text", "coins"}): goals, the streak day, the bonus chest, achievements, mastery ranks
 	var res_pills := 0               # results: how many rewarded-ad pills sit under the Next shift button (0 to 2)
 	var res_protected := 0           # results: coins the pay floor added (0 = the net was above the floor)
@@ -1081,7 +1083,7 @@ class Art extends Control:
 						glyph("star" if i < btn_stars[k] else "star_off", Vector2(rx - 120.0 + i * 60.0, cy), 24.0)
 				if btn_lock[k] > 0:
 					glyph("lock", Vector2(rx - 250.0, cy), 26.0, C_SOFT)
-					ptext("Needs %d" % btn_lock[k], Vector2(rx - 214.0, cy + 11.0), SZ_S, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_LEFT, 140.0)
+					ptext("Level %d" % btn_lock[k], Vector2(rx - 214.0, cy + 11.0), SZ_S, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_LEFT, 140.0)
 					glyph("star", Vector2(rx - 38.0, cy), 20.0)
 				if btn_pips[k] >= 0:
 					for i in Upgrades.MAX_LEVEL:
@@ -1215,7 +1217,7 @@ class Art extends Control:
 			var pill := Rect2(tx, r.end.y - 88.0, r.end.x - tx - 40.0, 64.0)         # (what unlocks it: under the name, where the stars are on an open card)
 			_dsb(_sb_lockpill, pill)
 			glyph("lock", Vector2(pill.position.x + 36.0, pill.get_center().y), 17.0, Color.WHITE)
-			_ds(Style.text(), Vector2(pill.position.x + 68.0, pill.get_center().y + 9.0), "Unlock with %d" % btn_lock[k], HORIZONTAL_ALIGNMENT_LEFT, pill.size.x - 68.0 - 64.0, 26, Color.WHITE)
+			_ds(Style.text(), Vector2(pill.position.x + 68.0, pill.get_center().y + 9.0), "Level %d at %s" % [btn_lock[k], Airports.airport_name(maxi(btn_map[k] - 1, 0))], HORIZONTAL_ALIGNMENT_LEFT, pill.size.x - 68.0 - 64.0, 26, Color.WHITE)
 			glyph("star", Vector2(pill.end.x - 36.0, pill.get_center().y), 18.0)
 
 	# ---------- the HUD of a shift ----------
@@ -1378,7 +1380,7 @@ class Art extends Control:
 			var tfs := Style.fit_size("SHIFT COMPLETE", 104, 50, 1000.0)
 			Style.draw_ext(self, Vector2(cx - 520.0, 290.0 * s2 + top - RES_LIFT), "SHIFT COMPLETE", tfs, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
 		if dyn and res_sub != "":
-			if Hud.wrap_lines(res_sub, SZ_S, 1040.0) > 1:       # (long: two lines, the first break at a " · ")
+			if res_sub_two:       # (long: two lines)
 				_dms(Style.text(), Vector2(cx - 520.0, 338.0 * s2 + top - RES_LIFT), res_sub, HORIZONTAL_ALIGNMENT_CENTER, 1040.0, SZ_S, 2, C_CREAM)
 			else:
 				text(res_sub, Vector2(cx - 520.0, 350.0 * s2 + top - RES_LIFT), SZ_S, C_CREAM, HORIZONTAL_ALIGNMENT_CENTER, 1040.0)
@@ -1444,6 +1446,22 @@ class Art extends Control:
 			var pr: Rect2 = stk["pill"]
 			_dsb(_sb_chip, pr)
 			ptext("Shift pay protected", Vector2(pr.position.x, pr.get_center().y + 12.0), SZ_M, Style.SUCCESS_DARK, HORIZONTAL_ALIGNMENT_CENTER, pr.size.x)
+		# The nearest goal, always: "120 XP to level 5", "40 coins to Runway lights 3", or "Ready to buy!", over a bar that fills as the coins land
+		if stk.has("goal"):
+			var gl: Rect2 = stk["goal"]
+			_dsb(_sb_unlock, gl)
+			var gg: Dictionary = res_goal
+			glyph(str(gg["glyph"]), Vector2(gl.position.x + 52.0, gl.position.y + 40.0), 22.0)
+			var tail := str(gg["tail"])
+			var gtw := text_width(tail, Style.SZ_BODY) + 8.0
+			ptext(str(gg["text"]), Vector2(gl.position.x + 96.0, gl.position.y + 54.0), Style.SZ_BODY, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, gl.size.x - 100.0 - gtw - 40.0)
+			ptext(tail, Vector2(gl.end.x - 28.0 - gtw, gl.position.y + 54.0), Style.SZ_BODY, C_GOLD_TXT if bool(gg["ready"]) else C_TEXT, HORIZONTAL_ALIGNMENT_RIGHT, gtw)
+			var bar := Rect2(gl.position.x + 28.0, gl.end.y - 34.0, gl.size.x - 56.0, 18.0)
+			var k := Style.ease_out_cubic(clampf((res_t - 1.4) / 0.9, 0.0, 1.0))
+			var fr := lerpf(float(gg["frac0"]), float(gg["frac1"]), k)
+			draw_rect(bar, Style.INK)
+			draw_rect(bar.grow(-2.0), Color(0.86, 0.78, 0.62))
+			draw_rect(Rect2(bar.position + Vector2(2, 2), Vector2((bar.size.x - 4.0) * clampf(fr, 0.0, 1.0), bar.size.y - 4.0)), C_GOLD if bool(gg["ready"]) and k >= 1.0 else Style.PRIMARY)
 		# What the shift earned besides the pay: goals, the streak day, the bonus chest, achievements, ranks: one row each, all alike (icon, text, +coins)
 		for rw in stk["rows"]:
 			var gr: Rect2 = rw["rect"]
@@ -1451,8 +1469,8 @@ class Art extends Control:
 			glyph(str(rw["glyph"]), Vector2(gr.position.x + 52.0, gr.get_center().y), 22.0 if rw["glyph"] != "check" else 16.0, Style.SUCCESS_DARK if rw["glyph"] == "check" else Color.WHITE)
 			var coins := int(rw["coins"])
 			var gw := gr.size.x - 110.0 - (330.0 if coins > 0 else 40.0)
-			var gtxt := Hud.fit_lines(str(rw["text"]), Style.SZ_BODY, gw, 2)
-			var gl := Hud.wrap_lines(gtxt, Style.SZ_BODY, gw)
+			var gtxt: String = str(rw.get("fit", rw["text"]))
+			var gl: int = int(rw.get("lines", 1))
 			if gl > 1:
 				_dms(Style.text(), Vector2(gr.position.x + 96.0, gr.get_center().y - 10.0), gtxt, HORIZONTAL_ALIGNMENT_LEFT, gw, Style.SZ_BODY, 2, C_TEXT)
 			else:
@@ -1492,6 +1510,10 @@ class Art extends Control:
 		# is folded into the last row that fits ("3 more  +120")
 		var yy := y
 		var used := 0.0
+		if not res_goal.is_empty() and used + 120.0 <= avail:
+			out["goal"] = Rect2(cx - 465.0, yy, 930.0, 112.0)
+			yy += 120.0
+			used += 120.0
 		if res_unlock != "" and used + 168.0 <= avail:
 			out["unlock"] = Rect2(cx - 465.0, yy, 930.0, 160.0)
 			yy += 168.0
@@ -1512,7 +1534,11 @@ class Art extends Control:
 				var more := 0
 				for z in range(q, n):
 					more += int(res_rows[z]["coins"])
-				row = {"glyph": "star", "text": "%d more" % (n - q), "coins": more}
+				row = {"glyph": "star", "text": "%d more" % (n - q), "coins": more, "fit": "%d more" % (n - q), "lines": 1}
+			if not row.has("fit"):
+				var gw0 := 930.0 - 110.0 - (330.0 if int(row["coins"]) > 0 else 40.0)
+				row["fit"] = Hud.fit_lines(str(row["text"]), Style.SZ_BODY, gw0, 2)
+				row["lines"] = Hud.wrap_lines(row["fit"], Style.SZ_BODY, gw0)
 			row["rect"] = Rect2(cx - 465.0, yy, 930.0, 104.0)
 			rows_out.append(row)
 			yy += 112.0
@@ -1902,6 +1928,7 @@ var ach_unseen := false              # the menu's Awards button wears a red dot 
 var goals_done := 0                  # the menu's goals card: goals finished today, the streak line, and a red dot while none is done
 var goals_line := ""
 var goal_note: Array = []            # the goals the shift just finished (the results card lists them)
+var goal_strip: Dictionary = {}       # ...and the nearest goal (the results card's bar): {"text", "glyph", "frac0", "frac1", "tail", "ready"}
 var goal_rows: Array = []             # ...and the other rows of the card (the streak day, the bonus chest, achievements, ranks): {"glyph", "text", "coins"}
 var bad_streak := 0
 var bad_done := false
@@ -2914,7 +2941,15 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	for g in goal_note:                  # (the goals first, then the rest: the streak day, the chest, achievements, ranks)
 		rows.append({"glyph": "check", "text": str(g["text"]), "coins": int(g["reward"])})
 	rows.append_array(goal_rows)
+	for rw in rows:                      # (measured once here: a row's text fitted to two lines, not at every frame)
+		var gw1 := 930.0 - 110.0 - (330.0 if int(rw["coins"]) > 0 else 40.0)
+		rw["fit"] = Hud.fit_lines(str(rw["text"]), Style.SZ_BODY, gw1, 2)
+		rw["lines"] = Hud.wrap_lines(rw["fit"], Style.SZ_BODY, gw1)
 	_art.res_rows = rows
+	_art.res_goal = goal_strip.duplicate()
+	if not _art.res_goal.is_empty():
+		_art.res_goal["text"] = Hud.fit_lines(str(_art.res_goal["text"]), Style.SZ_BODY, 930.0 - 100.0 - _art.text_width(str(_art.res_goal["tail"]), Style.SZ_BODY) - 48.0, 1)
+	_art.res_sub_two = Hud.wrap_lines(_art.res_sub, Style.SZ_S, 1040.0) > 1
 	if not _art.show_result or _art.res_t > 60.0:
 		_art.res_t = 0.0
 	_slam_next = 0
@@ -3135,7 +3170,7 @@ func show_select(total_stars: int, open: PackedByteArray, stars: PackedInt32Arra
 				_art.add_button("pick:%d" % i, Airports.airport_name(i), r, 2 if i == selected else 0, Airports.tag(i), stars[i], -1, {"kind": 1, "map": i, "cost": maxi(best, 0), "pips": int(mastery_ranks[i]) if i < mastery_ranks.size() else -1, "badge": int(mastery_pcts[i]) if i < mastery_pcts.size() else 0})
 				pass             # (tapping a card opens its detail screen: Fly here and the No engines switch are there)
 			else:
-				_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, Airports.tag(i), -1, -1, {"kind": 1, "map": i, "lock": Airports.unlock_stars(i)})
+				_art.add_button("locked:%d" % i, Airports.airport_name(i), r, 1, Airports.tag(i), -1, -1, {"kind": 1, "map": i, "lock": Progression.GATE_LEVEL})
 		_art.queue_redraw())
 
 ## The airport card whose scenery is still being built says so (its subtitle) until it is there; -1 clears it.

@@ -9,12 +9,12 @@ extends RefCounted
 const MAX_RANK := 5
 ## Cumulative landings for rank 1..5 at each airport.
 const THRESHOLDS := [
-	[15, 65, 140, 265, 420],          # Grass Strip
-	[40, 160, 350, 665, 1050],        # County
-	[25, 100, 220, 420, 660],         # Regional
-	[10, 30, 70, 135, 210],           # Mountain Field (a short shift: its stars come quickly)
-	[35, 130, 290, 550, 870],         # Island
-	[60, 220, 490, 930, 1470],        # International
+	[35, 150, 320, 610, 965],          # Grass Strip
+	[90, 370, 805, 1530, 2415],        # County
+	[55, 230, 505, 965, 1520],         # Regional
+	[25, 70, 160, 310, 485],           # Mountain Field (a short shift: its stars come quickly)
+	[80, 300, 665, 1265, 2000],         # Island
+	[140, 505, 1125, 2140, 3380],        # International
 ]
 const RANK_NAMES := ["Newcomer", "Regular", "Veteran", "Expert", "Master"]
 ## Coins at ranks 1..5, in average-shift pays at that airport (Goals.AVG_PAY).
@@ -66,3 +66,23 @@ static func cosmetic_for(ap: int, r: int) -> String:
 
 static func rank_name(r: int) -> String:
 	return "Unranked" if r <= 0 else RANK_NAMES[mini(r, MAX_RANK) - 1]
+
+
+## The pay bonus a rank gives at its airport (ranks 1..5): a landing there pays this much more.
+const PAY_BONUS := [0.01, 0.02, 0.03, 0.04, 0.06]
+## ...and rank 5 at an airport also adds this to the pay at every airport (a small global bonus, gold badge).
+const GLOBAL_BONUS := 0.01
+
+static func pay_bonus(r: int) -> float:
+	return 0.0 if r <= 0 else PAY_BONUS[mini(r, MAX_RANK) - 1]
+
+## What each rank gives at an airport, one line: the pay, the cosmetic or landmark, the badge.
+static func reward_text(ap: int, r: int) -> String:
+	var t := "Pay +%d%% here" % roundi(pay_bonus(r) * 100.0)
+	if r == 3:
+		t += ", a livery"
+	elif r == 4:
+		t += ", a pennant on the tower"
+	elif r == 5:
+		t += ", a gold plaque, a field detail and +%d%% pay at every airport" % roundi(GLOBAL_BONUS * 100.0)
+	return t

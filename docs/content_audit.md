@@ -567,3 +567,85 @@ What was built (tests in section 34):
 - The ad stubs. They do nothing in the build, so they are listed but have no economy effect in the simulations.
 - Whether the daily shift and Bad Pilot Day are blocked anywhere else in the UI for a locked airport. The code path (`start_daily`, `start_bad_day`) has no check.
 - The simulation overhead of 20 s per shift is an assumption; the real figure on a phone is probably higher.
+
+## 10. Airports as long-term homes: levels, deep improvements, reasons to return
+
+What changed (tests in section 40 of `tests/smoke_test.gd`; the data is in `Progression.gd`, `Improvements.gd`, `Rhythm.gd`, `Mastery.gd`):
+
+1. **Airport levels 1 to 20**, earned by XP from every shift at that airport: 4 per landing, 25 for a clean sheet, 25 / 50 / 100 for each of the shift's three star objectives (every time one is met, not only the first), 30 / 60 / 120 for a daily goal. The XP a level costs rises 3.5% a level (level 1 costs 16% of a normal level, level 2 70%, so every airport starts with a run of quick level-ups) and a later airport asks 0 to 20% more (`XP_BASE` 1,650; `XP_SCALE` 1.0, 1.0, 1.05, 1.1, 1.15, 1.2). Halfway through every level a bonus of two average shifts' pay is paid ("Halfway to level 6").
+2. **Every level unlocks something named**, shown as the "next unlock" on the airport's detail screen and as a row on the results card when it is reached: improvement tiers (the hangar bay and approach lights open on odd levels, the runway lights, fuel farm and extra exit on even ones: improvement level n needs airport level 2n - 1 or 2n - 2, level 1 is open from the start), pay steps (+8% at level 2, +12% at 12, +15% at 20), a new aircraft type at levels 4 and 14 (glider tows, twins, bizjets, helicopters, seaplanes: each airport starts with some of its mix and gets the rest), traffic and weather steps at 10 (busier hours) and 16 (a new weather, or busier hours again), cosmetics at 6, 8, 18 and 20 (an airport-themed livery, windsock and two hangar paints: 24 new items, all given by levels), **level 8 opens the next airport**, level 20 puts a landmark on the field. Star objectives (three named ones per airport) stay per-shift goals that feed XP; stars no longer open airports (the old gates 0 / 1 / 2 / 3 / 6 / 10 stars are gone).
+3. **Improvements are 8 to 10 levels deep** (hangar bay 10, the other four 8), each level about 1.5 times the price of the one before, and each level shows on the field (a hangar block at odd levels and a second door at even ones; runway lights fill in from every eighth lamp to all of them; a row of approach lights, a fuel tank, an exit pavement then its lit centre line and edge lights). The effect per level is smaller so that the top is about 1.25 times what the old three levels were worth (hangar 10 places, go-arounds in bad light -75%, snap radius +112%, timers +30%, rollout -45% and taxi +37%). The Improve screen is a full-height single-column sheet (item 3 of the playtest list); locked levels say which airport level opens them.
+4. **Reasons to return.** *Daily goals*: three a day at **each airport** (their own reroll and chest), the streak counts a day when any airport's first goal is done. *Weekly event*: one modifier a week for every airport (airshow, storm week, fly-in, holiday rush, calm skies) with a five-step reward track earned by shifts (1 point a shift and 1 more per star; rewards 1, 2, 3, 5 and 8 average shifts' pay at 6, 16, 30, 48 and 70 points). *Offline hangar income*: parked planes earn 5% of an average landing's pay per plane per hour, up to 8 hours, collected on a welcome-back screen. *Mastery* keeps its five ranks (thresholds x2.3, so they run past level 20): each rank adds a pay bonus at its airport (1, 2, 3, 4, 6%), rank 3 an airport livery, rank 4 a pennant on the tower, rank 5 the gold plaque, a field detail and +1% pay at every airport.
+5. **The first upgrade is an event.** The hangar bay at the first airport costs 44 coins: the average bot's first (seeded) shift pays 49 (11% to spare), the poor bot's 43 (it needs the second shift; the first two shifts at an airport also pay at least 55% of the price, a welcome floor, so a struggling player is never more than two shifts away). Before the first shift the airport's card names it as the goal ("First goal: Hangar bay for 44"), the results card shows a bar to it filling as the coins land and then "Ready to buy!" or "N more", the purchase is a hold (a fill runs across the button, the buy sound, the whole sheet fades for a moment while the new bay grows on the field), and the first plane that parks in the new bay gets a banner. Every airport's first upgrade does the same (a smaller price, since the bank is already full). The "Watch to double" pill on the results is a rewarded ad, not a new-player bonus, so it stays.
+
+### 10.1 How the long careers were run
+
+Playing 3,000 real shifts per bot takes days, so `tools/career_model.gd` runs the **real progression code** (Save, Progression, Improvements, Rhythm, Goals, Mastery: XP, levels, unlocks, prices, gates, mastery, goals, the event, the offline tally) and draws each shift's outcome (landings, pay, fines, stars, length) from **shifts that were really played** by the autopilot bots of `tools/audit_sim.gd` at three stages of an airport's development: level 1 with nothing built (`docs/sim/svy_l1_i0.txt`), level 10 with four levels of everything (`svy_l10_i4.txt`) and level 20 with eight (`svy_l20_i8.txt`), 12 shifts per bot and airport at each stage, blended by how far the airport has come. The Tower is at its half level in all three; the event, mastery and welcome floor are applied on top. Policy `tour`: always the open airport with the lowest level (after all are at 20, the one whose mastery is furthest from done); the bot buys the cheapest thing it can afford (any improvement level an airport level allows, or a Tower level). Mode `continuous` plays back to back (a new day every 3 hours, for the goals and the event week); mode `daily` is one 20-minute session a day with the hangars earning in between.
+
+```
+godot --headless --path . --script tools/career_model.gd -- surveys=docs/sim bots=poor,average,good mode=continuous maxh=400
+godot --headless --path . --script tools/career_model.gd -- surveys=docs/sim bots=poor,average,good mode=daily maxh=2400
+```
+
+### 10.2 Hours to unlock each airport (continuous play; each airport opens at level 8 of the one before)
+
+| Bot | County | Regional | Mountain Field | Island | International |
+|---|---|---|---|---|---|
+| Poor | 7.7 h | 13.2 h | 22.5 h | 38.4 h | 49.3 h |
+| Average | 2.1 h | 5.9 h | 9.1 h | 12.1 h | 15.4 h |
+| Good | 2.0 h | 3.5 h | 5.1 h | 7.2 h | 10.1 h |
+
+Target for the average bot: airport 1 to 2 in 2 to 3 hours: **2.1 h** (met); later airports follow in 3 to 4 hour steps.
+
+### 10.3 Hours to level 20 at each airport
+
+| Bot | Grass Strip | County | Regional | Mountain Field | Island | International |
+|---|---|---|---|---|---|---|
+| Poor | 211.6 h | 209.8 h | 208.5 h | 206.7 h | 203.3 h | 201.2 h |
+| Average | 81.0 h | 80.0 h | 79.0 h | 78.1 h | 77.1 h | 75.7 h |
+| Good | 49.4 h | 48.9 h | 48.5 h | 48.1 h | 47.5 h | 46.9 h |
+
+(The `tour` bot grows all six airports together, so they reach 20 within a couple of hours of each other, near the end.)
+
+### 10.4 Hours to everything bought, all stars, max mastery, and the total length of the game
+
+| Bot | Everything bought (improvements / Tower) | All 18 stars | Max mastery (rank 5 everywhere) | Level 20 everywhere | **Total game length** | 20 min a day: days to finish |
+|---|---|---|---|---|---|---|
+| Poor | 260.8 h (260.8 h / 132.5 h) | - | 180.0 h | 211.6 h | **260.8 h** (daily play: 178.4 h) | - |
+| Average | 74.9 h (74.9 h / 35.9 h) | - | 57.3 h | 81.0 h | **81.0 h** (daily play: 74.7 h) | - |
+| Good | 46.0 h (46.0 h / 23.7 h) | 10.7 h | 50.5 h | 49.4 h | **50.5 h** (daily play: 48.8 h) | - |
+
+Target for the average bot: 60 to 100 hours in all, with no energy and no wait timers: **81.0 h continuous, 74.7 h on the 20-minute-a-day plan** (met). Maxing one airport's improvements alone is most of the average bot's coins on that airport: about 10 to 15 hours of that airport's income (hangar 10 levels + four improvements 8 levels deep: about 29,000 coins at the Grass Strip, 56,000 at International). Stars are not on the critical path (they feed XP): the average bot does not win every star objective (star 3 is a skill test); the good bot has all 18 at 10.7 h.
+
+### 10.5 Coin share by source
+
+| Bot / mode | Shifts | Goals (+ streak + chests) | Offline hangars | Weekly event | Mastery ranks | Halfway bonuses | Welcome floor |
+|---|---|---|---|---|---|---|---|
+| Poor, continuous | 79% | 9% | 0% | 7% | 2% | 4% | 0% |
+| Average, continuous | 88% | 5% | 0% | 2% | 1% | 3% | 0% |
+| Good, continuous | 90% | 4% | 0% | 1% | 1% | 3% | 0% |
+| Poor, daily 20 min | 33% | 11% | 31% | 22% | 1% | 2% | 0% |
+| Average, daily 20 min | 61% | 10% | 15% | 11% | 1% | 2% | 0% |
+| Good, daily 20 min | 71% | 8% | 10% | 7% | 1% | 2% | 0% |
+
+The shifts are the economy (90% for a player who plays long sessions); a player who comes back every day for 20 minutes gets roughly a third of the coins from the goals, the hangars and the weekly track, which is what they are for.
+
+### 10.6 Pacing: the longest gap in each phase (average bot, minutes of play)
+
+Early = the first 2 hours, mid = 2 to 20 hours, late = after 20 hours. "Reward" = a level-up, a purchase, a mastery rank, an event reward or a halfway bonus (a daily goal or the offline tally in the daily mode counts too).
+
+| Phase | Longest gap between level-ups | ... between purchases | ... with no unlock, purchase or event / rank reward | ... with nothing at all (any reward) | Target |
+|---|---|---|---|---|---|
+| early (0-2 h) | 33 min | 11 min | 11 min | 11 min | a purchase at least every 2 shifts; a level-up every 15 min |
+| mid (2-20 h) | 61 min | 25 min | 25 min | 25 min | a purchase every 15 min, a level-up every 30 min |
+| late (20 h on) | 82 min | 367 min | 82 min | 48 min | never more than 45 min without a level-up, unlock or reward |
+
+Read against the targets, honestly:
+
+- **First level-up within the first 10 minutes: met** (the first one comes at about 5 minutes, the first purchase after shift 1, and the first airport is level 8 at about 2.1 hours).
+- **Nothing for more than 30 minutes: met in the early and mid game, just missed late.** The longest stretch with no reward of any kind is about 11 minutes early, 25 minutes mid and 48 minutes late (the good bot's late figure is 69 minutes); the late gap is the wait for the last, dearest improvement levels, and the halfway bonuses and goals that fill it are small. Pushing it under 45 would mean cheaper last levels, which is in tension with the 1.5 x rule and the game length.
+- **A level-up every 15 minutes early is not possible together with level 8 at 2 to 3 hours**: levels 1 to 7 are seven level-ups before County opens, so they are at best about 18 minutes apart (here, at minutes 5.5, 19, 40, 57, 90, 105 and 128: gaps of 6, 14, 21, 17, 33, 15 and 23 minutes); the halfway bonuses, the quick purchases and the daily goals fill the gaps (the longest stretch with nothing at all in the first 2 hours is 11 minutes).
+- **Mid game: a level-up every 30 minutes is missed (61 minutes at its worst, at the end of an airport's levels), a purchase every 15 minutes is missed (25 minutes at worst)**: with one airport at a time the player is on levels 8 to 14, where a level is 35 to 60 minutes; the airport rotation keeps the gaps from growing past that. Purchases come in bursts after each level-up (a level opens one to three improvement levels) and then wait for coins.
+- **Every 20-minute daily session ended with at least one purchase, level-up, mastery rank, event reward or halfway bonus** (100% of the 213 sessions of the average bot) because of the halfway bonuses and goals.
+
+The results screen always shows the nearest goal ("40 coins to Runway lights 3", "120 XP to level 5", "Ready to buy!") over a bar.

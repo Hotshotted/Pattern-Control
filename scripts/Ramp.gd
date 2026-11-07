@@ -32,7 +32,7 @@ static func mean_pay(i: int = -1) -> float:
 	var pay := 0.0
 	for t in mix:
 		total += float(mix[t])
-		pay += float(mix[t]) * Tuning.landing_pay(int(t))
+		pay += float(mix[t]) * Tuning.landing_pay(int(t), i if i >= 0 else Airports.current)
 	return pay / maxf(total, 0.0001)
 
 ## The landings that earn the first star (finish the shift with this many): the hangar holds exactly that many aircraft, so
