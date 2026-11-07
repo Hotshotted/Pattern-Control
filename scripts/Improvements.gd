@@ -24,6 +24,22 @@ const DATA := {
 ## How much dearer an airport's improvements are than the first airport's. (Dearer, but the airport earns more per minute, so they pay back sooner.)
 const AIRPORT_COST := [0.5, 0.7, 1.0, 1.4, 1.9, 2.6]
 
+## What reaching a level adds, in one line ("+2 hangar spots"), for the Improve sheet's rows and their next-level preview.
+const EFFECT := {
+	"hangar": "+2 hangar spots",
+	"rwlights": "20% fewer go-arounds in bad light",
+	"applights": "Paths snap on from 30% further",
+	"fuel": "+8% on every aircraft's timer",
+	"exit": "12% shorter roll, 10% faster taxi",
+}
+
+static func max_level(_id: String) -> int:
+	return MAX_LEVEL
+
+## The one-line effect of reaching `level` (1-based).
+static func effect_text(id: String, _level: int) -> String:
+	return EFFECT[id]
+
 static func improvement_name(id: String) -> String:
 	return DATA[id]["name"]
 

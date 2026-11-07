@@ -26,11 +26,13 @@ var scroll: ScrollContainer
 var card: PanelContainer
 var chips := {}                          # id -> Chip
 var fly: Chip = null
+var holds := {}                          # id of a hold-to-buy button -> its HoldFill
 
 ## One tappable cream chip: a PanelContainer around its content, so it is as big as its content (and its minimum height).
 class Chip extends PanelContainer:
 	signal down(id: String)
 	signal up(id: String)
+	signal cancelled(id: String)
 	var id := ""
 	var state := 0              # 0 normal, 1 dimmed (out of reach: it answers with the error sound only), 2 selected / on
 	var kind := 0               # 0 cream chip, 1 primary (orange)
@@ -42,12 +44,14 @@ class Chip extends PanelContainer:
 		id = p_id
 		state = p_state
 		kind = p_kind
-		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_filter = Control.MOUSE_FILTER_PASS         # (a drag that starts on a chip still scrolls the list under it)
 		custom_minimum_size = Vector2(0.0, min_h)
 		_sb = DetailSheet.chip_styles(kind, state, pad)
 		add_theme_stylebox_override("panel", _sb["normal"])
 
 	func _gui_input(ev: InputEvent) -> void:
+		if ev is InputEventMouseMotion and _held and ev.global_position.distance_to(_from) >= 24.0:
+			cancel()          # (it became a scroll: not a tap, and a hold-to-buy stops)
 		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
 			if ev.pressed:
 				_held = true
@@ -64,6 +68,7 @@ class Chip extends PanelContainer:
 	## Let go without a tap (the sheet is being rebuilt, or the finger left).
 	func cancel() -> void:
 		_held = false
+		cancelled.emit(id)
 		add_theme_stylebox_override("panel", _sb["normal"])
 
 ## The cream chip / orange primary looks, with the padding as content margins.
@@ -122,19 +127,39 @@ class Bar extends Control:
 		draw_rect(inner, Color(0.86, 0.78, 0.62))
 		draw_rect(Rect2(inner.position, Vector2(inner.size.x * clampf(frac, 0.0, 1.0), inner.size.y)), Style.ACCENT if top else Style.PRIMARY)
 
-## The three level pips of an improvement.
+## The level pips of an improvement (one per level, filled up to the level reached).
 class Pips extends Control:
 	var level := 0
+	var max_level := Improvements.MAX_LEVEL
+
+	func setup(p_level: int, p_max: int) -> void:
+		level = p_level
+		max_level = p_max
+		custom_minimum_size = Vector2(float(max_level) * 26.0, 24.0)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func _init() -> void:
-		custom_minimum_size = Vector2(3.0 * 26.0, 24.0)
+		custom_minimum_size = Vector2(float(max_level) * 26.0, 24.0)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func _draw() -> void:
-		for q in Improvements.MAX_LEVEL:
-			var c := Vector2(size.x * 0.5 + (q - 1) * 26.0, size.y * 0.5)
+		for q in max_level:
+			var c := Vector2(13.0 + q * 26.0, size.y * 0.5)
 			draw_circle(c, 10.0, Style.INK)
 			draw_circle(c, 7.5, Style.ACCENT if q < level else Color(0.86, 0.78, 0.62))
+
+## The fill that runs across a hold-to-buy button while it is held.
+class HoldFill extends Control:
+	var hold := 0.0
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	func _draw() -> void:
+		if hold > 0.0:
+			draw_rect(Rect2(Vector2.ZERO, Vector2(size.x * clampf(hold, 0.0, 1.0), size.y)), Color(1.0, 1.0, 1.0, 0.38))
 
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -179,9 +204,12 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 	chips.clear()
 	fly = null
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var y0 := vp.y * 0.667
+	var keep_scroll := scroll.scroll_vertical if (scroll != null and is_instance_valid(scroll)) else 0
+	var improve: bool = bool(info["open"]) and int(info.get("tab", 0)) == 1
+	var y0 := 0.0 if improve else vp.y * 0.667       # (the Improve sheet is the whole screen: a list needs the height)
 	position = Vector2(0.0, y0)
 	size = Vector2(vp.x, vp.y - y0)
+	holds.clear()
 	var tap := Style.tap_px()
 	var locked: bool = not bool(info["open"])
 	var i: int = info["i"]
@@ -192,20 +220,31 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 	var sb := Style.box(Style.SURFACE_DARK, Style.EDGE, Style.R_L, 0, true)
 	sb.corner_radius_bottom_left = 0
 	sb.corner_radius_bottom_right = 0
+	if improve:
+		sb.corner_radius_top_left = 0
+		sb.corner_radius_top_right = 0
 	card.add_theme_stylebox_override("panel", sb)
 	add_child(card)
 	card.position = Vector2((vp.x + safe_left - safe_right - w) * 0.5, 0.0)
-	card.size = Vector2(w, size.y + 40.0)                    # (it runs 40 under the screen's edge: no rounded bottom corners show)
+	card.size = Vector2(w if not improve else vp.x, size.y + 40.0)                    # (it runs 40 under the screen's edge: no rounded bottom corners show)
+	if improve:
+		card.position = Vector2.ZERO
+		w = vp.x - safe_left - safe_right
 
 	var margin := MarginContainer.new()
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_theme_constant_override("margin_left", int(GUTTER))
 	margin.add_theme_constant_override("margin_right", int(GUTTER))
-	margin.add_theme_constant_override("margin_top", 28)
+	margin.add_theme_constant_override("margin_top", int(28.0 + (Style.safe_top if improve else 0.0)))
+	if improve:
+		margin.add_theme_constant_override("margin_left", int(GUTTER + safe_left))
+		margin.add_theme_constant_override("margin_right", int(GUTTER + safe_right))
 	margin.add_theme_constant_override("margin_bottom", int(24.0 + 40.0 + safe_bottom))
 	card.add_child(margin)
 	var col := vbox(16)
 	margin.add_child(col)
+	if improve:
+		_improve_header(col, info, tap)
 
 	scroll = ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -222,16 +261,17 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 	# ---- name and tag (left), the tabs (right) ----
 	var inner_w := w - 2.0 * GUTTER
 	var tab := int(info.get("tab", 0))
-	var names := vbox(2)
-	_fill(names)
-	names.custom_minimum_size.x = 8.0
-	body.add_child(names)
-	var nm: String = info["name"]
-	var nfs := Style.fit_size(nm, 64, Style.SZ_BODY, inner_w)
-	names.add_child(label(nm, nfs, Style.TEXT if not locked else Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.display()))
-	var tag_txt: String = info["tag"] + ((" \u00b7 Best %d" % int(info["best"])) if (not locked and int(info["best"]) > 0) else "")
-	names.add_child(label(tag_txt, 28, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.body()))
-	if not locked:
+	if not improve:
+		var names := vbox(2)
+		_fill(names)
+		names.custom_minimum_size.x = 8.0
+		body.add_child(names)
+		var nm: String = info["name"]
+		var nfs := Style.fit_size(nm, 64, Style.SZ_BODY, inner_w)
+		names.add_child(label(nm, nfs, Style.TEXT if not locked else Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.display()))
+		var tag_txt: String = info["tag"] + ((" \u00b7 Best %d" % int(info["best"])) if (not locked and int(info["best"]) > 0) else "")
+		names.add_child(label(tag_txt, 28, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.body()))
+	if not locked and not improve:
 		var tabs := hbox(10)
 		body.add_child(tabs)
 		tabs.add_child(_chip("dtab:0", "Stars", "star", 2 if tab == 0 else 0, tap))
@@ -264,20 +304,11 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 				cellv.add_child(cr)
 	if not locked and tab == 0:
 		body.add_child(label("Hangar %d, profit after %d landings" % [int(info["hangar"]), int(info["land"][0])], 28, Style.TEXT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text()))
-	if not locked and tab == 1:
-		var imps: Array = info["imps"]
-		var grid := GridContainer.new()
-		grid.columns = 3
-		grid.add_theme_constant_override("h_separation", 12)
-		grid.add_theme_constant_override("v_separation", 12)
-		grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		body.add_child(grid)
-		for im in imps:
-			var price: int = im["price"]
-			var st := 2 if price < 0 else (1 if int(info["bank"]) < price else 0)
-			grid.add_child(_imp_chip("imp:%d:%s" % [i, im["id"]], im, price, st, tap))
+	if improve:
+		for im in info["imps"]:
+			body.add_child(_imp_row(i, im, str(info.get("imp_sel", "")) == str(im["id"]), int(info["bank"]), tap))
 
-	if not locked:
+	if not locked and not improve:
 		_extras(body, info, tap)
 
 	# ---- the pinned bottom: Fly here, or what unlocks a locked airport ----
@@ -305,10 +336,14 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 		pr.add_child(si)
 		pill.custom_minimum_size.y = maxf(100.0, tap)
 		col.add_child(pill)
+	elif improve:
+		col.add_child(_primary("imp_done", "Done", maxf(130.0, tap)))
 	else:
 		fly = _primary("airport:%d" % i, "Fly here", maxf(130.0, tap))
 		col.add_child(fly)
 	settle()
+	if improve and keep_scroll > 0:
+		scroll.scroll_vertical = keep_scroll
 
 ## Under the tab's content: the mastery rank (and how far to the next one, over a bar) and the No engines switch.
 func _extras(body: VBoxContainer, info: Dictionary, tap: float) -> void:
@@ -339,8 +374,15 @@ func _extras(body: VBoxContainer, info: Dictionary, tap: float) -> void:
 
 ## Lay everything out now rather than at the end of the frame (the tests and the audit read rectangles straight after building).
 func settle() -> void:
-	for pass_k in 3:
-		_sort(self)
+	for pass_k in 4:
+		_sort_down(self)         # (a parent hands its width to its children...)
+		_sort(self)              # (...and the children's wrapped heights go back up)
+
+static func _sort_down(n: Node) -> void:
+	if n is Container:
+		n.notification(Container.NOTIFICATION_SORT_CHILDREN)
+	for c in n.get_children():
+		_sort_down(c)
 
 static func _sort(n: Node) -> void:
 	for c in n.get_children():
@@ -381,32 +423,96 @@ func _primary(id: String, text: String, min_h: float) -> Chip:
 	_wire(c)
 	return c
 
-## An improvement: icon, name, level pips and the next price (or MAX).
-func _imp_chip(id: String, im: Dictionary, price: int, state: int, tap: float) -> Chip:
+## The Improve sheet's top: a clear Back, the title and the coins in the bank.
+func _improve_header(col: VBoxContainer, info: Dictionary, tap: float) -> void:
+	var hb := hbox(14)
+	col.add_child(hb)
+	var back := _chip("dtab:0", "Back", "back", 0, maxf(tap, 64.0 * Style.px_per_pt))
+	back.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	hb.add_child(back)
+	var tv := vbox(0)
+	_fill(tv)
+	tv.custom_minimum_size.x = 8.0
+	tv.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_child(tv)
+	tv.add_child(label("Improve", Style.SZ_M, Style.TEXT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.display()))
+	tv.add_child(label(str(info["name"]), Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "caption"))
+	var bank := hbox(8)
+	bank.alignment = BoxContainer.ALIGNMENT_END
+	var ci := Icon.new()
+	ci.setup("coin", 44.0, art_factory)
+	bank.add_child(ci)
+	bank.add_child(label(str(int(info["bank"])), Style.SZ_BODY, Style.ACCENT_DARK, HORIZONTAL_ALIGNMENT_RIGHT, false, Style.display()))
+	hb.add_child(bank)
+
+## One improvement as a row: icon, full name, level pips, a one-line effect and (on the right) a big cost button you hold to buy.
+## Tapping the row selects it: it then shows what the next level changes.
+func _imp_row(i: int, im: Dictionary, selected: bool, bank: int, tap: float) -> Chip:
+	var price: int = im["price"]
+	var maxed := price < 0
+	var can := not maxed and bank >= price
 	var c := Chip.new()
-	c.setup(id, state, 0, maxf(176.0, tap), Vector2(10.0, 12.0))
+	c.setup("imp:%d:%s" % [i, im["id"]], 2 if selected else 0, 0, maxf(64.0 * Style.px_per_pt, tap), Vector2(18.0, 12.0))
 	c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var ink := Style.TEXT if state != 1 else Style.TEXT_QUIET
-	var v := vbox(4)
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	c.add_child(v)
+	var ink := Style.TEXT
+	var row := hbox(16)
+	c.add_child(row)
 	var ic := Icon.new()
-	ic.setup(im["id"], 48.0, art_factory, ink)
-	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	v.add_child(ic)
-	v.add_child(label(im["name"], 26, ink, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text(), "button"))
+	ic.setup(im["id"], 84.0, art_factory, ink)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(ic)
+	var tv := vbox(2)
+	_fill(tv)
+	tv.custom_minimum_size.x = 8.0
+	tv.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_child(tv)
+	tv.add_child(label(im["name"], Style.SZ_BUTTON, ink, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "button"))
+	var pr := hbox(10)
 	var pips := Pips.new()
-	pips.level = int(im["level"])
-	v.add_child(pips)
-	if price > 0:
-		var cr := hbox(6)
-		cr.alignment = BoxContainer.ALIGNMENT_CENTER
-		var ci := Icon.new()
-		ci.setup("coin", 30.0, art_factory, Color(1, 1, 1, 1.0 if state != 1 else 0.5))
-		cr.add_child(ci)
-		cr.add_child(label(str(price), Style.SZ_S, ink, HORIZONTAL_ALIGNMENT_LEFT, false, Style.display()))
-		v.add_child(cr)
+	pips.setup(int(im["level"]), int(im["max"]))
+	pips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pr.add_child(pips)
+	pr.add_child(label("Level %d of %d" % [int(im["level"]), int(im["max"])], Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, false, Style.text(), "caption"))
+	tv.add_child(pr)
+	if selected and not maxed:             # the preview: what it does now, what the next level adds
+		var now_txt: String = ("Now: " + str(im["now"])) if str(im["now"]) != "" else "Now: not built yet"
+		tv.add_child(label(now_txt, Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "caption"))
+		tv.add_child(label("Level %d: %s" % [int(im["level"]) + 1, str(im["next"])], Style.SZ_CAPTION, Style.ACCENT_DARK, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "caption"))
 	else:
-		v.add_child(label("MAX", Style.SZ_S, Style.ACCENT_DARK, HORIZONTAL_ALIGNMENT_CENTER, false, Style.text()))
+		tv.add_child(label(str(im["next"]) if not maxed else "Fully built: " + str(im["now"]), Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_LEFT, true, Style.text(), "caption"))
+	if maxed:
+		var mx := label("MAX", Style.SZ_BUTTON, Style.ACCENT_DARK, HORIZONTAL_ALIGNMENT_RIGHT, false, Style.display())
+		mx.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(mx)
+	else:
+		row.add_child(_buy_button("impbuy:%d:%s" % [i, im["id"]], price, can, tap))
 	_wire(c)
 	return c
+
+## The cost button of a row: the price over a fill that runs across it while held (Tuning.buy_hold_seconds), orange when it can be bought.
+func _buy_button(id: String, price: int, can: bool, tap: float) -> Chip:
+	var b := Chip.new()
+	b.setup(id, 0 if can else 1, 1 if can else 0, maxf(64.0 * Style.px_per_pt - 24.0, tap), Vector2(14.0, 8.0))
+	b.custom_minimum_size.x = 250.0
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var fill := HoldFill.new()
+	b.add_child(fill)
+	holds[id] = fill
+	var inner := hbox(8)
+	inner.alignment = BoxContainer.ALIGNMENT_CENTER
+	inner.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var ci := Icon.new()
+	ci.setup("coin", 40.0, art_factory)
+	inner.add_child(ci)
+	var l := label(str(price), Style.SZ_BUTTON, Color.WHITE if can else Style.TEXT_QUIET, HORIZONTAL_ALIGNMENT_LEFT, false, Style.display())
+	inner.add_child(l)
+	b.add_child(inner)
+	_wire(b)
+	return b
+
+## The fill of a hold-to-buy button (0..1).
+func set_hold(id: String, frac: float) -> void:
+	var f = holds.get(id)
+	if f != null and is_instance_valid(f):
+		f.hold = frac
+		f.queue_redraw()
