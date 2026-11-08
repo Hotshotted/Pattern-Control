@@ -155,6 +155,7 @@ var goal_unit := 0.4
 
 ## The fake "Ad playing" screen lasts this long (no real ads yet). An interstitial comes between shifts at most
 ## once per this many finished shifts.
+var ad_sdk_present := false          # no ad SDK is built in yet: the rewarded pills and the break between shifts stay hidden until one is (then set this)
 var ad_stub_seconds := 2.5
 var interstitial_every_shifts := 3
 
@@ -260,7 +261,7 @@ var go_around_telegraph := 1.0       # a go-around is signalled this long before
 var go_around_cancel_factor := 0.6   # redrawing the final cancels it if the new approach is this much cleaner (its chance below this x the old)
 var telegraph_wobble_deg := 4.0      # the roll of the wobble
 ## The first time a star is ever earned at an airport it pays this much extra.
-var landing_keep_fraction := 0.25  # the share of a completed shift's gross coins that is always paid, whatever the fines
+var landing_keep_fraction := 0.40  # the share of a completed shift's gross coins that is always paid, whatever the fines
 var coins_first_star_bonus := 100
 
 # ---------- Entry warning ----------

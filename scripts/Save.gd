@@ -42,7 +42,7 @@ var goal_streak := {}                # the daily-goal streak: {"count", "last", 
 var mastery := PackedInt32Array()    # landings made at each airport, ever (version 6)
 var mastery_paid := PackedInt32Array()   # the highest mastery rank already paid at each airport
 var ap_xp := PackedInt32Array()      # XP earned at each airport: its level 1 to 20 (Progression) (version 7)
-var ap_half := PackedInt32Array()    # the highest level whose halfway bonus has been paid at each airport (version 7)
+var ap_half := PackedInt32Array()    # the progress bonuses paid at each airport (two a level, version 7)
 var ap_xp_seen := PackedInt32Array() # the airport level the player has already been told about (level-up banners, unlock rewards)
 var stats := {}                      # lifetime counters the achievements read (version 6)
 var achievements := {}               # achievement id -> the day it was earned (version 6)
@@ -143,7 +143,7 @@ func load_file() -> void:
 	var hs: Array = data.get("ap_half", [])
 	for i in AIRPORT_SLOTS:
 		ap_xp_seen[i] = ap_level(i)
-		ap_half[i] = int(hs[i]) if i < hs.size() else ap_level(i)         # (a save that predates the halfway bonus starts after the levels it already has)
+		ap_half[i] = int(hs[i]) if i < hs.size() else 2 * (ap_level(i) - 1)         # (a save that predates the halfway bonus starts after the levels it already has)
 	stats = _dict(data.get("stats"))
 	achievements = _dict(data.get("achievements"))
 	var ap: Array = data.get("airport_plays", [])
@@ -271,19 +271,18 @@ func add_xp(i: int, n: int, pay_half: bool = true) -> Dictionary:
 		var u := Progression.unlock_for(a, lv)
 		u["level"] = lv
 		out["unlocks"].append(u)
-	# the halfway bonus: half way through a level's XP, two average shifts' pay at this airport
-	for lv in range(ap_half[a] + 1, after + 1):
-		if lv < Progression.MAX_LEVEL and ap_xp[a] >= Progression.xp_at_level(a, lv) + Progression.xp_to_next(a, lv) / 2:
-			var hc: int = Goals.AVG_PAY[a] * 2 if pay_half else 0
-			add_coins(hc)
-			ap_half[a] = lv
-			if hc > 0:
-				out["half"].append({"level": lv, "coins": hc})
-		elif lv >= Progression.MAX_LEVEL:
-			ap_half[a] = lv
+	# progress bonuses: a third and two thirds of the way through a level's XP, one and a half average shifts' pay at this airport each
+	# (`ap_half` counts the bonuses paid: two a level)
+	for m in range(ap_half[a] + 1, 2 * (Progression.MAX_LEVEL - 1) + 1):
+		var lv := (m - 1) / 2 + 1
+		var j := (m - 1) % 2 + 1
+		if lv > after or ap_xp[a] < Progression.xp_at_level(a, lv) + Progression.xp_to_next(a, lv) * j / 3:
 			break
-		else:
-			break
+		var hc: int = roundi(float(Goals.AVG_PAY[a]) * 1.5) if pay_half else 0
+		add_coins(hc)
+		ap_half[a] = m
+		if hc > 0:
+			out["half"].append({"level": lv, "coins": hc, "part": j})
 	grant_level_rewards()
 	sync_levels()
 	return out

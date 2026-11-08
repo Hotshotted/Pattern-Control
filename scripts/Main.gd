@@ -502,7 +502,7 @@ func goals_ctx(ap: int = -1) -> Dictionary:
 		open.append(i)
 		types[i] = Airports.mix(i).keys()
 		weather[i] = not (Airports.def(i)["weather"] as Array).is_empty()
-		typical[i] = Goals.TYPICAL_LANDINGS[i]
+		typical[i] = minf(float(Goals.TYPICAL_LANDINGS[i]), maxf(float(Save.stats.get("ema_land_%d" % i, Goals.TYPICAL_LANDINGS[i] * 100)) / 100.0, 2.0))
 		t2[i] = Tuning.profile(i)["stars"][1]
 		if Save.no_engines_on(i) and (types[i] as Array).has(Aircraft.Type.GLIDER):
 			noeng = true
@@ -1474,6 +1474,10 @@ func _end_shift() -> void:
 	_goal_event({"t": "shift", "ap": airport, "landed": shift.landed, "go_arounds": goal_go_arounds, "fines": shift.fines, "stars": shift.stars(), "net": shift.balance(), "hangar_full": shift.landed >= Ramp.star_landings(), "locked_run": goal_max_locked, "weather": goal_weather, "bad": bad_mode})
 	if progress_enabled:
 		_on_progress_shift_end()
+	if not daily_mode and shift.landed >= 0:          # (what this player lands in a shift: the daily goals' targets follow it, so a struggling player's goals are within reach)
+		var ek := "ema_land_%d" % airport
+		var ev0 := float(Save.stats.get(ek, Goals.TYPICAL_LANDINGS[airport] * 100)) / 100.0
+		Save.stats[ek] = roundi((ev0 * 0.7 + float(shift.landed) * 0.3) * 100.0)
 	if not daily_mode and _goal_xp_pending > 0:
 		_award_xp(_goal_xp_pending)
 		_goal_xp_pending = 0
@@ -1572,7 +1576,7 @@ func _settle() -> Dictionary:
 			note = "\nBad day bonus|+%d (streak %d)" % [bonus, streak_now]
 			_daily_note = note
 	if not daily_mode:       # the shift's XP at this airport: landings, a clean sheet, the star objectives it met (every time, not only the first)
-		var xp_total := Progression.shift_xp(shift.landed, shift.fines == 0, [stars >= 1, stars >= 2, stars >= 3], [])
+		var xp_total := Progression.shift_xp(shift.landed, shift.fines == 0, [stars >= 1, stars >= 2, stars >= 3], [], true)
 		_award_xp(xp_total - _xp_paid)
 		_xp_paid = xp_total
 		if progress_enabled and not _event_counted and shift.landed >= 1:
@@ -1626,7 +1630,7 @@ func _award_xp(n: int) -> void:
 	xp_this_shift += n
 	var r := Save.add_xp(airport, n, progress_enabled)
 	for h in r["half"]:
-		var htxt := "Halfway to level %d" % (int(h["level"]) + 1)
+		var htxt := "%s of the way to level %d" % [("A third" if int(h.get("part", 1)) == 1 else "Two thirds"), int(h["level"]) + 1]
 		_toast("%s  +%d" % [htxt, int(h["coins"])], Color(1.0, 0.85, 0.4), {"glyph": "star", "text": htxt, "coins": int(h["coins"])})
 	for u in r["unlocks"]:
 		level_ups.append(u)
@@ -1662,6 +1666,13 @@ func _reason_text() -> String:
 		lines.append("Shift pay protected|+%d" % (shift.kept() - shift.balance()))
 	return "\n".join(lines) + _daily_note
 
+## The rewarded pills on the results: only with an ad SDK behind them (the stub plays a fake 2.5 s "ad" and then pays, so without an SDK they would hand out free doubling).
+func _ad_double_coins() -> int:
+	return 0 if (_results_ad_used or not Tuning.ad_sdk_present) else int(last_result["coins"])
+
+func _ad_refund_coins() -> int:
+	return 0 if (_results_ad_used or not Tuning.ad_sdk_present) else shift.biggest_fine
+
 ## Fill in the results screen from `last_result`; the rewarded offers show until one has been used.
 func _show_results(doubled: bool) -> void:
 	var lv: Dictionary = Cosmetics.LIVERIES[Cosmetics.livery_index(Save.equipped_id("livery"))]
@@ -1670,7 +1681,7 @@ func _show_results(doubled: bool) -> void:
 	hud.goal_strip = last_result.get("goal", {})
 	toast_queue.clear()
 	hud.show_results(HEADER_DONE, last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_coins_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], doubled)
-	hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
+	hud.set_results_ads(_ad_double_coins(), _ad_refund_coins())
 	var unlocked: Array = last_result.get("unlocked", [])
 	if not unlocked.is_empty() and not last_result.get("unlock_seen", false):
 		last_result["unlock_seen"] = true
@@ -1823,7 +1834,7 @@ func _on_button(id: String) -> void:
 		hud.toggle_details()
 	elif id == "unlock_ok":
 		hud.hide_unlock()
-		hud.set_results_ads(0 if _results_ad_used else last_result["coins"], 0 if _results_ad_used else shift.biggest_fine)
+		hud.set_results_ads(_ad_double_coins(), _ad_refund_coins())
 	elif id == "airports" or id == "airports_tag":
 		_show_select()
 	elif id.begins_with("noeng:"):
@@ -2219,7 +2230,7 @@ func _thresholds() -> Array:
 
 ## Start a shift, with an interstitial ad first if one is due (never in the middle of a shift).
 func begin_shift() -> void:
-	if int(Save.ads.get("since", 0)) >= Tuning.interstitial_every_shifts:
+	if Tuning.ad_sdk_present and int(Save.ads.get("since", 0)) >= Tuning.interstitial_every_shifts:
 		Save.ads["since"] = 0
 		show_ad("Between shifts: a short break", func(): restart(), SCREEN_MENU)
 	else:

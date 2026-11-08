@@ -197,8 +197,10 @@ func _initialize() -> void:
 	var save = root.get_node("Save")
 	save.path = "user://smoke_test_save.json"   # never touch a real save
 	save.reset_all()
+	tuning.ad_sdk_present = true    # the older sections test the ad pills as if an SDK were there (section 40 tests it absent)
 	tuning.ad_stub_seconds = 0.0    # fake ads finish at once unless a test is about them
 	tuning.go_around_max = 0.0      # ...and no random go-arounds, except in the go-around section
+	tuning.landing_keep_fraction = 0.25   # ...and the pay floor is the old quarter of the gross (the game ships 0.40: a struggling player keeps more)
 	save.event_modifiers = false    # ...and the weekly event changes nothing (section 40 tests it)
 	save.sync_event()
 	tuning.welcome_shifts = 0       # ...and no welcome floor on the first shifts (section 40 tests it)
@@ -6377,10 +6379,10 @@ func _initialize() -> void:
 		var pg_prev := 0
 		for pg_l in range(1, 20):
 			var pg_n: int = Progression.xp_to_next(pg_a, pg_l)
-			pg_ok = pg_ok and pg_n > pg_prev
+			pg_ok = pg_ok and pg_n >= pg_prev
 			pg_prev = pg_n
 		pg_ok = pg_ok and Progression.level_for(pg_a, 0) == 1 and Progression.level_for(pg_a, Progression.xp_at_level(pg_a, 20)) == 20 and Progression.level_for(pg_a, Progression.xp_at_level(pg_a, 7) + Progression.xp_to_next(pg_a, 7) - 1) == 7 and Progression.level_for(pg_a, 1 << 30) == 20
-	check(pg_ok, "the XP a level costs rises with the level at every airport; levels and XP agree, 1 to 20")
+	check(pg_ok and Progression.xp_to_next(0, 19) > Progression.xp_to_next(0, 2) and Progression.xp_to_next(0, 1) < Progression.xp_to_next(0, 2), "the XP a level costs rises with the level at every airport (a quick first level, six alike, then a steady climb); levels and XP agree, 1 to 20")
 	check(Progression.xp_to_next(5, 1) > Progression.xp_to_next(0, 1), "...and a later airport asks for more")
 	# every level of every airport unlocks something concrete
 	var pu_ok := true
@@ -6493,6 +6495,7 @@ func _initialize() -> void:
 	main.apply_cosmetics()
 	# the three star objectives have names; XP is paid for landings, a clean sheet, every star met (every time)
 	check(Progression.STAR_NAMES.size() == 6 and Progression.STAR_NAMES[0].size() == 3, "every airport has three named star objectives")
+	check(Progression.shift_xp(1, false, [false, false, false], [], true) == Progression.XP_SHIFT_FLOOR and Progression.shift_xp(1, false, [false, false, false], []) == Progression.XP_LANDING, "a completed shift is worth at least the floor, whatever the score")
 	check(Progression.shift_xp(5, true, [true, true, false], []) == 5 * Progression.XP_LANDING + Progression.XP_CLEAN_SHEET + Progression.XP_STAR[0] + Progression.XP_STAR[1] and Progression.shift_xp(0, true, [false, false, false], [2]) == Progression.XP_GOAL[2], "a shift's XP: landings, a clean sheet, each star met, each goal")
 	# a shift pays XP at the airport it is flown at
 	save.reset_all()
@@ -6574,6 +6577,24 @@ func _initialize() -> void:
 	check(save.goals_for(0, main.goals_ctx(0))["list"] != gp_0["list"] or true, "(a new day makes new goals)")
 	check(int(save.goals_all["day"]) == 70002 and save.goals_all["by"].size() == 1, "...for every airport again")
 	save.day_override = -1
+	# no ad SDK: the "Watch to double" and refund pills (which would pay for nothing) and the break between shifts stay away
+	tuning.ad_sdk_present = false
+	check(main._ad_double_coins() == 0 and main._ad_refund_coins() == 0, "without an ad SDK the results offer no rewarded pills")
+	save.ads["since"] = 99
+	var ad_n0 = main.ads_shown
+	main.select_airport(0)
+	main.begin_shift()
+	check(main.ads_shown == ad_n0 and main.screen == main.SCREEN_PLAY, "...and no break plays between shifts")
+	tuning.ad_sdk_present = true
+	main.last_result = {"coins": 120}
+	check(main._ad_double_coins() == 120, "...with one they are back")
+	# a struggling player's goals follow what they land: the typical shift is their own average (never under 2, never over the airport's)
+	save.reset_all()
+	save.stats["ema_land_0"] = 200
+	check(is_equal_approx(float(main.goals_ctx(0)["typical"][0]), 2.0), "a player who lands two a shift gets goals sized for two a shift")
+	save.stats["ema_land_0"] = 99999
+	check(is_equal_approx(float(main.goals_ctx(0)["typical"][0]), float(Goals.TYPICAL_LANDINGS[0])), "...and never more than the airport's usual")
+	check(is_equal_approx(tuning.landing_keep_fraction, 0.25), "(the smoke test pins the pay floor at its old quarter; the game ships 0.40)")
 	# mastery pays: a bonus at its airport and a little everywhere at rank 5
 	save.reset_all()
 	save.mastery[0] = Mastery.THRESHOLDS[0][2]

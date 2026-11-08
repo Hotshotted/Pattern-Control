@@ -29,7 +29,7 @@ const PER_LEVEL := {"hangar": 1.0, "rwlights": 0.094, "applights": 0.14, "fuel":
 
 ## The price of level 1 at each airport (a later airport pays more per shift, so its improvements pay back as fast): hangar level 1 is the first
 ## thing to buy, priced so the average player has it after the first shift (see docs/content_audit.md).
-const L1_PRICE := [44, 62, 70, 78, 92, 105]
+const L1_PRICE := [44, 74, 83, 92, 108, 124]
 
 static func improvement_name(id: String) -> String:
 	return DATA[id]["name"]

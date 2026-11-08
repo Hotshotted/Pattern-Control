@@ -649,3 +649,65 @@ Read against the targets, honestly:
 - **Every 20-minute daily session ended with at least one purchase, level-up, mastery rank, event reward or halfway bonus** (100% of the 213 sessions of the average bot) because of the halfway bonuses and goals.
 
 The results screen always shows the nearest goal ("40 coins to Runway lights 3", "120 XP to level 5", "Ready to buy!") over a bar.
+
+## 11. Pacing pass: price curve, a cosmetic shop, XP curve, the poor bot, "Watch to double"
+
+Changes (tests in section 40 of `tests/smoke_test.gd`; `tools/career_model.gd` re-run with the same surveys):
+
+1. **Price curve**: an improvement level costs 1.5 times the one before up to level 5 and 1.3 times after (a 10-level hangar bay now costs 72 times its first level, was 113); every improvement level is open by airport level 15 (they open about every one and a half levels, the hangar bay and approach lights a level after the others), so levels 16 to 20 are limited by coins alone and the last purchases never wait for a level. Later airports' first prices were lowered (Grass Strip 44 unchanged, then 74, 83, 92, 108, 124). Two more pay steps (+4% at levels 17 and 19) give those levels something to open.
+2. **Cosmetic shop per airport** (pure coin sinks, no gameplay effect): two windsocks, three hangar paints and **five field props** (flower beds, a pond, a fountain, a garden, a statue: built on the field near the apron, shown once bought) for each airport, 60 items, on sale once the airport is open, from 30 coins to 12,000 (the dear props are for the late game). The existing shop items stay. The career bots buy the cheapest thing available, shop included.
+3. **XP curve** (airport levels): level 1 costs 30% of a normal level, levels 2 to 8 cost the same (1,950 XP, about a quarter of an hour of play), then +3% a level; every completed shift is worth at least **60 XP** (effort counts), and progress bonuses at a third and two thirds of each level (one and a half average shifts' pay each) fill the time between level-ups.
+4. **The poor player.** The XP floor, a pay floor of 40% of the gross (was 25%; the average bot rarely meets it, the poor bot always does), and daily goals sized to what the player really lands (a moving average of landings per shift at that airport, never under 2 and never over the airport's usual) so a poor player's goals can be finished.
+5. **"Watch to double" today**: there is no ad SDK. The pill (and "Refund fine", and the break between shifts) play `Tuning.ad_stub_seconds` = 2.5 s of a fake ad screen and then pay out: **free doubling, identically on web and in the iOS build**. They are now hidden (`Tuning.ad_sdk_present` = false) until an SDK is added.
+
+### 11.1 Main career table (continuous play unless noted)
+
+| Bot | County opens | International opens | Level 20 everywhere | Everything bought | All 18 stars | Max mastery | **Total game length** | 20 min a day: total play / days |
+|---|---|---|---|---|---|---|---|---|
+| Poor | 3.8 h | 23.7 h | 110.5 h | 142.8 h | - | 115.2 h | **142.8 h** | 106.7 h / 304 days |
+| Average | 2.1 h | 15.2 h | 67.0 h | 60.2 h | - | 65.4 h | **67.0 h** | 62.7 h / 178 days |
+| Good | 1.8 h | 10.1 h | 40.8 h | 39.0 h | 10.6 h | 42.4 h | **42.4 h** | 42.8 h / 122 days |
+
+Targets: average bot County in 2 to 3 h (**2.1 h**) and total 60 to 100 h (**67.0 h**, 62.7 h on the 20-minute plan); poor bot County within 4 h (**3.8 h**) and total under 150 h (**142.8 h**, 106.7 h on the 20-minute plan). The average and good bots moved little from section 10 (County 2.2 h and 2.0 h then; total 81 h and 50 h then).
+
+Coin share by source:
+
+| Bot / mode | Shifts | Goals | Offline | Event | Mastery | Progress bonuses |
+|---|---|---|---|---|---|---|
+| Poor, continuous | 79% | 9% | 0% | 4% | 2% | 6% |
+| Average, continuous | 86% | 5% | 0% | 2% | 2% | 5% |
+| Good, continuous | 88% | 4% | 0% | 1% | 2% | 5% |
+| Poor, 20 min a day | 39% | 11% | 28% | 17% | 1% | 4% |
+| Average, 20 min a day | 62% | 9% | 15% | 10% | 1% | 4% |
+| Good, 20 min a day | 70% | 7% | 10% | 7% | 1% | 4% |
+
+### 11.2 Pacing: longest gap in each phase (minutes of play, continuous)
+
+Early = first 2 h, mid = 2 to 20 h, late = after 20 h. Targets for the average bot: level-ups early 20 / mid 40 / late 60; purchases (upgrades and shop) 60 in any phase; any reward 30 in any phase.
+
+| Bot | Phase | Between level-ups | Between purchases | With no unlock, purchase, event or rank | With no reward of any kind |
+|---|---|---|---|---|---|
+| Poor | early (0-2 h) | 39 | 13 | 13 | 13 |
+| Poor | mid (2-20 h) | 70 | 32 | 19 | 19 |
+| Poor | late (20 h on) | 88 | 110 | 110 | 101 |
+| Average | early (0-2 h) | 22 | 9 | 7 | 7 |
+| Average | mid (2-20 h) | 48 | 15 | 14 | 14 |
+| Average | late (20 h on) | 63 | 49 | 29 | 24 |
+| Good | early (0-2 h) | 22 | 8 | 8 | 8 |
+| Good | mid (2-20 h) | 32 | 24 | 17 | 17 |
+| Good | late (20 h on) | 36 | 39 | 98 | 76 |
+
+Against the targets, the average bot: **purchase gaps 9 / 15 / 49 min (target 60: met)**; any reward 7 / 14 / 24 min (target 30: met); level-ups 22 / 48 / 63 min against 20 / 40 / 60, so the early and mid ones are missed by a few minutes and the late one is about on target. The level-up gaps are bound by two things that cannot both give: County must open at 2 to 3 hours and there are only seven level-ups before it (so at best 17 minutes each, 22 with the luck of the shifts), and a level-up is one airport at a time under the `tour` policy, so the worst gap is one unlucky level. The good bot's late "no reward of any kind" figure is the stretch at the very end when only the last airports' final levels are left.
+
+### 11.3 "Watch to double" in the career model (20 min a day, hours of play; `ads=P` doubles that share of shifts' pay)
+
+| Use | Poor: total / everything bought | Average: total / everything bought | Good: total / everything bought |
+|---|---|---|---|
+| 0% of shifts (continuous) | 142.8 h / 142.8 h | 67.0 h / 60.2 h | 42.4 h / 39.0 h |
+| 30% of shifts (continuous) | 120.2 h / 120.2 h | 66.1 h / 50.0 h | 42.6 h / 33.1 h |
+| 70% of shifts (continuous) | 114.3 h / 97.7 h | 66.4 h / 44.3 h | 41.9 h / 27.3 h |
+| 0% of shifts (20 min a day) | 106.7 h / 80.9 h | 62.7 h / 46.3 h | 42.8 h / 32.6 h |
+| 30% of shifts (20 min a day) | 105.7 h / 73.5 h | 62.6 h / 43.8 h | 42.4 h / 29.4 h |
+| 70% of shifts (20 min a day) | 106.3 h / 69.8 h | 62.1 h / 42.8 h | 42.2 h / 29.5 h |
+
+At 70% use the **total game length** moves by about 1% for the average and good bots (the levels, which ads do not touch, are what ends the game) and by 20% for the poor bot in continuous play (142.8 h to 114.3 h, which is not more than 20%), so the rule for changing it to +50% with a cap of 3 a day does not trigger and the pill stays a doubling. "Everything bought" does fall by about a quarter at 70% use (average 60 h to 44 h), which is what an ad is for.

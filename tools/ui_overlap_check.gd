@@ -91,6 +91,7 @@ func _initialize() -> void:
 	save = root.get_node("Save")
 	save.path = "user://ui_audit_save.json"
 	root.get_node("Tuning").ad_stub_seconds = 0.0
+	root.get_node("Tuning").ad_sdk_present = true             # (the rewarded pills are laid out and checked as they will be once an SDK is in)
 	root.get_node("Tuning").intro_logo = false
 	await _run()
 	_finish()

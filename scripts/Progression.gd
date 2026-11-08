@@ -19,19 +19,21 @@ const XP_LANDING := 4                  # every landing at the airport
 const XP_CLEAN_SHEET := 25             # a shift with no fine at all
 const XP_STAR := [25, 50, 100]         # the shift's star objectives (every time one is met, not only the first)
 const XP_GOAL := [30, 60, 120]         # a daily goal of tier 0, 1, 2
+const XP_SHIFT_FLOOR := 60             # a completed shift is worth at least this (effort counts when the score is low)
 
-## XP from level L to L + 1 at the first airport; it rises by XP_GROWTH a level, and an airport multiplies it (XP_SCALE).
-const XP_BASE := 1650.0
-const XP_GROWTH := 1.035
-const XP_SCALE := [1.0, 1.0, 1.05, 1.1, 1.15, 1.2]
-## The first levels at every airport come quickly (a share of the curve), so each new airport starts with a run of level-ups.
-const EARLY := [0.16, 0.7]
+## XP from level L to L + 1 at the first airport: level 1 is quick (a share of a flat level), levels 2 to 7 cost the same (about a quarter of an hour of
+## play each, so the next airport opens after about two hours), then it rises by XP_GROWTH a level from XP_L8. A later airport multiplies it (XP_SCALE).
+const XP_FLAT := 1950.0
+const XP_FIRST := 0.3
+const XP_L8 := 1950.0
+const XP_GROWTH := 1.03
+const XP_SCALE := [0.95, 0.95, 1.0, 1.0, 1.0, 1.0]
 
 static func xp_to_next(ap: int, level: int) -> int:
 	if level >= MAX_LEVEL:
 		return 0
-	var early: float = float(EARLY[level - 1]) if level <= EARLY.size() else 1.0
-	return maxi(roundi(XP_BASE * pow(XP_GROWTH, float(level - 1)) * float(XP_SCALE[clampi(ap, 0, XP_SCALE.size() - 1)]) * early / 5.0) * 5, 5)
+	var base := XP_FLAT * (XP_FIRST if level == 1 else 1.0) if level < GATE_LEVEL else XP_L8 * pow(XP_GROWTH, float(level - GATE_LEVEL))
+	return maxi(roundi(base * float(XP_SCALE[clampi(ap, 0, XP_SCALE.size() - 1)]) / 5.0) * 5, 5)
 
 ## XP needed in all to reach `level` (level 1 = 0).
 static func xp_at_level(ap: int, level: int) -> int:
@@ -58,7 +60,7 @@ static func progress(ap: int, xp: int) -> Dictionary:
 	return {"level": l, "into": into, "need": need, "left": need - into, "frac": clampf(float(into) / float(need), 0.0, 1.0)}
 
 ## XP a shift is worth: its landings, a clean sheet, the star objectives it met (0..3 of them, as flags), and the goals it finished (their tiers).
-static func shift_xp(landed: int, clean: bool, stars_met: Array, goal_tiers: Array) -> int:
+static func shift_xp(landed: int, clean: bool, stars_met: Array, goal_tiers: Array, completed: bool = false) -> int:
 	var n := landed * XP_LANDING
 	if clean and landed > 0:
 		n += XP_CLEAN_SHEET
@@ -67,7 +69,7 @@ static func shift_xp(landed: int, clean: bool, stars_met: Array, goal_tiers: Arr
 			n += int(XP_STAR[k])
 	for t in goal_tiers:
 		n += int(XP_GOAL[clampi(int(t), 0, 2)])
-	return n
+	return maxi(n, XP_SHIFT_FLOOR) if completed else n
 
 # ---------- the unlocks ----------
 const KIND_TIER := "tier"

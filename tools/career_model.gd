@@ -16,7 +16,7 @@ const ANCHORS := [["svy_l1_i0.txt", 0.0], ["svy_l10_i4.txt", 0.5], ["svy_l20_i8.
 const OVERHEAD := 20.0                  # seconds of menus, results and taps around a shift (as in audit_sim.gd)
 const SESSION_MINUTES := 20.0
 ## Chance that a bot finishes a goal of each tier (easy / medium / hard) with a full day's play at that airport.
-const GOAL_SKILL := {"poor": [0.75, 0.35, 0.08], "average": [1.0, 0.7, 0.3], "good": [1.0, 0.95, 0.6]}
+const GOAL_SKILL := {"poor": [0.95, 0.65, 0.12], "average": [1.0, 0.7, 0.3], "good": [1.0, 0.95, 0.6]}
 const GOAL_SHIFTS := [1.0, 3.0, 5.0]    # shifts at an airport in a day that a goal of each tier needs to be within reach
 
 var data := {}                          # bot -> airport -> anchor -> Array of shift dictionaries (n >= 1), plus "first" (n == 0)
@@ -27,6 +27,9 @@ var tun: Node
 var bots: Array = ["poor", "average", "good"]
 var mode := "continuous"
 var policy := "tour"
+var ad_pct := 0.0                          # ads=P: this share of shifts is doubled with "Watch to double"
+var ad_mult := 2.0                         # admult=M: what it multiplies the shift's pay by (2 = double, 1.5 = +50%)
+var ad_cap := 999                          # adcap=N: at most this many a day (a day is a 20-minute session, or 3 hours of continuous play)
 var maxh := 250.0
 var dir := ""
 var src_shop := 0                         # coins spent in the cosmetic shop
@@ -40,6 +43,12 @@ func _initialize() -> void:
 			bots = a.substr(5).split(",")
 		elif a.begins_with("mode="):
 			mode = a.substr(5)
+		elif a.begins_with("ads="):
+			ad_pct = float(a.substr(4)) / 100.0
+		elif a.begins_with("admult="):
+			ad_mult = float(a.substr(7))
+		elif a.begins_with("adcap="):
+			ad_cap = int(a.substr(6))
 		elif a.begins_with("policy="):
 			policy = a.substr(7)
 		elif a.begins_with("maxh="):
@@ -198,6 +207,7 @@ func _run(who: String) -> void:
 	var session_rewarded := false
 	var daily_left := SESSION_MINUTES
 	var plays_today := {}
+	var ads_today := 0
 	var goals_done := {}                        # airport -> [tier flags] today
 	var day_streak_paid := false
 	var open_seen := {0: 0.0}
@@ -205,7 +215,8 @@ func _run(who: String) -> void:
 		var ap := _pick_airport()
 		var first: bool = save.airport_plays[ap] == 0
 		var sh := _draw_shift(who, ap, first)
-		var paid := float(sh["paid"])
+		var gross := float(sh["earned"]) + float(sh["bonus"]) + float(sh["tbonus"])
+		var paid := maxf(float(sh["net"]), tun.landing_keep_fraction * gross)          # (the pay floor is applied here, so it can be retuned without a new survey)
 		var landed := int(sh["landed"])
 		var stars := int(sh["stars"])
 		var fines := int(sh["fines"])
@@ -214,6 +225,9 @@ func _run(who: String) -> void:
 		var welcome := 0
 		if save.airport_plays[ap] < tun.welcome_shifts:
 			welcome = maxi(roundi(tun.welcome_floor_share * float(Improvements.cost(ap, "hangar", 0))) - roundi(paid), 0)
+		if ad_pct > 0.0 and ads_today < ad_cap and rng.randf() < ad_pct:          # "Watch to double" on this shift's pay
+			paid *= ad_mult
+			ads_today += 1
 		var coins := roundi(paid) + welcome
 		save.add_coins(coins)
 		src["shifts"] += roundi(paid)
@@ -224,7 +238,7 @@ func _run(who: String) -> void:
 		shifts_since_buy += 1
 		save.airport_plays[ap] += 1
 		# XP and what the levels unlock
-		var xp := Progression.shift_xp(landed, fines == 0, [stars >= 1, stars >= 2, stars >= 3], [])
+		var xp := Progression.shift_xp(landed, fines == 0, [stars >= 1, stars >= 2, stars >= 3], [], true)
 		xp = roundi(float(xp) * float(ev["event"]["xp"]))
 		var up = save.add_xp(ap, xp)
 		for hh in up["half"]:
@@ -334,6 +348,7 @@ func _run(who: String) -> void:
 			plays_today.clear()
 			goals_done.clear()
 			day_streak_paid = false
+			ads_today = 0
 		# the end of a day's session (daily mode): the hangars earn while the player is away, and the goals start over
 		if mode == "daily" and daily_left <= 0.0:
 			sessions += 1
@@ -346,6 +361,7 @@ func _run(who: String) -> void:
 			plays_today.clear()
 			goals_done.clear()
 			day_streak_paid = false
+			ads_today = 0
 			var caps := []
 			var pays := []
 			for a in 6:
