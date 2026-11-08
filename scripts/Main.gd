@@ -614,6 +614,28 @@ func _erase_everything() -> void:
 	close_reset_confirm()
 	Save.restart_clean()
 
+## Results: a tap on one of the extra rows (an achievement, a goal, a rank) opens its detail in a small popup over the results: nothing grows inline.
+var _row_popup: RowPopup = null
+
+func open_row_popup(i: int) -> void:
+	open_row_popup_info(hud.result_row(i))
+
+func open_row_popup_info(info: Dictionary) -> void:
+	if info.is_empty() or _row_popup != null:
+		return
+	_row_popup = RowPopup.new()
+	_row_popup.art_factory = func() -> Control: return hud.Art.new()
+	hud.add_child(_row_popup)
+	_row_popup.build(info, get_viewport().get_visible_rect().size, Style.safe_bottom)
+	_row_popup.closed.connect(close_row_popup)
+	sfx.play("tap")
+
+func close_row_popup() -> void:
+	if _row_popup == null:
+		return
+	_row_popup.queue_free()
+	_row_popup = null
+
 func open_privacy_policy() -> void:
 	privacy_opened += 1
 	if DisplayServer.get_name() == "headless":
@@ -732,7 +754,7 @@ func _check_achievements() -> void:
 			var rtxt: String = "Achievement: %s" % a["name"]
 			if g["cosmetic"] != "":
 				rtxt += "  \u00b7  new: " + _cosmetic_name(g["cosmetic"])
-			_toast(line, Color(1.0, 0.85, 0.3), {"glyph": "star", "text": rtxt, "coins": int(g["coins"])})
+			_toast(line, Color(1.0, 0.85, 0.3), {"glyph": "star", "text": rtxt, "coins": int(g["coins"]), "detail": "%s (%s)" % [a["text"], Achievements.SIZE_NAMES[int(a["s"])].to_lower()]})
 
 func _cosmetic_name(cid: String) -> String:
 	var kind := cid.get_slice(":", 0)
@@ -1783,8 +1805,8 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.index, event.position)
 
 func _touch_down(index: int, pos: Vector2) -> void:
-	if _reset_ui != null:
-		return          # (the reset sheet is up: it takes the touches)
+	if _reset_ui != null or _row_popup != null:
+		return          # (a sheet is up over the screen: it takes the touches)
 	if _audio_hold and screen != SCREEN_PAUSE:
 		_release_audio()          # (back from the background, on a menu: any tap brings the sound back)
 	if hud.logo_active():
@@ -2558,12 +2580,17 @@ func feed_drag(w: Vector2) -> void:
 		_cancel_drag()
 
 func _touch_up(index: int, pos: Vector2) -> void:
-	if _reset_ui != null:
+	if _reset_ui != null or _row_popup != null:
 		return
 	if _dt_touch.erase(index):
 		_dt_dist = _dt_fingers_dist()
 	var pressed_id := hud.pressed_id()
 	hud.release()
+	if screen == SCREEN_OVER and pressed_id == "" and not KScroll.touch_scrolled and pos.distance_to(_press_pos) < KScroll.threshold():
+		var ri := hud.result_row_at(pos)
+		if ri >= 0 and hud.result_row_at(_press_pos) == ri:
+			open_row_popup(ri)
+			return
 	if pressed_id != "" and screen != SCREEN_PLAY and hud.button_at(pos) == pressed_id and pos.distance_to(_press_pos) < KScroll.threshold() and not KScroll.touch_scrolled:         # (a finger that dragged a list is not a tap)
 		_on_button(pressed_id)
 		return

@@ -175,7 +175,7 @@ func _arts() -> Array:
 	for a in [hud._main_art] + hud._panel_arts.values():
 		if is_instance_valid(a) and a.is_visible_in_tree() and a.position.x > -5000.0:
 			out.append(a)
-	if main != null and main.get("_reset_ui") != null:
+	if main != null and (main.get("_reset_ui") != null or main.get("_row_popup") != null):
 		return []            # the reset sheet is a modal of its own (scrim over the pause menu): what is under it is not on screen
 	# a sheet over a list (the shop's preview) hides the list: its scrim takes every tap, so what is under it is not on screen
 	for a in out:
@@ -306,7 +306,7 @@ func _collect_scroll(e: Dictionary, els: Array) -> void:
 		if gv.size.x > 0.0 and gv.size.y > 0.0:
 			els.append({"k": "glyph", "id": g["id"], "text": "", "rect": gv, "inter": false, "src": "art", "layer": "scroll"})
 	for bx in sa.rec_boxes:
-		var br: Rect2 = xf * (bx as Rect2)
+		var br: Rect2 = (xf * (bx as Rect2)).intersection(clip)          # (only the part of a card that shows: a row below the list's edge is not on the screen)
 		if br.size.x >= 24.0 and br.size.y >= 24.0:
 			cur_boxes.append(br)
 
@@ -1077,6 +1077,32 @@ func _states_results() -> void:
 			pl3.position = Vector2(pcard.position.x + 60.0, pcard.end.y + 20.0)
 			await _check("results planted card")
 			pl3.queue_free()
+		if variant == "long":
+			# more rows than fit: the card's row area scrolls (checked at the top, and scrolled to the end), then the popups: the longest achievement text
+			var rh = main.hud.result_rows_host()
+			if rh != null and rh.visible:
+				rh.jump_to(rh.max_scroll())
+				await _frames_ui(3)
+				await _check("results long rows scrolled")
+				rh.jump_to(0.0)
+			var longest := {}
+			for a in Achievements.LIST:
+				var txt := "Achievement: %s" % a["name"]
+				if a.get("cos", "") != "":
+					txt += "  \u00b7  new: " + main._cosmetic_name(a["cos"])
+				if longest.is_empty() or txt.length() + str(a["text"]).length() > str(longest["text"]).length() + str(longest["detail"]).length():
+					longest = {"glyph": "star", "text": txt, "coins": int(a["coins"]), "detail": "%s (%s)" % [a["text"], str(Achievements.SIZE_NAMES[int(a["s"])]).to_lower()]}
+			main.open_row_popup_info(longest)
+			await _frames_ui(6)
+			await _check("results row popup, the longest achievement")
+			main.close_row_popup()
+			await _frames_ui(2)
+			var wordy := {"glyph": "check", "text": "Land 40 aircraft at International Airport without a single go-around, in a crosswind, at dusk, with the wind shifting", "coins": 1250, "detail": "A daily goal, done today"}
+			main.open_row_popup_info(wordy)
+			await _frames_ui(6)
+			await _check("results row popup, a wordy goal")
+			main.close_row_popup()
+			await _frames_ui(2)
 		main.hud.toggle_details()
 		await _check("results %s details" % variant)
 		main.hud.toggle_details()

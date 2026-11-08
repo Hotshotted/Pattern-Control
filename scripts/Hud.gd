@@ -800,6 +800,7 @@ class Art extends Control:
 		return h
 
 	var hits_dirty := false
+	var rows_view := false            # the results card's scrolling area of extra rows (see Hud._layout_result_rows): draws only those
 	var is_scroll := false           # a list that scrolls (see Hud._scroll_for): its buttons are in the list's own coordinates
 
 	func _bounds() -> Vector2:
@@ -1367,6 +1368,33 @@ class Art extends Control:
 
 	const RES_LIFT := 100.0               # the results screen sits this much higher than the 1080 x 1920 design, so a few rows fit in the card
 
+	## What the shift earned besides the pay: goals, the streak day, the bonus chest, achievements, ranks: one row each, all alike (icon, text, +coins).
+	## They are drawn on their own Art inside a scrolling area (Hud._layout_result_rows): row i is at ROW_TOP + i * ROW_STEP, in that area's coordinates.
+	const ROW_TOP := 8.0
+	const ROW_STEP := 112.0
+	const ROW_H := 104.0
+
+	static func row_rect(i: int, w: float) -> Rect2:
+		return Rect2(w * 0.5 - 465.0, ROW_TOP + float(i) * ROW_STEP, 930.0, ROW_H)
+
+	func _draw_rows_only() -> void:
+		for i in res_rows.size():
+			var rw: Dictionary = res_rows[i]
+			var gr: Rect2 = Art.row_rect(i, size.x)
+			_dsb(_sb_unlock, gr)
+			glyph(str(rw["glyph"]), Vector2(gr.position.x + 52.0, gr.get_center().y), 22.0 if rw["glyph"] != "check" else 16.0, Style.SUCCESS_DARK if rw["glyph"] == "check" else Color.WHITE)
+			var coins := int(rw["coins"])
+			var gw := gr.size.x - 110.0 - (330.0 if coins > 0 else 40.0)
+			var gtxt: String = str(rw.get("fit", rw["text"]))
+			var gl: int = int(rw.get("lines", 1))
+			if gl > 1:
+				_dms(Style.text(), Vector2(gr.position.x + 96.0, gr.get_center().y - 10.0), gtxt, HORIZONTAL_ALIGNMENT_LEFT, gw, Style.SZ_BODY, 2, C_TEXT)
+			else:
+				ptext(gtxt, Vector2(gr.position.x + 96.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, gw)
+			if coins > 0:
+				ptext("+%d" % coins, Vector2(gr.end.x - 330.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_RIGHT, 270.0)
+				glyph("coin", Vector2(gr.end.x - 40.0, gr.get_center().y), 14.0)
+
 	func _draw_results() -> void:
 		var cx := size.x * 0.5
 		if details_open:
@@ -1462,22 +1490,6 @@ class Art extends Control:
 			draw_rect(bar, Style.INK)
 			draw_rect(bar.grow(-2.0), Color(0.86, 0.78, 0.62))
 			draw_rect(Rect2(bar.position + Vector2(2, 2), Vector2((bar.size.x - 4.0) * clampf(fr, 0.0, 1.0), bar.size.y - 4.0)), C_GOLD if bool(gg["ready"]) and k >= 1.0 else Style.PRIMARY)
-		# What the shift earned besides the pay: goals, the streak day, the bonus chest, achievements, ranks: one row each, all alike (icon, text, +coins)
-		for rw in stk["rows"]:
-			var gr: Rect2 = rw["rect"]
-			_dsb(_sb_unlock, gr)
-			glyph(str(rw["glyph"]), Vector2(gr.position.x + 52.0, gr.get_center().y), 22.0 if rw["glyph"] != "check" else 16.0, Style.SUCCESS_DARK if rw["glyph"] == "check" else Color.WHITE)
-			var coins := int(rw["coins"])
-			var gw := gr.size.x - 110.0 - (330.0 if coins > 0 else 40.0)
-			var gtxt: String = str(rw.get("fit", rw["text"]))
-			var gl: int = int(rw.get("lines", 1))
-			if gl > 1:
-				_dms(Style.text(), Vector2(gr.position.x + 96.0, gr.get_center().y - 10.0), gtxt, HORIZONTAL_ALIGNMENT_LEFT, gw, Style.SZ_BODY, 2, C_TEXT)
-			else:
-				ptext(gtxt, Vector2(gr.position.x + 96.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, gw)
-			if coins > 0:
-				ptext("+%d" % coins, Vector2(gr.end.x - 330.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_RIGHT, 270.0)
-				glyph("coin", Vector2(gr.end.x - 40.0, gr.get_center().y), 14.0)
 		# A new airport opened with this shift.
 		if stk.has("unlock"):
 			var ur: Rect2 = stk["unlock"]
@@ -1522,27 +1534,15 @@ class Art extends Control:
 			out["pill"] = Rect2(cx - 465.0 + 45.0, yy, 930.0 - 90.0, 100.0)
 			yy += 108.0
 			used += 108.0
-		var rows_out: Array = []
 		var n := res_rows.size()
-		var placed := 0
-		while placed < n and used + 112.0 <= avail:
-			placed += 1
-			used += 112.0
-		for q in placed:
-			var row: Dictionary = res_rows[q].duplicate()
-			if q == placed - 1 and placed < n:       # (fold the rest in)
-				var more := 0
-				for z in range(q, n):
-					more += int(res_rows[z]["coins"])
-				row = {"glyph": "star", "text": "%d more" % (n - q), "coins": more, "fit": "%d more" % (n - q), "lines": 1}
-			if not row.has("fit"):
-				var gw0 := 930.0 - 110.0 - (330.0 if int(row["coins"]) > 0 else 40.0)
-				row["fit"] = Hud.fit_lines(str(row["text"]), Style.SZ_BODY, gw0, 2)
-				row["lines"] = Hud.wrap_lines(row["fit"], Style.SZ_BODY, gw0)
-			row["rect"] = Rect2(cx - 465.0, yy, 930.0, 104.0)
-			rows_out.append(row)
-			yy += 112.0
-		out["rows"] = rows_out
+		var want := ROW_TOP + float(n) * ROW_STEP if n > 0 else 0.0
+		var room := maxf(avail - used, 0.0)
+		var area_h := minf(want, room)             # (more rows than fit scroll inside the card)
+		if area_h < 60.0:
+			area_h = 0.0
+		out["rows_area"] = Rect2(cx - 465.0, yy, 930.0, area_h)
+		out["rows_total"] = want
+		yy += area_h
 		var details := Rect2(cx - 150.0, yy + 6.0, 300.0, det_h)
 		out["details"] = details
 		out["card"] = Rect2(cx - 465.0, ctop, 930.0, details.end.y + 18.0 - ctop)
@@ -1796,6 +1796,9 @@ class Art extends Control:
 		Boot.add("interface art redraw", float(last_draw_us) / 1000.0)
 
 	func _draw_all() -> void:
+		if rows_view:
+			_draw_rows_only()
+			return
 		if icon_id != "":              # (a layout element of a Control-built sheet that is just one picture: see DetailSheet.Icon)
 			var ir := minf(size.x, size.y) * 0.5
 			glyph(icon_id, size * 0.5, maxf(ir - 4.0, 4.0), icon_col)
@@ -2974,9 +2977,72 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	lines.append(total_line)
 	_art.details_lines = lines
 	_art.show_result = true
+	_layout_result_rows()
 	_set_header(0, "coin", coins_total, coins_total - coins_earned, 1.8)
 	_art.queue_redraw()
 	_over.visible = true
+
+## ---- the results card's extra rows: a scrolling area inside the card ----
+var _rows_host: KScroll = null
+var _rows_art: Art = null
+
+## Lay the extra rows out in the area the card leaves for them (more rows than fit scroll there, under the card's own edge).
+func _layout_result_rows() -> void:
+	var pa: Art = _art
+	if not pa.show_result:
+		return
+	if _rows_host == null:
+		_rows_host = KScroll.new()
+		_rows_art = Art.new()
+		_rows_art.rows_view = true
+		_rows_art.is_scroll = true
+		_rows_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_rows_art.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		_rows_host.add_child(_rows_art)
+		_scrolls["results_rows"] = {"host": _rows_host, "art": _rows_art}
+	if _rows_host.get_parent() != pa:
+		if _rows_host.get_parent() != null:
+			_rows_host.get_parent().remove_child(_rows_host)
+		pa.add_child(_rows_host)
+	var stk: Dictionary = pa.res_stack()
+	var area: Rect2 = stk["rows_area"]
+	_rows_host.visible = area.size.y > 0.5 and not pa.res_rows.is_empty()
+	_rows_host.position = area.position
+	_rows_host.size = area.size
+	_rows_art.res_rows = pa.res_rows
+	var total := maxf(float(stk["rows_total"]) + 8.0, area.size.y)
+	_rows_art.custom_minimum_size = Vector2(area.size.x, total)
+	_rows_art.size = _rows_art.custom_minimum_size
+	_rows_host.jump_to(0.0)
+	_rows_art.queue_redraw()
+	_rows_fade()
+
+func _rows_fade() -> void:
+	if _rows_host != null:
+		_rows_host.modulate.a = clampf((_art.res_t - (Art.STAR_T0 + Art.STAR_GAP * 3.0 + 1.0)) / 0.4, 0.0, 1.0)
+
+## The extra row under `pos` (screen), or -1.
+func result_row_at(pos: Vector2) -> int:
+	if _rows_host == null or not _rows_host.visible or not _rows_host.is_visible_in_tree() or not _art.show_result:
+		return -1
+	var r := _rows_host.get_global_rect()
+	if not r.has_point(pos):
+		return -1
+	var ly := pos.y - r.position.y + _rows_host.offset
+	for i in _rows_art.res_rows.size():
+		var rr := Art.row_rect(i, _rows_art.size.x)
+		if ly >= rr.position.y and ly <= rr.end.y:
+			return i
+	return -1
+
+func result_row(i: int) -> Dictionary:
+	return _rows_art.res_rows[i] if _rows_art != null and i >= 0 and i < _rows_art.res_rows.size() else {}
+
+func result_row_count() -> int:
+	return _rows_art.res_rows.size() if _rows_art != null and _art.show_result else 0
+
+func result_rows_host() -> KScroll:
+	return _rows_host
 
 ## Results: the two rewarded offers (small, under the one clear PLAY AGAIN button), and the Details / Menu buttons.
 ## A zero amount leaves that offer out.
@@ -2987,6 +3053,7 @@ func set_results_ads(double_coins: int, refund: int) -> void:
 	var cy := vp.y * 0.5
 	var s2 := vp.y / 1920.0
 	_art.res_pills = (1 if double_coins > 0 else 0) + (1 if refund > 0 else 0)
+	_layout_result_rows()
 	_art.add_button("details", "Details", _art.res_stack()["details"], 0, "", -1, -1, {"kind": 4, "glyph": "chev_up" if _art.details_open else "chev_down"})
 	var n := (1 if double_coins > 0 else 0) + (1 if refund > 0 else 0)
 	_art.res_pills = n
@@ -3761,6 +3828,7 @@ func _process_inner(delta: float) -> void:
 	# The results reveal.
 	if _art.show_result and _art.res_t < 6.0:
 		_art.res_t += delta
+		_rows_fade()
 		_art.queue_redraw()
 	# The one banner: fades in, holds, fades out, then the next one.
 	if _banner_left > 0.0:

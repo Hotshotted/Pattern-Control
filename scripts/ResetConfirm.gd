@@ -44,9 +44,11 @@ func build(vp: Vector2, safe_bottom: float) -> void:
 	card.size = Vector2(w, 100.0)
 	var v := DetailSheet.vbox(20)
 	card.add_child(v)
-	v.add_child(DetailSheet.label("Reset progress?", Style.SZ_M, Style.DANGER, HORIZONTAL_ALIGNMENT_CENTER, true, Style.display()))
-	v.add_child(DetailSheet.label(WARNING, Style.SZ_BODY, Style.TEXT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text(), "body"))
-	v.add_child(DetailSheet.label("Press and HOLD the red button to erase. Let go to keep your game.", Style.SZ_CAPTION, Style.TEXT_SOFT, HORIZONTAL_ALIGNMENT_CENTER, true, Style.text(), "caption"))
+	var inner := w - 80.0                      # (a wrapping label gets its width up front, so its height is right at once)
+	for ln in [["Reset progress?", Style.SZ_M, Style.DANGER, "", true], [WARNING, Style.SZ_BODY, Style.TEXT, "body", false], ["Press and HOLD the red button to erase. Let go to keep your game.", Style.SZ_CAPTION, Style.TEXT_SOFT, "caption", false]]:
+		var tl := DetailSheet.label(str(ln[0]), int(ln[1]), ln[2], HORIZONTAL_ALIGNMENT_CENTER, true, Style.display() if bool(ln[4]) else Style.text(), str(ln[3]))
+		tl.custom_minimum_size.x = inner
+		v.add_child(tl)
 	hold_chip = DetailSheet.Chip.new()
 	hold_chip.setup("reset_hold", 0, 0, maxf(130.0, Style.tap_px()), Vector2(24.0, 10.0))
 	hold_chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -122,6 +122,16 @@ func sx_clip_of(stream) -> PackedFloat32Array:
 		out[i] = d.decode_s16(i * 2) / 32768.0
 	return out
 
+func _mouse_up_ev() -> InputEvent:
+	var ev = InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = false
+	return ev
+
+func await_frames_sync(main: Node, n: int) -> void:
+	for i in n:
+		main.hud._process(0.016)
+
 func touch(main: Node, index: int, pressed: bool, screen: Vector2) -> void:
 	var ev = InputEventScreenTouch.new()
 	ev.index = index
@@ -6665,6 +6675,57 @@ func _initialize() -> void:
 	main.resume_game()
 	save.reset_all()
 
+	print("42. Results rows: a tap opens a popup over the results (nothing expands inline); more rows than fit scroll inside the card")
+	main.restart()
+	main.shift.landed = 30
+	main.shift.earned = 900
+	main.goal_results = [{"text": "Land 25 aircraft at County", "reward": 40}, {"text": "A shift with no fines at all", "reward": 60}]
+	main.hud.goal_note = main.goal_results
+	main.goal_streak_row = {"glyph": "flame", "text": "Day 3 of the streak  +50", "coins": 50}
+	main.goal_chest = 120
+	main.toast_results.assign([{"glyph": "star", "text": "Achievement: Air traffic veteran", "coins": 400, "detail": "2,500 landings (rare)"}, {"glyph": "star", "text": "Achievement: Thousand  \u00b7  new: Lion", "coins": 250, "detail": "1,000 landings (medium)"}, {"glyph": "airport", "text": "County: rank 3, Controller", "coins": 90}])
+	main._end_shift()
+	main.hud.skip_animations()
+	await_frames_sync(main, 6)
+	var rr_host = main.hud.result_rows_host()
+	check(rr_host != null and rr_host.visible and main.hud.result_row_count() >= 6, "the results card lists the goals, the streak, the chest and the achievements in a row area")
+	var rr_card_before: Rect2 = main.hud._panel_arts["results"].res_stack()["card"]
+	var rr_r: Rect2 = rr_host.get_global_rect()
+	check(rr_r.size.y > 50.0 and rr_card_before.encloses(Rect2(rr_r.position + Vector2(1, 1), rr_r.size - Vector2(2, 2))), "the row area sits inside the card")
+	check(rr_host.max_scroll() > 1.0, "more rows than fit: the row area scrolls (%.0f units)" % rr_host.max_scroll())
+	var rr_p := rr_r.position + Vector2(rr_r.size.x * 0.5, 8.0 + 52.0)
+	check(main.hud.result_row_at(rr_p) == 0, "a point on the first row finds it")
+	touch(main, 0, true, rr_p)
+	touch(main, 0, false, rr_p)
+	check(main._row_popup != null, "a tap on a row opens its popup")
+	if main._row_popup != null:
+		var rr_pc: Rect2 = main._row_popup.card.get_global_rect()
+		var rr_vp: Vector2 = main.get_viewport().get_visible_rect().size
+		check(rr_pc.position.x >= 0.0 and rr_pc.end.x <= rr_vp.x and rr_pc.position.y >= 0.0 and rr_pc.end.y <= rr_vp.y, "the popup is on the screen %s of %s" % [str(rr_pc), str(rr_vp)])
+		check(absf(rr_pc.get_center().x - rr_vp.x * 0.5) < 2.0, "...centred over the results")
+		check(main.hud._panel_arts["results"].res_stack()["card"] == rr_card_before, "...and the results card did not change (nothing expands inline)")
+		main._row_popup.closed.emit()
+		check(main._row_popup == null, "the popup closes")
+	var rr_ach: int = -1
+	for rr_i in main.hud.result_row_count():
+		if str(main.hud.result_row(rr_i)["text"]).begins_with("Achievement"):
+			rr_ach = rr_i
+			break
+	check(rr_ach >= 0, "(an achievement row)")
+	main.open_row_popup(rr_ach)
+	check(main._row_popup != null and main._row_popup.close_chip != null, "an achievement's popup has the x")
+	main._row_popup.close_chip.up.emit("row_close")
+	check(main._row_popup == null, "...which closes it")
+	main.open_row_popup(rr_ach)
+	main._row_popup._scrim_input(_mouse_up_ev())
+	check(main._row_popup == null, "a tap outside the card closes the popup too")
+	main.goal_results = []
+	main.hud.goal_note = []
+	main.goal_streak_row = {}
+	main.goal_chest = 0
+	main.toast_results.clear()
+	main.restart()
+
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
@@ -6706,9 +6767,9 @@ func _initialize() -> void:
 		for ly_k in ["pill", "unlock"]:
 			if ly_stk.has(ly_k):
 				ly_rects.append(ly_stk[ly_k])
-		for ly_r in ly_stk["rows"]:
-			ly_rects.append(ly_r["rect"])
-			ly_inside = ly_inside and ly_stk["card"].encloses(ly_r["rect"])
+		if (ly_stk["rows_area"] as Rect2).size.y > 0.0:          # (the rows' own area, which scrolls when there are more rows than fit)
+			ly_rects.append(ly_stk["rows_area"])
+			ly_inside = ly_inside and ly_stk["card"].encloses(ly_stk["rows_area"])
 		for ly_i in ly_rects.size():
 			for ly_j in range(ly_i + 1, ly_rects.size()):
 				if ly_rects[ly_i].intersects(ly_rects[ly_j]):
