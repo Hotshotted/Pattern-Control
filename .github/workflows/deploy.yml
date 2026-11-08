@@ -70,6 +70,17 @@ jobs:
           timeout 180 godot --headless --path . --script res://tests/smoke_test.gd 2>&1 | tee smoke.log
           ! grep -q "SCRIPT ERROR" smoke.log
 
+      # Scrolling (tools/scroll_check.gd): in every list that scrolls (shop and its cosmetic tabs, goals, achievements, airport detail, Improve sheet) at 390x844 and
+      # 320x568 with the web content scale, a synthetic drag moves the content exactly as far as the finger (+-1), however the events report `relative`;
+      # a drag under 10 points stays a tap, no tap fires after a scroll, a fling coasts and ends inside the list, a pull past an end springs back.
+      - name: Scroll check
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout 300 godot --headless --path . --script tools/scroll_check.gd 2>&1 | grep -v "^\[boot\]" | tee scroll.log
+          ! grep -q "SCRIPT ERROR" scroll.log
+          grep -q "^scroll_check: .* 0 failed" scroll.log
+
       # The UI overlap check (tools/ui_overlap_check.gd, docs/ui_audit.md): every screen, panel, popup, tab and state at six screen sizes
       # (320x568, 375x667, 390x844, 430x932, 768x1024, 1280x720). Fails on any overlapping text / button / icon, clipped or overflowing text,
       # anything off-screen or under the notch or home bar, a tap target under 44 points or one that another control covers, and text under

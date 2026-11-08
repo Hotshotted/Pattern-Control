@@ -2385,33 +2385,36 @@ func apply_safe() -> void:
 
 ## A finger is down on a button: it draws pushed in (and the activation follows at once).
 ## ---- lists that scroll ----
-## A list that does not fit the screen (the shop, the achievements, the goals) is a ScrollContainer holding an Art of its own, as tall as the list; the
+## A list that does not fit the screen (the shop, the achievements, the goals) is a KScroll (the game's one scroller) holding an Art of its own, as tall as the list; the
 ## header, tabs and Back button stay on the panel's Art. `_scroll_for` makes (or reuses) the one of a panel; the touch functions below look in it
 ## after the panel's own buttons, in the list's coordinates (the position of the finger, less the container's, plus how far it is scrolled).
-var _scrolls := {}                 # panel kind -> {"host": ScrollContainer, "art": Art}
+var _scrolls := {}                 # panel kind -> {"host": KScroll, "art": Art}
 var _scroll_cur = null              # the current panel's entry, or null
 var _press_art: Art = null
+
+## The lists take touches only while no sheet (the shop's preview) is up over them.
+func _scrolls_enabled(on: bool) -> void:
+	for e in _scrolls.values():
+		(e["host"] as KScroll).enabled = on
 
 func _scroll_for(kind: String, region: Rect2, content_h: float) -> Art:
 	var pa := _panel_art(kind)
 	var e = _scrolls.get(kind)
 	if e == null:
-		var host := ScrollContainer.new()
-		host.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		host.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-		host.scroll_deadzone = 16
+		var host := KScroll.new()
 		var sa := Art.new()
 		sa.is_scroll = true
 		sa.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		sa.set_anchors_preset(Control.PRESET_TOP_LEFT)
 		host.add_child(sa)
 		pa.add_child(host)
 		e = {"host": host, "art": sa}
 		_scrolls[kind] = e
-	var h: ScrollContainer = e["host"]
+	var h: KScroll = e["host"]
 	var a: Art = e["art"]
 	h.position = region.position
 	h.size = region.size
-	h.scroll_vertical = 0
+	h.jump_to(0.0)
 	a.custom_minimum_size = Vector2(region.size.x, maxf(content_h, region.size.y))
 	a.size = a.custom_minimum_size
 	a.top = pa.top
@@ -2424,7 +2427,7 @@ func _scroll_for(kind: String, region: Rect2, content_h: float) -> Art:
 func _scroll_hit(pos: Vector2) -> Array:
 	if _scroll_cur == null:
 		return [null, -1]
-	var h: ScrollContainer = _scroll_cur["host"]
+	var h: KScroll = _scroll_cur["host"]
 	if not h.is_visible_in_tree() or not h.get_global_rect().has_point(pos):
 		return [null, -1]
 	var a: Art = _scroll_cur["art"]
@@ -2472,7 +2475,7 @@ func list_screen_rect(id: String) -> Rect2:
 	var b := list_button(id)
 	if b.is_empty():
 		return Rect2()
-	var h: ScrollContainer = _scroll_cur["host"]
+	var h: KScroll = _scroll_cur["host"]
 	return Rect2(h.global_position + (b["rect"] as Rect2).position - Vector2(0.0, float(h.scroll_vertical)), (b["rect"] as Rect2).size)
 
 func list_ids() -> PackedStringArray:
@@ -2617,6 +2620,7 @@ func show_preview(p: Dictionary) -> void:
 	var fresh := not _preview_open
 	_preview_open = true
 	pa.pv_on = true
+	_scrolls_enabled(false)
 	var vp := get_viewport().get_visible_rect().size
 	var top := Style.safe_top
 	var card := Rect2(40.0, top + 110.0, vp.x - 80.0, vp.y - top - 110.0 - 50.0 - Style.safe_bottom)
@@ -2678,6 +2682,7 @@ func hide_preview() -> void:
 	_preview_open = false
 	var pa: Art = _panel_arts["preview"]
 	pa.pv_on = false
+	_scrolls_enabled(true)
 	pa.position = PARK
 	pa.btn_count = 0
 	pa.press_k = -1
@@ -3067,6 +3072,7 @@ func _use_main() -> void:
 	_preview_open = false
 	if _panel_arts.has("preview"):
 		_panel_arts["preview"].pv_on = false
+		_scrolls_enabled(true)
 		_panel_arts["preview"].btn_count = 0
 	var ra: Art = _panel_arts.get("results")
 	if ra != null:                 # (the next results card starts from nothing: no stars, no reveal, no unlock card)

@@ -266,8 +266,7 @@ func _note_scrolls(name: String) -> void:
 			tall = true
 	var ds = hud.detail_sheet()
 	if ds != null and ds.scroll != null and ds.scroll.is_visible_in_tree() and ds.scroll.global_position.x > -5000.0:
-		var sb: VScrollBar = ds.scroll.get_v_scroll_bar()
-		if sb.max_value > sb.page + 1.0:
+		if ds.scroll.max_scroll() > 1.0:
 			tall = true
 	if tall:
 		var fam := name.split(" ")[0]
@@ -279,7 +278,7 @@ func _note_scrolls(name: String) -> void:
 
 ## A list that scrolls: its buttons, text and icons, in screen coordinates and cut to the visible part of its container.
 func _collect_scroll(e: Dictionary, els: Array) -> void:
-	var host: ScrollContainer = e["host"]
+	var host: KScroll = e["host"]
 	var sa = e["art"]
 	if not host.is_visible_in_tree() or host.global_position.x < -5000.0:
 		return

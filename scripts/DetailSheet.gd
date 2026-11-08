@@ -22,7 +22,7 @@ const MAX_W := 1044.0                    # the card on a wide (landscape) screen
 ## Makes a Hud.Art (the drawn glyphs live there); set by the Hud (this script must not name the Hud: it would be a cycle).
 var art_factory: Callable
 
-var scroll: ScrollContainer
+var scroll: KScroll
 var card: PanelContainer
 var chips := {}                          # id -> Chip
 var fly: Chip = null
@@ -50,7 +50,7 @@ class Chip extends PanelContainer:
 		add_theme_stylebox_override("panel", _sb["normal"])
 
 	func _gui_input(ev: InputEvent) -> void:
-		if ev is InputEventMouseMotion and _held and ev.global_position.distance_to(_from) >= 24.0:
+		if ev is InputEventMouseMotion and _held and ev.global_position.distance_to(_from) >= KScroll.threshold():
 			cancel()          # (it became a scroll: not a tap, and a hold-to-buy stops)
 		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
 			if ev.pressed:
@@ -62,7 +62,7 @@ class Chip extends PanelContainer:
 				_held = false
 				add_theme_stylebox_override("panel", _sb["normal"])
 				# (a drag that scrolled the sheet is not a tap)
-				if ev.global_position.distance_to(_from) < 24.0 and get_global_rect().has_point(ev.global_position):
+				if ev.global_position.distance_to(_from) < KScroll.threshold() and not KScroll.touch_scrolled and get_global_rect().has_point(ev.global_position):
 					up.emit(id)
 
 	## Let go without a tap (the sheet is being rebuilt, or the finger left).
@@ -246,13 +246,9 @@ func build(info: Dictionary, vp: Vector2, safe_bottom: float, safe_left: float =
 	if improve:
 		_improve_header(col, info, tap)
 
-	scroll = ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	scroll.scroll_deadzone = 16
+	scroll = KScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.mouse_filter = Control.MOUSE_FILTER_PASS
 	col.add_child(scroll)
 	var body := vbox(14)
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL

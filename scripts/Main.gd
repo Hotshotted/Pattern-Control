@@ -1745,6 +1745,7 @@ func _input(event: InputEvent) -> void:
 			Input.vibrate_handheld(1)   # browsers only allow vibration after a touch: connect it early
 	if _warming:
 		return
+	KScroll.feed(event)        # (the lists scroll here, one implementation for all of them; a touch that scrolled is not a tap)
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			_touch_down(event.index, event.position)
@@ -2529,7 +2530,7 @@ func _touch_up(index: int, pos: Vector2) -> void:
 		_dt_dist = _dt_fingers_dist()
 	var pressed_id := hud.pressed_id()
 	hud.release()
-	if pressed_id != "" and screen != SCREEN_PLAY and hud.button_at(pos) == pressed_id and pos.distance_to(_press_pos) < 30.0:         # (a finger that dragged a list is not a tap)
+	if pressed_id != "" and screen != SCREEN_PLAY and hud.button_at(pos) == pressed_id and pos.distance_to(_press_pos) < KScroll.threshold() and not KScroll.touch_scrolled:         # (a finger that dragged a list is not a tap)
 		_on_button(pressed_id)
 		return
 	if _slider_drag >= 0:

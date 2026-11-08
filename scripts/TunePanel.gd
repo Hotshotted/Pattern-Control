@@ -195,9 +195,8 @@ func build() -> void:
 	column.add_theme_constant_override("separation", 14)
 	margin.add_child(column)
 	column.add_child(_make_label("TUNING  (live)", 44, HORIZONTAL_ALIGNMENT_LEFT))
-	var scroll := ScrollContainer.new()
+	var scroll := KScroll.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	column.add_child(scroll)
 	var list := VBoxContainer.new()
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
