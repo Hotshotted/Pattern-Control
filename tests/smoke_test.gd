@@ -6449,6 +6449,25 @@ func _initialize() -> void:
 		im_n += 1
 	check(save.imp_level(0, "hangar") == 10 and im_n == 10, "the hangar bay goes ten levels deep at airport level 19")
 	check(is_equal_approx(tuning.imp_hangar_bays, Improvements.PER_LEVEL["hangar"]) and is_equal_approx(tuning.imp_light_cut, Improvements.PER_LEVEL["rwlights"]) and is_equal_approx(tuning.imp_snap, Improvements.PER_LEVEL["applights"]) and is_equal_approx(tuning.imp_fuel_timer, Improvements.PER_LEVEL["fuel"]) and is_equal_approx(tuning.imp_exit_roll, Improvements.PER_LEVEL["exit_roll"]) and is_equal_approx(tuning.imp_exit_taxi, Improvements.PER_LEVEL["exit_taxi"]), "the effect lines the rows show are the numbers the game applies")
+	# every level of every improvement changes the field: more of it shows at each level than at the one before
+	var lv_ok := true
+	var lv_msgs := ""
+	main.select_airport(1)
+	Airports.current = 1
+	main.restart()
+	for lv_id in Improvements.IDS:
+		var lv_prev := 0
+		for lv_n in range(1, Improvements.max_level(lv_id) + 1):
+			save.improvements = {"1": {lv_id: lv_n}}
+			main.airfield.show_upgrades()
+			var lv_c: int = main.airfield.improvement_nodes_visible(lv_id)
+			if lv_c <= lv_prev:
+				lv_ok = false
+				lv_msgs += " %s:%d(%d<=%d)" % [lv_id, lv_n, lv_c, lv_prev]
+			lv_prev = lv_c
+	save.improvements = {}
+	main.airfield.show_upgrades()
+	check(lv_ok, "each of the 8 to 10 levels of every improvement shows more on the field than the level before%s" % lv_msgs)
 	# the three star objectives have names; XP is paid for landings, a clean sheet, every star met (every time)
 	check(Progression.STAR_NAMES.size() == 6 and Progression.STAR_NAMES[0].size() == 3, "every airport has three named star objectives")
 	check(Progression.shift_xp(5, true, [true, true, false], []) == 5 * Progression.XP_LANDING + Progression.XP_CLEAN_SHEET + Progression.XP_STAR[0] + Progression.XP_STAR[1] and Progression.shift_xp(0, true, [false, false, false], [2]) == Progression.XP_GOAL[2], "a shift's XP: landings, a clean sheet, each star met, each goal")
