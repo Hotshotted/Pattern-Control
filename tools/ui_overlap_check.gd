@@ -253,7 +253,8 @@ func _collect() -> Array:
 			els.append({"k": "text", "id": "", "text": t["text"], "rect": t["rect"], "inter": false, "size": t["size"], "over": t["over"], "limit": t["limit"], "natural": t["natural"], "src": "art", "layer": str(art.name), "role": t.get("role", "")})
 		for g in art.rec_glyphs:
 			els.append({"k": "glyph", "id": g["id"], "text": "", "rect": g["rect"], "inter": false, "src": "art", "layer": str(art.name)})
-	if hud.get("_scrolls") != null and not (hud._panel_arts.has("preview") and hud._panel_arts["preview"].pv_on):
+	var modal_up: bool = main != null and (main.get("_reset_ui") != null or main.get("_row_popup") != null)
+	if hud.get("_scrolls") != null and not modal_up and not (hud._panel_arts.has("preview") and hud._panel_arts["preview"].pv_on):
 		for e in hud._scrolls.values():
 			_collect_scroll(e, els)
 	_walk(hud, els)
