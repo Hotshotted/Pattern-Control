@@ -3,8 +3,8 @@ extends RefCounted
 ## Each airport is a long-term home, not a level to clear. Every shift there earns XP (landings, a clean sheet, the shift's three star
 ## objectives, daily goals); XP is the airport's level, 1 to 20, and each level unlocks something concrete that the airport's detail
 ## screen and the results card name ("next unlock"):
-##   odd levels 3..19   the next tier of the airport's improvements (improvement level 2 needs airport level 3, level 3 needs 5, ... level 10 needs 19)
-##   level 2, 12        a step in the pay rate at this airport
+##   levels 2 to 15     improvement levels open (every level opens one to five; all are open by level 15)
+##   level 2, 12, 17, 19, 20  a step in the pay rate at this airport
 ##   level 4, 14        a new aircraft type in this airport's traffic (twin, bizjet, helicopter, glider tow, seaplane ...)
 ##   level 6, 8, 18, 20 a cosmetic: an airport-themed livery, windsock and two hangar paints
 ##   level 8            the NEXT airport opens (and a windsock); level 20 also puts a landmark on this airport's field
@@ -77,12 +77,14 @@ const KIND_COSMETIC := "cosmetic"
 const KIND_GATE := "gate"
 const KIND_TRAFFIC := "traffic"
 
-## Airport level needed for improvement level n (1-based) of improvement `id`: level 1 from the start, then every second airport level. The hangar bay and
-## the approach lights open on odd levels (2n - 1), the runway lights, fuel farm and extra exit on even ones (2n - 2), so every level opens something to buy.
+## Airport level needed for improvement level n (1-based) of improvement `id`: level 1 from the start, then one more level about every one and a half
+## airport levels, the hangar bay and approach lights a level after the others, so most levels open something to buy; everything is open by level 15, and
+## levels 16 to 20 are limited by coins alone.
 static func imp_gate(n: int, id: String = "hangar") -> int:
 	if n <= 1:
 		return 1
-	return 2 * n - 1 if (id == "hangar" or id == "applights") else 2 * n - 2
+	var g := 1 + int(floorf(float(n - 1) * 1.5 + 0.5))
+	return g if (id == "hangar" or id == "applights") else g - 1
 
 ## The highest improvement level the airport's level allows for `id`.
 static func imp_cap(level: int, id: String = "hangar") -> int:
@@ -101,7 +103,7 @@ static func imp_unlocks_at(level: int) -> Array:
 	return out
 
 ## Pay rate at the airport: steps at levels 2, 12 and 20.
-const PAY_STEPS := {2: 0.08, 12: 0.12, 20: 0.15}
+const PAY_STEPS := {2: 0.08, 12: 0.12, 17: 0.04, 19: 0.04, 20: 0.15}
 static var flat_pay := false             # (the smoke test's older sections count exact coins: the level's pay steps are off there)
 
 static func pay_mult(level: int) -> float:
@@ -156,8 +158,10 @@ static func unlock_for(ap: int, level: int) -> Dictionary:
 		return {}
 	var more := _imp_text(level)
 	if level % 2 == 1:
-		var n := (level + 1) / 2
-		return {"kind": KIND_TIER, "title": "Improvements level %d" % n if more == "" else more, "detail": "%s at %s can go deeper" % [more if more != "" else "Improvements", nm], "tier": n}
+		if more != "":
+			return {"kind": KIND_TIER, "title": more, "detail": "%s at %s can go deeper" % [more, nm], "tier": level}
+		if level == 17 or level == 19:
+			return {"kind": KIND_PAY, "title": "Pay rate +%d%%" % roundi(float(PAY_STEPS[level]) * 100.0), "detail": "Every landing at %s pays more" % nm}
 	var u := _headline(a, level, nm, cos)
 	if more != "" and not u.is_empty():
 		u["detail"] = "%s  \u00b7  also opens: %s" % [u["detail"], more]

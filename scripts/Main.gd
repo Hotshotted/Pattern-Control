@@ -1866,6 +1866,8 @@ func _on_button(id: String) -> void:
 		open_preview("windsock", int(id.substr(9)))
 	elif id.begins_with("hangar:"):
 		open_preview("hangar", int(id.substr(7)))
+	elif id.begins_with("prop:"):
+		open_preview("prop", int(id.substr(5)))
 	elif id == "preview_close" or id == "preview_scrim":
 		close_preview()
 	elif id.begins_with("pv_mode:"):
@@ -1928,7 +1930,7 @@ func _ui_sound(id: String) -> String:
 		return "toggle"
 	if id == "unlock_ok" or id.begins_with("ad_"):
 		return "unlock"
-	if id.begins_with("upg:") or id.begins_with("imp:") or id.begins_with("theme:") or id.begins_with("livery:") or id.begins_with("windsock:") or id.begins_with("hangar:"):
+	if id.begins_with("upg:") or id.begins_with("imp:") or id.begins_with("theme:") or id.begins_with("livery:") or id.begins_with("windsock:") or id.begins_with("hangar:") or id.begins_with("prop:"):
 		return ""
 	return "tap"
 
@@ -2024,11 +2026,13 @@ func apply_cosmetics() -> void:
 ## where its item comes from while it is locked: its price in coins, a mastery rank, or an achievement.
 func _shop_args() -> Array:
 	var cards: Array = []
-	var kinds: Array = [["theme"], ["livery"], ["windsock", "hangar"]][clampi(shop_tab, 0, 2)]
+	var kinds: Array = [["theme"], ["livery"], ["windsock", "hangar", "prop"]][clampi(shop_tab, 0, 2)]
 	for kind in kinds:
 		var list: Array = Cosmetics.items(kind)
 		for i in list.size():
 			var d: Dictionary = list[i]
+			if Cosmetics.source(d) == "shop" and d.has("ap") and not Save.airport_open(int(d["ap"])) and not Save.owns(kind, d["id"]):
+				continue                      # (an airport's own things are for sale once the airport is open)
 			var owned := Save.owns(kind, d["id"])
 			var state := 0
 			var sub := ""
@@ -2041,7 +2045,7 @@ func _shop_args() -> Array:
 			elif Cosmetics.source(d) == "shop":
 				cost = d["cost"]
 				state = 0 if Save.coins >= d["cost"] else 1
-				sub = "%d coins" % cost
+				sub = ("%d coins" % cost) if not d.has("ap") else ("%d coins \u00b7 %s" % [cost, Progression.NAMES[int(d["ap"])]])
 			else:
 				state = 1
 				sub = Cosmetics.source_line(d)
@@ -2050,6 +2054,7 @@ func _shop_args() -> Array:
 				"theme": card["icon"] = 100 + i
 				"livery": card["icon"] = d["animal"]
 				"windsock": card["swatch"] = [d["a"], d["b"]]
+				"prop": card["swatch"] = [d["color"], Color("e8e1d2")]
 				_: card["swatch"] = [d["color"] if d["color"] != null else Color("e2654a"), Color("e8e1d2")]
 			cards.append(card)
 	return [[
@@ -2114,9 +2119,10 @@ func _preview_args() -> Dictionary:
 		"livery": sub = d["pilot"]
 		"windsock": sub = "Windsock colours, on every airport"
 		"hangar": sub = "Hangar paint, on every airport"
+		"prop": sub = "A field prop at %s" % Progression.NAMES[int(d["ap"])]
 	return {"kind": preview_kind, "index": preview_i, "name": d["name"], "state": state, "price": d["cost"], "balance": Save.coins, "need": maxi(d["cost"] - Save.coins, 0),
 		"sub": sub, "source": Cosmetics.source_line(d), "mode": preview_mode, "airport": airport, "theme": preview_i if preview_kind == "theme" else 0,
-		"current_theme": Cosmetics.theme_index(Save.equipped_id("theme")), "livery": d if preview_kind == "livery" else {}, "detail": d if preview_kind in ["windsock", "hangar"] else {}, "runway": rw}
+		"current_theme": Cosmetics.theme_index(Save.equipped_id("theme")), "livery": d if preview_kind == "livery" else {}, "detail": d if preview_kind in ["windsock", "hangar", "prop"] else {}, "runway": rw}
 
 func _refresh_preview() -> void:
 	if preview_kind == "":

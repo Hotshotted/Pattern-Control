@@ -29,6 +29,7 @@ var mode := "continuous"
 var policy := "tour"
 var maxh := 250.0
 var dir := ""
+var src_shop := 0                         # coins spent in the cosmetic shop
 var show_minutes := 0.0                  # show=N prints the events of the first N minutes
 
 func _initialize() -> void:
@@ -142,10 +143,22 @@ func _buy_cheapest() -> Array:
 			if c2 >= 0 and c2 < best_cost:
 				best_cost = c2
 				best = ["up", -1, uid]
+		for kind in ["theme", "livery", "windsock", "hangar", "prop"]:       # the shop: pure coin sinks (an airport's own things once it is open)
+			for d in Cosmetics.items(kind):
+				if Cosmetics.source(d) != "shop" or int(d["cost"]) <= 0 or save.owns(kind, d["id"]):
+					continue
+				if d.has("ap") and not save.airport_open(int(d["ap"])):
+					continue
+				if int(d["cost"]) < best_cost:
+					best_cost = int(d["cost"])
+					best = ["shop", kind, str(d["id"])]
 		if best[0] == "" or save.coins < best_cost:
 			break
 		if best[0] == "imp":
 			save.buy_improvement(best[1], best[2])
+		elif best[0] == "shop":
+			save.buy_cosmetic(best[1], best[2], best_cost, false)
+			src_shop += best_cost
 		else:
 			save.buy_upgrade(best[2])
 		bought.append([best[0], best[1], best[2], best_cost])
@@ -164,6 +177,7 @@ func _everything_bought() -> bool:
 func _run(who: String) -> void:
 	rng.seed = hash(who) + 17
 	save.reset_all()
+	src_shop = 0
 	save.unlocks.erase("all_airports")
 	save.day_override = 20000
 	save.coins = 0
@@ -282,7 +296,7 @@ func _run(who: String) -> void:
 			shifts_since_buy = 0
 			session_rewarded = true
 			for g in got:
-				log.append([minutes, "buy", "%s %s" % [("%s %s" % [Airports.airport_name(g[1]), g[2]]) if g[0] == "imp" else str(g[2]), g[3]]])
+				log.append([minutes, "buy" if g[0] != "shop" else "shop", "%s %s" % [("%s %s" % [Airports.airport_name(g[1]), g[2]]) if g[0] == "imp" else str(g[2]), g[3]]])
 		elif minutes < 120.0:
 			early_max_shifts_without_buy = maxi(early_max_shifts_without_buy, shifts_since_buy)
 		# milestones
@@ -400,10 +414,13 @@ func _report(who: String, minutes: float, src: Dictionary, log: Array, ms: Dicti
 	# gaps in play minutes between rewards of a kind, by phase (early 0-2 h, mid 2-20 h, late after 20 h)
 	var phases := [["early (0-2 h)", 0.0, 120.0], ["mid (2-20 h)", 120.0, 1200.0], ["late (20 h on)", 1200.0, minutes]]
 	for ph in phases:
-		var lvl := _gap_report(log, ["level"], ph[1], minf(ph[2], minutes))
-		var buy := _gap_report(log, ["buy"], ph[1], minf(ph[2], minutes))
-		var any := _gap_report(log, ["level", "buy", "mastery", "event", "goal", "offline", "half"], ph[1], minf(ph[2], minutes))
-		var unl := _gap_report(log, ["level", "buy", "mastery", "event", "half"], ph[1], minf(ph[2], minutes))
+		# (a kind of reward is measured up to the moment there is none left of it: the last level-up, the last thing to buy)
+		var lvl_end := float(done["levels"]) if float(done["levels"]) >= 0.0 else minutes
+		var buy_end := float(done["everything"]) if float(done["everything"]) >= 0.0 else minutes
+		var lvl := _gap_report(log, ["level"], ph[1], minf(minf(ph[2], minutes), lvl_end))
+		var buy := _gap_report(log, ["buy", "shop"], ph[1], minf(minf(ph[2], minutes), buy_end))
+		var any := _gap_report(log, ["level", "buy", "shop", "mastery", "event", "goal", "offline", "half"], ph[1], minf(ph[2], minutes))
+		var unl := _gap_report(log, ["level", "buy", "shop", "mastery", "event", "half"], ph[1], minf(ph[2], minutes))
 		print("longest gap %-15s  level-up %5.1f min   purchase %5.1f min   unlock or purchase or event/mastery %5.1f min   anything %5.1f min" % [ph[0], lvl, buy, unl, any])
 	if mode == "daily":
 		print("20-minute sessions: %d, %d of them ended with a purchase, level-up, rank or event reward (%.0f%%); days to finish: %d" % [sessions, sess_ok, 100.0 * float(sess_ok) / maxf(float(sessions), 1.0), sessions])

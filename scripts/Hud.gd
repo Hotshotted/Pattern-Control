@@ -1573,7 +1573,7 @@ class Art extends Control:
 			_dst(st.get_center() * (1.0 - ok_pop), 0.0, Vector2(ok_pop, ok_pop))
 		if pv["kind"] == "livery":
 			_draw_livery_stage(st)
-		elif pv["kind"] == "windsock" or pv["kind"] == "hangar":
+		elif pv["kind"] == "windsock" or pv["kind"] == "hangar" or pv["kind"] == "prop":
 			_draw_detail_stage(st)
 		else:
 			_draw_theme_stage(st)

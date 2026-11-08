@@ -6,8 +6,8 @@ extends RefCounted
 
 const THEME_COUNT := 9
 const LIVERY_COUNT := 23
-const SOCK_COUNT := 13
-const PAINT_COUNT := 19
+const SOCK_COUNT := 25
+const PAINT_COUNT := 37
 
 ## Where an item comes from: "src" is "shop" (coins, "cost"), "mastery" ("ap" and "rank": that airport's mastery rank) or "ach" ("ach": an
 ## achievement's id, see Achievements). "from" is the line a locked item shows. Items without a "src" are in the shop.
@@ -86,6 +86,18 @@ const SOCKS := [
 	{"id": "mint", "name": "Mint sock", "cost": 0, "src": "level", "ap": 3, "level": 8, "from": "Mountain Field, level 8", "a": Color("4fc7a0"), "b": Color("effff8")},
 	{"id": "slate", "name": "Slate sock", "cost": 0, "src": "level", "ap": 4, "level": 8, "from": "Island, level 8", "a": Color("58667a"), "b": Color("dfe4ec")},
 	{"id": "gold", "name": "Gold sock", "cost": 0, "src": "level", "ap": 5, "level": 8, "from": "International, level 8", "a": Color("e0b030"), "b": Color("fff4c8")},
+	{"id": "hay", "name": "Hay sock", "cost": 30, "src": "shop", "ap": 0, "a": Color("e8c15a"), "b": Color("fff3cf")},
+	{"id": "clover", "name": "Clover sock", "cost": 90, "src": "shop", "ap": 0, "a": Color("4f9a3a"), "b": Color("e9f5d8")},
+	{"id": "wheat", "name": "Wheat sock", "cost": 45, "src": "shop", "ap": 1, "a": Color("d9a441"), "b": Color("fdf1d2")},
+	{"id": "barn", "name": "Barn sock", "cost": 135, "src": "shop", "ap": 1, "a": Color("b5483a"), "b": Color("f6e6dc")},
+	{"id": "steel2", "name": "Runway sock", "cost": 55, "src": "shop", "ap": 2, "a": Color("6d7f94"), "b": Color("e6ebf2")},
+	{"id": "signal", "name": "Signal sock", "cost": 165, "src": "shop", "ap": 2, "a": Color("e0502f"), "b": Color("ffe9c9")},
+	{"id": "pine2", "name": "Pine sock", "cost": 65, "src": "shop", "ap": 3, "a": Color("3f7a52"), "b": Color("e3f0e6")},
+	{"id": "rock", "name": "Rock sock", "cost": 195, "src": "shop", "ap": 3, "a": Color("8a8576"), "b": Color("ece8dd")},
+	{"id": "shell", "name": "Shell sock", "cost": 85, "src": "shop", "ap": 4, "a": Color("f2a58f"), "b": Color("fff0e6")},
+	{"id": "lagoon2", "name": "Lagoon sock", "cost": 255, "src": "shop", "ap": 4, "a": Color("2fa7b0"), "b": Color("e2f8fa")},
+	{"id": "jet", "name": "Jet sock", "cost": 100, "src": "shop", "ap": 5, "a": Color("2b3a67"), "b": Color("dfe6fa")},
+	{"id": "platinum", "name": "Platinum sock", "cost": 300, "src": "shop", "ap": 5, "a": Color("aeb6c2"), "b": Color("f4f6f9")},
 ]
 const PAINTS := [
 	{"id": "standard", "name": "Airport paint", "cost": 0, "src": "shop", "color": null},
@@ -107,14 +119,67 @@ const PAINTS := [
 	{"id": "ink", "name": "Ink roof", "cost": 0, "src": "level", "ap": 3, "level": 20, "from": "Mountain Field, level 20", "color": Color("353b48")},
 	{"id": "lilac", "name": "Lilac roof", "cost": 0, "src": "level", "ap": 4, "level": 20, "from": "Island, level 20", "color": Color("a58fc4")},
 	{"id": "amber", "name": "Amber roof", "cost": 0, "src": "level", "ap": 5, "level": 20, "from": "International, level 20", "color": Color("e0a23a")},
+	{"id": "fern", "name": "Fern roof", "cost": 60, "src": "shop", "ap": 0, "color": Color("5f8f4e")},
+	{"id": "sunrise", "name": "Sunrise roof", "cost": 150, "src": "shop", "ap": 0, "color": Color("e8935a")},
+	{"id": "harvest", "name": "Harvest roof", "cost": 360, "src": "shop", "ap": 0, "color": Color("b8862f")},
+	{"id": "cornflower", "name": "Cornflower roof", "cost": 90, "src": "shop", "ap": 1, "color": Color("6f93d1")},
+	{"id": "poppy", "name": "Poppy roof", "cost": 225, "src": "shop", "ap": 1, "color": Color("d0443a")},
+	{"id": "oat", "name": "Oat roof", "cost": 540, "src": "shop", "ap": 1, "color": Color("d8cfae")},
+	{"id": "graphite", "name": "Graphite roof", "cost": 110, "src": "shop", "ap": 2, "color": Color("545b66")},
+	{"id": "mint2", "name": "Mint roof", "cost": 275, "src": "shop", "ap": 2, "color": Color("7ec8a8")},
+	{"id": "signal2", "name": "Signal roof", "cost": 660, "src": "shop", "ap": 2, "color": Color("e3a21a")},
+	{"id": "alder", "name": "Alder roof", "cost": 130, "src": "shop", "ap": 3, "color": Color("7a5a3a")},
+	{"id": "slate2", "name": "Slate roof", "cost": 325, "src": "shop", "ap": 3, "color": Color("647084")},
+	{"id": "glacier", "name": "Glacier roof", "cost": 780, "src": "shop", "ap": 3, "color": Color("bcd6e4")},
+	{"id": "coral2", "name": "Coral roof", "cost": 170, "src": "shop", "ap": 4, "color": Color("e5796b")},
+	{"id": "tide", "name": "Tide roof", "cost": 425, "src": "shop", "ap": 4, "color": Color("3a8fb5")},
+	{"id": "dune", "name": "Dune roof", "cost": 1020, "src": "shop", "ap": 4, "color": Color("e0c58a")},
+	{"id": "onyx", "name": "Onyx roof", "cost": 200, "src": "shop", "ap": 5, "color": Color("262a33")},
+	{"id": "chrome", "name": "Chrome roof", "cost": 500, "src": "shop", "ap": 5, "color": Color("b9c2cc")},
+	{"id": "gold2", "name": "Gold roof", "cost": 1200, "src": "shop", "ap": 5, "color": Color("d9b54a")},
 ]
 
 ## The list of items of a kind ("theme", "livery", "windsock" or "hangar").
+## Field props sold per airport (flower beds, a pond, a fountain): a prop shows on its airport once bought. Pure coin sinks.
+const PROPS := [
+	{"id": "flowers0", "name": "Flower beds", "cost": 120, "src": "shop", "ap": 0, "kind": "flowers", "color": Color("e86f9a")},
+	{"id": "pond0", "name": "Duck pond", "cost": 240, "src": "shop", "ap": 0, "kind": "pond", "color": Color("4c9fd6")},
+	{"id": "fountain0", "name": "Fountain", "cost": 600, "src": "shop", "ap": 0, "kind": "fountain", "color": Color("b9c4d0")},
+	{"id": "flowers1", "name": "Flower beds", "cost": 180, "src": "shop", "ap": 1, "kind": "flowers", "color": Color("f2c230")},
+	{"id": "pond1", "name": "Farm pond", "cost": 360, "src": "shop", "ap": 1, "kind": "pond", "color": Color("4c9fd6")},
+	{"id": "fountain1", "name": "Fountain", "cost": 900, "src": "shop", "ap": 1, "kind": "fountain", "color": Color("b9c4d0")},
+	{"id": "flowers2", "name": "Flower beds", "cost": 220, "src": "shop", "ap": 2, "kind": "flowers", "color": Color("a46de0")},
+	{"id": "pond2", "name": "Pond", "cost": 440, "src": "shop", "ap": 2, "kind": "pond", "color": Color("4c9fd6")},
+	{"id": "fountain2", "name": "Fountain", "cost": 1100, "src": "shop", "ap": 2, "kind": "fountain", "color": Color("b9c4d0")},
+	{"id": "flowers3", "name": "Alpine flowers", "cost": 260, "src": "shop", "ap": 3, "kind": "flowers", "color": Color("f0f0ff")},
+	{"id": "pond3", "name": "Tarn", "cost": 520, "src": "shop", "ap": 3, "kind": "pond", "color": Color("5aa6d9")},
+	{"id": "fountain3", "name": "Fountain", "cost": 1300, "src": "shop", "ap": 3, "kind": "fountain", "color": Color("b9c4d0")},
+	{"id": "flowers4", "name": "Beach flowers", "cost": 340, "src": "shop", "ap": 4, "kind": "flowers", "color": Color("ff8fa3")},
+	{"id": "pond4", "name": "Lagoon pool", "cost": 680, "src": "shop", "ap": 4, "kind": "pond", "color": Color("3fc0d0")},
+	{"id": "fountain4", "name": "Fountain", "cost": 1700, "src": "shop", "ap": 4, "kind": "fountain", "color": Color("b9c4d0")},
+	{"id": "flowers5", "name": "Flower beds", "cost": 400, "src": "shop", "ap": 5, "kind": "flowers", "color": Color("ffffff")},
+	{"id": "pond5", "name": "Reflecting pool", "cost": 800, "src": "shop", "ap": 5, "kind": "pond", "color": Color("4c9fd6")},
+	{"id": "fountain5", "name": "Fountain", "cost": 2000, "src": "shop", "ap": 5, "kind": "fountain", "color": Color("b9c4d0")},
+	{"id": "garden0", "name": "Hedge garden", "cost": 1800, "src": "shop", "ap": 0, "kind": "garden", "color": Color("5f9f4f")},
+	{"id": "statue0", "name": "Statue", "cost": 3600, "src": "shop", "ap": 0, "kind": "statue", "color": Color("c9bfa8")},
+	{"id": "garden1", "name": "Orchard", "cost": 2700, "src": "shop", "ap": 1, "kind": "garden", "color": Color("7fb04a")},
+	{"id": "statue1", "name": "Windmill stand", "cost": 5400, "src": "shop", "ap": 1, "kind": "statue", "color": Color("d8cfb0")},
+	{"id": "garden2", "name": "Rose garden", "cost": 3300, "src": "shop", "ap": 2, "kind": "garden", "color": Color("d4607a")},
+	{"id": "statue2", "name": "Monument", "cost": 6600, "src": "shop", "ap": 2, "kind": "statue", "color": Color("bdc4cf")},
+	{"id": "garden3", "name": "Rock garden", "cost": 3900, "src": "shop", "ap": 3, "kind": "garden", "color": Color("8f8a7c")},
+	{"id": "statue3", "name": "Cairn", "cost": 7800, "src": "shop", "ap": 3, "kind": "statue", "color": Color("a9a496")},
+	{"id": "garden4", "name": "Palm grove", "cost": 5100, "src": "shop", "ap": 4, "kind": "garden", "color": Color("4fb56a")},
+	{"id": "statue4", "name": "Beacon stand", "cost": 10200, "src": "shop", "ap": 4, "kind": "statue", "color": Color("e6d8a8")},
+	{"id": "garden5", "name": "Sculpture garden", "cost": 6000, "src": "shop", "ap": 5, "kind": "garden", "color": Color("b8c4d8")},
+	{"id": "statue5", "name": "Landmark plinth", "cost": 12000, "src": "shop", "ap": 5, "kind": "statue", "color": Color("d9b54a")}
+]
+
 static func items(kind: String) -> Array:
 	match kind:
 		"theme": return THEMES
 		"livery": return LIVERIES
 		"windsock": return SOCKS
+		"prop": return PROPS
 		_: return PAINTS
 
 static func index_of(kind: String, id: String) -> int:
@@ -132,5 +197,6 @@ static func source_line(d: Dictionary) -> String:
 	match source(d):
 		"mastery": return "Mastery: " + str(d.get("from", ""))
 		"level": return "Airport level: " + str(d.get("from", ""))
+		"shop": return "%d coins%s" % [int(d.get("cost", 0)), (" at " + Progression.NAMES[int(d["ap"])]) if d.has("ap") else ""]
 		"ach": return str(d.get("from", "Achievement"))
 		_: return "%d coins" % int(d.get("cost", 0))

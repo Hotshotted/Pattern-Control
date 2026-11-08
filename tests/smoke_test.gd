@@ -6432,22 +6432,22 @@ func _initialize() -> void:
 		for im_l in Improvements.max_level(im_id):
 			var im_c: int = Improvements.cost(3, im_id, im_l)
 			if im_l > 0:
-				im_ok = im_ok and absf(float(im_c) / float(im_prev) - 1.5) < 0.12
+				im_ok = im_ok and absf(float(im_c) / float(im_prev) - (1.5 if im_l <= 4 else 1.3)) < 0.15
 			im_prev = im_c
 		im_ok = im_ok and Improvements.cost(3, im_id, Improvements.max_level(im_id)) == -1
-	check(im_ok and Improvements.max_level("hangar") == 10 and Improvements.max_level("fuel") == 8, "the improvements go 8 to 10 levels deep, about 1.5 times dearer each level")
-	check(Progression.imp_gate(1) == 1 and Progression.imp_gate(2) == 3 and Progression.imp_gate(10) == 19 and Progression.imp_cap(1) == 1 and Progression.imp_cap(19) == 10, "improvement level n needs airport level 2n - 1")
+	check(im_ok and Improvements.max_level("hangar") == 10 and Improvements.max_level("fuel") == 8, "the improvements go 8 to 10 levels deep, 1.5 times dearer each level up to level 5 and 1.3 times after")
+	check(Progression.imp_gate(1) == 1 and Progression.imp_gate(2) == 3 and Progression.imp_gate(2, "fuel") == 2 and Progression.imp_gate(10) == 15 and Progression.imp_cap(1) == 1 and Progression.imp_cap(15) == 10 and Progression.imp_cap(14) == 9, "improvement levels open about every one and a half airport levels, all by level 15")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
 	save.add_coins(100000)
 	check(save.buy_improvement(0, "fuel") and not save.imp_unlocked(0, "fuel") and not save.buy_improvement(0, "fuel"), "level 2 of an improvement is out of reach at airport level 1")
-	save.add_xp(0, Progression.xp_at_level(0, 3))
-	check(save.buy_improvement(0, "fuel") and save.imp_level(0, "fuel") == 2 and not save.buy_improvement(0, "fuel"), "...and opens at airport level 3 (and level 3 does not)")
+	save.add_xp(0, Progression.xp_at_level(0, 2))
+	check(save.buy_improvement(0, "fuel") and save.imp_level(0, "fuel") == 2 and not save.buy_improvement(0, "fuel"), "...and opens at airport level 2 for the fuel farm (and level 3 does not)")
 	save.add_xp(0, Progression.xp_at_level(0, 20))
 	var im_n := 0
 	while save.buy_improvement(0, "hangar"):
 		im_n += 1
-	check(save.imp_level(0, "hangar") == 10 and im_n == 10, "the hangar bay goes ten levels deep at airport level 19")
+	check(save.imp_level(0, "hangar") == 10 and im_n == 10, "the hangar bay goes ten levels deep at airport level 15")
 	check(is_equal_approx(tuning.imp_hangar_bays, Improvements.PER_LEVEL["hangar"]) and is_equal_approx(tuning.imp_light_cut, Improvements.PER_LEVEL["rwlights"]) and is_equal_approx(tuning.imp_snap, Improvements.PER_LEVEL["applights"]) and is_equal_approx(tuning.imp_fuel_timer, Improvements.PER_LEVEL["fuel"]) and is_equal_approx(tuning.imp_exit_roll, Improvements.PER_LEVEL["exit_roll"]) and is_equal_approx(tuning.imp_exit_taxi, Improvements.PER_LEVEL["exit_taxi"]), "the effect lines the rows show are the numbers the game applies")
 	# every level of every improvement changes the field: more of it shows at each level than at the one before
 	var lv_ok := true
@@ -6468,6 +6468,29 @@ func _initialize() -> void:
 	save.improvements = {}
 	main.airfield.show_upgrades()
 	check(lv_ok, "each of the 8 to 10 levels of every improvement shows more on the field than the level before%s" % lv_msgs)
+	# the shop sells each airport its own windsocks, hangar paints and field props (pure coin sinks), once the airport is open
+	save.reset_all()
+	var pr_n := {}
+	for pr_d in Cosmetics.PROPS:
+		pr_n[int(pr_d["ap"])] = int(pr_n.get(int(pr_d["ap"]), 0)) + 1
+	check(pr_n.size() == 6 and pr_n[0] == 5, "every airport has five field props for sale (flower beds, a pond, a fountain, a garden, a statue)")
+	main.shop_tab = 2
+	var pr_ids = main._shop_args()[1].map(func(c): return c["id"])
+	var pr_closed_ok := true
+	for pr_id in pr_ids:
+		if str(pr_id).begins_with("prop:") and int(Cosmetics.PROPS[int(str(pr_id).substr(5))]["ap"]) != 0:
+			pr_closed_ok = false
+	check(pr_closed_ok and pr_ids.any(func(i): return str(i).begins_with("prop:")), "a closed airport's props are not in the shop")
+	save.unlocks["all_airports"] = true
+	check(main._shop_args()[1].size() > pr_ids.size(), "...they appear once it is open")
+	save.add_coins(100000)
+	var pr_cost: int = Cosmetics.PROPS[0]["cost"]
+	var pr_c0 = save.coins
+	check(main.shop_pick("prop", 0) and save.owns("prop", Cosmetics.PROPS[0]["id"]) and save.coins == pr_c0 - pr_cost, "a prop is bought for its price")
+	main.apply_cosmetics()
+	check(main.airfield.variants[0].props.size() == 5 and main.airfield.variants[0].props[0][0].visible and not main.airfield.variants[0].props[1][0].visible, "...and shows on its airport, the others stay hidden")
+	save.reset_all()
+	main.apply_cosmetics()
 	# the three star objectives have names; XP is paid for landings, a clean sheet, every star met (every time)
 	check(Progression.STAR_NAMES.size() == 6 and Progression.STAR_NAMES[0].size() == 3, "every airport has three named star objectives")
 	check(Progression.shift_xp(5, true, [true, true, false], []) == 5 * Progression.XP_LANDING + Progression.XP_CLEAN_SHEET + Progression.XP_STAR[0] + Progression.XP_STAR[1] and Progression.shift_xp(0, true, [false, false, false], [2]) == Progression.XP_GOAL[2], "a shift's XP: landings, a clean sheet, each star met, each goal")

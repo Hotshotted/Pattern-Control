@@ -12,14 +12,15 @@ extends RefCounted
 
 const MAX_LEVEL := 10                    # the deepest any improvement goes
 const IDS := ["hangar", "rwlights", "applights", "fuel", "exit"]
-const GROWTH := 1.5                      # the price of a level over the one before
+const GROWTH := 1.5                      # the price of a level over the one before, for levels 2 to 5...
+const GROWTH_LATE := 1.3                 # ...and after level 5, so the deep levels stay in reach
 
 const DATA := {
 	"hangar": {"name": "Hangar bay", "levels": 10, "mult": 1.0, "per": "+1 hangar spot"},
-	"rwlights": {"name": "Runway lights", "levels": 8, "mult": 2.2, "per": "fewer go-arounds in bad light"},
-	"applights": {"name": "Approach lights", "levels": 8, "mult": 2.4, "per": "paths snap on from further"},
-	"fuel": {"name": "Fuel farm", "levels": 8, "mult": 3.0, "per": "longer timers"},
-	"exit": {"name": "Extra exit", "levels": 8, "mult": 4.0, "per": "shorter rollout, quicker taxi"},
+	"rwlights": {"name": "Runway lights", "levels": 8, "mult": 2.9, "per": "fewer go-arounds in bad light"},
+	"applights": {"name": "Approach lights", "levels": 8, "mult": 3.1, "per": "paths snap on from further"},
+	"fuel": {"name": "Fuel farm", "levels": 8, "mult": 3.9, "per": "longer timers"},
+	"exit": {"name": "Extra exit", "levels": 8, "mult": 5.2, "per": "shorter rollout, quicker taxi"},
 }
 
 ## What each level adds, as the game applies it (Tuning.imp_*): the totals at the top level are about 1.25 times what three levels were worth
@@ -28,7 +29,7 @@ const PER_LEVEL := {"hangar": 1.0, "rwlights": 0.094, "applights": 0.14, "fuel":
 
 ## The price of level 1 at each airport (a later airport pays more per shift, so its improvements pay back as fast): hangar level 1 is the first
 ## thing to buy, priced so the average player has it after the first shift (see docs/content_audit.md).
-const L1_PRICE := [44, 85, 100, 115, 150, 180]
+const L1_PRICE := [44, 62, 70, 78, 92, 105]
 
 static func improvement_name(id: String) -> String:
 	return DATA[id]["name"]
@@ -66,7 +67,11 @@ static func cost(airport: int, id: String, level: int) -> int:
 	if level >= max_level(id):
 		return -1
 	var base := float(L1_PRICE[clampi(airport, 0, L1_PRICE.size() - 1)]) * float(DATA[id]["mult"])
-	return maxi(roundi(base * pow(GROWTH, float(level)) / 5.0) * 5, 5)
+	return maxi(roundi(base * level_factor(level) / 5.0) * 5, 5)
+
+## The price of level `level` + 1 over the price of level 1: x1.5 a level up to level 5, x1.3 a level after.
+static func level_factor(level: int) -> float:
+	return pow(GROWTH, float(mini(level, 4))) * pow(GROWTH_LATE, float(maxi(level - 4, 0)))
 
 ## What every improvement of an airport costs in all.
 static func total_cost(airport: int) -> int:

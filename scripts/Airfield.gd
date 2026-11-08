@@ -33,6 +33,7 @@ class AirportScene:
 	var sock_mats: Array = []           # the windsock's two stripe materials (a cosmetic recolours them)
 	var hangar_roofs: Array = []        # the roof meshes of the hangar and its bays (a cosmetic repaints them)
 	var plaque: Node3D                  # the gold plaque on the tower (mastery rank 5)
+	var props: Array = []               # field props sold in the shop: [node, id], shown once bought
 	var flag: Node3D                    # the pennant on the tower (mastery rank 4: the landmark upgrade)
 	var landmark: Node3D                # the landmark of the field (airport level 20)
 	var ups: Array = []                 # [node, upgrade id, level it appears at]
@@ -2276,6 +2277,45 @@ func _improvement_props(v: AirportScene) -> void:
 				Prim.box(lit, Vector3(0.05, 0.06, 0.05), Vector3(-0.18, 0.06, ez * 0.55), glow, false)
 				Prim.box(lit, Vector3(0.05, 0.06, 0.05), Vector3(0.18, 0.06, ez * 0.55), glow, false)
 			v.imps.append([lit, "exit", 2 * k + 2])
+	await _shop_props(v, tower)
+
+## The shop's field props at this airport (flower beds, a pond, a fountain): built hidden near the apron, shown when owned.
+func _shop_props(v: AirportScene, tower: Vector2) -> void:
+	var mine: Array = []
+	for d in Cosmetics.PROPS:
+		if int(d["ap"]) == v.airport:
+			mine.append(d)
+	var spots := await _imp_spots(tower, mine.size(), 0.45, 0.9, [2.6, 3.0, 3.4, 3.8, 4.2])
+	for k in mine.size():
+		await _slice()
+		var d: Dictionary = mine[k]
+		var n := Node3D.new()
+		n.position = Vector3(spots[k].x, 0.0, spots[k].y)
+		n.visible = false
+		v.root.add_child(n)
+		match str(d["kind"]):
+			"flowers":
+				for q in 5:
+					var a := float(q) * 1.26
+					Prim.cyl(n, 0.1, 0.1, 0.03, 8, Vector3(cos(a) * 0.22, 0.015, sin(a) * 0.22), Prim.mat(d["color"] if q % 2 == 0 else Color("f6d34a")), false)
+				Prim.cyl(n, 0.3, 0.3, 0.02, 12, Vector3(0, 0.008, 0), Prim.mat(Color("5aa85a")), false)
+			"pond":
+				Prim.cyl(n, 0.34, 0.34, 0.02, 14, Vector3(0, 0.008, 0), Prim.mat(Color("e8d9a0")), false)
+				Prim.cyl(n, 0.28, 0.28, 0.03, 14, Vector3(0, 0.014, 0), Prim.mat(d["color"]), false)
+			"garden":
+				Prim.cyl(n, 0.4, 0.4, 0.02, 12, Vector3(0, 0.008, 0), Prim.mat(Color("6aa85a")), false)
+				for q in 6:
+					var ga := float(q) * 1.047
+					Prim.cyl(n, 0.12, 0.12, 0.12, 8, Vector3(cos(ga) * 0.25, 0.06, sin(ga) * 0.25), Prim.mat(d["color"]), false)
+			"statue":
+				Prim.cyl(n, 0.22, 0.26, 0.08, 10, Vector3(0, 0.04, 0), Prim.mat(Color("d9d4c6")), false)
+				Prim.box(n, Vector3(0.12, 0.34, 0.12), Vector3(0, 0.25, 0), Prim.mat(d["color"]), false)
+				Prim.cyl(n, 0.07, 0.07, 0.1, 8, Vector3(0, 0.47, 0), Prim.mat(d["color"].lightened(0.2)), false)
+			_:
+				Prim.cyl(n, 0.3, 0.3, 0.04, 14, Vector3(0, 0.02, 0), Prim.mat(Color("d9d4c6")), false)
+				Prim.cyl(n, 0.22, 0.22, 0.05, 14, Vector3(0, 0.03, 0), Prim.mat(Color("4c9fd6")), false)
+				Prim.cyl(n, 0.05, 0.07, 0.3, 8, Vector3(0, 0.18, 0), Prim.mat(d["color"]), false)
+		v.props.append([n, d["id"]])
 
 ## A small gold plaque on the tower base's roof: it appears at mastery rank 5 (a gold plate with a darker frame and a lighter centre).
 func _plaque(tower_node: Node3D) -> Node3D:
@@ -2331,6 +2371,8 @@ func apply_details() -> void:
 			_apply_details_to(v)
 
 func _apply_details_to(v: AirportScene) -> void:
+	for pr in v.props:
+		(pr[0] as Node3D).visible = Save.owns("prop", pr[1])
 	var sk: Dictionary = Cosmetics.SOCKS[Cosmetics.index_of("windsock", Save.equipped_id("windsock"))]
 	if v.sock_mats.size() == 2:
 		(v.sock_mats[0] as StandardMaterial3D).albedo_color = sk["a"]
