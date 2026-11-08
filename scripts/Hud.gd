@@ -31,6 +31,10 @@ class Art extends Control:
 	const CONFETTI := 72
 	const STAR_T0 := 0.35            # when the first results star lands, and the gap between stars
 	const STAR_GAP := 0.5
+	const RES_UP := 0.9               # results tally: the earnings count up for this long...
+	const RES_FINE_AT := 1.25         # ...the fines beat starts this long after the count began (a ticket stamp, the total counts down)...
+	const RES_FINE_LEN := 0.8         # ...for this long, and then the final total settles
+	const RES_DONE := 4.3             # everything is in (the rows, the unlock card and taps to skip wait for this)
 	const SLAM := 0.2
 	# ---- the HUD of a running shift ----
 	var show_play := false
@@ -115,6 +119,15 @@ class Art extends Control:
 	var last_draw_us := 0                # how long the last draw of the art took (microseconds)
 	var fc_pos := PackedVector2Array()       # flying coins: where, and how big (0 = not flying)
 	var fc_s := PackedFloat32Array()
+	var tk_pos := PackedVector2Array()       # flying tickets (a fine popping near its plane, then dropping into the fines counter)
+	var tk_s := PackedFloat32Array()
+	var fines_total_target := 0
+	var tickets_target := 0
+	var tickets_shown := 0                  # the fines counter by the HUD: tickets given, and the fines and overtime so far (it catches up as a ticket lands)
+	var fines_shown := 0
+	var tk_punch := -1.0
+	var res_gross := 0                      # results: the earnings before the fines, and the part of them the fines took (what was really deducted)
+	var res_fines_eff := 0
 	var star_t := PackedFloat32Array([-1.0, -1.0, -1.0])   # seconds since each star on the bar lit (< 0 = not animating)
 	var cf_pos := PackedVector2Array()       # confetti
 	var cf_rot := PackedFloat32Array()
@@ -208,6 +221,8 @@ class Art extends Control:
 		cf_size.resize(CONFETTI)
 		cf_on.resize(CONFETTI)
 		fc_s.resize(10)
+		tk_pos.resize(6)
+		tk_s.resize(6)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		_sb_normal = _cream(22, 4, Style.SURFACE_DARK)
@@ -446,6 +461,13 @@ class Art extends Control:
 					var qn := Vector2(-qd.y, qd.x)
 					tri(c + qn * r * 0.1, c - qn * r * 0.1, c + qd * r * 0.55 + qn * r * 0.14, Color(Style.ACCENT_DARK, col.a))
 				draw_circle(c, r * 0.13, Color(Style.ACCENT_DARK, col.a))
+			"ticket":        # a parking-ticket: a slip with a notch on each side and two lines of print
+				var slip := Rect2(c.x - r * 0.95, c.y - r * 0.6, r * 1.9, r * 1.2)
+				draw_rect(slip, col)
+				draw_circle(Vector2(slip.position.x, c.y), r * 0.22, Color(Style.INK, col.a * 0.55))
+				draw_circle(Vector2(slip.end.x, c.y), r * 0.22, Color(Style.INK, col.a * 0.55))
+				draw_line(Vector2(c.x - r * 0.45, c.y - r * 0.18), Vector2(c.x + r * 0.45, c.y - r * 0.18), Color(Style.INK, col.a * 0.7), maxf(r * 0.12, 1.5))
+				draw_line(Vector2(c.x - r * 0.45, c.y + r * 0.2), Vector2(c.x + r * 0.2, c.y + r * 0.2), Color(Style.INK, col.a * 0.7), maxf(r * 0.12, 1.5))
 			"star":
 				star(c, r, Color(C_GOLD.r, C_GOLD.g, C_GOLD.b, col.a), true)
 			"star_off":
@@ -1308,6 +1330,7 @@ class Art extends Control:
 		if mode_glyph != "":
 			glyph(mode_glyph, Vector2(50.0 + left, 146.0 + top), 26.0, C_SOFT)       # (under the pause button, which has the safe area's top)
 		_draw_star_bar()
+		_draw_fines_counter()
 		var y := 460.0 + top                 # (under the banner, which has 312 to 440 to itself)
 		if chip_finale != "":
 			_pill(Vector2(size.x * 0.5, y), "plane", chip_finale, SZ_M, C_RED if chip_finale_red else C_TEXT)
@@ -1318,6 +1341,27 @@ class Art extends Control:
 			_draw_wind()
 		if coin_icon.x > 0.0:
 			glyph("coin", coin_icon, 34.0)
+
+	## The fines counter by the HUD (under the pause button, left of the star bar): a ticket and the fines so far. A fine is a quiet marker, never coins taken off the total.
+	func fines_rect() -> Rect2:
+		return Rect2(14.0 + left, 196.0 + top, 232.0, 92.0)
+
+	func _draw_fines_counter() -> void:
+		if tickets_shown <= 0 and fines_shown <= 0:
+			return
+		var r := fines_rect()
+		var pop := 1.0 + (0.18 * sin(clampf(tk_punch, 0.0, 1.0) * PI) if tk_punch >= 0.0 else 0.0)
+		if pop != 1.0:
+			_dst(r.get_center() * (1.0 - pop), 0.0, Vector2(pop, pop))
+		_dsb(_sb_plate, r)
+		glyph("ticket", Vector2(r.position.x + 40.0, r.get_center().y), 22.0, Color(0.93, 0.78, 0.45))
+		var tw := r.size.x - 84.0
+		var tcap := "\u00d7%d" % tickets_shown            # (two short lines: the count, and what the fines come to; never more than five characters)
+		var famt := "-%d" % fines_shown if fines_shown < 1000 else ("-%.1fk" % (float(fines_shown) / 1000.0) if fines_shown < 10000 else "-%dk" % mini(roundi(float(fines_shown) / 1000.0), 999))
+		ptext(tcap, Vector2(r.position.x + 74.0, r.position.y + 38.0), Style.SZ_CAPTION, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, tw, "caption")
+		ptext(famt, Vector2(r.position.x + 74.0, r.position.y + 76.0), Style.SZ_CAPTION, C_TEXT, HORIZONTAL_ALIGNMENT_LEFT, tw, "caption")
+		if pop != 1.0:
+			_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	## The single banner and the tip: a pill with a glyph and one line (drawn here so the text sits on top of its pill).
 	func _draw_pills() -> void:
@@ -1395,6 +1439,19 @@ class Art extends Control:
 				ptext("+%d" % coins, Vector2(gr.end.x - 330.0, gr.get_center().y + 14.0), Style.SZ_BODY, C_GOLD_TXT, HORIZONTAL_ALIGNMENT_RIGHT, 270.0)
 				glyph("coin", Vector2(gr.end.x - 40.0, gr.get_center().y), 14.0)
 
+	## The total shown on the results card at results time `t`: the earnings count up, then (with fines) it counts down to what was paid.
+	func tally_at(t: float) -> int:
+		var t_count := STAR_T0 + STAR_GAP * 3.0
+		var f1 := Style.ease_out_cubic(clampf((t - t_count) / RES_UP, 0.0, 1.0))
+		if res_fines_eff <= 0:
+			return roundi(float(res_total) * f1)
+		var shown := roundi(float(res_gross) * f1)
+		var t_fine := t_count + RES_FINE_AT
+		if t >= t_fine:
+			var fk := clampf((t - t_fine) / RES_FINE_LEN, 0.0, 1.0)
+			shown = roundi(lerpf(float(res_gross), float(res_total), fk * fk * (3.0 - 2.0 * fk)))
+		return shown
+
 	func _draw_results() -> void:
 		var cx := size.x * 0.5
 		if details_open:
@@ -1442,14 +1499,23 @@ class Art extends Control:
 		if not dyn:
 			return
 		var t_count := STAR_T0 + STAR_GAP * 3.0
-		var f := clampf((res_t - t_count) / 1.0, 0.0, 1.0)
-		var shown := roundi(res_total * (1.0 - pow(1.0 - f, 3.0)))
+		# The tally, in beats: the earnings count up, then (if there were fines) a ticket is stamped and the total counts down to what was really paid,
+		# then the final total settles with a little pop.
+		var t_fine := t_count + RES_FINE_AT
+		var has_fines := res_fines_eff > 0
+		var shown := tally_at(res_t)
+		var settle_k := clampf((res_t - (t_fine + RES_FINE_LEN if has_fines else t_count + RES_UP)) / 0.3, 0.0, 1.0)
 		var label := "+%d" % shown
 		var bfs := Style.fit_size(label, 150, 80, 560.0)
 		var tw := text_width(label, bfs)
 		var ty := card.position.y + 215.0 * s2
+		var pop := 1.0 + 0.08 * sin(settle_k * PI) if res_t > t_count + RES_UP else 1.0
+		if pop != 1.0:
+			_dst(Vector2(cx, ty - 40.0) * (1.0 - pop), 0.0, Vector2(pop, pop))
 		glyph("coin", Vector2(cx - tw * 0.5 - 76.0, ty - 62.0), 54.0)
 		Style.draw_ext(self, Vector2(cx - tw * 0.5, ty), label, bfs, HORIZONTAL_ALIGNMENT_LEFT, -1.0, Style.ACCENT if not res_doubled else Style.SUCCESS.lightened(0.2), 5)
+		if pop != 1.0:
+			_dst(Vector2.ZERO, 0.0, Vector2.ONE)
 		if res_doubled:
 			ptext("x2", Vector2(cx + tw * 0.5 + 24.0, ty), SZ_M, Style.SUCCESS_DARK)
 		var k2 := clampf((res_t - (t_count + 1.0)) / 0.4, 0.0, 1.0)
@@ -1468,6 +1534,16 @@ class Art extends Control:
 			var colr := C_TEXT if j == 0 else (Style.SUCCESS_DARK if j == 1 else Color("b8322a"))
 			var sign := "+" if v >= 0 and j < 2 else ("" if j < 2 else "\u2212")
 			var ctxt := "%s%s" % [sign, fmt_int(absi(v))]
+			if j == 2 and has_fines and res_t < t_fine:
+				continue                  # (the fines chip waits for its own beat)
+			if j == 2 and has_fines:       # the ticket is stamped on the chip: it slams down from big and a ring flashes
+				var sk := clampf((res_t - t_fine) / 0.22, 0.0, 1.0)
+				var sc := lerpf(2.2, 1.0, Style.ease_out_cubic(sk))
+				_dst(cr.get_center() * (1.0 - sc), 0.0, Vector2(sc, sc))
+				glyph("ticket", Vector2(cr.end.x - 40.0, cr.position.y + 34.0), 22.0, Color(0.93, 0.78, 0.45, sk))
+				_dst(Vector2.ZERO, 0.0, Vector2.ONE)
+				if res_t - t_fine < 0.5:
+					_sparks(Vector2(cr.end.x - 40.0, cr.position.y + 34.0), (res_t - t_fine) / 0.5, 22.0, 70.0, 8, Color(0.93, 0.78, 0.45))
 			var cfs := Style.fit_size(ctxt, 54, 42, cr.size.x - 16.0)
 			_ds(Style.display(), Vector2(cr.position.x, cr.position.y + 80.0), ctxt, HORIZONTAL_ALIGNMENT_CENTER, cr.size.x, cfs, colr)
 		if stk.has("pill"):        # the fines took the net under the floor: the floor pays instead
@@ -1847,6 +1923,9 @@ class Art extends Control:
 		for i in fc_s.size():
 			if fc_s[i] > 0.01:
 				glyph("coin", fc_pos[i], 26.0 * fc_s[i])
+		for i in tk_s.size():
+			if tk_s[i] > 0.01:
+				glyph("ticket", tk_pos[i], 30.0 * tk_s[i], Color(0.93, 0.78, 0.45))
 		t0 = _span("  pills and confetti", t0)
 
 var _art: Art                      # the one every screen draws with right now (the main one, or one of the three pre-built panels)
@@ -2028,7 +2107,7 @@ var _cf_vel := PackedVector2Array()
 var _cf_spin := PackedFloat32Array()
 var _cf_rng := RandomNumberGenerator.new()
 var _unlock_pending := ""
-const UNLOCK_AT := 3.6        # results seconds: after the stars and the total have landed
+const UNLOCK_AT := 4.4        # results seconds: after the stars and the total (earnings, fines, final) have landed
 var _hdr_shown := PackedFloat32Array([0.0, 0.0])
 var _hdr_target := PackedFloat32Array([0.0, 0.0])
 var _hdr_delay := PackedFloat32Array([0.0, 0.0])
@@ -2116,6 +2195,84 @@ func fly_coins(from: Vector2, n: int) -> void:
 		_fc_from[i] = from + Vector2((shown - 2) * 18.0, 0.0)
 		_fc_t[i] = -0.07 * shown
 		shown += 1
+
+## A fine: a small ticket pops up at `from` (near the plane), then drops into the fines counter. The counter catches up when it lands.
+const TK_POP := 0.32
+const TK_FLY := 0.5
+var _tk_on: Array[bool] = []
+var _tk_from := PackedVector2Array()
+var _tk_t := PackedFloat32Array()
+var _tk_flying := 0
+signal ticket_landed
+signal fines_stamp                        # the results tally reaches the fines beat: the ticket is stamped
+var _stamped := false
+
+func fly_ticket(from: Vector2) -> void:
+	if _tk_on.is_empty():
+		_tk_on.resize(6)
+		_tk_on.fill(false)
+		_tk_from.resize(6)
+		_tk_t.resize(6)
+	for i in 6:
+		if _tk_on[i]:
+			continue
+		_tk_on[i] = true
+		_tk_from[i] = from
+		_tk_t[i] = 0.0
+		_tk_flying += 1
+		return
+	_art.tickets_shown = _art.tickets_target          # (a crowd of fines: the counter simply catches up)
+	_art.fines_shown = _art.fines_total_target
+	_art.queue_redraw()
+
+func _clear_tickets() -> void:
+	for i in _tk_on.size():
+		_tk_on[i] = false
+		_art.tk_s[i] = 0.0
+	_tk_flying = 0
+	_art.tickets_shown = 0
+	_art.fines_shown = 0
+	_art.tk_punch = -1.0
+
+func _update_tickets(delta: float) -> void:
+	var any := false
+	var to: Vector2 = _art.fines_rect().get_center() + Vector2(-72.0, 0.0)
+	for i in _tk_on.size():
+		if not _tk_on[i]:
+			_art.tk_s[i] = 0.0
+			continue
+		_tk_t[i] += delta
+		var t := _tk_t[i]
+		any = true
+		if t < TK_POP:             # pops up near the plane
+			var k := t / TK_POP
+			_art.tk_pos[i] = _tk_from[i] + Vector2(0.0, -70.0 * Style.ease_out_cubic(k))
+			_art.tk_s[i] = 1.35 * Style.ease_out_cubic(k)
+		elif t < TK_POP + TK_FLY:  # ...and drops into the counter
+			var k2 := (t - TK_POP) / TK_FLY
+			var a: Vector2 = _tk_from[i] + Vector2(0.0, -70.0)
+			var e := Style.ease_in_cubic(k2)
+			_art.tk_pos[i] = a.lerp(to, e)
+			_art.tk_s[i] = lerpf(1.35, 0.75, e)
+		else:
+			_tk_on[i] = false
+			_art.tk_s[i] = 0.0
+			_tk_flying = maxi(_tk_flying - 1, 0)
+			_art.tickets_shown = mini(_art.tickets_shown + 1, _art.tickets_target)
+			_art.fines_shown = _art.fines_total_target if _tk_flying == 0 else _art.fines_shown
+			_art.tk_punch = 0.0
+			ticket_landed.emit()
+	if _art.tk_punch >= 0.0:
+		_art.tk_punch += delta / 0.3
+		any = true
+		if _art.tk_punch > 1.0:
+			_art.tk_punch = -1.0
+	if _tk_flying == 0 and (_art.tickets_shown != _art.tickets_target or _art.fines_shown != _art.fines_total_target):
+		_art.tickets_shown = _art.tickets_target
+		_art.fines_shown = _art.fines_total_target
+		any = true
+	if any:
+		_art.queue_redraw()
 
 func flying_coins() -> int:
 	var c := 0
@@ -2250,6 +2407,9 @@ func _tick_celebrations(delta: float) -> void:
 		while _slam_next < _art.res_stars and _art.res_t >= Art.STAR_T0 + Art.STAR_GAP * _slam_next + Art.SLAM:
 			star_slam.emit(_slam_next)
 			_slam_next += 1
+		if not _stamped and _art.res_fines_eff > 0 and _art.res_t >= Art.STAR_T0 + Art.STAR_GAP * 3.0 + Art.RES_FINE_AT:
+			_stamped = true
+			fines_stamp.emit()
 		if _art.res_stars >= 3 and not _confetti_done and _art.res_t >= Art.STAR_T0 + Art.STAR_GAP * 2.0 + Art.SLAM:
 			_confetti_done = true
 			_spawn_confetti()
@@ -2941,6 +3101,10 @@ func show_results(header: String, reason: String, shift: Shift, coins_earned: in
 	_over_body.text = (reason + "\n" + total_line + "\nBank|%d" % coins_total).replace("|", " ")
 	_art.res_stars = shift.stars()
 	_art.res_total = coins_earned
+	var fines_eff := maxi(shift.gross() - shift.payout(), 0) * (2 if doubled else 1)       # (what the fines and overtime really took: the floor pays the rest)
+	_art.res_fines_eff = fines_eff
+	_art.res_gross = coins_earned + fines_eff
+	_stamped = false
 	_art.res_new_best = new_best
 	_art.res_best = best
 	_art.res_doubled = doubled
@@ -3019,7 +3183,7 @@ func _layout_result_rows() -> void:
 
 func _rows_fade() -> void:
 	if _rows_host != null:
-		_rows_host.modulate.a = clampf((_art.res_t - (Art.STAR_T0 + Art.STAR_GAP * 3.0 + 1.0)) / 0.4, 0.0, 1.0)
+		_rows_host.modulate.a = clampf((_art.res_t - (Art.STAR_T0 + Art.STAR_GAP * 3.0 + Art.RES_FINE_AT + Art.RES_FINE_LEN + 0.2)) / 0.4, 0.0, 1.0)
 
 ## The extra row under `pos` (screen), or -1.
 func result_row_at(pos: Vector2) -> int:
@@ -3109,7 +3273,7 @@ func skip_animations() -> void:
 	_art.queue_redraw()
 
 func results_revealed() -> bool:
-	return _art.res_t >= 4.0
+	return _art.res_t >= Art.RES_DONE
 
 # ---------- Lists ----------
 
@@ -3538,6 +3702,9 @@ func reset_for_run(_best_coins: int) -> void:
 	set_landed(0)
 	set_timer(int(Tuning.par_eff()))
 	_art.balance = 0
+	_art.fines_total_target = 0
+	_art.tickets_target = 0
+	_clear_tickets()
 	_score.text = "0"
 	_score.add_theme_color_override("font_color", Color.WHITE)
 	_layout_coin_icon()
@@ -3625,9 +3792,15 @@ func set_alert(_on: bool) -> void:
 ## The coin total (red when negative) rolls up to its new value; the star bar follows.
 func set_shift(shift: Shift) -> void:
 	var bal := shift.balance()
-	_coin_target = bal
+	var gross := shift.gross()                       # the coin counter only goes up during a shift: fines show on their own counter (the star bar still follows the net)
+	_coin_target = gross
 	_art.balance = bal
-	_score.add_theme_color_override("font_color", C_RED if bal < 0 else Color.WHITE)
+	_score.add_theme_color_override("font_color", Color.WHITE)
+	_art.fines_total_target = shift.fines_total()
+	_art.tickets_target = shift.tickets
+	if _tk_flying == 0:
+		_art.tickets_shown = shift.tickets
+		_art.fines_shown = shift.fines_total()
 	_art.landed = shift.landed
 	for i in 3:
 		_art.thresholds[i] = shift.thresholds[i]
@@ -3638,8 +3811,8 @@ func set_shift(shift: Shift) -> void:
 			star_reached.emit(i)
 		_star_lit[i] = lit
 	_art.queue_redraw()
-	if bal != _last_bal:
-		_last_bal = bal
+	if gross != _last_bal:
+		_last_bal = gross
 		_punch_ms = Time.get_ticks_msec()
 
 func set_shift_fraction(_f: float) -> void:
@@ -3895,6 +4068,7 @@ func _process_inner(delta: float) -> void:
 		_art.queue_redraw()
 	_roll_headers(delta)
 	_update_coins(delta)
+	_update_tickets(delta)
 	_tick_logo(delta)
 	_tick_celebrations(delta)
 	_update_perf(delta)
@@ -4094,6 +4268,9 @@ func end_prewarm() -> void:
 	_art.unlock_t = -1.0
 	_art.res_t = 0.0
 	_art.balance = 0
+	_art.fines_total_target = 0
+	_art.tickets_target = 0
+	_clear_tickets()
 	_art.bar_shown = 0.0
 	_banner_left = 0.0
 	_banner_q.clear()

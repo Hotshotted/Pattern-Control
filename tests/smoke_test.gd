@@ -564,10 +564,14 @@ func _initialize() -> void:
 	check(dv.state == Aircraft.State.DIVERT and main.shift.diversions == 1 and main.shift.fines == tuning.fine_amount(tuning.fine_timeout), "a timed-out aircraft is diverted and costs the small fine (%d)" % main.shift.fines)
 	var pop_seen = false
 	for l in main.hud._pop_labels:
-		if l.visible and l.text.begins_with("Diverted") and l.text.contains("-%d" % tuning.fine_amount(tuning.fine_timeout)):
+		if l.visible and l.text.begins_with("Diverted") and not l.text.contains("-"):
 			pop_seen = true
-	check(pop_seen, "a red 'Diverted -N' popup shows")
-	check(main.hud._art.balance == -tuning.fine_amount(tuning.fine_timeout), "the HUD balance shows the fine (and can go negative)")
+	check(pop_seen, "a fine shows its reason as a plain popup ('Diverted'), with no coins subtracting")
+	check(main.hud._tk_flying == 1 and main.shift.tickets == 1, "...and a small ticket pops at the plane and drops towards the fines counter")
+	check(main.hud._coin_target == main.shift.gross() and main.hud._coin_target >= 0 and main.hud._art.balance == -tuning.fine_amount(tuning.fine_timeout), "the coin counter does not go down (the star bar still follows the net)")
+	for fk_i in 40:
+		main.hud._process(0.05)
+	check(main.hud._tk_flying == 0 and main.hud._art.tickets_shown == 1 and main.hud._art.fines_shown == tuning.fine_amount(tuning.fine_timeout), "the fines counter takes the ticket in when it lands (%d ticket, %d)" % [main.hud._art.tickets_shown, main.hud._art.fines_shown])
 	check(tr.pick(dv.pos) != dv, "a diverting aircraft can't be grabbed")
 	check(main.alive, "a fine doesn't end the shift")
 	for i in 600:
@@ -3809,7 +3813,7 @@ func _initialize() -> void:
 	main.step(1.0 / 60.0)
 	check(main.screen == main.SCREEN_OVER and main.last_result["unlocked"].size() >= 1, "a shift that opens a new airport says so (%s)" % str(main.last_result["unlocked"]))
 	check(main.hud.unlock_active() == false and main.hud._unlock_pending == Airports.airport_name(main.last_result["unlocked"][0]), "...the reveal waits for the stars and the total")
-	main.hud._art.res_t = 3.7
+	main.hud._art.res_t = 4.6
 	main.hud._process(0.01)
 	check(main.hud.unlock_active() and main.hud._art.btn_id[0] == "unlock_ok" and main.hud._art.btn_count == 1, "...then a card pops in over the results, with one NICE! button")
 	main.hud._process(0.3)
@@ -6826,6 +6830,49 @@ func _initialize() -> void:
 	main.overlay.selected = null
 	sp_tr.wind = main.wind
 	tuning.go_around_max = sp_old_max
+
+	print("44. Fines are a quiet marker: the coin counter only goes up; the results tally earnings, then a stamped fines beat, then the final total")
+	main.restart()
+	main.traffic.auto_spawn = false
+	for fn_i in 6:
+		main.shift.on_landed(3, 100, 0)
+	main.hud.set_shift(main.shift)
+	var fn_before: int = main.hud._coin_target
+	main._apply_fine(tuning.fine_amount(tuning.fine_conflict), "conflict", "Too close!", Vector2(0, 0))
+	main._apply_fine(tuning.fine_amount(tuning.fine_conflict), "conflict", "Too close!", Vector2(1, 0))
+	check(main.hud._coin_target == fn_before and main.hud._coin_target == main.shift.gross(), "two fines leave the coin counter where it was (%d)" % main.hud._coin_target)
+	check(main.shift.tickets == 2 and main.shift.fines_total() == 2 * tuning.fine_amount(tuning.fine_conflict) and main.shift.balance() == main.shift.gross() - main.shift.fines, "the economy is the same: the fines still come off the net (tickets %d, fines %d)" % [main.shift.tickets, main.shift.fines])
+	for fn_i in 40:
+		main.hud._process(0.05)
+	check(main.hud._art.tickets_shown == 2 and main.hud._art.fines_shown == main.shift.fines_total(), "the fines counter shows 2 tickets and the total")
+	# the results: earnings count up to the gross, the fines beat counts down to the pay, the final total is the pay
+	main.shift.set_overtime(0.0, 0)
+	main._end_shift()
+	var fn_art = main.hud._panel_arts["results"]
+	var fn_gross: int = fn_art.res_gross
+	var fn_paid: int = fn_art.res_total
+	check(fn_art.res_fines_eff > 0 and fn_gross == fn_paid + fn_art.res_fines_eff, "the results know the earnings (%d), the fines that really came off (%d) and the pay (%d)" % [fn_gross, fn_art.res_fines_eff, fn_paid])
+	var fn_t0: float = fn_art.STAR_T0 + fn_art.STAR_GAP * 3.0
+	check(fn_art.tally_at(0.0) == 0 and fn_art.tally_at(fn_t0 + fn_art.RES_UP + 0.05) == fn_gross, "the total first counts up to the earnings (%d)" % fn_art.tally_at(fn_t0 + fn_art.RES_UP + 0.05))
+	var fn_mid: int = fn_art.tally_at(fn_t0 + fn_art.RES_FINE_AT + fn_art.RES_FINE_LEN * 0.5)
+	check(fn_mid < fn_gross and fn_mid > fn_paid, "...then, in its own beat, counts down through the fines (%d)" % fn_mid)
+	check(fn_art.tally_at(fn_t0 + fn_art.RES_FINE_AT + fn_art.RES_FINE_LEN + 0.01) == fn_paid and fn_art.tally_at(99.0) == fn_paid, "...and settles on what was paid (%d)" % fn_paid)
+	var fn_stamps := [0]
+	main.hud.fines_stamp.connect(func() -> void: fn_stamps[0] += 1)
+	fn_art.res_t = 0.0
+	main.hud._stamped = false
+	for fn_i in 120:
+		main.hud._process(0.05)
+	check(fn_stamps[0] == 1, "the ticket is stamped once, at the start of the fines beat (%d)" % fn_stamps[0])
+	check(main.sfx.NAMES.has("stamp") and main.sfx._streams.has("stamp"), "...with its own stamp sound")
+	# no fines: no fines beat, no stamp
+	main.restart()
+	for fn_i in 4:
+		main.shift.on_landed(3, 100, 0)
+	main._end_shift()
+	fn_art = main.hud._panel_arts["results"]
+	check(fn_art.res_fines_eff == 0 and fn_art.tally_at(99.0) == fn_art.res_total and fn_art.tally_at(fn_t0 + fn_art.RES_UP + 0.05) == fn_art.res_total, "a clean shift counts straight up to its pay, with no fines beat")
+	main.restart()
 
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
 	save.reset_all()

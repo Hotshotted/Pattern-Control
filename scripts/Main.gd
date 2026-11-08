@@ -144,6 +144,7 @@ func _ready() -> void:
 	hud.unlock_shown.connect(func(): sfx.play("unlock"))
 	hud.confetti_started.connect(func(): sfx.play("unlock"))
 	hud.star_slam.connect(_on_star_slam)
+	hud.fines_stamp.connect(func() -> void: sfx.play("stamp"))
 	hud.sheet_pressed.connect(_on_sheet_pressed)
 	hud.sheet_tapped.connect(_on_sheet_tapped)
 	traffic.refused.connect(_on_refused)
@@ -1281,10 +1282,13 @@ func _apply_fine(amount: int, kind: String, label: String, world_at: Vector2) ->
 	shift.fine(amount, kind)
 	sfx.play("fine")
 	hud.set_shift(shift)
-	hud.popup("%s  -%d" % [label, amount], Color(1.0, 0.25, 0.2), overlay.world_to_screen(world_at))
-	hud.flash(Color(1.0, 0.2, 0.15))
+	# A fine is a quiet marker, not coins coming off the total: the reason in plain words, and a small ticket that pops at the plane and drops
+	# into the fines counter by the HUD. (The amount still counts: it is on that counter, and on the results card.)
+	var at := overlay.world_to_screen(world_at)
+	hud.popup(label, Color(0.98, 0.92, 0.8), at)
+	hud.fly_ticket(at)
 	if not DebugFlags.off("haptic"):
-		_vibrate(80, Haptics.HEAVY)
+		_vibrate(50, Haptics.MEDIUM)
 
 ## An aircraft flew into terrain or a storm cell: lost, and a medium fine.
 func _on_crashed(p: Aircraft, kind: int) -> void:

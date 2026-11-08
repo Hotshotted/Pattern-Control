@@ -100,6 +100,8 @@ func _build_effects_into(clips: Dictionary) -> void:
 		un = _mix_at(un, _bell(note_hz([5, 7, 8, 10, 12][k]), 0.9, 1.0, 0.9), int(k * 0.12 * rate))
 	clips["unlock"] = _norm(_reverb(un, 0.45, 0.8), LVL_BIG)
 	# A results star slamming in: a warm thud with a bell on top.
+	# Ticket stamp (the fines on the results card): a firm rubber-stamp knock with a low thud under it.
+	clips["stamp"] = _norm(_reverb(_mix_at(_knock(520.0, 0.07), _thud(0.32), int(0.035 * rate)), 0.15, 0.25), LVL_BIG * 0.85)
 	clips["slam"] = _norm(_reverb(_mix_at(_thud(0.45), _bell(note_hz(10), 0.8, 0.7, 0.8), int(0.03 * rate)), 0.3, 0.5), LVL_BIG)
 
 # ---------- The music ----------

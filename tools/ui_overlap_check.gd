@@ -955,6 +955,23 @@ func _states_play() -> void:
 	await _frames_ui()
 	_clear_popups()
 	await _check("shift start")
+	main._apply_fine(root.get_node("Tuning").fine_amount(root.get_node("Tuning").fine_conflict), "conflict", "Too close!", Vector2(0, 0))
+	main._apply_fine(root.get_node("Tuning").fine_amount(root.get_node("Tuning").fine_conflict), "conflict", "Too close!", Vector2(1, 0))
+	for tk_i in 40:
+		main.hud._process(0.05)
+	_clear_popups()
+	await _check("shift fines counter")
+	main.shift.fines = 99999
+	main.shift.tickets = 12
+	main.hud.set_shift(main.shift)
+	for tk_i in 40:
+		main.hud._process(0.05)
+	_clear_popups()
+	await _check("shift fines counter, the widest")
+	main.shift.fines = 0
+	main.shift.tickets = 0
+	main.hud.set_shift(main.shift)
+	main.hud._process(0.05)
 	main.pause_game()
 	await _check("pause")
 	main.open_reset_confirm()

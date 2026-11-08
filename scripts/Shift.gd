@@ -22,6 +22,7 @@ var time_bonus := 0              # coins for clearing the sky before par
 var early_seconds := 0
 var overtime_penalty := 0        # coins lost to overtime (grows live after par)
 var overtime_seconds := 0
+var tickets := 0                 # fines given so far (the little ticket counter on the HUD; the coin counter never goes down)
 var keep_fraction := 0.25        # the share of the gross (landing pay, bonuses, early bonus) that a completed shift always pays, whatever the fines
 var just_stars := 0              # bitmask: stars reached by the latest call (for the "STAR!" feedback)
 
@@ -49,7 +50,12 @@ func reset(star_thresholds: Array, keep: float = 0.25) -> void:
 	early_seconds = 0
 	overtime_penalty = 0
 	overtime_seconds = 0
+	tickets = 0
 	just_stars = 0
+
+## Fines and overtime so far, as the HUD's fines counter shows them (the coin counter shows the gross: it only goes up).
+func fines_total() -> int:
+	return fines + overtime_penalty
 
 ## The shift's coin total so far (negative after a bad fine).
 func balance() -> int:
@@ -114,6 +120,7 @@ func on_landed(type: int, base: int, extra: int, vip: bool = false, emergency: b
 ## A fine of `amount` coins. kind: "conflict", "diversion" or "crash".
 func fine(amount: int, kind: String) -> void:
 	fines += amount
+	tickets += 1
 	biggest_fine = maxi(biggest_fine, amount)
 	match kind:
 		"conflict":
