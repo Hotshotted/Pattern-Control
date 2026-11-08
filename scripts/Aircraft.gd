@@ -50,6 +50,9 @@ var ga_geo := false             # the path's geometry (turning, final length) ha
 var ga_turn_pen := 0.0
 var ga_len_pen := 0.0
 var ga_turn_deg := 0.0
+var ga_straight := 0.0          # ...and the straight final it has
+var student_reason := 0        # the standard a student's cleared approach breaks right now (Approach.Reason; 0 = none)
+var last_ga_reason := 0        # why it last went around (for its tag)
 var ga_chance := 0.0            # predicted go-around chance of the cleared approach (drives the path tint)
 var ga_band := 0                # 0 green, 1 yellow, 2 red
 var low_fuel := false           # its timer ran out while it was locked on final: it still lands, and the score pop says so
@@ -104,6 +107,8 @@ func reset() -> void:
 	touched = false
 	pop_t = 0.0
 	student = false
+	student_reason = 0
+	last_ga_reason = 0
 	go_arounds = 0
 	red_seen = false
 	red_pulse_t = -1.0

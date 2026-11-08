@@ -89,6 +89,7 @@ func _draw_all_inner() -> void:
 	_c.draw_set_transform_matrix(xf)
 	_draw_runway_markers(t)
 	_draw_place_markers(t)
+	_draw_student_limits(t)
 	for p in traffic.planes:
 		if p.state == Aircraft.State.HOLD and not p.fogged and not DebugFlags.off("hold"):
 			var col := Airports.land_color(p.tkind, p.runway)
@@ -134,16 +135,24 @@ func _draw_all_inner() -> void:
 				_tag(xf * Airports.rw_center(r) + Vector2(0, -90), "CLOSING %d" % ceili(wind.closing_left), Color(1.0, 0.75, 0.3), 160.0)
 	_students_drawn = 0
 	_go_tags = 0
+	_reason_tags = 0
 	for p in traffic.planes:
 		if not p.active() or not p.entered or p.fogged or p.state == Aircraft.State.DIVERT or p.state == Aircraft.State.LANDING:
 			continue
 		var at := xf * p.pos + Vector2(-60, -62)
 		if p.ga_pending:
-			_tag(xf * p.pos + Vector2(10, -72), "?", Color(1.0, 0.85, 0.3, 0.6 + 0.4 * sin(t * 18.0)))
+			if p.student and Approach.tag_text(p.ga_reason) != "":      # (a student says why: the standard its approach breaks)
+				_tag(xf * p.pos + Vector2(-110, -72), Approach.tag_text(p.ga_reason), Color(1.0, 0.45, 0.25, 0.7 + 0.3 * sin(t * 18.0)), 300.0)
+				_reason_tags += 1
+			else:
+				_tag(xf * p.pos + Vector2(10, -72), "?", Color(1.0, 0.85, 0.3, 0.6 + 0.4 * sin(t * 18.0)))
 			_go_tags += 1
 		elif p.climb > 0.0 and p.go_arounds > 0:
 			_tag(xf * p.pos + Vector2(-130, -72), "GOING AROUND", Color(1.0, 0.78, 0.25), 260.0)
 			_go_tags += 1
+			if p.student and Approach.tag_text(p.last_ga_reason) != "":
+				_tag(xf * p.pos + Vector2(-130, -118), Approach.tag_text(p.last_ga_reason), Color(1.0, 0.45, 0.25), 300.0)
+				_reason_tags += 1
 		if p.emergency:
 			var blink := 0.55 + 0.45 * sin(t * 12.0)
 			_tag(at, "SOS", Color(1.0, 0.25, 0.2, blink))
@@ -156,6 +165,16 @@ func _draw_all_inner() -> void:
 			_tag(at, "LOCKED", Color(0.8, 0.9, 1.0, 0.8))
 
 var _go_tags := 0
+var _reason_tags := 0
+var _limits_drawn := 0
+
+## How many student reason tags the last draw showed (for the tests).
+func reason_tags_drawn() -> int:
+	return _reason_tags
+
+## How many student minimum-final markers the last draw showed (for the tests).
+func student_limits_drawn() -> int:
+	return _limits_drawn
 
 ## How many go-around tags (the '?' and 'GOING AROUND') the last draw showed (for the tests).
 func go_around_tags_drawn() -> int:
@@ -287,6 +306,36 @@ func _draw_runway_markers(t: float) -> void:
 				_c.draw_line(c + side * 0.3, c + cd * 0.3, cc, 0.09)
 			if changing and sin(t * 9.0) > 0.0:
 				_c.draw_arc(thr, Tuning.approach_radius + 0.25, 0.0, TAU, 40, Color(1, 0.95, 0.4, 0.9), 0.1)
+
+## What a student pilot wants, drawn where it matters: the minimum straight final behind the threshold (a dashed orange line with a bar at its far end).
+## It shows while a student is on its way in (cleared for a runway), and, for the one being dragged, at every runway end that is in use.
+func _draw_student_limits(t: float) -> void:
+	_limits_drawn = 0
+	var strict := Tuning.bad_day_limit_mult if (traffic != null and traffic.all_students) else 1.0
+	for p in traffic.planes:
+		if not p.student or not p.active() or not p.entered or p.fogged or p.tkind != Aircraft.Kind.RUNWAY:
+			continue
+		var col := Color(1.0, 0.62, 0.15, 0.95)
+		if p.student_reason != Approach.Reason.NONE and p.cleared:
+			col = Color(1.0, 0.35, 0.25, 0.95)             # (this approach breaks a standard right now)
+		if p.cleared and p.state == Aircraft.State.FLY and p.runway >= 0:
+			_draw_min_final(p.runway, p.land_end, Approach.student_final_len(p, strict), col, t)
+		elif selected == p and p.state == Aircraft.State.FLY:
+			for i in Airports.rw_count():
+				for e in 2:
+					if wind == null or wind.is_active(i, e):
+						_draw_min_final(i, e, Approach.student_final_len_at(p.speed, _funnel_len(i, e, Airports.end_threshold(i, e), Airports.end_dir(i, e)), strict), col, t)
+
+func _draw_min_final(i: int, e: int, length: float, col: Color, t: float) -> void:
+	var thr := Airports.end_threshold(i, e)
+	var dir := Airports.end_dir(i, e)
+	var side := Vector2(-dir.y, dir.x)
+	var far := thr - dir * length
+	_c.draw_dashed_line(thr, far, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.25), 0.2, 0.3)
+	_c.draw_dashed_line(thr, far, col, 0.11, 0.3)
+	_c.draw_line(far - side * 0.55, far + side * 0.55, Color(Style.INK.r, Style.INK.g, Style.INK.b, 0.3), 0.2)
+	_c.draw_line(far - side * 0.55, far + side * 0.55, col, 0.12)
+	_limits_drawn += 1
 
 ## The edge glow for an aircraft that is about to come in: a pulsing beacon in its speed colour on the screen
 ## edge at its entry point (half of it is off screen), with an arrow pointing the way it will fly.

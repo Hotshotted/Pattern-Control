@@ -1342,7 +1342,7 @@ const TIPS := {
 	"seaplane": ["Seaplanes land on water", "seaplane"],
 	"emergency": ["Emergency: land it fast", "emergency"],
 	"vip": ["VIP: don't hold it for a bonus", "vip"],
-	"student": ["Student pilot: more go-arounds, 2x pay", "student"],
+	"student": ["Student pilot: long marked final, 2x pay", "student"],
 }
 
 func _on_appeared(p: Aircraft) -> void:
@@ -2267,7 +2267,7 @@ func daily_airport(offset: int) -> int:
 			open.append(i)
 	return open[(Save.today() + offset) % open.size()] if not open.is_empty() else 0
 
-## Bad Pilot Day: a second daily challenge. Every aircraft is a student pilot, go-arounds are very likely and every
+## Bad Pilot Day: a second daily challenge. Every aircraft is a student pilot (every limit a little tighter, see Tuning.bad_day_limit_mult) and every
 ## landing pays big. Its own airport, best score and streak.
 func start_bad_day() -> void:
 	daily_mode = true

@@ -711,3 +711,47 @@ Against the targets, the average bot: **purchase gaps 9 / 15 / 49 min (target 60
 | 70% of shifts (20 min a day) | 106.3 h / 69.8 h | 62.1 h / 42.8 h | 42.2 h / 29.5 h |
 
 At 70% use the **total game length** moves by about 1% for the average and good bots (the levels, which ads do not touch, are what ends the game) and by 20% for the poor bot in continuous play (142.8 h to 114.3 h, which is not more than 20%), so the rule for changing it to +50% with a cap of 3 a day does not trigger and the pill stays a doubling. "Everything bought" does fall by about a quarter at 70% use (average 60 h to 44 h), which is what an ad is for.
+
+## 12. Phone-test fixes: scrolling, fresh start, results rows, student pilots, fines
+
+### 12.1 Scrolling (one scroller for every list)
+
+Every list that scrolls (shop and its cosmetic tabs, goals, achievements, the airport detail sheet, the Improve sheet, and now the results card's rows, plus the developer tuning panel) is a `KScroll` (`scripts/KScroll.gd`). It replaces Godot's own `ScrollContainer` and the touch handling that sat on top of it.
+
+- **What was wrong.** The old lists moved from the `relative` of each touch drag (the finger's change since the last event) and added it up: a browser reports that in device pixels, the content scale can multiply it again, and a `ScrollContainer` handling the drag while the game's own touch code also read it can move a list twice. The sum drifts away from the finger by the scale factor, so a list ran ahead of the finger on a phone (Android Chrome at about 2.6x) and not on a desktop at 1x.
+- **What it does now.** The scroll position comes from the finger's *absolute* position (viewport units): content = where the content was when the finger went down minus how far the finger has moved since. It cannot drift, whatever `relative` says. A press becomes a scroll after 10 pt of travel (the content then catches up to the finger at once, no lag); a touch that scrolled, or that stopped a moving list, fires no tap. Let go: gentle momentum (speed decays as e^(-2.4 t)). Past either end the list stretches with resistance (iOS-like) and springs back.
+- **The test** (`tools/scroll_check.gd`, run in CI as "Scroll check"): in each of the shop's three tabs, goals, achievements, the airport detail sheet and the Improve sheet, at 390 x 844 and 320 x 568 with the web content scale, a synthetic drag moves the content exactly as far as the finger (within 1 unit; one viewport unit is about one screen pixel of a phone), with the events' `relative` right, three times too big and absent; turning back follows the finger again; a move under the threshold is still a tap; no tap fires after a scroll; a pull past the top stretches softly and springs back; a fling coasts on and stays inside the list. Where a list fits the screen at that size the check makes its content taller so the same host and routing are still driven.
+
+### 12.2 Fresh start
+
+- `?reset` in the page address wipes the save (coins, levels, stars, purchases, goals, streak, mastery, achievements, the offline timer, the tutorial tips, the volumes) and loads the page again without the flag (after 0.9 s, so the browser can finish writing its storage first).
+- Settings (the pause menu) has **Reset progress**. It opens a warning sheet; the red button has to be held for 2 s (`Tuning.reset_hold_seconds`) and fills as it is held; letting go early or "Keep my game" changes nothing.
+
+### 12.3 Results rows
+
+The extra rows on the results card (goals, streak day, bonus chest, achievements, ranks) keep their own background. A tap on a row opens a small popup centred over the results (dimmed backdrop, the card styled like the other sheets, the full text, its detail line and the coins); it closes on the x or a tap outside, and nothing expands inline. If there are more rows than fit in the card they scroll inside it (the old "3 more" fold-up is gone). The UI check covers the scrolled rows and the popups (the longest achievement text and a very wordy goal) at 320 x 568 and 390 x 844.
+
+### 12.4 Student pilots: skill, not luck
+
+**How it was decided.** At the decision point (1.4 units before the threshold, plus a one second telegraph) the game rolled one random number against the go-around chance. The chance came from the approach's penalty (turning in the last stretch, a short straight final, too little gap behind the last landing, the wind) and was then, for a student, `chance x 2.2 + 0.25` (`x 3 + 0.6` on Bad Pilot Day). So a student had a 25% chance of going around on a *perfect* approach, and the player could do nothing about it.
+
+**Now: no dice.** A student goes around exactly when the approach breaks one of its standards, all stricter than a normal pilot's (`Tuning.student_*`, in the tuning panel):
+
+| Standard | Student limit | A normal pilot |
+|---|---|---|
+| Straight, aligned final before the threshold | at least 1.4 x the normal wish (`0.9 + 0.3 x speed` units; about 2.1 to 2.7) | the wish itself, and only a rising chance below it |
+| Turning in the last 3.5 units | at most 80 degrees | free to 45, a chance up to 180 |
+| Gap behind the last landing on the runway | at least 7 s | wants 5 s |
+| Runway end against the wind | within 40 degrees (a crosswind beyond that; "wind from behind" beyond 100) | the field closes ends beyond 60 |
+
+On Bad Pilot Day every limit is 15% tighter again (`bad_day_limit_mult` 0.85). The reason is on the plane as a short tag ("Final too short", "Turn too tight", "Too close behind", "Crosswind too strong", "Wind from behind") while it wobbles and while it climbs out, and in the "Go-around!" popup. The limits are drawn on the field: while a student is dragged, a dashed orange line at each runway end in use marks the minimum final (a bar at its far end); once it is cleared for a runway the line stays and turns red while the approach breaks a standard. The path tint follows (green, yellow within 12% of a limit, red when a limit is broken). The wobble second still lets the player redraw a cleaner approach and cancel the go-around. Gliders, helicopters and everyone else are untouched.
+
+**The autopilot bots** (`tools/economy_sim.gd survey per=8`, six airports, 8 shifts each; "first approaches" are the students' first drawn finals, a student is counted again only if it goes around). The poor bot never looks at the marks; the average one plays 50% of its students to them and the good one 95% (a base leg out to the side, then a final past the marked minimum, drawn as a dense line); "markers ignored" is the same run with every bot ignoring them.
+
+| Bot | Students | First approaches drawn | Broke a standard on the first approach (marks used) | ...with the marks ignored | Students that went around at least once |
+|---|---|---|---|---|---|
+| Poor | 87 | 58 | **67%** | 67% | 45% |
+| Average | 77 | 94 | **52%** | 65% | 64% |
+| Good | 89 | 121 | **38%** | 46% | 52% |
+
+What this says, honestly: the order is right (the poor bot breaks a standard most, the good one least, and using the marks helps), but the good bot does not "rarely" trigger it: 38% of its first finals still break one, 97% of those "Final too short" (a few "Turn too tight"). Loosening the limits does not fix it: with the student's minimum final down to the normal pilot's own wish (x1.0) and the turn limit at 110 degrees, 41% of the good bot's first finals still break a standard. So the cause is how the bots draw, not how strict the limits are: they route an aircraft when it reaches them, and one that is already close to the field (released from a hold, or just gone around) gets a final that starts too near the threshold, or a path whose last segment is cut short by the capture circle around the threshold (a segment that crosses it ends the drawing there); the bots cannot plan a wide base leg the way a person who sees the marks can. The limits are in the tuning panel (`?tune`: Student: final length x, most turning, least gap, most crosswind) for a playtest with real fingers; the bots stay a rough guide only.

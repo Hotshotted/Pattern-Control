@@ -241,13 +241,16 @@ var go_around_max := 0.98            # chance at the worst possible approach
 var go_around_curve := 1.0
 var tint_yellow_chance := 0.12       # final-segment tint: green below this go-around chance, yellow, then red
 var tint_red_chance := 0.45
-var student_go_around_mult := 2.2    # student pilots: go-around chance x this + the floor (capped at go_around_max)
-var student_go_around_floor := 0.25
+## A student pilot has no dice: it goes around exactly when the player's handling breaks one of these standards (all stricter than a normal pilot's):
+var student_final_mult := 1.4        # the straight final it wants = a normal pilot's wish (final_need_base + per_speed x speed) x this
+var student_turn_max_deg := 80.0     # most turning allowed in the last stretch (a normal pilot is free up to 45 and only at risk well beyond)
+var student_gap_seconds := 7.0       # least gap behind the previous landing on the same runway (a normal pilot wants 5 s)
+var student_wind_deg := 40.0         # a runway end more than this far off the wind is a crosswind too strong for a student (the field closes ends at 60)
+var student_near := 0.12             # within this share of a limit the path tints yellow (still fine, but close)
+var bad_day_limit_mult := 0.85       # Bad Pilot Day: every limit is this much tighter again (minimums x 1/this, maximums x this)
 var tint_distance := 3.0            # how much of the path before the runway is tinted by approach quality
 var student_chance := 0.12           # chance an ordinary runway arrival is a student pilot ("L" badge)
 var student_pay_mult := 2.0          # students pay double when they land
-var bad_day_go_around_mult := 3.0    # Bad Pilot Day: every aircraft is a student, with far higher go-around chances
-var bad_day_go_around_floor := 0.6
 var bad_day_pay_mult := 1.5          # ...and every landing pays big (x student_pay_mult as well)
 ## The "No engines" challenge (Bad Pilot Day, or an airport card once it has three stars): nobody can go around, so a busy runway or a missed
 ## approach is a crash, and a glider's first path is final and it cannot hold. Every landing pays this much more.

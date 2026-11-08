@@ -1055,18 +1055,18 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 	# Fog makes a POOR approach a little riskier; a clean one has no chance to multiply, so it is unaffected.
 	var chance := minf(approach.chance * lerpf(1.0, Tuning.fog_poor_go_around_mult, fog_amount), Tuning.go_around_max)
 	chance *= Tuning.light_go_around_mult(Tuning.bad_light(fog_amount, event_active, run_time / maxf(Tuning.par_eff(), 1.0)))      # (runway lights: fewer go-arounds in fog, weather and at dusk)
+	var student_fire := false
 	if p.student:
-		if all_students:
-			chance = minf(chance * Tuning.bad_day_go_around_mult + Tuning.bad_day_go_around_floor, Tuning.go_around_max)
-		else:
-			chance = minf(chance * Tuning.student_go_around_mult + Tuning.student_go_around_floor, Tuning.go_around_max)
-		if Tuning.go_around_max <= 0.0:
-			chance = 0.0
-		if approach.reason == Approach.Reason.NONE:
-			approach.reason = Approach.Reason.STUDENT
+		# A student has no dice: it goes around exactly when the approach breaks one of its standards (see Approach.student_check).
+		var sr := approach.student_check(p, arrive - _last_td[p.runway], Tuning.bad_day_limit_mult if all_students else 1.0)
+		p.student_reason = sr
+		approach.reason = sr
+		chance = 1.0 if sr != Approach.Reason.NONE else (0.3 if approach.student_near else 0.0)
+		student_fire = sr != Approach.Reason.NONE and Tuning.go_around_max > 0.0
 	if scenic:
 		chance = 0.0
-	if p.type == Aircraft.Type.GLIDER:
+		student_fire = false
+	if p.type == Aircraft.Type.GLIDER and not p.student:
 		chance *= Tuning.glider_go_around()      # (light and slow: a glider's approach is judged a little more kindly)
 	p.ga_chance = chance
 	p.ga_band = approach.band(chance)
@@ -1082,7 +1082,7 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 			_fire_go_around(p)
 	elif not p.ga_checked and dist <= Tuning.short_final_distance + lead:
 		p.ga_checked = true
-		if go_rng.randf() < chance:
+		if (student_fire if p.student else go_rng.randf() < chance):
 			if Tuning.go_around_telegraph <= 0.0 or dist <= Tuning.short_final_distance:
 				_miss_approach(p, approach.reason)
 			else:
@@ -1117,6 +1117,7 @@ func _miss_approach(p: Aircraft, reason: int) -> void:
 
 ## Climb out along the runway heading with the remaining timer; the path is gone, so a new one is needed.
 func _start_go_around(p: Aircraft, reason: int) -> void:
+	p.last_ga_reason = reason
 	p.clear_path()
 	p.heading = deg_to_rad(Airports.land_heading_deg(p.tkind, p.runway, p.land_end))
 	p.climb = Tuning.go_around_climb_seconds

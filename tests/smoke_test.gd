@@ -2525,7 +2525,7 @@ func _initialize() -> void:
 	var base_chance = sq.ga_chance
 	sq.student = true
 	tr.step(1.0 / 60.0)
-	check(base_chance < 0.01 and sq.ga_chance > 0.2 and sq.ga_band >= 1, "a student's go-around chance is much higher on a perfect approach (%.2f -> %.2f)" % [base_chance, sq.ga_chance])
+	check(base_chance < 0.01 and sq.ga_chance < 0.01 and sq.student_reason == 0 and sq.ga_band == 0, "a student on a perfect approach has no go-around chance at all (%.2f -> %.2f): it is not luck" % [base_chance, sq.ga_chance])
 	tr.release_all()
 	# Bad Pilot Day.
 	tuning.go_around_max = 0.0
@@ -5151,7 +5151,6 @@ func _initialize() -> void:
 	var ga_p = ga_tr.place(0, ga_thr - ga_dir * 6.0 + ga_side * 1.0, atan2(ga_dir.x, -ga_dir.y), 2)
 	ga_p.runway = 0
 	ga_p.student = true
-	tuning.student_go_around_floor = 1.0
 	ga_tr.begin_path(ga_p)
 	for ga_k in 8:
 		ga_p.push(ga_thr - ga_dir * (5.0 - ga_k * 0.45) + ga_side * 1.0 * (1.0 if ga_k % 2 == 0 else -1.0))
@@ -5202,8 +5201,6 @@ func _initialize() -> void:
 		ga_tr.step(1.0 / 60.0)
 		ga_steps += 1
 	check(ga_p.ga_pending, "a second warning")
-	tuning.student_go_around_floor = 0.0
-	tuning.student_go_around_mult = 0.0
 	ga_p.student = false
 	ga_tr.begin_path(ga_p)
 	check(ga_p.ga_redrawn, "starting a new final is noticed")
@@ -6725,6 +6722,110 @@ func _initialize() -> void:
 	main.goal_chest = 0
 	main.toast_results.clear()
 	main.restart()
+
+	print("43. Student pilots are skill-based: no dice, a go-around only when the handling breaks a standard; the limits are shown; the reason is on the plane")
+	var sp_ap = load("res://scripts/Approach.gd")      # (loaded here: the tests script is parsed before the autoloads exist)
+	var sp_old_max = tuning.go_around_max
+	tuning.go_around_max = 0.98
+	main.restart()
+	var sp_tr = main.traffic
+	sp_tr.auto_spawn = false
+	sp_tr.wind = null
+	var sp_thr = Airports.end_threshold(0, 0)
+	var sp_dir = Airports.end_dir(0, 0)
+	var sp_side = Vector2(-sp_dir.y, sp_dir.x)
+	var sp_goes = []
+	var sp_cb = func(_p, r): sp_goes.append(r)
+	sp_tr.go_around.connect(sp_cb)
+	# one approach: a straight final of `len` units, entered from `off` sideways and `lead` behind its start; returns what the student does over seeds 1..12
+	var sp_runs = func(length: float, off: float, lead: float, gap_td: float, wind_deg: float) -> Dictionary:
+		var gos := 0
+		var reasons := {}
+		var last_reason := 0
+		for seed in range(1, 13):
+			sp_tr.release_all()
+			sp_goes.clear()
+			sp_tr.go_rng.seed = seed
+			sp_tr.run_time = 100.0
+			sp_tr._last_td[0] = 100.0 + gap_td
+			if wind_deg >= 0.0:
+				sp_tr.wind = main.wind
+				sp_tr.wind.from_deg = fposmod(Airports.end_heading_deg(0, 0) + wind_deg, 360.0)
+			else:
+				sp_tr.wind = null
+			var spq = sp_tr.place(0, sp_thr - sp_dir * (length + lead) + sp_side * off, atan2(sp_dir.x, -sp_dir.y), 2)
+			spq.runway = 0
+			spq.land_end = 0
+			spq.student = true
+			sp_tr.begin_path(spq)
+			spq.push(sp_thr - sp_dir * length)
+			spq.push(sp_thr)
+			spq.push(Airports.end_far(0, 0))
+			spq.cleared = true
+			for st in 900:
+				sp_tr.step(1.0 / 60.0)
+				if not sp_goes.is_empty() or spq.state == Aircraft.State.LANDING:
+					break
+			if not sp_goes.is_empty():
+				gos += 1
+				last_reason = int(sp_goes[0])
+				reasons[last_reason] = true
+		return {"gos": gos, "reasons": reasons, "reason": last_reason}
+	var sp_need: float = sp_ap.student_final_len_at(2.0, 99.0)
+	var sp_fine = sp_runs.call(sp_need + 1.2, 3.0, 4.0, -60.0, -1.0)
+	check(sp_fine["gos"] == 0, "a student on a long straight final, with room behind the last landing, never goes around (%d of 12 seeds)" % sp_fine["gos"])
+	var sp_shorty = sp_runs.call(sp_need * 0.5, 3.0, 4.0, -60.0, -1.0)
+	check(sp_shorty["gos"] == 12 and sp_shorty["reason"] == sp_ap.Reason.SHORT_FINAL, "a final shorter than the student's minimum always goes around: Final too short (%d of 12)" % sp_shorty["gos"])
+	var sp_tight = sp_runs.call(sp_need + 1.2, 4.0, -1.0, -60.0, -1.0)
+	check(sp_tight["gos"] == 12 and sp_tight["reason"] == sp_ap.Reason.TURN, "turning onto final too tight always goes around: Turn too tight (%d of 12, reason %d)" % [sp_tight["gos"], sp_tight["reason"]])
+	var sp_near = sp_runs.call(sp_need + 1.2, 3.0, 4.0, 1.0, -1.0)
+	check(sp_near["gos"] == 12 and sp_near["reason"] == sp_ap.Reason.SPACING, "too close behind the last landing always goes around: Too close behind (%d of 12)" % sp_near["gos"])
+	var sp_xwind = sp_runs.call(sp_need + 1.2, 3.0, 4.0, -60.0, 50.0)
+	check(sp_xwind["gos"] == 12 and sp_xwind["reason"] == sp_ap.Reason.WIND, "a crosswind beyond the student's limit always goes around: Crosswind too strong (%d of 12)" % sp_xwind["gos"])
+	var sp_ok_wind = sp_runs.call(sp_need + 1.2, 3.0, 4.0, -60.0, 20.0)
+	check(sp_ok_wind["gos"] == 0, "...and one within the limit is fine (%d of 12)" % sp_ok_wind["gos"])
+	check(sp_ap.tag_text(sp_ap.Reason.SHORT_FINAL) == "Final too short" and sp_ap.tag_text(sp_ap.Reason.SPACING) == "Too close behind", "the reason tags read as plain words")
+	# the plane carries the reason while it wobbles and climbs, and the limit is marked on the field
+	sp_tr.release_all()
+	sp_goes.clear()
+	sp_tr.wind = null
+	sp_tr.run_time = 100.0
+	sp_tr._last_td[0] = 0.0
+	var sp_q = sp_tr.place(0, sp_thr - sp_dir * (sp_need * 0.5 + 4.0) + sp_side * 3.0, atan2(sp_dir.x, -sp_dir.y), 2)
+	sp_q.runway = 0
+	sp_q.land_end = 0
+	sp_q.student = true
+	sp_q.entered = true
+	sp_tr.begin_path(sp_q)
+	sp_q.push(sp_thr - sp_dir * (sp_need * 0.5))
+	sp_q.push(sp_thr)
+	sp_q.push(Airports.end_far(0, 0))
+	sp_q.cleared = true
+	sp_tr.step(1.0 / 60.0)
+	main.overlay.selected = sp_q
+	await process_frame
+	await process_frame
+	check(main.overlay.student_limits_drawn() >= 1, "the student's minimum final is marked on the field while it is on approach")
+	var sp_steps = 0
+	while sp_goes.is_empty() and sp_steps < 900:
+		sp_tr.step(1.0 / 60.0)
+		sp_steps += 1
+		if sp_q.ga_pending:
+			await process_frame
+			check(main.overlay.reason_tags_drawn() >= 1, "the wobbling student shows its reason on the plane")
+			break
+	while sp_goes.is_empty() and sp_steps < 1800:
+		sp_tr.step(1.0 / 60.0)
+		sp_steps += 1
+	await process_frame
+	await process_frame
+	check(sp_q.last_ga_reason == sp_ap.Reason.SHORT_FINAL and sp_q.climb > 0.0 and main.overlay.reason_tags_drawn() >= 1, "...and while it climbs out")
+	# a normal pilot is untouched: the same ragged short final still rolls the dice, a clean one never goes around
+	sp_tr.release_all()
+	sp_tr.go_around.disconnect(sp_cb)
+	main.overlay.selected = null
+	sp_tr.wind = main.wind
+	tuning.go_around_max = sp_old_max
 
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
 	save.reset_all()

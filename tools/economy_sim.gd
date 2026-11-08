@@ -20,11 +20,11 @@ var TOTALS := false               # survey: also print one machine-readable line
 ## notice: how soon an aircraft whose path did not work gets a new one (s); avoid: chance per tick to put an
 ## aircraft in a hold when it is about to conflict; sequence: chance of waiting for the runway's previous arrival
 ## to be nearly down before sending the next one. fix: chance per tick that an aircraft that wobbles (a go-around is a second away)
-## gets a new, straight final.
+## gets a new, straight final. stu: how much the bot plays to a student pilot's marked limits (a longer final, more room behind the last landing); a poor player does not look.
 const PLAYERS := {
-	"poor":    {"ignore": 0.20, "react": 0.04, "aligned": 0.15, "wrong_end": 0.25, "notice": 8.0, "avoid": 0.12, "sequence": 0.10, "gap": 3.0, "fix": 0.01},
-	"average": {"ignore": 0.06, "react": 0.12, "aligned": 0.55, "wrong_end": 0.06, "notice": 4.0, "avoid": 0.5, "sequence": 0.50, "gap": 2.5, "fix": 0.04},
-	"good":    {"ignore": 0.01, "react": 0.5, "aligned": 0.92, "wrong_end": 0.00, "notice": 2.0, "avoid": 0.9, "sequence": 0.95, "gap": 1.0, "fix": 0.12},
+	"poor":    {"ignore": 0.20, "react": 0.04, "aligned": 0.15, "wrong_end": 0.25, "notice": 8.0, "avoid": 0.12, "sequence": 0.10, "gap": 3.0, "fix": 0.01, "stu": 0.0},
+	"average": {"ignore": 0.06, "react": 0.12, "aligned": 0.55, "wrong_end": 0.06, "notice": 4.0, "avoid": 0.5, "sequence": 0.50, "gap": 2.5, "fix": 0.04, "stu": 0.5},
+	"good":    {"ignore": 0.01, "react": 0.5, "aligned": 0.92, "wrong_end": 0.00, "notice": 2.0, "avoid": 0.9, "sequence": 0.95, "gap": 1.0, "fix": 0.12, "stu": 0.95},
 }
 
 var main: Node
@@ -33,6 +33,9 @@ var rng := RandomNumberGenerator.new()
 var _tags := {}
 var _spawned := 0
 var _gos := 0
+var _cur_who := ""
+var _stu_n := 0
+var _stu := {}                          # bot -> {"arr": student arrivals, "gos": their go-arounds, "reasons": {reason: n}, "land": student landings}
 
 func _initialize() -> void:
 	var save = root.get_node("Save")
@@ -49,6 +52,10 @@ func _initialize() -> void:
 	main.log_go_arounds = false
 	main.traffic.spawned.connect(func(_p): _spawned += 1)
 	main.traffic.go_around.connect(func(_p, _r): _gos += 1)
+	main.traffic.spawned.connect(func(p): if p.student: _stu_add("arr"); _stu_n += 1; p.set_meta("stu_n", _stu_n))
+	main.traffic.cleared.connect(func(p): if p.student and p.go_arounds == 0: _stu_add("routed"))
+	main.traffic.go_around_warned.connect(func(p, r): if p.student and p.go_arounds == 0 and OS.get_environment("STU_DEBUG") != "": print("STUWARN ", _ap().tag_text(r), " pos=", p.pos, " cnt=", p.count, " pts=", Array(p.pts).slice(p.head, p.head + mini(p.count, 8)), " land_end=", p.land_end, " rw=", p.runway))
+	main.traffic.go_around.connect(func(p, r): if p.student: _stu_add("gos"); _stu_reason(r); _stu_unique(p); if p.go_arounds == 1: _stu_add("first"); if OS.get_environment("STU_DEBUG") != "": print("STUGO ", _ap().tag_text(r), " straight=", snappedf(p.ga_straight, 0.01), " need=", snappedf(main.traffic.approach.need_len, 0.01), " turn=", snappedf(p.ga_turn_deg, 1.0), " age=", snappedf(p.age, 0.1), " pos=", p.pos, " gos=", p.go_arounds, " speed=", snappedf(p.speed, 0.01), " aware=", _aware(p, PLAYERS[_cur_who])))
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("shifts="):
 			SHIFTS = int(a.substr(7))
@@ -89,12 +96,34 @@ func _initialize() -> void:
 	_print(report)
 	quit()
 
+func _stu_add(k: String) -> void:
+	if _cur_who == "":
+		return
+	if not _stu.has(_cur_who):
+		_stu[_cur_who] = {"arr": 0, "gos": 0, "first": 0, "routed": 0, "reasons": {}}
+	_stu[_cur_who][k] = int(_stu[_cur_who][k]) + 1
+
+func _stu_unique(p: Aircraft) -> void:
+	if _cur_who == "" or not _stu.has(_cur_who):
+		return
+	var u: Dictionary = _stu[_cur_who].get("uniq", {})
+	u[int(p.get_meta("stu_n", -1))] = true
+	_stu[_cur_who]["uniq"] = u
+
+func _stu_reason(r: int) -> void:
+	if _cur_who == "":
+		return
+	var d: Dictionary = _stu[_cur_who]["reasons"]
+	var nm = _ap().tag_text(r)
+	d[nm] = int(d.get(nm, 0)) + 1
+
 ## Every bot plays SURVEY_SHIFTS shifts at every airport (the first one is that airport's gentle intro shift).
 func _survey() -> void:
 	var save = root.get_node("Save")
 	print("Stars per airport (net coins after fines; %d shifts each, the first is the gentle intro shift)" % SURVEY_SHIFTS)
 	print("bot      airport          thresholds       landed/arr  confl  net(avg)  stars(avg) [0 1 2 3 stars]  intro-shift stars   no-fine stars(avg)")
 	for who in ONLY_BOTS:
+		_cur_who = who
 		var skill: Dictionary = PLAYERS[who]
 		for ap in ONLY_AIRPORTS:
 			save.reset_all()
@@ -133,6 +162,13 @@ func _survey() -> void:
 				print("TOTALS %s %d landed=%d spawned=%d conflicts=%d crashes=%d diversions=%d coins=%d paid=%d net=%d stars=%d" % [who, ap, tot_land, tot_arr, tot_conf, tot_crash, tot_div, tot_coins, tot_paid, tot_net, tot_stars])
 			var th: Array = tun.star_thresholds(ap)
 			print("%-8s %-16s %-16s %5.1f/%-5.1f %5.1f %9.0f %10.2f  %s %17d %20.2f" % [who, Airports.airport_name(ap), str(th), float(tot_land) / SURVEY_SHIFTS, float(tot_arr) / SURVEY_SHIFTS, float(tot_conf) / SURVEY_SHIFTS, float(tot_net) / SURVEY_SHIFTS, float(tot_stars) / SURVEY_SHIFTS, str(dist), intro_stars, float(tot_clean) / SURVEY_SHIFTS])
+	print("")
+	print("student pilots (arrivals marked with the L badge, and the go-arounds they made, by the standard that was broken)")
+	for who in ONLY_BOTS:
+		if _stu.has(who):
+			var d: Dictionary = _stu[who]
+			var uq: int = (d.get("uniq", {}) as Dictionary).size()
+			print("STUDENTS %-8s arrivals=%d  first approaches drawn=%d, of which broke a standard=%d (%.0f%%)  went around at least once=%d (%.0f%%)  go-arounds in all=%d (%.2f a student)  %s" % [who, int(d["arr"]), int(d["routed"]), int(d["first"]), 100.0 * float(d["first"]) / maxf(float(d["routed"]), 1.0), uq, 100.0 * float(uq) / maxf(float(d["arr"]), 1.0), int(d["gos"]), float(d["gos"]) / maxf(float(d["arr"]), 1.0), str(d["reasons"])])
 	save.reset_all()
 
 ## One shift at airport `ap` by a bot; returns its numbers. (Shifts at the same airport count as replays after the first.)
@@ -248,7 +284,7 @@ func _autopilot(skill: Dictionary) -> void:
 		# conflict (let go again once the danger has passed).
 		if p.state == Aircraft.State.HOLD:
 			if tag["state"] == "wait":
-				if rng.randf() < react and not (rng.randf() < float(skill["sequence"]) and _runway_busy(p, float(skill["gap"]))):
+				if rng.randf() < react and not (rng.randf() < float(skill["sequence"]) and _runway_busy(p, float(skill["gap"]))) and not (_aware(p, skill) and _student_must_wait(p)):
 					_route(p, skill)
 					tag["state"] = "done"
 					tag["routed"] = p.age
@@ -274,6 +310,8 @@ func _autopilot(skill: Dictionary) -> void:
 		if tag["state"] == "":
 			tag["state"] = "ignore" if rng.randf() < float(skill["ignore"]) else "wait"
 		if tag["state"] == "wait" and rng.randf() < react:
+			if _aware(p, skill) and p.go_arounds > 0 and p.pos.distance_to(Airports.land_threshold(p.tkind, p.runway, p.land_end)) < 3.2:
+				continue         # (a student that has just gone around: let it climb out, then draw the loop back and a proper final)
 			if rng.randf() < float(skill["sequence"]) and _runway_busy(p, float(skill["gap"])):
 				# circle until the runway is free, but only away from the field (a hold over the approach is a conflict)
 				if p.type != Aircraft.Type.GLIDER and p.type != Aircraft.Type.HELI and p.pos.length() > 2.0:
@@ -315,6 +353,21 @@ func tr_begin(p: Aircraft) -> void:
 	main.traffic.begin_path(p)
 
 ## Is another aircraft still coming in to this runway, with more than a few units of path to go?
+## Does this bot play this student pilot to the limits it can see (decided once per plane, from the plane's id)?
+func _ap():
+	return load("res://scripts/Approach.gd")      # (loaded when used: this script is parsed before the autoloads exist)
+
+func _aware(p: Aircraft, skill: Dictionary) -> bool:
+	if OS.get_environment("STU_AWARE") == "0":
+		return false           # (a run with every bot ignoring the markers)
+	return p.student and float(hash(p.get_meta("stu_n", p.get_instance_id())) % 100) < 100.0 * float(skill.get("stu", 0.0))
+
+## Is the runway too soon after the last landing, or still busy, for an aware bot to send this student in?
+func _student_must_wait(p: Aircraft) -> bool:
+	if p.tkind != Aircraft.Kind.RUNWAY:
+		return false
+	return _runway_busy(p, 0.0) or main.traffic.run_time - main.traffic._last_td[p.runway] < 0.5 * float(tun.student_gap_seconds)
+
 func _runway_busy(p: Aircraft, gap: float = 3.0) -> bool:
 	if p.tkind != Aircraft.Kind.RUNWAY:
 		return false
@@ -343,17 +396,42 @@ func _route(p: Aircraft, skill: Dictionary, clean: bool = false) -> void:
 			e = 1 - e
 	var thr: Vector2 = Airports.land_threshold(p.tkind, r, e)
 	var pts := []
-	if p.tkind == Aircraft.Kind.RUNWAY and (clean or rng.randf() < float(skill["aligned"])):
+	var aware := _aware(p, skill)
+	var room = _ap().final_room(p.tkind, r, e)           # (as far back along the runway line as the field leaves a final)
+	var need_s = _ap().student_final_len_at(p.speed, room)
+	var lead = maxf(3.6, need_s + 0.7) if aware else 3.6       # (an aware bot lines a student up on a final longer than its marked minimum)
+	if p.tkind == Aircraft.Kind.RUNWAY and (clean or aware or rng.randf() < float(skill["aligned"])):
 		var rd: Vector2 = (Airports.land_far(p.tkind, r, e) - thr).normalized()
-		if clean:        # straight at the threshold, along the runway line for the last stretch
+		if aware:        # a student read the marked minimum: out to a point behind the final's start (so the turn is made well away from the runway), then straight in
+			var w_d = need_s + 0.45                   # (the final may run past the drawn funnel, as far as the airspace goes)
+			var side_v := Vector2(-rd.y, rd.x)
+			var sgn := 1.0 if (p.pos - thr).dot(side_v) >= 0.0 else -1.0
+			var base = thr - rd * (w_d + 0.6)           # (a base leg out to the side first: a segment that crosses a threshold's circle would end the drawing there)
+			var s_pt = base + side_v * sgn * 3.0
+			while (absf(s_pt.x) > main.traffic.half_w - 0.6 or absf(s_pt.y) > main.traffic.half_h - 0.6) and s_pt.distance_to(base) > 0.4:
+				s_pt = base + (s_pt - base) * 0.85
+			pts.append(s_pt)
+			for d in [w_d, w_d * 0.6, w_d * 0.3]:
+				pts.append(thr - rd * d)
+		elif clean:      # straight at the threshold, along the runway line for the last stretch
 			pts.append(p.pos.lerp(thr - rd * 1.0, 0.5))
 			pts.append(thr - rd * 1.0)
 		else:
-			for d in [3.6, 2.4, 1.2]:
+			for d in [lead, lead * 0.67, lead * 0.33]:
 				pts.append(thr - rd * d)
 		pts.append(thr)
 	else:
 		pts = [p.pos.lerp(thr, 0.3), p.pos.lerp(thr, 0.7), thr]
+	if aware:                  # a finger draws a dense line (the path follows the average of its last few points: a few far-apart waypoints would cut every corner)
+		var dense := []
+		var from_pt: Vector2 = p.pos
+		for w in pts:
+			var seg: Vector2 = w - from_pt
+			var steps := maxi(ceili(seg.length() / 0.12), 1)
+			for k in range(1, steps + 1):
+				dense.append(from_pt + seg * (float(k) / float(steps)))
+			from_pt = w
+		pts = dense
 	tr_begin(p)
 	main._drag_plane = p
 	main._drag_active = false
