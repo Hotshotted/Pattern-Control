@@ -175,6 +175,8 @@ func _arts() -> Array:
 	for a in [hud._main_art] + hud._panel_arts.values():
 		if is_instance_valid(a) and a.is_visible_in_tree() and a.position.x > -5000.0:
 			out.append(a)
+	if main != null and main.get("_reset_ui") != null:
+		return []            # the reset sheet is a modal of its own (scrim over the pause menu): what is under it is not on screen
 	# a sheet over a list (the shop's preview) hides the list: its scrim takes every tap, so what is under it is not on screen
 	for a in out:
 		if a.pv_on:
@@ -954,6 +956,11 @@ func _states_play() -> void:
 	await _check("shift start")
 	main.pause_game()
 	await _check("pause")
+	main.open_reset_confirm()
+	await _frames_ui()
+	await _check("pause reset warning")
+	main.close_reset_confirm()
+	await _frames_ui()
 	main.resume_game()
 	main.hud.set_timer(5)
 	main.hud.set_finale("4 aircraft left", Color.WHITE, false)

@@ -12,6 +12,7 @@ extends RefCounted
 ##   ?nowind                                     switch off the visible wind (drifting streaks, leaning grass, swaying trees, pond ripples)
 ##   ?lowz                                       emulate a phone's 16-bit depth buffer (the depth range x256): z-fighting shows as it would there
 ##   ?airports                                   every airport is open for this visit (to test the others' background build)
+##   ?reset                                      wipe the save (a fresh start) and load the page again without the flag
 ##   ?debug                                      show the build stamp (it also shows with ?tune and ?perf)
 ## Combine with "&", e.g.  ?perf&tune. The active flags are printed under the build stamp.
 
@@ -31,6 +32,12 @@ static var windtest := false
 static var lowz := false
 static var airports := false
 static var debug := false
+static var reset := false
+
+## True if the page was opened with ?reset (or the game started with --reset).
+static func wants_reset() -> bool:
+	_load()
+	return reset
 
 ## True if the named effect has been switched off.
 static func off(effect: String) -> bool:
@@ -149,6 +156,7 @@ static func parse(args: Array[String]) -> void:
 	lowz = false
 	airports = false
 	debug = false
+	reset = false
 	for a in args:
 		var kv := a.split("=", true, 1)
 		var key := kv[0].uri_decode().to_lower()
@@ -185,6 +193,8 @@ static func parse(args: Array[String]) -> void:
 				airports = true
 			"debug":
 				debug = true
+			"reset":
+				reset = true
 			"v":
 				pass  # cache-busting parameter added by the page, not a flag
 			_:

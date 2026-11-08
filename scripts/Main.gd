@@ -586,6 +586,34 @@ func _streak_line() -> String:
 const PRIVACY_URL := "https://hotshotted.github.io/Pattern-Control/privacy.html"
 var privacy_opened := 0                 # (how many times it was opened: the tests read it)
 
+## Settings > Reset progress: the warning sheet with a hold-to-confirm button. Nothing is erased unless the button is held for Tuning.reset_hold_seconds.
+var _reset_ui: ResetConfirm = null
+
+func open_reset_confirm() -> void:
+	if _reset_ui != null:
+		return
+	_reset_ui = ResetConfirm.new()
+	_reset_ui.hold_seconds = Tuning.reset_hold_seconds
+	hud.add_child(_reset_ui)
+	_reset_ui.build(get_viewport().get_visible_rect().size, Style.safe_bottom)
+	_reset_ui.confirmed.connect(_erase_everything)
+	_reset_ui.cancelled.connect(close_reset_confirm)
+	hud.set_pause_layer(false)
+
+func close_reset_confirm() -> void:
+	if _reset_ui == null:
+		return
+	_reset_ui.queue_free()
+	_reset_ui = null
+	if screen == SCREEN_PAUSE:
+		hud.set_pause_layer(true)
+
+func _erase_everything() -> void:
+	Save.wipe_everything()
+	sfx.play("error")
+	close_reset_confirm()
+	Save.restart_clean()
+
 func open_privacy_policy() -> void:
 	privacy_opened += 1
 	if DisplayServer.get_name() == "headless":
@@ -1755,6 +1783,8 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.index, event.position)
 
 func _touch_down(index: int, pos: Vector2) -> void:
+	if _reset_ui != null:
+		return          # (the reset sheet is up: it takes the touches)
 	if _audio_hold and screen != SCREEN_PAUSE:
 		_release_audio()          # (back from the background, on a menu: any tap brings the sound back)
 	if hud.logo_active():
@@ -1889,6 +1919,8 @@ func _on_button(id: String) -> void:
 		_preview_tap()
 	elif id == "privacy":
 		open_privacy_policy()
+	elif id == "reset":
+		open_reset_confirm()
 	elif id == "goals":
 		_show_goals()
 	elif id == "ach":
@@ -2526,6 +2558,8 @@ func feed_drag(w: Vector2) -> void:
 		_cancel_drag()
 
 func _touch_up(index: int, pos: Vector2) -> void:
+	if _reset_ui != null:
+		return
 	if _dt_touch.erase(index):
 		_dt_dist = _dt_fingers_dist()
 	var pressed_id := hud.pressed_id()

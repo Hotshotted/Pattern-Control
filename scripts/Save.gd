@@ -57,7 +57,28 @@ var music_volume := 0.8
 var ambience_volume := 0.8          # the fog ambience (the third pause-menu slider)
 
 func _ready() -> void:
+	if DebugFlags.wants_reset():          # ?reset in the page address: a fresh start, then the page loads again without the flag
+		wipe_everything()
+		restart_clean()
+		return
 	load_file()
+
+## Everything back to a new game, on disk too: coins, levels, stars, purchases, goals, streak, the offline timer, the tutorial flags, the volumes.
+func wipe_everything() -> void:
+	_defaults()
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+	write_file()
+
+## After a wipe: on the web the page loads again (without ?reset), so nothing of the old game is still running; elsewhere the scene starts over.
+## (The short wait lets the browser finish writing its storage first.)
+func restart_clean() -> void:
+	var t := get_tree().create_timer(0.9, true, false, true)
+	t.timeout.connect(func() -> void:
+		if OS.has_feature("web"):
+			JavaScriptBridge.eval("(function(){var u=new URL(window.location.href);u.searchParams.delete('reset');window.location.replace(u.toString());})()")
+		elif get_tree().current_scene != null:
+			get_tree().reload_current_scene())
 
 func _defaults() -> void:
 	coins = 0

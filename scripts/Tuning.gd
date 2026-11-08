@@ -155,6 +155,7 @@ var goal_unit := 0.4
 
 ## The fake "Ad playing" screen lasts this long (no real ads yet). An interstitial comes between shifts at most
 ## once per this many finished shifts.
+var reset_hold_seconds := 2.0       # how long "Reset progress" must be held before it erases everything
 var ad_sdk_present := false          # no ad SDK is built in yet: the rewarded pills and the break between shifts stay hidden until one is (then set this)
 var ad_stub_seconds := 2.5
 var interstitial_every_shifts := 3

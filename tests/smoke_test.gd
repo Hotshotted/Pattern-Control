@@ -6620,6 +6620,51 @@ func _initialize() -> void:
 	main.goals_enabled = true
 	main._show_menu()
 
+	print("41. Fresh start: ?reset wipes the save, Settings has Reset progress with a hold-to-confirm")
+	DebugFlags.parse(["tune", "reset"])
+	check(DebugFlags.wants_reset(), "?reset is read from the page address")
+	DebugFlags.parse(["tune"])
+	check(not DebugFlags.wants_reset(), "without ?reset nothing is wiped")
+	save.reset_all()
+	save.coins = 4321
+	save.unlocks["all_airports"] = true
+	save.stars[0] = 1
+	save.tips_seen["student"] = true
+	save.goals = {"day": 12345, "list": [{"id": "x", "done": true}]}
+	save.goal_streak = {"count": 5, "last": 12344}
+	save.upgrades["radar"] = 2
+	save.improvements = {"0": {"hangar": 3}}
+	save.stats["offline_coins"] = 99
+	save.ap_xp[0] = 99999
+	save.sync_levels()
+	save.touch()
+	check(save.last_seen > 0 and save.coins == 4321 and save.imp_level(0, "hangar") == 3, "(a played game to wipe)")
+	save.wipe_everything()
+	var wipe_ok: bool = save.coins == 0 and not save.unlocks.has("all_airports") and save.stars[0] == 0 and save.tips_seen.is_empty() and save.goals.is_empty() and save.goal_streak.is_empty() and save.upgrades.is_empty() and save.improvements.is_empty() and save.stats.is_empty() and save.ap_xp[0] == 0 and save.last_seen == 0 and save.ap_level(0) == 1
+	check(wipe_ok, "wiping clears coins, levels, stars, purchases, goals, streak, the offline timer and the tutorial flags")
+	var wiped_raw = JSON.parse_string(FileAccess.open(save.path, FileAccess.READ).get_as_text())
+	check(wiped_raw is Dictionary and int(wiped_raw.get("coins", -1)) == 0 and (wiped_raw.get("tips_seen", {}) as Dictionary).is_empty() and int(wiped_raw.get("last_seen", -1)) == 0, "...and the file on disk is the new game too")
+	save.coins = 50
+	main.restart()
+	tr.auto_spawn = false
+	main.pause_game()
+	check(bt_has(main, "reset"), "the settings (pause menu) have a Reset progress button")
+	main._on_button("reset")
+	check(main._reset_ui != null, "Reset progress opens the warning sheet")
+	var rsc: ResetConfirm = main._reset_ui
+	check(rsc.get_child_count() >= 2 and rsc.hold_chip != null, "the sheet has the hold button")
+	check(rsc.card.get_global_rect().position.x >= 0.0 and rsc.card.get_global_rect().end.x <= main.get_viewport().get_visible_rect().size.x + 0.5, "the warning sheet fits the screen")
+	rsc.hold_chip._held = true
+	rsc._process(rsc.hold_seconds * 0.5)
+	check(save.coins == 50 and main._reset_ui != null and rsc.progress > 0.4 and rsc.progress < 0.6, "half the hold erases nothing")
+	rsc.hold_chip._held = false
+	rsc._process(0.1)
+	check(rsc.progress == 0.0 and save.coins == 50, "letting go early starts the hold over")
+	rsc.cancelled.emit()
+	check(main._reset_ui == null and save.coins == 50, "Keep my game closes the sheet with nothing erased")
+	main.resume_game()
+	save.reset_all()
+
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
 	save.reset_all()
 	save.unlocks["all_airports"] = true

@@ -2548,6 +2548,11 @@ func _build_pause() -> void:
 	_version_tag(_pause)
 	_pause.visible = false
 
+## The reset sheet covers the pause menu: its title and shade step aside while it is up.
+func set_pause_layer(on: bool) -> void:
+	if _pause != null:
+		_pause.visible = on
+
 func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 	if not priming:
 		_go("pause")
@@ -2565,7 +2570,7 @@ func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 		var tap := Style.tap_px()
 		var dy := maxf(130.0, tap + 16.0)
 		var card_h := 80.0 + 2.0 * dy + 80.0 + 50.0
-		var total := 170.0 + 230.0 + 40.0 + card_h + 30.0 + 260.0 + 40.0 + 76.0
+		var total := 170.0 + 230.0 + 40.0 + card_h + 30.0 + 260.0 + 40.0 + 96.0 + 50.0 + 96.0
 		var yt := maxf(vp.y * 0.5 - total * 0.5, Style.safe_top + 24.0)
 		_pause_title.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)       # (the title sits over the stack: a Label of its own, 150 tall)
 		_pause_title.offset_left = -440.0
@@ -2583,7 +2588,8 @@ func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 		var by := card_y + card_h + 30.0
 		_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, by, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
 		_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, by, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
-		_art.add_button("privacy", "Privacy policy", Rect2(vp.x * 0.5 - 250.0, by + 260.0 + 40.0, 500.0, 76.0), 0, "", -1, -1, {"kind": 6, "glyph": "lock"})
+		_art.add_button("privacy", "Privacy policy", Rect2(vp.x * 0.5 - 250.0, by + 260.0 + 40.0, 500.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "lock"})
+		_art.add_button("reset", "Reset progress", Rect2(vp.x * 0.5 - 250.0, by + 260.0 + 40.0 + 96.0 + 50.0, 500.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "restart", "tint": Style.DANGER})
 		_panel_sig["pause"] = _sig([])
 		_art.queue_redraw()
 	if not is_equal_approx(_art.slider_val[0], sound) or not is_equal_approx(_art.slider_val[1], music) or not is_equal_approx(_art.slider_val[2], ambience):
