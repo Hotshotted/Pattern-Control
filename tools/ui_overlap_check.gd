@@ -914,8 +914,10 @@ func _states_sheets() -> void:
 	main.ach_tab = 0
 
 func _clear_popups() -> void:
+	hud._pop_born.fill(0)
 	for l in hud._pop_labels:
 		l.visible = false
+		l.size = Vector2(560, 100)
 	hud._tip.visible = false
 	for a in [hud._main_art] + hud._panel_arts.values():
 		a.tip_alpha = 0.0
