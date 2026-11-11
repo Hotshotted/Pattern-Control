@@ -3249,7 +3249,7 @@ func _initialize() -> void:
 	check(main.hud._tip.text == "First tip" and main.hud._tip_q.size() == 1, "tips: one at a time")
 	var tip_len_ok = true
 	for key in main.TIPS:
-		tip_len_ok = tip_len_ok and main.TIPS[key][0].split(" ").size() <= 8 and main.TIPS[key][1] != ""
+		tip_len_ok = tip_len_ok and main.TIPS[key][0].split(" ").size() <= 10 and main.TIPS[key][1] != ""
 	check(tip_len_ok, "every tip is an icon and one short line")
 	main.hud._tip_until = 0
 	main.hud._process(0.016)
@@ -6965,6 +6965,49 @@ func _initialize() -> void:
 	sw_tr.all_students = false
 	check(sw_ok, "Bad Pilot Day (limits 15%% tighter) leaves at least one legal end in every wind at every airport %s" % str(sw_bad_winds))
 	tuning.student_chance = sw_old_chance
+	main.restart()
+
+	print("46. Students are taught the wind before they are punished: green/red ends, a red path before release, a refused clear keeps circling, one tip")
+	main.restart()
+	var tw_tr = main.traffic
+	tw_tr.auto_spawn = false
+	tw_tr.wind = main.wind
+	set_wind(main, Airports.end_heading_deg(0, 0))
+	var tw_thr0 = Airports.end_threshold(0, 0)
+	var tw_thr1 = Airports.end_threshold(0, 1)
+	var tw_p = tw_tr.place(0, Vector2(0.0, -6.0), 0.0, 2)
+	tw_p.runway = 0
+	tw_p.student = true
+	tw_p.entered = true
+	main.overlay.selected = null
+	await process_frame
+	await process_frame
+	var tw_ends = main.overlay.student_ends_drawn()
+	check(tw_ends[0] >= 1 and tw_ends[1] >= 1, "a student on the field: the end it can use glows green (%d) and the one it cannot shows a red wind icon (%d)" % [tw_ends[0], tw_ends[1]])
+	main._on_appeared(tw_p)
+	check(main.hud._art.wind_pulse >= 0.0, "the wind dial pulses when a student appears")
+	check(main.TIPS["student"][0] == "Students must land into the wind. Use the green end.", "the first student's tip card says it in one line")
+	# dragging onto an end the wind allows but a student may not use (50 degrees off): red before release, no clearance
+	tw_tr.demote_students = false
+	set_wind(main, fposmod(Airports.end_heading_deg(0, 0) + 50.0, 360.0))
+	tw_tr.begin_path(tw_p)
+	tw_p.push(tw_thr0 - (tw_thr1 - tw_thr0).normalized() * 3.0)
+	var tw_cleared = tw_tr.extend_path(tw_p, tw_thr0, tw_thr0)
+	check(not tw_cleared and not tw_p.cleared and tw_p.wind_refused, "a student's path onto an end beyond its wind limit is refused and shows red before release")
+	await process_frame
+	await process_frame
+	check(main.overlay.reason_tags_drawn() >= 1, "...with the reason on the plane (Land into the wind)")
+	var tw_fines0 = main.shift.fines
+	var tw_gos0 = tw_p.go_arounds
+	tw_tr.end_path(tw_p, tw_thr0)
+	check(tw_p.state == Aircraft.State.HOLD and not tw_p.cleared and tw_p.go_arounds == tw_gos0 and main.shift.fines == tw_fines0, "released there it is not cleared: it keeps circling (no go-around, no fine)")
+	set_wind(main, Airports.end_heading_deg(0, 0))
+	# the usable end clears as usual
+	tw_tr.begin_path(tw_p)
+	tw_p.push(tw_thr0 - (tw_thr1 - tw_thr0).normalized() * 3.0)
+	tw_tr.extend_path(tw_p, tw_thr0, tw_thr0)
+	check(tw_p.cleared and not tw_p.wind_refused, "the end into the wind clears it")
+	tw_tr.release_all()
 	main.restart()
 
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")

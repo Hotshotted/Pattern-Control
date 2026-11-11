@@ -127,8 +127,8 @@ func _build(p: Aircraft, i: int, ghost: bool = false) -> void:
 	om.clear_surfaces()
 	var im := _meshes[i]
 	im.clear_surfaces()
-	if p.path_invalid:
-		# The wind shifted and this path no longer ends on an open runway end: red dots.
+	if p.path_invalid or p.wind_refused:
+		# The wind shifted (or a student's path is on an end beyond its wind limit) and this path no longer ends on an open runway end: red dots.
 		_tint_from = -1
 		_strip(om, m, HALF, OUTLINE_Y, _halo_col(), _halo_a())
 		_strip(im, m, HALF, COLOR_Y, Color(1.0, 0.36, 0.3), 1.0)

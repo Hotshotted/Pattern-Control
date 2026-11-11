@@ -134,6 +134,7 @@ func _ready() -> void:
 	wind.warned.connect(_on_wind_warned)
 	wind.shifted.connect(_on_wind_shifted)
 	traffic.inactive_end.connect(_on_inactive_end)
+	traffic.student_wind_refused.connect(_on_student_wind_refused)
 	traffic.rerouted.connect(_on_rerouted)
 	traffic.crashed.connect(_on_crashed)
 	traffic.go_around.connect(_on_go_around)
@@ -1346,7 +1347,7 @@ const TIPS := {
 	"seaplane": ["Seaplanes land on water", "seaplane"],
 	"emergency": ["Emergency: land it fast", "emergency"],
 	"vip": ["VIP: don't hold it for a bonus", "vip"],
-	"student": ["Student pilot: long marked final, 2x pay", "student"],
+	"student": ["Students must land into the wind. Use the green end.", "student"],
 }
 
 func _on_appeared(p: Aircraft) -> void:
@@ -1359,6 +1360,7 @@ func _on_appeared(p: Aircraft) -> void:
 		key = "vip"
 	elif p.student:
 		key = "student"
+		hud.pulse_wind()
 	else:
 		match p.type:
 			Aircraft.Type.GLIDER:
@@ -1401,6 +1403,11 @@ func _on_wrong_runway(_p: Aircraft, runway: int) -> void:
 func _on_inactive_end(_p: Aircraft, runway: int, end: int) -> void:
 	overlay.ripple(Airports.end_threshold(runway, end), Color(1, 0.6, 0.2), 0.7)
 	hud.popup("Runway closed" if wind.is_closed(runway) else "Not into the wind", Color(1, 0.7, 0.3), overlay.world_to_screen(Airports.end_threshold(runway, end)) + Vector2(0, 100))
+
+## A student's path reached an end beyond its wind limit: say so (it is not cleared; released there, the plane keeps circling).
+func _on_student_wind_refused(_p: Aircraft, runway: int, end: int) -> void:
+	overlay.ripple(Airports.end_threshold(runway, end), Color(1, 0.4, 0.35), 0.7)
+	hud.popup("Land into the wind", Color(1, 0.5, 0.4), overlay.world_to_screen(Airports.end_threshold(runway, end)) + Vector2(0, 100))
 
 ## "Wind shifting to 270" is announced about wind_warning_seconds ahead.
 func _on_wind_warned(next_deg: float) -> void:

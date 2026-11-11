@@ -955,6 +955,33 @@ func _states_play() -> void:
 	await _frames_ui()
 	_clear_popups()
 	await _check("shift start")
+	# a student on the field: the end it may use glows green, the other shows the red wind icon; then a drag onto an end it may not use (red path, reason tag)
+	var st_tr = main.traffic
+	var st_p = st_tr.place(0, Vector2(0.0, -6.0), 0.0, 2)
+	st_p.runway = 0
+	st_p.student = true
+	st_p.entered = true
+	main.wind.from_deg = Airports.end_heading_deg(0, 0)
+	main.wind.refresh()
+	main.hud.pulse_wind()
+	await _frames_ui(4)
+	_clear_popups()
+	await _check("shift student, green and red runway ends")
+	st_tr.demote_students = false
+	main.wind.from_deg = fposmod(Airports.end_heading_deg(0, 0) + 50.0, 360.0)
+	main.wind.refresh()
+	var st_thr0 = Airports.end_threshold(0, 0)
+	st_tr.begin_path(st_p)
+	st_p.push(st_thr0 - Airports.end_dir(0, 0) * 3.0)
+	st_tr.extend_path(st_p, st_thr0, st_thr0)
+	await _frames_ui(4)
+	_clear_popups()
+	await _check("shift student, path refused (red, Land into the wind)")
+	st_tr.end_path(st_p, st_thr0)
+	st_tr.demote_students = true
+	st_tr.release_all()
+	main.wind.from_deg = 0.0
+	main.wind.refresh()
 	main._apply_fine(root.get_node("Tuning").fine_amount(root.get_node("Tuning").fine_conflict), "conflict", "Too close!", Vector2(0, 0))
 	main._apply_fine(root.get_node("Tuning").fine_amount(root.get_node("Tuning").fine_conflict), "conflict", "Too close!", Vector2(1, 0))
 	for tk_i in 40:

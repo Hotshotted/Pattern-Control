@@ -147,6 +147,9 @@ func _draw_all_inner() -> void:
 			else:
 				_tag(xf * p.pos + Vector2(10, -72), "?", Color(1.0, 0.85, 0.3, 0.6 + 0.4 * sin(t * 18.0)))
 			_go_tags += 1
+		elif p.wind_refused and p.student:
+			_tag(xf * p.pos + Vector2(-130, -72), "Land into the wind", Color(1.0, 0.4, 0.35), 300.0)
+			_reason_tags += 1
 		elif p.climb > 0.0 and p.go_arounds > 0:
 			_tag(xf * p.pos + Vector2(-130, -72), "GOING AROUND", Color(1.0, 0.78, 0.25), 260.0)
 			_go_tags += 1
@@ -167,6 +170,12 @@ func _draw_all_inner() -> void:
 var _go_tags := 0
 var _reason_tags := 0
 var _limits_drawn := 0
+var _limits_green := 0
+var _limits_red := 0
+
+## How many green (usable) and red-wind-icon (unusable) student ends the last draw showed (for the tests).
+func student_ends_drawn() -> Array:
+	return [_limits_green, _limits_red]
 
 ## How many student reason tags the last draw showed (for the tests).
 func reason_tags_drawn() -> int:
@@ -311,6 +320,8 @@ func _draw_runway_markers(t: float) -> void:
 ## It shows while a student is on its way in (cleared for a runway), and, for the one being dragged, at every runway end that is in use.
 func _draw_student_limits(t: float) -> void:
 	_limits_drawn = 0
+	_limits_green = 0
+	_limits_red = 0
 	var strict := Tuning.bad_day_limit_mult if (traffic != null and traffic.all_students) else 1.0
 	for p in traffic.planes:
 		if not p.student or not p.active() or not p.entered or p.fogged or p.tkind != Aircraft.Kind.RUNWAY:
@@ -318,6 +329,8 @@ func _draw_student_limits(t: float) -> void:
 		var col := Color(1.0, 0.62, 0.15, 0.95)
 		if p.student_reason != Approach.Reason.NONE and p.cleared:
 			col = Color(1.0, 0.35, 0.25, 0.95)             # (this approach breaks a standard right now)
+		if not p.cleared and p.state != Aircraft.State.DIVERT:
+			_draw_student_ends(p, t)
 		if p.cleared and p.state == Aircraft.State.FLY and p.runway >= 0:
 			_draw_min_final(p.runway, p.land_end, Approach.student_final_len(p, strict), col, t)
 		elif selected == p and p.state == Aircraft.State.FLY:
@@ -325,6 +338,35 @@ func _draw_student_limits(t: float) -> void:
 				for e in 2:
 					if wind == null or wind.is_active(i, e):
 						_draw_min_final(i, e, Approach.student_final_len_at(p.speed, _funnel_len(i, e, Airports.end_threshold(i, e), Airports.end_dir(i, e)), strict), col, t)
+
+## The runway ends a student (not yet cleared) can use glow green; the ends it cannot use (the wind is too far across) show a small red wind icon.
+func _draw_student_ends(p: Aircraft, t: float) -> void:
+	for i in Airports.rw_count():
+		if i != p.runway and not p.any_target:
+			continue
+		for e in 2:
+			var thr := Airports.end_threshold(i, e)
+			var dir := Airports.end_dir(i, e)
+			if traffic.student_end_legal(p, i, e):
+				var pulse := 0.5 + 0.5 * sin(t * 4.0)
+				_c.draw_arc(thr, Tuning.approach_radius + 0.22, 0.0, TAU, 40, Color(0.2, 0.85, 0.4, 0.28 + 0.2 * pulse), 0.36)
+				_c.draw_arc(thr, Tuning.approach_radius + 0.22, 0.0, TAU, 40, Color(0.35, 1.0, 0.5, 0.9), 0.1)
+				_limits_green += 1
+			else:
+				_draw_wind_icon(thr - dir * 0.0 + Vector2(0.0, -0.95))
+				_limits_red += 1
+
+## A small red wind icon: a dark disc with three wavy gust lines.
+func _draw_wind_icon(c: Vector2) -> void:
+	_c.draw_circle(c, 0.5, Color(0.12, 0.1, 0.1, 0.75))
+	_c.draw_arc(c, 0.5, 0.0, TAU, 24, Color(1.0, 0.35, 0.3, 0.95), 0.06)
+	for k in 3:
+		var y := (k - 1) * 0.2
+		var pts := PackedVector2Array()
+		for j in 7:
+			var x := -0.3 + 0.1 * j
+			pts.append(c + Vector2(x, y + 0.05 * sin(float(j) * 1.6 + float(k))))
+		_c.draw_polyline(pts, Color(1.0, 0.45, 0.4, 1.0), 0.06)
 
 func _draw_min_final(i: int, e: int, length: float, col: Color, t: float) -> void:
 	var thr := Airports.end_threshold(i, e)

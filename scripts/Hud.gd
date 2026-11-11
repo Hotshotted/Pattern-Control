@@ -47,6 +47,7 @@ class Art extends Control:
 	var wind_shown := 0.0               # the arrow's drawn direction: it turns smoothly to wind_toward
 	var wind_text := "000"
 	var wind_warn := false
+	var wind_pulse := -1.0                 # the wind dial pulses once (0..1) when a student appears: land into the wind
 	var show_wind := false
 	var coin_icon := Vector2(-100.0, -100.0)   # where the coin icon next to the total goes
 	var mode_glyph := ""             # "daily" / "bad" while playing one of those
@@ -1298,13 +1299,14 @@ class Art extends Control:
 	## The wind card (top-right): a cream card with an arrow showing where the air is going and its direction number.
 	func _draw_wind() -> void:
 		var card := Rect2(size.x - 24.0 - right - 132.0, 20.0 + top, 132.0, 150.0)
-		var flash := wind_warn and int(Time.get_ticks_msec() / 250.0) % 2 == 0
+		var flash := (wind_warn and int(Time.get_ticks_msec() / 250.0) % 2 == 0) or (wind_pulse >= 0.0 and sin(wind_pulse * PI) > 0.5)
 		_dsb(_sb_flat_accent if flash else _sb_pill, card)
 		var c := card.get_center() + Vector2(0, -22.0)
 		var d := Vector2(sin(deg_to_rad(wind_shown)), -cos(deg_to_rad(wind_shown)))
 		var n := Vector2(-d.y, d.x)
-		draw_line(c - d * 28.0, c + d * 8.0, Style.TEXT, 9.0)
-		tri(c + d * 36.0, c + d * 6.0 + n * 18.0, c + d * 6.0 - n * 18.0, Style.TEXT)
+		var pop := 1.0 + (0.45 * sin(clampf(wind_pulse, 0.0, 1.0) * PI) if wind_pulse >= 0.0 else 0.0)
+		draw_line(c - d * 28.0 * pop, c + d * 8.0 * pop, Style.TEXT, 9.0)
+		tri(c + d * 36.0 * pop, c + d * 6.0 * pop + n * 18.0 * pop, c + d * 6.0 * pop - n * 18.0 * pop, Style.TEXT)
 		ptext(wind_text, Vector2(card.position.x, card.end.y - 22.0), 28, C_GOLD_TXT if wind_warn else C_SOFT, HORIZONTAL_ALIGNMENT_CENTER, card.size.x)
 
 	## A status pill under the star bar: a glyph and a few characters.
@@ -3765,6 +3767,11 @@ func finale_text() -> String:
 	return _finale.text if _finale.visible else ""
 
 ## The wind widget: an arrow showing where the air is going and its direction number.
+## The wind dial pulses once (a student has appeared: it must land into the wind).
+func pulse_wind() -> void:
+	_art.wind_pulse = 0.0
+	_art.queue_redraw()
+
 func set_wind(from_deg: float, toward_deg: float) -> void:
 	if not _wind_inited:
 		_art.wind_shown = toward_deg
@@ -4069,6 +4076,11 @@ func _process_inner(delta: float) -> void:
 	_roll_headers(delta)
 	_update_coins(delta)
 	_update_tickets(delta)
+	if _art.wind_pulse >= 0.0:
+		_art.wind_pulse += delta / 1.1
+		if _art.wind_pulse > 1.0:
+			_art.wind_pulse = -1.0
+		_art.queue_redraw()
 	_tick_logo(delta)
 	_tick_celebrations(delta)
 	_update_perf(delta)

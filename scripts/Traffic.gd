@@ -9,6 +9,7 @@ signal conflict(a: Aircraft, b: Aircraft)
 signal timed_out(plane: Aircraft)   # its timer ran out: it is diverted (a strike)
 signal cleared(plane: Aircraft)       # a path just reached its approach end
 signal wrong_runway(plane: Aircraft, runway: int)  # a path went for another colour's runway
+signal student_wind_refused(plane: Aircraft, runway: int, end: int)   # a student's path reached an end beyond its wind limit (not cleared: it keeps circling)
 signal inactive_end(plane: Aircraft, runway: int, end: int)  # ...or for an end the wind doesn't allow
 signal rerouted(plane: Aircraft)   # the wind shifted: its path now ends on a closed end
 signal spawned(plane: Aircraft)
@@ -87,6 +88,7 @@ var _stripes: Array = []                  # per aircraft: the stripe boxes (show
 var livery := 0                          # index into Cosmetics.LIVERIES
 var _cand := PackedInt32Array()
 var _draws := PackedFloat32Array()      # every random number a spawn() call may need, drawn up front
+var demote_students := true             # (tests switch it off to hold a student in a wind that leaves it no end)
 var all_students := false               # Bad Pilot Day: every aircraft is a student pilot
 var no_engines := false                 # the "No engines" challenge: nobody can go around (a busy runway or a missed approach is a crash)
 var grace_until := 0.0                  # run time until which conflicts are ignored (after an ad-continue)
@@ -585,6 +587,8 @@ func begin_path(p: Aircraft) -> bool:
 		p.ga_redrawn = true
 	p.wrong_shown = false
 	p.inactive_shown = false
+	p.wind_refused = false
+	p.wind_refused_shown = false
 	if p.state == Aircraft.State.HOLD:
 		p.state = Aircraft.State.FLY
 		p.hovering = false
@@ -644,6 +648,7 @@ func extend_path(p: Aircraft, world: Vector2, raw: Vector2 = Vector2(INF, INF)) 
 		raw = world
 	var last := p.last_point()
 	var kind := p.tkind
+	p.wind_refused = false
 	if kind != Aircraft.Kind.PAD and _try_snap(p, last, raw):
 		return true
 	var radius := Tuning.pad_capture_radius if kind == Aircraft.Kind.PAD else Tuning.approach_radius
@@ -655,7 +660,12 @@ func extend_path(p: Aircraft, world: Vector2, raw: Vector2 = Vector2(INF, INF)) 
 		for e in Airports.land_ends(kind):
 			var thr := Airports.land_threshold(kind, idx, e)
 			if _dist_to_segment(thr, last, raw) <= radius:
-				if _end_active(kind, idx, e):
+				if _end_active(kind, idx, e) and p.student and not student_end_legal(p, idx, e):
+					p.wind_refused = true          # a student only lands into the wind: the path turns red, and released here it does not clear the plane
+					if not p.wind_refused_shown:
+						p.wind_refused_shown = true
+						student_wind_refused.emit(p, idx, e)
+				elif _end_active(kind, idx, e):
 					p.push(thr)
 					p.push(Airports.land_far(kind, idx, e))
 					p.cleared = true
@@ -704,6 +714,8 @@ func _try_snap(p: Aircraft, last: Vector2, raw: Vector2) -> bool:
 			if move.length() > 0.05 and move.normalized().dot(dir) < 0.35:
 				continue
 			if not _end_active(kind, idx, e):
+				continue
+			if p.student and not student_end_legal(p, idx, e):
 				continue
 			var at := thr - dir * u
 			if last.distance_to(at) > 0.05:
@@ -787,6 +799,11 @@ func end_path(p: Aircraft, world: Vector2) -> void:
 	if p.glider_one_shot():
 		p.locked = true
 	if p.cleared:
+		return
+	if p.wind_refused and p.student:        # released on an end beyond the student's wind limit: no clearance, no go-around, it just keeps circling
+		p.wind_refused = false
+		p.clear_path()
+		toggle_hold(p)
 		return
 	if p.last_point().distance_to(world) > 0.05:
 		p.push(world, 2)
@@ -916,7 +933,7 @@ func step(delta: float) -> void:
 					_spawn_timer = Tuning.spawn_interval(run_time) * Tuning.traffic_spawn_mult() * rng.randf_range(0.75, 1.25)
 				else:
 					_spawn_timer = 0.25
-	if wind != null and not all_students:           # a student that has no legal end any more (the wind shifted before it was cleared) becomes an ordinary pilot
+	if wind != null and not all_students and demote_students:           # a student that has no legal end any more (the wind shifted before it was cleared) becomes an ordinary pilot
 		for i in pool_n:
 			var sp := planes[i]
 			if sp.student and sp.active() and not sp.cleared and (sp.state == Aircraft.State.FLY or sp.state == Aircraft.State.HOLD) and not student_has_legal_end(sp):
