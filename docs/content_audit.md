@@ -761,3 +761,24 @@ What this says, honestly: the order is right (the poor bot breaks a standard mos
 - **In a shift:** a fine no longer takes coins off the counter. The coin counter shows what the shift has *earned* (landing pay, bonuses, the early-clear bonus) and only goes up; it no longer turns red. A fine shows its reason in a plain popup at the plane ("Too close!", "Diverted"), a small ticket pops up there and drops into a **fines counter** under the pause button (a ticket, "x3", the fines so far); the counter takes the ticket in when it lands. Overtime, which also came off the counter, shows on the same fines counter. The star bar still follows the net, because stars 2 and 3 are net coins.
 - **On the results card:** the tally has beats. The earnings count up from 0 to the gross (0.9 s); a clean shift then settles on its pay. With fines there is a second beat: a ticket is stamped on the Fines chip (new "stamp" sound) and the total counts down through the fines to what was really paid (the quarter-of-gross floor still pays when the fines are bigger: "Shift pay protected"), then it settles with a small pop. The rows, the new-airport card and tap-to-skip wait for the tally (4.3 s).
 - **What did not change:** fines, overtime, the net, the floor, the stars and every payout are computed exactly as before (`Shift.balance()`, `payout()`; the smoke test checks the net still carries the fines).
+
+## 13. Student wind fairness (a tester could not avoid "Crosswind too strong")
+
+### 13.1 The facts, before the fix (`tools/student_wind_cases.gd`)
+
+The wind is rolled in steps of 10 degrees from the directions where every runway still has an end within 60 degrees (the field's own rule); a gust (the "gusty crosswind" event) closes one runway for 16 s, never the last open one. A student's wind limit was 40 degrees (34 on Bad Pilot Day, which tightens every limit by 15%). Winds with **no legal end for a student**:
+
+| Airport | Winds it can roll | Winds with no end within 40 deg | ...within 34 deg (Bad Pilot Day) | Gust leaves no legal end (40 deg) |
+|---|---|---|---|---|
+| Grass Strip | 26 | 8: 50 60 120 130 230 240 300 310 | 12: 40 50 60 120 130 140 220 230 240 300 310 320 | none (one runway, never closed) |
+| County | 14 | none | none | 8: 0 10 50 60 180 190 230 240 (the gust closes the runway that had the only legal end) |
+| Regional | 26 | 8: 50 60 120 130 230 240 300 310 | 12 (as Grass Strip) | none |
+| Mountain Field | 24 | 8: 50 60 130 140 230 240 310 320 | 10: 50 60 130 140 150 230 240 310 320 330 | none |
+| Island | 26 | 8: 50 60 120 130 230 240 300 310 | 12 | none |
+| International | 26 | 8: 50 60 120 130 230 240 300 310 | 12 | none |
+
+So in about a third of the winds (8 of 26) a student had no legal end at all, and on Bad Pilot Day (every arrival a student) in nearly half (12 of 26) the shift was unwinnable at that moment.
+
+- **What a student go-around cost:** no fine and no coins. It cost time: the 1.6 s climb-out, the time to draw a new final (the plane's own timer keeps running; if it runs out the plane is diverted, a small fine of 6 to 9 coins), and the "no go-arounds" goals and the Smooth shift achievement. The one exception that cost real coins: in the "No engines" challenge nobody can go around, so a student breaking a standard was a **crash** ("Missed approach!", a 50 x airport-profile fine, 15 to 22 coins).
+- **Could the wind change after a student was cleared and fail it?** Yes: the wind clause was evaluated against the *current* wind every frame up to the decision point, so a shift (or a gust closing the runway) between clearing and the decision point could turn a legal approach into "Crosswind too strong".
+- **"Lost all his coins":** it cannot have been the bank. The bank is only ever changed by `Save.add_coins(payout)`, the payout is `max(net, 40% of the gross)` and `add_coins` never goes below 0. What does fall is the shift: before the last round the shift's coin counter counted down with every fine (and could go red and negative), and the results total did the same, and a shift whose net hit the floor paid only 40% of the gross while the card said only "Shift pay protected". The likely read for the tester: the shift counter and the results total going to the floor.
