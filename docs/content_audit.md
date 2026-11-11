@@ -782,3 +782,38 @@ So in about a third of the winds (8 of 26) a student had no legal end at all, an
 - **What a student go-around cost:** no fine and no coins. It cost time: the 1.6 s climb-out, the time to draw a new final (the plane's own timer keeps running; if it runs out the plane is diverted, a small fine of 6 to 9 coins), and the "no go-arounds" goals and the Smooth shift achievement. The one exception that cost real coins: in the "No engines" challenge nobody can go around, so a student breaking a standard was a **crash** ("Missed approach!", a 50 x airport-profile fine, 15 to 22 coins).
 - **Could the wind change after a student was cleared and fail it?** Yes: the wind clause was evaluated against the *current* wind every frame up to the decision point, so a shift (or a gust closing the runway) between clearing and the decision point could turn a legal approach into "Crosswind too strong".
 - **"Lost all his coins":** it cannot have been the bank. The bank is only ever changed by `Save.add_coins(payout)`, the payout is `max(net, 40% of the gross)` and `add_coins` never goes below 0. What does fall is the shift: before the last round the shift's coin counter counted down with every fine (and could go red and negative), and the results total did the same, and a shift whose net hit the floor paid only 40% of the gross while the card said only "Shift pay protected". The likely read for the tester: the shift counter and the results total going to the floor.
+
+### 13.2 After the fix: what changed, and the bot survey before and after
+
+What changed (items 2 to 4): students spawn only when the plane's runway has an end within the wind limit (otherwise an ordinary pilot, and a waiting student whose wind shifts away becomes one); the wind is judged when a student is cleared, never later; Bad Pilot Day keeps its 15% tightening but never below the best end the field has (a legal end in every wind at every airport: tested); the ends a student may use glow green and the others show a red wind icon, the wind dial pulses once when a student appears, a drag onto an end a student may not use turns red with "Land into the wind" and, released there, does not clear it (it keeps circling: no go-around, no fine); the first student tip reads "Students must land into the wind. Use the green end."; a student go-around is time only (and in No engines the standards do not apply, so a student never crashes for one); fines and overtime cannot lower the bank (tested) and a shift that hit the floor says "Fines capped. You still earned X".
+
+Bot survey (`tools/economy_sim.gd survey per=10`, 10 shifts per bot and airport). "Students" = student arrivals; "first approaches that broke a standard" is the share of drawn first finals that broke one; go-arounds are all of them. Before = dc14042, after = this change. The bots always choose the end into the wind, so neither run has a single wind go-around: that rule only ever hit people who picked the wrong end.
+
+| Bot | Airport | Students before > after | First approaches that broke a standard, before > after | Student go-arounds before > after |
+|---|---|---|---|---|
+| Poor | Grass Strip | 10 > 9 | 100% > 100% | 29 > 29 |
+| Poor | County | 13 > 7 | 67% > 71% | 17 > 15 |
+| Poor | Regional | 15 > 5 | 79% > 50% | 35 > 3 |
+| Poor | Mountain Field | 16 > 2 | 60% > 100% | 16 > 4 |
+| Poor | Island | 24 > 15 | 82% > 62% | 12 > 11 |
+| Poor | International | 27 > 24 | 50% > 45% | 29 > 8 |
+| Average | Grass Strip | 6 > 4 | 67% > 100% | 30 > 9 |
+| Average | County | 10 > 5 | 70% > 50% | 32 > 19 |
+| Average | Regional | 12 > 4 | 69% > 57% | 25 > 20 |
+| Average | Mountain Field | 11 > 7 | 54% > 62% | 30 > 15 |
+| Average | Island | 31 > 18 | 61% > 38% | 41 > 34 |
+| Average | International | 25 > 16 | 45% > 63% | 30 > 63 |
+| Good | Grass Strip | 10 > 6 | 47% > 60% | 23 > 24 |
+| Good | County | 12 > 7 | 36% > 50% | 56 > 23 |
+| Good | Regional | 14 > 8 | 65% > 67% | 59 > 22 |
+| Good | Mountain Field | 18 > 6 | 27% > 50% | 25 > 7 |
+| Good | Island | 34 > 20 | 40% > 41% | 57 > 27 |
+| Good | International | 16 > 10 | 39% > 36% | 38 > 18 |
+
+| Bot | Students before > after | First approaches that broke a standard, before > after | Go-arounds per student, before > after |
+|---|---|---|---|
+| Poor | 105 > 62 | 70% > 65% | 1.31 > 1.13 |
+| Average | 95 > 54 | 58% > 55% | 1.98 > 2.96 |
+| Good | 104 > 57 | 41% > 48% | 2.48 > 2.12 |
+
+Student arrivals fall by about 40% (the shifts where the wind leaves a student no end now send an ordinary pilot); the per-student rates barely move, because the bots never broke the wind rule. The per-airport spread is wide and the samples are small (a handful of students per cell at the early airports); read the totals. The good bot still breaks a standard on about half of its first finals, for the reasons in 12.4 (the bots draw finals from wherever the plane is when they reach it).
