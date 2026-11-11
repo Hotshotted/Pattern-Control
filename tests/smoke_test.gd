@@ -7010,6 +7010,38 @@ func _initialize() -> void:
 	tw_tr.release_all()
 	main.restart()
 
+	print("47. Penalty: a student go-around is time only; fines and overtime never take the bank down; the floor is said plainly")
+	main.restart()
+	main.traffic.auto_spawn = false
+	save.coins = 500
+	for pn_i in 5:
+		main.shift.on_landed(3, 100, 0)
+	var pn_gross: int = main.shift.gross()
+	main._apply_fine(5000, "crash", "Crashed!", Vector2(0, 0))
+	main._apply_fine(5000, "conflict", "Too close!", Vector2(1, 0))
+	main.shift.set_overtime(300.0, 20)
+	check(main.shift.balance() < 0 and main.shift.payout() == main.shift.kept() and main.shift.payout() > 0, "huge fines and overtime take the shift's net far below zero, but it still pays the floor (%d of %d gross)" % [main.shift.payout(), pn_gross])
+	var pn_bank: int = save.coins
+	main._end_shift()
+	check(save.coins >= pn_bank and save.coins == pn_bank + main.shift.payout(), "...and the bank only ever goes up by it (%d -> %d)" % [pn_bank, save.coins])
+	check(main.hud._panel_arts["results"].res_protected > 0 and main.hud._panel_arts["results"].res_total == main.shift.payout(), "the results card knows the floor paid (Fines capped. You still earned %d)" % main.shift.payout())
+	main.restart()
+	main.traffic.auto_spawn = false
+	save.coins = 300
+	main._apply_fine(9999, "crash", "Crashed!", Vector2(0, 0))
+	main._end_shift()
+	check(save.coins >= 300, "a shift of nothing but fines never lowers the bank (%d)" % save.coins)
+	# a student's go-around costs no fine
+	main.restart()
+	main.traffic.auto_spawn = false
+	var pn_f0: int = main.shift.fines
+	var pn_s = main.traffic.place(0, Vector2(-2.0, -6.0), 0.0, 2)
+	pn_s.student = true
+	main.traffic._start_go_around(pn_s, 3)
+	check(main.shift.fines == pn_f0 and pn_s.go_arounds == 1, "a student's go-around adds no fine (it costs the climb-out and the time to draw a new final)")
+	main.traffic.release_all()
+	main.restart()
+
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
 	save.reset_all()
 	save.unlocks["all_airports"] = true

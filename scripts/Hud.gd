@@ -1551,7 +1551,8 @@ class Art extends Control:
 		if stk.has("pill"):        # the fines took the net under the floor: the floor pays instead
 			var pr: Rect2 = stk["pill"]
 			_dsb(_sb_chip, pr)
-			ptext("Shift pay protected", Vector2(pr.position.x, pr.get_center().y + 12.0), SZ_M, Style.SUCCESS_DARK, HORIZONTAL_ALIGNMENT_CENTER, pr.size.x)
+			var cap_txt := "Fines capped. You still earned %s" % fmt_int(res_total)         # (the floor pays: the fines took the net down to it and no further)
+			ptext(cap_txt, Vector2(pr.position.x, pr.get_center().y + 12.0), Style.fit_size(cap_txt, SZ_M, SZ_S, pr.size.x - 40.0), Style.SUCCESS_DARK, HORIZONTAL_ALIGNMENT_CENTER, pr.size.x)
 		# The nearest goal, always: "120 XP to level 5", "40 coins to Runway lights 3", or "Ready to buy!", over a bar that fills as the coins land
 		if stk.has("goal"):
 			var gl: Rect2 = stk["goal"]
