@@ -481,7 +481,7 @@ func spawn(force_type: int = -1) -> Aircraft:
 			p.entry = entry
 			make_special(p, emergency, vip)
 			if not emergency:
-				p.student = all_students or (not vip and p.tkind == Aircraft.Kind.RUNWAY and type != Aircraft.Type.GLIDER and _draws[31] < Tuning.student_chance)
+				p.student = all_students or (not vip and p.tkind == Aircraft.Kind.RUNWAY and type != Aircraft.Type.GLIDER and _draws[31] < Tuning.student_chance and student_has_legal_end(p))       # (no legal end in this wind: an ordinary pilot)
 			spawned.emit(p)
 		return p
 	return null
@@ -590,6 +590,46 @@ func begin_path(p: Aircraft) -> bool:
 		p.hovering = false
 	return true
 
+## ---- the student's wind rule ----
+## A student lands only within Tuning.student_wind_deg of the wind (40 degrees; Bad Pilot Day tightens it by Tuning.bad_day_limit_mult but never below the
+## best end the field has, so there is always a legal end). A runway end the wind doesn't allow at all is never legal.
+func student_wind_limit(p: Aircraft) -> float:
+	var lim := Tuning.student_wind_deg
+	if all_students:
+		lim = maxf(lim * Tuning.bad_day_limit_mult, _best_end_angle(p))
+	return lim
+
+func _end_angle(r: int, e: int) -> float:
+	return Airports.angle_diff(Airports.end_heading_deg(r, e), wind.from_deg) if wind != null else 0.0
+
+## The smallest angle off the wind among the ends the wind allows for the runway(s) p can land on (INF if none is open).
+func _best_end_angle(p: Aircraft) -> float:
+	var best := INF
+	for r in Airports.rw_count():
+		if r != p.runway and not p.any_target:
+			continue
+		for e in 2:
+			if wind == null or wind.is_active(r, e):
+				best = minf(best, _end_angle(r, e))
+	return best
+
+func student_end_legal(p: Aircraft, r: int, e: int) -> bool:
+	if p.tkind != Aircraft.Kind.RUNWAY or wind == null:
+		return true
+	return wind.is_active(r, e) and _end_angle(r, e) <= student_wind_limit(p) + 0.001
+
+## Does the field have at least one end this student may use now?
+func student_has_legal_end(p: Aircraft) -> bool:
+	if p.tkind != Aircraft.Kind.RUNWAY or wind == null:
+		return true
+	for r in Airports.rw_count():
+		if r != p.runway and not p.any_target:
+			continue
+		for e in 2:
+			if student_end_legal(p, r, e):
+				return true
+	return false
+
 ## Is this end of this place open? (Runway ends depend on the wind; pads and lanes are always open.)
 func _end_active(kind: int, idx: int, end: int) -> bool:
 	return kind != Aircraft.Kind.RUNWAY or wind == null or wind.is_active(idx, end)
@@ -621,6 +661,7 @@ func extend_path(p: Aircraft, world: Vector2, raw: Vector2 = Vector2(INF, INF)) 
 					p.cleared = true
 					p.runway = idx
 					p.land_end = e
+					p.student_wind_bad = p.student and not student_end_legal(p, idx, e)
 					if p.glider_one_shot():
 						p.locked = true
 					cleared.emit(p)
@@ -672,6 +713,7 @@ func _try_snap(p: Aircraft, last: Vector2, raw: Vector2) -> bool:
 			p.cleared = true
 			p.runway = idx
 			p.land_end = e
+			p.student_wind_bad = p.student and not student_end_legal(p, idx, e)
 			if p.glider_one_shot():
 				p.locked = true
 			snapped.emit(p, at)
@@ -874,6 +916,12 @@ func step(delta: float) -> void:
 					_spawn_timer = Tuning.spawn_interval(run_time) * Tuning.traffic_spawn_mult() * rng.randf_range(0.75, 1.25)
 				else:
 					_spawn_timer = 0.25
+	if wind != null and not all_students:           # a student that has no legal end any more (the wind shifted before it was cleared) becomes an ordinary pilot
+		for i in pool_n:
+			var sp := planes[i]
+			if sp.student and sp.active() and not sp.cleared and (sp.state == Aircraft.State.FLY or sp.state == Aircraft.State.HOLD) and not student_has_legal_end(sp):
+				sp.student = false
+				sp.student_reason = 0
 	_update_weather(delta)
 	var mult := Tuning.speed_mult(run_time) * Tuning.traffic_speed_mult()
 	for i in pool_n:
@@ -1062,7 +1110,7 @@ func _score_approach(p: Aircraft, mult: float) -> void:
 		p.student_reason = sr
 		approach.reason = sr
 		chance = 1.0 if sr != Approach.Reason.NONE else (0.3 if approach.student_near else 0.0)
-		student_fire = sr != Approach.Reason.NONE and Tuning.go_around_max > 0.0
+		student_fire = sr != Approach.Reason.NONE and Tuning.go_around_max > 0.0 and not p.one_shot       # (with no engines nobody can go around: the standards do not apply, a student never crashes for one)
 	if scenic:
 		chance = 0.0
 		student_fire = false

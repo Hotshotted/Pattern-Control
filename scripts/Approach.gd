@@ -79,16 +79,15 @@ func student_check(p: Aircraft, gap_s: float, strict: float = 1.0) -> int:
 	var len_need := student_final_len(p, strict)
 	var turn_max := Tuning.student_turn_max_deg * strict
 	var gap_need := Tuning.student_gap_seconds / strict
-	var wind_max := Tuning.student_wind_deg * strict
 	if straight_len < len_need:
 		return Reason.SHORT_FINAL
 	if turn_deg > turn_max:
 		return Reason.TURN
 	if gap_s < gap_need:
 		return Reason.SPACING
-	if land_off_deg > wind_max:
-		return Reason.DOWNWIND if land_off_deg > 100.0 else Reason.WIND
-	student_near = straight_len < len_need * (1.0 + near) or turn_deg > turn_max * (1.0 - near) or gap_s < gap_need * (1.0 + near) or land_off_deg > wind_max * (1.0 - near)
+	if p.student_wind_bad:       # (the wind is judged when the student is cleared, not after: a shift or a gust later cannot fail a cleared approach)
+		return Reason.WIND
+	student_near = straight_len < len_need * (1.0 + near) or turn_deg > turn_max * (1.0 - near) or gap_s < gap_need * (1.0 + near)
 	return Reason.NONE
 
 ## How long a straight final a student wants at this speed (units, behind the threshold): the line the overlay marks. It is never more than the

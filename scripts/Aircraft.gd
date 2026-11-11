@@ -51,6 +51,7 @@ var ga_turn_pen := 0.0
 var ga_len_pen := 0.0
 var ga_turn_deg := 0.0
 var ga_straight := 0.0          # ...and the straight final it has
+var student_wind_bad := false   # a student was cleared to an end beyond its wind limit (judged once, at the moment it was cleared: a later wind shift never changes it)
 var student_reason := 0        # the standard a student's cleared approach breaks right now (Approach.Reason; 0 = none)
 var last_ga_reason := 0        # why it last went around (for its tag)
 var ga_chance := 0.0            # predicted go-around chance of the cleared approach (drives the path tint)
@@ -108,6 +109,7 @@ func reset() -> void:
 	pop_t = 0.0
 	student = false
 	student_reason = 0
+	student_wind_bad = false
 	last_ga_reason = 0
 	go_arounds = 0
 	red_seen = false

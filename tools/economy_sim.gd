@@ -34,6 +34,8 @@ var _tags := {}
 var _spawned := 0
 var _gos := 0
 var _cur_who := ""
+var _cur_ap := -1
+var _stu_ap := {}                       # "bot/airport" -> {"arr", "routed", "first", "gos"}
 var _stu_n := 0
 var _stu := {}                          # bot -> {"arr": student arrivals, "gos": their go-arounds, "reasons": {reason: n}, "land": student landings}
 
@@ -102,6 +104,11 @@ func _stu_add(k: String) -> void:
 	if not _stu.has(_cur_who):
 		_stu[_cur_who] = {"arr": 0, "gos": 0, "first": 0, "routed": 0, "reasons": {}}
 	_stu[_cur_who][k] = int(_stu[_cur_who][k]) + 1
+	var key := "%s/%d" % [_cur_who, _cur_ap]
+	if not _stu_ap.has(key):
+		_stu_ap[key] = {"arr": 0, "routed": 0, "first": 0, "gos": 0}
+	if _stu_ap[key].has(k):
+		_stu_ap[key][k] = int(_stu_ap[key][k]) + 1
 
 func _stu_unique(p: Aircraft) -> void:
 	if _cur_who == "" or not _stu.has(_cur_who):
@@ -126,6 +133,7 @@ func _survey() -> void:
 		_cur_who = who
 		var skill: Dictionary = PLAYERS[who]
 		for ap in ONLY_AIRPORTS:
+			_cur_ap = ap
 			save.reset_all()
 			save.unlocks["all_airports"] = true
 			rng.seed = hash(who) + 100 * ap + 3
@@ -163,6 +171,9 @@ func _survey() -> void:
 			var th: Array = tun.star_thresholds(ap)
 			print("%-8s %-16s %-16s %5.1f/%-5.1f %5.1f %9.0f %10.2f  %s %17d %20.2f" % [who, Airports.airport_name(ap), str(th), float(tot_land) / SURVEY_SHIFTS, float(tot_arr) / SURVEY_SHIFTS, float(tot_conf) / SURVEY_SHIFTS, float(tot_net) / SURVEY_SHIFTS, float(tot_stars) / SURVEY_SHIFTS, str(dist), intro_stars, float(tot_clean) / SURVEY_SHIFTS])
 	print("")
+	for key in _stu_ap:
+		var d2: Dictionary = _stu_ap[key]
+		print("STUAP %-14s arrivals=%d routed=%d first-broke=%d (%.0f%%) go-arounds=%d" % [key, int(d2["arr"]), int(d2["routed"]), int(d2["first"]), 100.0 * float(d2["first"]) / maxf(float(d2["routed"]), 1.0), int(d2["gos"])])
 	print("student pilots (arrivals marked with the L badge, and the go-arounds they made, by the standard that was broken)")
 	for who in ONLY_BOTS:
 		if _stu.has(who):

@@ -2477,7 +2477,7 @@ func _initialize() -> void:
 	main.select_airport(2)
 	main.restart()
 	tr.auto_spawn = false
-	# Students appear among ordinary arrivals, and only runway aircraft that can go around.
+	set_wind(main, Airports.end_heading_deg(0, 0))          # (a wind with a legal end: students only spawn into one)
 	tuning.student_chance = 0.3
 	var n_stu = 0
 	var n_all = 0
@@ -6755,6 +6755,7 @@ func _initialize() -> void:
 			if wind_deg >= 0.0:
 				sp_tr.wind = main.wind
 				sp_tr.wind.from_deg = fposmod(Airports.end_heading_deg(0, 0) + wind_deg, 360.0)
+				sp_tr.wind.refresh()
 			else:
 				sp_tr.wind = null
 			var spq = sp_tr.place(0, sp_thr - sp_dir * (length + lead) + sp_side * off, atan2(sp_dir.x, -sp_dir.y), 2)
@@ -6766,6 +6767,7 @@ func _initialize() -> void:
 			spq.push(sp_thr)
 			spq.push(Airports.end_far(0, 0))
 			spq.cleared = true
+			spq.student_wind_bad = not sp_tr.student_end_legal(spq, 0, 0)       # (judged when it is cleared)
 			for st in 900:
 				sp_tr.step(1.0 / 60.0)
 				if not sp_goes.is_empty() or spq.state == Aircraft.State.LANDING:
@@ -6872,6 +6874,97 @@ func _initialize() -> void:
 	main._end_shift()
 	fn_art = main.hud._panel_arts["results"]
 	check(fn_art.res_fines_eff == 0 and fn_art.tally_at(99.0) == fn_art.res_total and fn_art.tally_at(fn_t0 + fn_art.RES_UP + 0.05) == fn_art.res_total, "a clean shift counts straight up to its pay, with no fines beat")
+	main.restart()
+
+	print("45. Students are never impossible: they spawn only with a legal end, the wind is judged when they are cleared, Bad Pilot Day keeps an end")
+	main.restart()
+	var sw_tr = main.traffic
+	sw_tr.auto_spawn = false
+	var sw_old_chance = tuning.student_chance
+	tuning.student_chance = 1.0
+	var sw_hd0 = Airports.end_heading_deg(0, 0)
+	var sw_hd1 = Airports.end_heading_deg(0, 1)
+	sw_tr.wind = main.wind
+	var sw_count = func(deg: float) -> int:
+		set_wind(main, deg)
+		var n := 0
+		for sw_k in 40:
+			sw_tr.release_all()
+			var sw_p = sw_tr.spawn(Aircraft.Type.SMALL)
+			if sw_p != null and sw_p.student:
+				n += 1
+		sw_tr.release_all()
+		return n
+	var sw_legal: int = sw_count.call(sw_hd0)
+	var sw_none: int = sw_count.call(fposmod(sw_hd0 + 50.0, 360.0))
+	check(sw_legal > 20 and sw_none == 0, "students spawn into a wind with a legal end (%d of 40) and never into one with none within 40 degrees (%d of 40: those arrivals are ordinary pilots)" % [sw_legal, sw_none])
+	# a student not yet cleared becomes an ordinary pilot when the wind leaves it no legal end
+	set_wind(main, sw_hd0)
+	var sw_s = sw_tr.place(0, Vector2(-2.0, -6.0), 0.0, 2)
+	sw_s.runway = 0
+	sw_s.student = true
+	sw_s.entered = true
+	sw_tr.step(1.0 / 60.0)
+	check(sw_s.student, "a student with a legal end stays a student")
+	set_wind(main, fposmod(sw_hd0 + 50.0, 360.0))
+	sw_tr.step(1.0 / 60.0)
+	check(not sw_s.student, "...and becomes an ordinary pilot when the wind shifts and leaves it none")
+	sw_tr.release_all()
+	# cleared with a legal end: a later wind shift or gust never fails it
+	set_wind(main, sw_hd0)
+	var sw_old_max = tuning.go_around_max
+	tuning.go_around_max = 0.98
+	var sw_thr = Airports.end_threshold(0, 0)
+	var sw_dir = Airports.end_dir(0, 0)
+	var sw_q = sw_tr.place(0, sw_thr - sw_dir * 7.0, atan2(sw_dir.x, -sw_dir.y), 2)
+	sw_q.runway = 0
+	sw_q.land_end = 0
+	sw_q.student = true
+	sw_q.entered = true
+	sw_tr.run_time = 100.0
+	sw_tr._last_td[0] = -100.0
+	sw_tr.begin_path(sw_q)
+	sw_q.push(sw_thr - sw_dir * 4.0)
+	sw_tr.extend_path(sw_q, sw_thr, sw_thr)
+	check(sw_q.cleared and not sw_q.student_wind_bad, "a student cleared to its legal end is judged fine on the wind")
+	set_wind(main, fposmod(sw_hd0 + 50.0, 360.0))
+	var sw_gos = []
+	var sw_cb = func(_p, r): sw_gos.append(r)
+	sw_tr.go_around.connect(sw_cb)
+	for sw_i in 900:
+		sw_tr.step(1.0 / 60.0)
+		if sw_q.state == Aircraft.State.LANDING or not sw_gos.is_empty():
+			break
+	check(sw_gos.is_empty() or int(sw_gos[0]) != 5, "the wind turning 50 degrees after it was cleared does not fail it (no wind go-around)")
+	sw_tr.go_around.disconnect(sw_cb)
+	tuning.go_around_max = sw_old_max
+	sw_tr.release_all()
+	# Bad Pilot Day: every arrival is a student, and every wind the field can roll leaves at least one legal end
+	var sw_ok = true
+	var sw_bad_winds = []
+	sw_tr.all_students = true
+	for sw_a in Airports.COUNT:
+		Airports.current = sw_a
+		for sw_k in 36:
+			var sw_d = sw_k * 10.0
+			if not Airports.wind_ok(sw_d, tuning.wind_tolerance_deg):
+				continue
+			main.wind.from_deg = sw_d
+			main.wind.refresh()
+			var sw_pp = sw_tr.place(0, Vector2(-2.0, -6.0), 0.0, 2)
+			if sw_pp == null:
+				continue
+			sw_pp.runway = 0
+			sw_pp.student = true
+			var sw_has: bool = sw_tr.student_has_legal_end(sw_pp)
+			if not sw_has:
+				sw_ok = false
+				sw_bad_winds.append("%d@%d" % [sw_a, sw_k * 10])
+			sw_tr.release_all()
+	Airports.current = 0
+	sw_tr.all_students = false
+	check(sw_ok, "Bad Pilot Day (limits 15%% tighter) leaves at least one legal end in every wind at every airport %s" % str(sw_bad_winds))
+	tuning.student_chance = sw_old_chance
 	main.restart()
 
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
