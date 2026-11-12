@@ -1038,8 +1038,10 @@ func _states_play() -> void:
 	main.hud.post_banner("LAST ARRIVALS", main.hud.C_GOLD, "plane", 2.0)
 	await _check("shift banner")
 	_clear_popups()
-	for key in main.TIPS:
-		main.hud.show_tip(main.TIPS[key][0], main.TIPS[key][1])
+	for key in Tips.LIST:
+		main.hud.dismiss_tip()
+		await _frames_ui(3)
+		main.hud.show_tip(Tips.text(key), Tips.icon(key), Vector2(INF, INF), true)
 		await _check("shift tip %s" % key)
 	_clear_popups()
 	main.hud.popup("Go-around!\nNot into the wind", Color(1, 0.85, 0.3), Vector2(60.0, 900.0))

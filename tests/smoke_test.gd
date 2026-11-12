@@ -222,6 +222,7 @@ func _initialize() -> void:
 
 	print("1. boot and the visible pre-warm")
 	var main: Node = load("res://scenes/main.tscn").instantiate()
+	main.onboarding_gates = false          # (the tests that are not about the first shifts see the whole game; section 48 switches it on)
 	main.progress_enabled = false   # (mastery and achievements likewise: section 34)
 	main.goals_enabled = false      # (the daily goals have their own section, 33: elsewhere their rewards would change the coin counts)
 	root.add_child(main)
@@ -1296,14 +1297,20 @@ func _initialize() -> void:
 	check(not main.hud._tip.visible, "it is not shown a second time")
 	for tt in [[HELI, "heli"], [JET, "jet"], [SEAPLANE, "seaplane"]]:
 		var tp2 = tr.place(0, Vector2(0, 0), 0.0, tt[0])
+		main._tips_this_shift = 0
+		main.hud._tip.visible = false
 		main._on_appeared(tp2)
 		check(save.tips_seen.has(tt[1]), "a first %s gets its tip" % tt[1])
 	var tv = tr.place(0, Vector2(0, 0), 0.0, MEDIUM)
 	tr.make_special(tv, false, true)
+	main._tips_this_shift = 0
+	main.hud._tip.visible = false
 	main._on_appeared(tv)
 	check(save.tips_seen.has("vip"), "...and so does the first VIP")
 	var te = tr.place(0, Vector2(0, 0), 0.0, MEDIUM)
 	tr.make_special(te, true, false)
+	main._tips_this_shift = 0
+	main.hud._tip.visible = false
 	main._on_appeared(te)
 	check(save.tips_seen.has("emergency"), "...and the first emergency")
 	var pop_em = false
@@ -2478,6 +2485,7 @@ func _initialize() -> void:
 	main.restart()
 	tr.auto_spawn = false
 	set_wind(main, Airports.end_heading_deg(0, 0))          # (a wind with a legal end: students only spawn into one)
+	tr.students_allowed = true
 	tuning.student_chance = 0.3
 	var n_stu = 0
 	var n_all = 0
@@ -3248,8 +3256,8 @@ func _initialize() -> void:
 	main.hud.show_tip("Second tip", "jet")
 	check(main.hud._tip.text == "First tip" and main.hud._tip_q.size() == 1, "tips: one at a time")
 	var tip_len_ok = true
-	for key in main.TIPS:
-		tip_len_ok = tip_len_ok and main.TIPS[key][0].split(" ").size() <= 10 and main.TIPS[key][1] != ""
+	for key in Tips.LIST:
+		tip_len_ok = tip_len_ok and Tips.text(key).split(" ").size() <= 16 and Tips.text(key).count(".") <= 2 and Tips.icon(key) != ""
 	check(tip_len_ok, "every tip is an icon and one short line")
 	main.hud._tip_until = 0
 	main.hud._process(0.016)
@@ -6882,6 +6890,7 @@ func _initialize() -> void:
 	sw_tr.auto_spawn = false
 	var sw_old_chance = tuning.student_chance
 	tuning.student_chance = 1.0
+	sw_tr.students_allowed = true
 	var sw_hd0 = Airports.end_heading_deg(0, 0)
 	var sw_hd1 = Airports.end_heading_deg(0, 1)
 	sw_tr.wind = main.wind
@@ -6986,7 +6995,7 @@ func _initialize() -> void:
 	check(tw_ends[0] >= 1 and tw_ends[1] >= 1, "a student on the field: the end it can use glows green (%d) and the one it cannot shows a red wind icon (%d)" % [tw_ends[0], tw_ends[1]])
 	main._on_appeared(tw_p)
 	check(main.hud._art.wind_pulse >= 0.0, "the wind dial pulses when a student appears")
-	check(main.TIPS["student"][0] == "Students must land into the wind. Use the green end.", "the first student's tip card says it in one line")
+	check(Tips.text("student") == "Students must land into the wind. Use the green end.", "the first student's tip card says it in one line")
 	# dragging onto an end the wind allows but a student may not use (50 degrees off): red before release, no clearance
 	tw_tr.demote_students = false
 	set_wind(main, fposmod(Airports.end_heading_deg(0, 0) + 50.0, 360.0))

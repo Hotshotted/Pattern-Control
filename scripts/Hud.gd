@@ -65,6 +65,13 @@ class Art extends Control:
 	var tip_glyph := ""
 	var tip_text := ""
 	var tip_rect := Rect2()
+	var tip_lines := 1
+	var tip_focus := Vector2(INF, INF)         # a tip about a thing: a pulsing ring on it (screen position), and the card sits next to it
+	var tip_focus_r := 90.0
+	var tut_dim := 0.0                          # Day 1: the game dims (0..1) behind a lesson
+	var ghost_pts := PackedVector2Array()       # Day 1: the ghost finger's path (screen) and how far along it is (0..1; -1 = none)
+	var ghost_t := -1.0
+	var skip_rect := Rect2()                    # Day 1: the Skip button (empty = none)
 	var details_lines := PackedStringArray()
 	# ---- the pause menu ----
 	var show_pause := false
@@ -823,6 +830,7 @@ class Art extends Control:
 		return h
 
 	var hits_dirty := false
+	var tips_view := false            # the layer above every screen that draws the tip card and Day 1's dim, ghost finger and Skip (see Hud._tipart)
 	var rows_view := false            # the results card's scrolling area of extra rows (see Hud._layout_result_rows): draws only those
 	var is_scroll := false           # a list that scrolls (see Hud._scroll_for): its buttons are in the list's own coordinates
 
@@ -1384,7 +1392,14 @@ class Art extends Control:
 				_dms(Style.font_for(banner_text, bfs), Vector2(x, r.position.y + 22.0 + float(bfs)), banner_text, HORIZONTAL_ALIGNMENT_LEFT, r.end.x - x - 40.0, bfs, 2, bcol)
 			else:
 				ptext(banner_text, Vector2(x, r.get_center().y + bfs * 0.34), bfs, bcol)
+	## The tip card (and Day 1's layer under it) is drawn by a layer of its own above every screen (Hud._tipart), so a tip can show anywhere.
+	func _draw_tip_layer() -> void:
+		_draw_tutorial_layer()
 		if tip_alpha > 0.01 and tip_text != "":
+			if tip_focus.x < 1.0e8:        # (a pulsing ring on the thing the tip is about)
+				var pk := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 260.0)
+				draw_arc(tip_focus, tip_focus_r + 10.0 * pk, 0.0, TAU, 40, Color(Style.INK, 0.35 * tip_alpha), 11.0)
+				draw_arc(tip_focus, tip_focus_r + 10.0 * pk, 0.0, TAU, 40, Color(C_GOLD, tip_alpha), 7.0)
 			var r2 := tip_rect
 			_sb_tip.bg_color.a = tip_alpha
 			_sb_tip.border_color = Color(Style.SUCCESS, tip_alpha)
@@ -1393,7 +1408,30 @@ class Art extends Control:
 			if tip_glyph != "":
 				glyph(tip_glyph, Vector2(x2 + 28.0, r2.get_center().y), 28.0, Color(Style.TEXT, tip_alpha))
 				x2 += 84.0
-			_ds(Style.body(), Vector2(x2, r2.get_center().y + SZ_S * 0.35), tip_text, HORIZONTAL_ALIGNMENT_LEFT, r2.end.x - x2 - 20.0, SZ_S, Color(Style.TEXT, tip_alpha))
+			if tip_lines > 1:
+				_dms(Style.body(), Vector2(x2, r2.position.y + 24.0 + float(SZ_S)), tip_text, HORIZONTAL_ALIGNMENT_LEFT, r2.end.x - x2 - 28.0, SZ_S, 3, Color(Style.TEXT, tip_alpha))
+			else:
+				_ds(Style.body(), Vector2(x2, r2.get_center().y + SZ_S * 0.35), tip_text, HORIZONTAL_ALIGNMENT_LEFT, r2.end.x - x2 - 20.0, SZ_S, Color(Style.TEXT, tip_alpha))
+
+
+	## Day 1: the dimmed game, the ghost finger drawing its path, and the Skip button.
+	func _draw_tutorial_layer() -> void:
+		if tut_dim > 0.01:
+			draw_rect(Rect2(Vector2.ZERO, size), Color(Style.INK, 0.42 * tut_dim))
+		if ghost_t >= 0.0 and ghost_pts.size() >= 2:
+			var n := ghost_pts.size() - 1
+			var f := clampf(ghost_t, 0.0, 1.0) * float(n)
+			var seg := mini(int(f), n - 1)
+			var pt := ghost_pts[seg].lerp(ghost_pts[seg + 1], f - float(seg))
+			for k in range(1, seg + 1):
+				draw_line(ghost_pts[k - 1], ghost_pts[k], Color(1.0, 0.96, 0.85, 0.85), 12.0)
+			draw_line(ghost_pts[seg], pt, Color(1.0, 0.96, 0.85, 0.85), 12.0)
+			draw_circle(pt + Vector2(5, 7), 40.0, Color(Style.INK, 0.28))
+			draw_circle(pt, 38.0, Color(1.0, 1.0, 1.0, 0.92))
+			draw_circle(pt, 30.0, Color(0.95, 0.8, 0.45, 0.95))
+		if skip_rect.size.x > 0.0:
+			_dsb(_sb_pill, skip_rect)
+			ptext("Skip", Vector2(skip_rect.position.x, skip_rect.get_center().y + 14.0), SZ_S, C_TEXT, HORIZONTAL_ALIGNMENT_CENTER, skip_rect.size.x)
 
 	# ---------- the results ----------
 
@@ -1878,6 +1916,9 @@ class Art extends Control:
 		if rows_view:
 			_draw_rows_only()
 			return
+		if tips_view:
+			_draw_tip_layer()
+			return
 		if icon_id != "":              # (a layout element of a Control-built sheet that is just one picture: see DetailSheet.Icon)
 			var ir := minf(size.x, size.y) * 0.5
 			glyph(icon_id, size * 0.5, maxf(ir - 4.0, 4.0), icon_col)
@@ -1933,6 +1974,7 @@ class Art extends Control:
 
 var _art: Art                      # the one every screen draws with right now (the main one, or one of the three pre-built panels)
 var _main_art: Art
+var _tipart: Art                   # the tip card / Day 1 layer above every screen
 var _panel_arts := {}              # "select" | "upgrades" | "shop" -> the Art that holds that panel, laid out in advance
 var _panel_sig := {}               # ...and the data it was laid out with
 var priming := false               # Main is laying a panel out in advance (hidden): no transition, no screen change
@@ -2038,6 +2080,11 @@ func _ready() -> void:
 	_main_art = _art
 	_art.name = "main"
 	add_child(_art)
+	_tipart = Art.new()
+	_tipart.tips_view = true
+	_tipart.name = "tips"
+	_tipart.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_tipart)
 	_score = _label(SZ_XL, HORIZONTAL_ALIGNMENT_CENTER)
 	_score.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_score.offset_left = -300
@@ -2339,6 +2386,8 @@ const LOGO_FADE := 0.3
 ## A new screen is about to show: arm its transition (slide forward / back, or a scale pop for sheets). Redrawing the
 ## same screen (a shop tab, a purchase) does not replay it.
 func _go(kind: String) -> void:
+	if _tipart != null and _tipart.get_parent() == self:
+		move_child(_tipart, get_child_count() - 1)       # (the tip layer stays above whatever screen is coming)
 	if DebugFlags.stamp_enabled() and OS.has_feature("web"):
 		call_deferred("_publish_buttons")
 	if _prewarming or kind == _tr_kind:
@@ -2694,7 +2743,7 @@ func _set_play_labels(on: bool) -> void:
 		_wind_banner.visible = false
 		_tip.visible = false
 		_art.banner_alpha = 0.0
-		_art.tip_alpha = 0.0
+		_tipart.tip_alpha = 0.0
 
 # ---------- Pause ----------
 
@@ -3607,6 +3656,14 @@ func show_achievements(v: Dictionary) -> void:
 		sa.queue_redraw()
 		_art.queue_redraw())
 
+## The centre of a button on the current screen (the tips point at it), or (INF, INF).
+func button_center(id: String) -> Vector2:
+	var k: int = _art.btn_id.find(id)
+	if k < 0 or k >= _art.btn_count:
+		var e = _scroll_cur
+		return Vector2(INF, INF)
+	return (_art.btn_rect[k] as Rect2).get_center()
+
 ## The id of the enabled button under `pos` ("" if none).
 func button_at(pos: Vector2) -> String:
 	var a: Art = _art
@@ -3682,7 +3739,7 @@ func reset_for_run(_best_coins: int) -> void:
 	_art.banner_text = ""
 	_tip_q.clear()
 	_tip.visible = false
-	_art.tip_alpha = 0.0
+	_tipart.tip_alpha = 0.0
 	_wind_secs = -1
 	_wind_posted = false
 	_art.wind_warn = false
@@ -3955,27 +4012,62 @@ func _start_banner(text: String, color: Color, glyph: String, secs: float) -> vo
 func banner_text() -> String:
 	return _wind_banner.text if _wind_banner.visible else ""
 
-## A tip: an icon and one short line, shown once. Only one at a time; the next waits its turn.
-func show_tip(text: String, glyph: String = "") -> void:
+## A tip: an icon and one short sentence, shown once. Only one at a time; the next waits its turn. With `anchor` (a screen position) the card sits next to the
+## thing it is about and a ring pulses on it; `sticky` keeps it until a tap (or 12 s).
+var _tip_sticky := false
+
+func show_tip(text: String, glyph: String = "", anchor: Vector2 = Vector2(INF, INF), sticky: bool = false) -> void:
 	if _tip.visible:
-		_tip_q.append([text, glyph])
+		_tip_q.append([text, glyph, anchor, sticky])
 		if _tip_q.size() > 2:
 			_tip_q.pop_front()
 		return
-	_start_tip(text, glyph)
+	_start_tip(text, glyph, anchor, sticky)
 
-func _start_tip(text: String, glyph: String) -> void:
+func tip_active() -> bool:
+	return _tip.visible
+
+func tip_sticky() -> bool:
+	return _tip.visible and _tip_sticky
+
+## A tap anywhere puts the card away.
+func dismiss_tip() -> void:
+	if _tip.visible:
+		_tip_until = Time.get_ticks_msec()
+
+## The ring follows a thing that moves (a plane).
+func set_tip_focus(pos: Vector2) -> void:
+	if _tip.visible and _tipart.tip_focus.x < 1.0e8:
+		_tipart.tip_focus = pos
+
+func _start_tip(text: String, glyph: String, anchor: Vector2 = Vector2(INF, INF), sticky: bool = false) -> void:
 	_tip.text = text
 	_tip.visible = true
-	_tip_until = Time.get_ticks_msec() + int(Tuning.tip_seconds * 1000.0)
+	_tip_sticky = sticky
+	_tip_until = Time.get_ticks_msec() + (12000 if sticky else int(Tuning.tip_seconds * 1000.0))
 	var vp := get_viewport().get_visible_rect().size
-	_art.tip_glyph = glyph
-	_art.tip_text = text
-	var tfont := _tip.get_theme_font("font")
-	var tw := tfont.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, SZ_S).x
-	var pw := minf(tw + (84.0 if glyph != "" else 0.0) + 90.0, vp.x - 60.0)
-	_art.tip_rect = Rect2(vp.x * 0.5 - pw * 0.5, vp.y - 280.0 - Style.safe_bottom, pw, 100.0)
-	_art.tip_alpha = 1.0
+	_tipart.tip_glyph = glyph
+	_tipart.tip_text = text
+	var pw := minf(vp.x - 80.0, 860.0)
+	var inner := pw - (84.0 if glyph != "" else 0.0) - 68.0
+	var lines := clampi(Hud.wrap_lines(text, SZ_S, inner), 1, 3)
+	_tipart.tip_lines = lines
+	var ph := 100.0 if lines == 1 else 40.0 + float(lines) * 54.0
+	var tw := _tip.get_theme_font("font").get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, SZ_S).x
+	if lines == 1:
+		pw = minf(tw + (84.0 if glyph != "" else 0.0) + 90.0, pw)
+	var top_lim := Style.safe_top + 250.0
+	var bot_lim := vp.y - Style.safe_bottom - 24.0
+	if anchor.x < 1.0e8:
+		var below := anchor.y < vp.y * 0.55
+		var y := anchor.y + 150.0 if below else anchor.y - 150.0 - ph
+		y = clampf(y, top_lim, bot_lim - ph)
+		_tipart.tip_rect = Rect2(clampf(anchor.x - pw * 0.5, 24.0, vp.x - 24.0 - pw), y, pw, ph)
+		_tipart.tip_focus = anchor
+	else:
+		_tipart.tip_rect = Rect2(vp.x * 0.5 - pw * 0.5, vp.y - 280.0 - Style.safe_bottom - (ph - 100.0), pw, ph)
+		_tipart.tip_focus = Vector2(INF, INF)
+	_tipart.tip_alpha = 1.0
 
 ## A quick colour wash over the whole screen.
 func flash(color: Color) -> void:
@@ -4045,15 +4137,16 @@ func _process_inner(delta: float) -> void:
 		var left := _tip_until - now
 		if left <= 0:
 			_tip.visible = false
-			_art.tip_alpha = 0.0
-			_art.queue_redraw()
+			_tipart.tip_alpha = 0.0
+			_tipart.tip_focus = Vector2(INF, INF)
+			_tipart.queue_redraw()
 			if not _tip_q.is_empty():
 				var tq: Array = _tip_q.pop_front()
-				_start_tip(tq[0], tq[1])
+				_start_tip(tq[0], tq[1], tq[2] if tq.size() > 2 else Vector2(INF, INF), bool(tq[3]) if tq.size() > 3 else false)
 		else:
 			var ta := clampf(left / 600.0, 0.0, 1.0)
-			_art.tip_alpha = ta
-			_art.queue_redraw()
+			_tipart.tip_alpha = ta
+			_tipart.queue_redraw()          # (also animates the ring)
 	# Screen transition, button motion, rolling header totals, coins in flight.
 	if _tr_wait > 0:
 		_tr_wait -= 1
@@ -4240,7 +4333,7 @@ func begin_prewarm() -> void:
 
 func prewarm_tip() -> void:
 	show_tip("Flashing aircraft: land them fast 0123456789", "emergency")
-	_art.tip_alpha = 1.0
+	_tipart.tip_alpha = 1.0
 
 func prewarm_popups() -> void:
 	var vp := get_viewport().get_visible_rect().size
@@ -4292,7 +4385,7 @@ func end_prewarm() -> void:
 	_wind_banner.visible = false
 	_tip.visible = false
 	_tip_q.clear()
-	_art.tip_alpha = 0.0
+	_tipart.tip_alpha = 0.0
 	_finale.visible = false
 	_finale.text = ""
 	_finale_text = ""

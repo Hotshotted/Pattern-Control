@@ -88,6 +88,7 @@ var _stripes: Array = []                  # per aircraft: the stripe boxes (show
 var livery := 0                          # index into Cosmetics.LIVERIES
 var _cand := PackedInt32Array()
 var _draws := PackedFloat32Array()      # every random number a spawn() call may need, drawn up front
+var students_allowed := true            # (false in the first three shifts: nobody is a student yet)
 var demote_students := true             # (tests switch it off to hold a student in a wind that leaves it no end)
 var all_students := false               # Bad Pilot Day: every aircraft is a student pilot
 var no_engines := false                 # the "No engines" challenge: nobody can go around (a busy runway or a missed approach is a crash)
@@ -483,7 +484,7 @@ func spawn(force_type: int = -1) -> Aircraft:
 			p.entry = entry
 			make_special(p, emergency, vip)
 			if not emergency:
-				p.student = all_students or (not vip and p.tkind == Aircraft.Kind.RUNWAY and type != Aircraft.Type.GLIDER and _draws[31] < Tuning.student_chance and student_has_legal_end(p))       # (no legal end in this wind: an ordinary pilot)
+				p.student = all_students or (not vip and p.tkind == Aircraft.Kind.RUNWAY and type != Aircraft.Type.GLIDER and _draws[31] < Tuning.student_chance and students_allowed and student_has_legal_end(p))       # (no legal end in this wind: an ordinary pilot)
 			spawned.emit(p)
 		return p
 	return null

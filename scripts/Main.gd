@@ -389,6 +389,9 @@ func _boot_to_menu() -> void:
 var fixed_seed := -1                # >= 0: restart() seeds every random stream from it (tools/economy_sim.gd)
 
 func restart() -> void:
+	_tips_this_shift = 0
+	_tip_plane = null
+	hud.dismiss_tip()
 	detail_t = 0.0
 	detail_zoom = 1.0
 	detail_pan = Vector2.ZERO
@@ -440,6 +443,7 @@ func restart() -> void:
 	_drag_active = false
 	_doubled = false
 	traffic.all_students = bad_mode
+	traffic.students_allowed = bad_mode or daily_mode or Save.shifts_played >= 3 or not onboarding_gates         # (no students in the first three shifts: the player is still learning to draw)
 	no_engines = force_no_engines or (Save.no_engines_bad if bad_mode else (not daily_mode and Save.no_engines_on(airport)))
 	traffic.no_engines = no_engines
 	traffic.auto_spawn = not DebugFlags.windtest_enabled()
@@ -478,6 +482,9 @@ func restart() -> void:
 	traffic.release_all()
 	traffic.spawn_until = Tuning.spawn_stop_eff()
 	wind.start(rng_env)
+	_calm_shift = onboarding_gates and Save.shifts_played < 3 and not daily_mode and not bad_mode
+	if _calm_shift:
+		wind.countdown = 1.0e9          # (the first three shifts: a steady wind, no shifts, no weather events)
 	_last_wind_deg = wind.from_deg      # (a new shift's starting wind is not a "shift": no chime)
 	weather.start()
 	_event_key = ""
@@ -779,6 +786,13 @@ func _tick_toasts(delta: float) -> void:
 	for p in traffic.planes:
 		if p.active():
 			worst = maxf(worst, p.warn)
+			if p.red_seen and p.entered and p.state == Aircraft.State.FLY and _tut == null:
+				try_tip("fuel", overlay.world_to_screen(p.pos), p)
+	if _tip_plane != null and hud.tip_active():
+		if _tip_plane.active():
+			hud.set_tip_focus(overlay.world_to_screen(_tip_plane.pos))
+	elif _tip_plane != null:
+		_tip_plane = null
 	if worst > 0.3:
 		return
 	var t: Dictionary = toast_queue.pop_front()
@@ -809,6 +823,8 @@ func _maybe_tally() -> void:
 	hud.add_child(_tally)
 	_tally.build({"total": _offline["total"], "hours": _offline["hours"], "lines": lines}, get_viewport().get_visible_rect().size, Style.safe_bottom)
 	_tally.collected.connect(_collect_tally)
+	if not Save.tips_seen.has("offline"):
+		Save.tips_seen["offline"] = true
 
 func _collect_tally() -> void:
 	if _tally == null:
@@ -854,6 +870,8 @@ func _show_menu() -> void:
 	var sm_t0 := Time.get_ticks_usec()
 	hud.show_menu(Airports.airport_name(airport), Save.coins, Save.stars_total(), Save.best_for(airport), Airports.tag(airport), Save.stars_of(airport), Save.no_engines_bad)
 	Boot.add("hud.show_menu", float(Time.get_ticks_usec() - sm_t0) / 1000.0)
+	if not _warming:
+		try_tip("goals", hud.button_center("goals"))
 
 # ---------- Frame time: the simulation can never run ahead of the clock ----------
 # However long the real frame was, the simulation advances by at most Tuning.max_frame_delta; a stall (a tab
@@ -1098,7 +1116,7 @@ func step(delta: float) -> void:
 	var t := traffic.run_time
 	var frac := clampf(t / maxf(Tuning.spawn_stop_eff(), 1.0), 0.0, 1.0)
 	hud.set_shift_fraction(frac)
-	if t < Tuning.spawn_stop_eff() or weather.phase != Weather.Phase.IDLE:
+	if not _calm_shift and (t < Tuning.spawn_stop_eff() or weather.phase != Weather.Phase.IDLE):
 		weather.step(delta, frac, rng_env, wind)
 		wind.closing = weather.runway if weather.phase == Weather.Phase.WARN and weather.kind == "crosswind" else -1
 		wind.closing_left = weather.left
@@ -1134,6 +1152,8 @@ func _step_clock(t: float) -> void:
 		if over != _last_over:
 			_last_over = over
 			hud.set_shift(shift)
+			if over >= 1:
+				try_tip("overtime", Vector2(get_viewport().get_visible_rect().size.x * 0.5, 110.0 + Style.safe_top))
 	_timer_ticks(t, par)
 	if t < Tuning.spawn_stop_eff() or not alive:
 		return
@@ -1226,6 +1246,8 @@ func _on_landed(p: Aircraft) -> void:
 			Save.stats["bay_seen_%d" % airport] = 1
 			hud.post_banner("Your new hangar bay: it parks here instead of on the ramp, and pays a fee", Color(0.6, 1.0, 0.7), "hangar", 3.6)
 	shift.on_landed(p.type, base, extra, vip_paid, p.emergency, p.student)
+	if landing_no > Ramp.capacity():
+		try_tip("hangar_full", overlay.world_to_screen(p.pos))
 	goal_locked_run = goal_locked_run + 1 if p.locked else 0
 	goal_max_locked = maxi(goal_max_locked, goal_locked_run)
 	if progress_enabled:
@@ -1288,6 +1310,7 @@ func _apply_fine(amount: int, kind: String, label: String, world_at: Vector2) ->
 	var at := overlay.world_to_screen(world_at)
 	hud.popup(label, Color(0.98, 0.92, 0.8), at)
 	hud.fly_ticket(at)
+	try_tip("fine", hud._art.fines_rect().get_center())
 	if not DebugFlags.off("haptic"):
 		_vibrate(50, Haptics.MEDIUM)
 
@@ -1307,6 +1330,7 @@ func _on_go_around(p: Aircraft, reason: int) -> void:
 	goal_locked_run = 0
 	sfx.play("go_around")
 	hud.popup("Go-around!" if why == "" else "Go-around!\n%s" % why, Color(1, 0.85, 0.3), overlay.world_to_screen(p.pos) + Vector2(0, -60))
+	try_tip("goaround", overlay.world_to_screen(p.pos), p)
 	overlay.ripple(p.pos, Color(1, 0.85, 0.3), 0.7)
 	if not DebugFlags.off("haptic"):
 		_vibrate(30, Haptics.MEDIUM)
@@ -1339,16 +1363,7 @@ func _on_refused(_p: Aircraft, text: String, at: Vector2) -> void:
 	hud.popup(text, Color(1, 0.75, 0.35), overlay.world_to_screen(at) + Vector2(0, 90))
 
 ## First time a kind of aircraft is on screen: a one-line tip. Emergencies announce themselves every time.
-const TIPS := {
-	"drag": ["Drag from an aircraft to its runway", "plane"],
-	"glider": ["Glider: short timer, watch the ring", "glider"],
-	"heli": ["Helicopters land on the H pad", "heli"],
-	"jet": ["Jets need a long runway", "jet"],
-	"seaplane": ["Seaplanes land on water", "seaplane"],
-	"emergency": ["Emergency: land it fast", "emergency"],
-	"vip": ["VIP: don't hold it for a bonus", "vip"],
-	"student": ["Students must land into the wind. Use the green end.", "student"],
-}
+## The tips live in Tips.gd; `try_tip` shows one (once ever, near the thing it is about, at most two new ones a shift).
 
 func _on_appeared(p: Aircraft) -> void:
 	if p.emergency:
@@ -1373,10 +1388,31 @@ func _on_appeared(p: Aircraft) -> void:
 				key = "seaplane"
 	if key == "" and not Save.tips_seen.has("drag"):
 		key = "drag"
-	if key != "" and not Save.tips_seen.has(key):
-		Save.tips_seen[key] = true
-		Save.write_file()
-		hud.show_tip(TIPS[key][0], TIPS[key][1])
+	if key != "":
+		try_tip(key, overlay.world_to_screen(p.pos), p)
+
+var onboarding_gates := true             # the first shifts are held back (no students, a steady wind, tips spread out); the tests that are not about that switch it off
+var _calm_shift := false
+var _tut = null                         # the Day 1 script while it runs (Tutorial.gd), else null
+var _tips_this_shift := 0
+var _tip_plane: Aircraft = null
+
+## Show a tip once: the first time the thing happens, as a small card next to it (a screen position, and the plane it follows if it is one). Not during Day 1
+## (its own steps are the only lessons), not before the shift it is held back to (Tips.after), not when two new ones have already come this shift, and
+## not while another card is up: the tip is then simply not marked, so it comes the next time the thing happens.
+func try_tip(id: String, anchor: Vector2 = Vector2(INF, INF), plane: Aircraft = null) -> bool:
+	if not Tips.LIST.has(id) or Save.tips_seen.has(id):
+		return false
+	var day1 := id.begins_with("t_")
+	if (_tut != null) != day1:
+		return false
+	if not day1 and ((onboarding_gates and Save.shifts_played < Tips.after(id)) or _tips_this_shift >= Tips.MAX_PER_SHIFT or hud.tip_active()):
+		return false
+	Save.tips_seen[id] = true
+	_tips_this_shift += 1
+	_tip_plane = plane
+	hud.show_tip(Tips.text(id), Tips.icon(id), anchor, true)
+	return true
 
 ## A path snapped onto a runway's centreline and locked: a soft click, a pulse ring where it locked and a short buzz.
 func _on_snapped(p: Aircraft, at: Vector2) -> void:
@@ -1412,6 +1448,8 @@ func _on_student_wind_refused(_p: Aircraft, runway: int, end: int) -> void:
 ## "Wind shifting to 270" is announced about wind_warning_seconds ahead.
 func _on_wind_warned(next_deg: float) -> void:
 	hud.set_wind_warning(next_deg, ceili(wind.countdown))
+	var vpw := get_viewport().get_visible_rect()
+	try_tip("wind", Vector2(vpw.size.x - 24.0 - Style.safe_right - 66.0, 20.0 + Style.safe_top + 75.0))
 
 ## The wind changed: the active ends change, and aircraft cleared for a closed end must be re-routed.
 func _on_wind_shifted() -> void:
@@ -1741,6 +1779,10 @@ func _show_results(doubled: bool) -> void:
 	hud.goal_rows = _extra_rows(true)
 	hud.goal_strip = last_result.get("goal", {})
 	toast_queue.clear()
+	if not level_ups.is_empty():
+		try_tip("levelup")
+	if not last_result.get("unlocked", []).is_empty():
+		try_tip("unlock")
 	hud.show_results(HEADER_DONE, last_result["reason"], shift, last_result["coins"], Save.coins, Save.best_coins_for(airport), last_result["new_best"], lv["animal"], "%s: %s" % [lv["pilot"], lv["quote"]], doubled)
 	hud.set_results_ads(_ad_double_coins(), _ad_refund_coins())
 	var unlocked: Array = last_result.get("unlocked", [])
@@ -1818,6 +1860,8 @@ func _input(event: InputEvent) -> void:
 func _touch_down(index: int, pos: Vector2) -> void:
 	if _reset_ui != null or _row_popup != null:
 		return          # (a sheet is up over the screen: it takes the touches)
+	if hud.tip_sticky():
+		hud.dismiss_tip()          # (a tap anywhere puts a tip card away; the tap still does its own job)
 	if _audio_hold and screen != SCREEN_PAUSE:
 		_release_audio()          # (back from the background, on a menu: any tap brings the sound back)
 	if hud.logo_active():
@@ -2144,6 +2188,7 @@ func _show_shop() -> void:
 	alive = false
 	var sh := _shop_args()
 	hud.show_list("SHOP", Save.coins, sh[0], sh[1], true)
+	try_tip("cosmetics")
 
 # ---------- The preview sheet: nothing is bought without it ----------
 # A card opens a sheet over the list. Owned things have one "Equip" button. Things for sale have "Buy for N", which spends only when held
@@ -2425,6 +2470,7 @@ func open_detail(i: int) -> void:
 	screen = SCREEN_DETAIL
 	alive = false
 	_show_detail()
+	try_tip("event")
 
 func close_detail() -> void:
 	detail_airport = -1
