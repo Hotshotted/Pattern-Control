@@ -292,7 +292,7 @@ func build() -> void:
 	var rows := [
 		[["add_coins", "+1000 coins"], ["unlock_all", "Unlock airports"], ["max_upgrades", "Max upgrades"]],
 		[["force_wind", "Force wind shift"], ["storm", "Storm"], ["fog", "Fog"], ["crosswind", "Crosswind"]],
-		[["reset_save", "Reset save"], ["reset_daily", "Reset goals"]],
+		[["reset_save", "Reset save"], ["reset_daily", "Reset goals"], ["fresh_tutorial", "Fresh start, tutorial on"]],
 	]
 	for row in rows:
 		var hb := HBoxContainer.new()
@@ -391,6 +391,9 @@ func _debug(id: String) -> void:
 		"storm", "fog", "crosswind":
 			main.trigger_weather(id)
 			_out.text = "Weather: %s announced." % id
+		"fresh_tutorial":
+			main.debug_fresh_tutorial()
+			_out.text = "Fresh save, tutorial on: Play starts Day 1."
 		"reset_save":
 			main.debug_reset_save()
 			_out.text = "Save reset."

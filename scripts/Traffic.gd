@@ -635,6 +635,10 @@ func student_has_legal_end(p: Aircraft) -> bool:
 				return true
 	return false
 
+## Day 1: nothing can be lost (no collisions, no fuel, no storms: the warning rings still show).
+func set_safe(on: bool) -> void:
+	_god = on or DebugFlags.god_enabled() or scenic
+
 ## Is this end of this place open? (Runway ends depend on the wind; pads and lanes are always open.)
 func _end_active(kind: int, idx: int, end: int) -> bool:
 	return kind != Aircraft.Kind.RUNWAY or wind == null or wind.is_active(idx, end)

@@ -36,6 +36,9 @@ const SIZES := [
 # ---- the allowlist: things that overlap on purpose. Every entry says why. ----
 # Fields: screen (glob on the state name), size (glob, optional), type, a / b (substring of an element's text or id; b optional), why.
 const ALLOW := [
+	{"screen": "tutorial results*", "type": "overlap", "a": "", "b": "", "why": "Day 1's tip card sits over the results on purpose (it points at the stars and the first upgrade); a tap puts it away"},
+	{"screen": "tutorial results*", "type": "clipped", "a": "", "b": "", "why": "the same card over the results"},
+	{"screen": "settings tips page*", "type": "clipped", "a": "", "b": "", "why": "the list of tips scrolls inside its card: a row cut by the list's edge is the scroll"},
 ]
 
 var out_dir := ""
@@ -164,7 +167,7 @@ func _open_game(sz: Dictionary) -> void:
 # ------------------------------------------------------------------------------------------------------------------
 
 func _all_arts() -> Array:
-	var out: Array = hud._panel_arts.values() + [hud._main_art]
+	var out: Array = hud._panel_arts.values() + [hud._main_art, hud._tipart]
 	if hud.get("_scrolls") != null:
 		for e in hud._scrolls.values():
 			out.append(e["art"])
@@ -172,10 +175,10 @@ func _all_arts() -> Array:
 
 func _arts() -> Array:
 	var out := []
-	for a in [hud._main_art] + hud._panel_arts.values():
+	for a in [hud._main_art, hud._tipart] + hud._panel_arts.values():
 		if is_instance_valid(a) and a.is_visible_in_tree() and a.position.x > -5000.0:
 			out.append(a)
-	if main != null and (main.get("_reset_ui") != null or main.get("_row_popup") != null):
+	if main != null and (main.get("_reset_ui") != null or main.get("_row_popup") != null or main.get("_tips_page") != null):
 		return []            # the reset sheet is a modal of its own (scrim over the pause menu): what is under it is not on screen
 	# a sheet over a list (the shop's preview) hides the list: its scrim takes every tap, so what is under it is not on screen
 	for a in out:
@@ -253,7 +256,7 @@ func _collect() -> Array:
 			els.append({"k": "text", "id": "", "text": t["text"], "rect": t["rect"], "inter": false, "size": t["size"], "over": t["over"], "limit": t["limit"], "natural": t["natural"], "src": "art", "layer": str(art.name), "role": t.get("role", "")})
 		for g in art.rec_glyphs:
 			els.append({"k": "glyph", "id": g["id"], "text": "", "rect": g["rect"], "inter": false, "src": "art", "layer": str(art.name)})
-	var modal_up: bool = main != null and (main.get("_reset_ui") != null or main.get("_row_popup") != null)
+	var modal_up: bool = main != null and (main.get("_reset_ui") != null or main.get("_row_popup") != null or main.get("_tips_page") != null)
 	if hud.get("_scrolls") != null and not modal_up and not (hud._panel_arts.has("preview") and hud._panel_arts["preview"].pv_on):
 		for e in hud._scrolls.values():
 			_collect_scroll(e, els)
@@ -604,9 +607,11 @@ func _allowed(state: String, p: Dictionary) -> String:
 				continue
 			var an := _name_of(p["a"])
 			var bn := _name_of(p["b"]) if p["b"] != null else ""
-			if an.contains(al["a"]) and (not al.has("b") or bn.contains(al["b"])):
+			var a_any: bool = str(al["a"]) == ""
+			var b_any: bool = not al.has("b") or str(al["b"]) == ""
+			if (a_any or an.contains(al["a"])) and (b_any or bn.contains(al["b"])):
 				return al["why"]
-			if p["b"] != null and bn.contains(al["a"]) and (not al.has("b") or an.contains(al["b"])):
+			if p["b"] != null and (a_any or bn.contains(al["a"])) and (b_any or an.contains(al["b"])):
 				return al["why"]
 	return ""
 
@@ -1008,6 +1013,19 @@ func _states_play() -> void:
 	await _check("pause reset warning")
 	main.close_reset_confirm()
 	await _frames_ui()
+	save.tips_seen = {}
+	main.open_tips_page()
+	await _frames_ui()
+	await _check("settings tips page, empty")
+	main.close_tips_page()
+	for tid in Tips.LIST:
+		save.tips_seen[tid] = true
+	main.open_tips_page()
+	await _frames_ui()
+	await _check("settings tips page, every tip seen")
+	main.close_tips_page()
+	save.tips_seen = {}
+	await _frames_ui()
 	main.resume_game()
 	main.hud.set_timer(5)
 	main.hud.set_finale("4 aircraft left", Color.WHITE, false)
@@ -1051,6 +1069,44 @@ func _states_play() -> void:
 	await _check("shift popups")
 	_clear_popups()
 	main.set_process(true)
+	# Day 1, the scripted first shift: the dim and the ghost finger, then its cards
+	main.onboarding_gates = true
+	save.reset_all()
+	main.select_airport(0)
+	main.start_tutorial()
+	main.set_process(false)
+	for d1_i in 70:
+		main.step(1.0 / 60.0)
+	await _frames_ui(4)
+	_clear_popups()
+	await _check("tutorial 1, draw a path (dim, ghost finger, card, Skip)")
+	var d1_thr = Airports.end_threshold(0, main._tut._into_wind_end())
+	main.traffic.begin_path(main._tut.a)
+	var d1_from = main._tut.a.pos
+	for d1_k in range(1, 40):
+		if main.traffic.extend_path(main._tut.a, d1_from.lerp(d1_thr, float(d1_k) / 39.0), d1_from.lerp(d1_thr, float(d1_k) / 39.0)):
+			break
+	main.hud.dismiss_tip()
+	for d1_i in 40:
+		main.step(1.0 / 60.0)
+	main._tut.step = 1
+	main.shift.landed = 1
+	main._tut.tick(0.1)
+	await _frames_ui(4)
+	await _check("tutorial 2, landed planes park in the hangar")
+	main.hud.dismiss_tip()
+	main._tut.step = 3
+	main._tut.b = main._tut._spawn(0, 1.0, 2.0, 4.6)
+	main._tut.c = main._tut._spawn(0, 1.0, 1.4, 6.0)
+	main._tut.t = 3.0
+	main._tut.tick(0.1)
+	await _frames_ui(4)
+	await _check("tutorial 3, keep planes apart")
+	main.hud.dismiss_tip()
+	main.skip_tutorial()
+	main.set_process(true)
+	main.onboarding_gates = false
+	save.reset_all()
 	# Bad Pilot Day (a challenge mode with its own chip), and the No engines modifier on a shift
 	save.reset_all()
 	save.unlocks["all_airports"] = true
@@ -1116,6 +1172,23 @@ func _states_results() -> void:
 				hud._panel_arts["results"].queue_redraw()
 		await _frames_ui(30)
 		await _check("results %s" % variant)
+		if variant == "win":          # Day 1's results tips: the stars, then the first upgrade
+			save.stats["tutorial"] = 1
+			save.tips_seen.erase("t_stars")
+			save.tips_seen.erase("t_upgrade")
+			save.tips_seen.erase("t_hold")
+			main.try_tip("t_stars", Vector2(vp.x * 0.5, vp.y * 0.30))
+			main.try_tip("t_upgrade", Vector2(vp.x * 0.5, vp.y * 0.58))
+			await _frames_ui(4)
+			await _check("tutorial results, hit the score to earn stars")
+			main.hud.dismiss_tip()
+			for tq_i in 4:
+				main.hud._process(0.05)
+			await _frames_ui(4)
+			await _check("tutorial results, the first upgrade is ready")
+			main.hud.dismiss_tip()
+			main.hud._process(0.05)
+			save.stats["tutorial"] = 2
 		if plant and variant == "win":          # self-test: text written under the card, on the dimmed field, must be reported
 			var pra = hud._panel_arts["results"]
 			var pcard: Rect2 = pra.res_stack()["card"]

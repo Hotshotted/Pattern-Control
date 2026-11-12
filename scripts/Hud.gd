@@ -2785,7 +2785,7 @@ func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 		var tap := Style.tap_px()
 		var dy := maxf(130.0, tap + 16.0)
 		var card_h := 80.0 + 2.0 * dy + 80.0 + 50.0
-		var total := 170.0 + 230.0 + 40.0 + card_h + 30.0 + 260.0 + 40.0 + 96.0 + 50.0 + 96.0
+		var total := 170.0 + 230.0 + 40.0 + card_h + 30.0 + 260.0 + 40.0 + 96.0 + 30.0 + 96.0
 		var yt := maxf(vp.y * 0.5 - total * 0.5, Style.safe_top + 24.0)
 		_pause_title.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)       # (the title sits over the stack: a Label of its own, 150 tall)
 		_pause_title.offset_left = -440.0
@@ -2803,8 +2803,12 @@ func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 		var by := card_y + card_h + 30.0
 		_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, by, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
 		_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, by, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
-		_art.add_button("privacy", "Privacy policy", Rect2(vp.x * 0.5 - 250.0, by + 260.0 + 40.0, 500.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "lock"})
-		_art.add_button("reset", "Reset progress", Rect2(vp.x * 0.5 - 250.0, by + 260.0 + 40.0 + 96.0 + 50.0, 500.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "restart", "tint": Style.DANGER})
+		var gy := by + 260.0 + 40.0                 # the settings buttons: two by two (Tips, Replay tutorial / Privacy policy, Reset progress)
+		var gx := vp.x * 0.5 - 450.0
+		_art.add_button("tips", "Tips", Rect2(gx, gy, 440.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "star"})
+		_art.add_button("replay", "Replay tutorial", Rect2(gx + 460.0, gy, 440.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "restart"})
+		_art.add_button("privacy", "Privacy policy", Rect2(gx, gy + 126.0, 440.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "lock"})
+		_art.add_button("reset", "Reset progress", Rect2(gx + 460.0, gy + 126.0, 440.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "restart", "tint": Style.DANGER})
 		_panel_sig["pause"] = _sig([])
 		_art.queue_redraw()
 	if not is_equal_approx(_art.slider_val[0], sound) or not is_equal_approx(_art.slider_val[1], music) or not is_equal_approx(_art.slider_val[2], ambience):
@@ -4012,6 +4016,18 @@ func _start_banner(text: String, color: Color, glyph: String, secs: float) -> vo
 func banner_text() -> String:
 	return _wind_banner.text if _wind_banner.visible else ""
 
+## Day 1's layer: the dim (0..1), the ghost finger's screen path and how far along it is (-1 = none), and the Skip button.
+func set_tutorial_layer(dim: float, pts: PackedVector2Array, ghost_t: float, skip: bool) -> void:
+	_tipart.tut_dim = dim
+	_tipart.ghost_pts = pts
+	_tipart.ghost_t = ghost_t
+	var vp := get_viewport().get_visible_rect().size
+	_tipart.skip_rect = Rect2(vp.x - 24.0 - Style.safe_right - 190.0, vp.y - Style.safe_bottom - 150.0, 190.0, 100.0) if skip else Rect2()
+	_tipart.queue_redraw()
+
+func skip_hit(pos: Vector2) -> bool:
+	return _tipart.skip_rect.size.x > 0.0 and _tipart.skip_rect.grow(14.0).has_point(pos)
+
 ## A tip: an icon and one short sentence, shown once. Only one at a time; the next waits its turn. With `anchor` (a screen position) the card sits next to the
 ## thing it is about and a ring pulses on it; `sticky` keeps it until a tap (or 12 s).
 var _tip_sticky := false
@@ -4056,7 +4072,7 @@ func _start_tip(text: String, glyph: String, anchor: Vector2 = Vector2(INF, INF)
 	var tw := _tip.get_theme_font("font").get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, SZ_S).x
 	if lines == 1:
 		pw = minf(tw + (84.0 if glyph != "" else 0.0) + 90.0, pw)
-	var top_lim := Style.safe_top + 250.0
+	var top_lim := Style.safe_top + 340.0           # (under the star bar and its landing count)
 	var bot_lim := vp.y - Style.safe_bottom - 24.0
 	if anchor.x < 1.0e8:
 		var below := anchor.y < vp.y * 0.55

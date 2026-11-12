@@ -623,6 +623,26 @@ func _erase_everything() -> void:
 	close_reset_confirm()
 	Save.restart_clean()
 
+## Settings > Tips: the tips seen so far, to read again.
+var _tips_page: TipsPage = null
+
+func open_tips_page() -> void:
+	if _tips_page != null:
+		return
+	_tips_page = TipsPage.new()
+	hud.add_child(_tips_page)
+	_tips_page.build(Save.tips_seen, get_viewport().get_visible_rect().size, Style.safe_bottom)
+	_tips_page.closed.connect(close_tips_page)
+	hud.set_pause_layer(false)
+
+func close_tips_page() -> void:
+	if _tips_page == null:
+		return
+	_tips_page.queue_free()
+	_tips_page = null
+	if screen == SCREEN_PAUSE:
+		hud.set_pause_layer(true)
+
 ## Results: a tap on one of the extra rows (an achievement, a goal, a rank) opens its detail in a small popup over the results: nothing grows inline.
 var _row_popup: RowPopup = null
 
@@ -1105,6 +1125,11 @@ func _process(raw_delta: float) -> void:
 func step(delta: float) -> void:
 	if screen == SCREEN_PAUSE:
 		return
+	if _tut != null:
+		_tut.tick(delta)
+		if _tut != null and _tut.frozen:
+			hud.set_alert(false)
+			return          # (Day 1: time waits until the player has drawn the first path)
 	traffic.step(delta)
 	airfield.step_taxi(delta)
 	_tick_toasts(delta)
@@ -1302,6 +1327,8 @@ func _star_feedback(at: Vector2) -> void:
 
 ## A fine: coins come off the balance (it may go negative) with a red popup.
 func _apply_fine(amount: int, kind: String, label: String, world_at: Vector2) -> void:
+	if _tut != null:
+		return          # (Day 1 has no fines)
 	shift.fine(amount, kind)
 	sfx.play("fine")
 	hud.set_shift(shift)
@@ -1395,6 +1422,42 @@ var onboarding_gates := true             # the first shifts are held back (no st
 var _calm_shift := false
 var _tut = null                         # the Day 1 script while it runs (Tutorial.gd), else null
 var _tips_this_shift := 0
+
+## Day 1 is running, or its results and the first upgrade are still being walked through: then only Day 1's own tips show.
+func _day1_context() -> bool:
+	return _tut != null or (int(Save.stats.get("tutorial", 0)) == 1 and not Save.tips_seen.has("t_hold"))
+
+## Does a new player still need Day 1? (a fresh save at the Grass Strip, nothing played)
+func tutorial_needed() -> bool:
+	return onboarding_gates and int(Save.stats.get("tutorial", 0)) == 0 and Save.shifts_played == 0 and airport == 0 and not daily_mode and not bad_mode
+
+func start_tutorial() -> void:
+	daily_mode = false
+	bad_mode = false
+	select_airport(0)
+	restart()
+	_calm_shift = true
+	wind.countdown = 1.0e9
+	_tut = Tutorial.new()
+	_tut.begin(self)
+
+func skip_tutorial() -> void:
+	if _tut == null:
+		return
+	Save.stats["tutorial"] = 2
+	_tut = null
+	traffic.set_safe(false)
+	hud.set_tutorial_layer(0.0, PackedVector2Array(), -1.0, false)
+	Save.write_file()
+	restart()
+
+## Day 1's script has run: the shift ends early and the results follow (with the star and upgrade tips).
+func tutorial_finished() -> void:
+	Save.stats["tutorial"] = 1
+	_tut = null
+	traffic.set_safe(false)
+	hud.set_tutorial_layer(0.0, PackedVector2Array(), -1.0, false)
+	_end_shift()
 var _tip_plane: Aircraft = null
 
 ## Show a tip once: the first time the thing happens, as a small card next to it (a screen position, and the plane it follows if it is one). Not during Day 1
@@ -1404,7 +1467,7 @@ func try_tip(id: String, anchor: Vector2 = Vector2(INF, INF), plane: Aircraft = 
 	if not Tips.LIST.has(id) or Save.tips_seen.has(id):
 		return false
 	var day1 := id.begins_with("t_")
-	if (_tut != null) != day1:
+	if _day1_context() != day1:
 		return false
 	if not day1 and ((onboarding_gates and Save.shifts_played < Tips.after(id)) or _tips_this_shift >= Tips.MAX_PER_SHIFT or hud.tip_active()):
 		return false
@@ -1779,6 +1842,10 @@ func _show_results(doubled: bool) -> void:
 	hud.goal_rows = _extra_rows(true)
 	hud.goal_strip = last_result.get("goal", {})
 	toast_queue.clear()
+	if int(Save.stats.get("tutorial", 0)) == 1 and not Save.tips_seen.has("t_stars"):
+		var vpr := get_viewport().get_visible_rect().size
+		try_tip("t_stars", Vector2(vpr.x * 0.5, vpr.y * 0.30))
+		try_tip("t_upgrade", Vector2(vpr.x * 0.5, vpr.y * 0.58))
 	if not level_ups.is_empty():
 		try_tip("levelup")
 	if not last_result.get("unlocked", []).is_empty():
@@ -1858,9 +1925,12 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.index, event.position)
 
 func _touch_down(index: int, pos: Vector2) -> void:
-	if _reset_ui != null or _row_popup != null:
+	if _reset_ui != null or _row_popup != null or _tips_page != null:
 		return          # (a sheet is up over the screen: it takes the touches)
-	if hud.tip_sticky():
+	if _tut != null and screen == SCREEN_PLAY and hud.skip_hit(pos):
+		skip_tutorial()
+		return
+	if hud.tip_sticky() and not (_tut != null and _tut.step == 0):
 		hud.dismiss_tip()          # (a tap anywhere puts a tip card away; the tap still does its own job)
 	if _audio_hold and screen != SCREEN_PAUSE:
 		_release_audio()          # (back from the background, on a menu: any tap brings the sound back)
@@ -1960,6 +2030,11 @@ func _on_button(id: String) -> void:
 	elif id.begins_with("dtab:") or id == "imp_done":
 		detail_tab = int(id.substr(5)) if id != "imp_done" else 0
 		_show_detail()
+		if detail_tab == 1 and _day1_context():
+			var sheet = hud.detail_sheet()
+			var key := "imp:%d:hangar" % detail_airport
+			if sheet != null and sheet.chips.has(key):
+				try_tip("t_hold", (sheet.chips[key] as Control).get_global_rect().get_center())
 	elif id.begins_with("imp:"):
 		var sel := id.get_slice(":", 2)
 		imp_selected = "" if imp_selected == sel else sel          # (a tap on a row selects it: it shows what the next level changes)
@@ -1998,6 +2073,10 @@ func _on_button(id: String) -> void:
 		open_privacy_policy()
 	elif id == "reset":
 		open_reset_confirm()
+	elif id == "tips":
+		open_tips_page()
+	elif id == "replay":
+		start_tutorial()
 	elif id == "goals":
 		_show_goals()
 	elif id == "ach":
@@ -2341,6 +2420,9 @@ func _thresholds() -> Array:
 
 ## Start a shift, with an interstitial ad first if one is due (never in the middle of a shift).
 func begin_shift() -> void:
+	if tutorial_needed():
+		start_tutorial()
+		return
 	if Tuning.ad_sdk_present and int(Save.ads.get("since", 0)) >= Tuning.interstitial_every_shifts:
 		Save.ads["since"] = 0
 		show_ad("Between shifts: a short break", func(): restart(), SCREEN_MENU)
@@ -2418,6 +2500,12 @@ func debug_max_upgrades() -> void:
 
 func debug_force_wind() -> void:
 	wind.force_shift(-1.0, rng_env)
+
+## Dev menu preset: a brand-new save with the Day 1 tutorial on (the next Play starts it).
+func debug_fresh_tutorial() -> void:
+	onboarding_gates = true
+	debug_reset_save()
+	_show_menu()
 
 func debug_reset_save() -> void:
 	Save.reset_all()
@@ -2637,7 +2725,7 @@ func feed_drag(w: Vector2) -> void:
 		_cancel_drag()
 
 func _touch_up(index: int, pos: Vector2) -> void:
-	if _reset_ui != null or _row_popup != null:
+	if _reset_ui != null or _row_popup != null or _tips_page != null:
 		return
 	if _dt_touch.erase(index):
 		_dt_dist = _dt_fingers_dist()

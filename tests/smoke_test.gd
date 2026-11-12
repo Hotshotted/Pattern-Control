@@ -7051,6 +7051,69 @@ func _initialize() -> void:
 	main.traffic.release_all()
 	main.restart()
 
+	print("48. Day 1: the scripted first shift, played with scripted inputs to the end")
+	main.onboarding_gates = true
+	save.reset_all()
+	main.daily_mode = false
+	main.bad_mode = false
+	main.select_airport(0)
+	check(main.tutorial_needed(), "a fresh save at the Grass Strip needs Day 1")
+	main.begin_shift()
+	var d1 = main._tut
+	check(d1 != null and d1.frozen and d1.a != null and main.traffic.active_count() == 1, "Day 1 starts with plane 1 alone and time stopped")
+	var d1_p0 = d1.a.pos
+	for d1_i in 120:
+		main.step(1.0 / 60.0)
+	check(d1.a.pos == d1_p0 and d1.step == 0, "time waits until the player draws (the plane has not moved in 2 s)")
+	check(main.hud._tipart.tut_dim > 0.5 and main.hud._tipart.ghost_t >= 0.0 and main.hud.tip_active(), "the game is dimmed, the ghost finger draws, and 'Drag a path to the runway.' is up")
+	check(main.hud._tipart.skip_rect.size.x > 0.0, "a Skip button is there for returning players")
+	var d1_route = func(p) -> void:
+		var thr = Airports.end_threshold(0, d1._into_wind_end())
+		main.traffic.begin_path(p)
+		var from = p.pos
+		var n = maxi(ceili(from.distance_to(thr) / 0.2), 1)
+		for k in range(1, n + 1):
+			var w = from.lerp(thr, float(k) / float(n))
+			if main.traffic.extend_path(p, w, w):
+				break
+		main.traffic.end_path(p, thr)
+	d1_route.call(d1.a)
+	main.step(1.0 / 60.0)
+	check(d1.a.cleared and d1.step == 1 and not d1.frozen, "drawing the path clears it and time runs again")
+	var d1_steps = 0
+	while main._tut != null and d1_steps < 12000:
+		for d1_pl in main.traffic.planes:
+			if d1_pl.active() and not d1_pl.cleared and d1_pl.state == Aircraft.State.FLY and d1_pl.entered:
+				d1_route.call(d1_pl)
+		main.step(1.0 / 60.0)
+		d1_steps += 1
+	check(main._tut == null and main.screen == main.SCREEN_OVER, "the script runs to the end by itself and the results come up (%d steps)" % d1_steps)
+	check(main.shift.fines == 0 and main.shift.landed >= 5 and main.shift.stars() >= 2, "no fines, five or six landings, and a decent result guaranteed (%d landed, %d stars)" % [main.shift.landed, main.shift.stars()])
+	check(save.tips_seen.has("t_draw") and save.tips_seen.has("t_land") and save.tips_seen.has("t_apart") and save.tips_seen.has("t_stars") and int(save.stats.get("tutorial", 0)) == 1, "its tips were each shown once and Day 1 is marked done")
+	check(not main.tutorial_needed(), "Day 1 does not come again")
+	# a returning player can skip it
+	save.reset_all()
+	main.select_airport(0)
+	main.start_tutorial()
+	check(main._tut != null, "(Day 1 again)")
+	main.hud._tipart.skip_rect = main.hud._tipart.skip_rect
+	main.skip_tutorial()
+	check(main._tut == null and int(save.stats.get("tutorial", 0)) == 2 and main.screen == main.SCREEN_PLAY and main.hud._tipart.skip_rect.size.x == 0.0, "Skip leaves Day 1 for a normal shift and remembers it")
+	# the first three shifts: no students, a steady wind
+	main.restart()
+	check(main.traffic.students_allowed == false and main._calm_shift, "the first three shifts have no students and a steady wind")
+	save.shifts_played = 3
+	main.restart()
+	check(main.traffic.students_allowed and not main._calm_shift, "...and from the fourth they may")
+	save.coins = 500
+	main.debug_fresh_tutorial()
+	check(save.coins == 0 and main.tutorial_needed(), "the dev menu's 'Fresh start, tutorial on' gives a new save that needs Day 1")
+	var tp_f = main.get("tune_panel")
+	check(Tips.seen_ids({"t_draw": true, "wind": true}).size() == 2 and Tips.LIST.size() >= 25, "the Tips page lists the tips seen (%d tips exist)" % Tips.LIST.size())
+	save.reset_all()
+	main.onboarding_gates = false
+	main.restart()
+
 	print("38. Layout: tap areas, no stacking on the results card and the pause sheet, the detail sheet's pinned button")
 	save.reset_all()
 	save.unlocks["all_airports"] = true
