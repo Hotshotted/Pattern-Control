@@ -41,6 +41,7 @@ var clouds: CloudShadows
 @onready var hud: Hud = $Hud
 
 var tune_panel: TunePanel
+var dev_menu: DevMenu                  # the hidden dev menu (only ever created with ?dev, or after five taps on the build stamp)
 var screen := SCREEN_MENU
 var alive := false
 var airport := 0                      # the airport being played
@@ -197,6 +198,8 @@ func _ready() -> void:
 		add_child(tune_panel)
 		tune_panel.build()
 		tune_panel.changed.connect(func(_p: String): pass)
+	if DebugFlags.dev_enabled():
+		_ensure_dev_menu()
 	if not _warmed:
 		_warmed = true
 		if DebugFlags.prewarm_enabled():
@@ -205,6 +208,8 @@ func _ready() -> void:
 		_boot_to_menu()
 	if not _warming and tune_panel:
 		tune_panel.set_available(true)
+	if not _warming and dev_menu:
+		dev_menu.set_available(true)
 
 ## While the menu (or any screen but a shift) is up, the airports that are not built yet are built in the background (unlocked ones
 ## first): once the screen has been up for IDLE_BUILD_AFTER_MS, one airport at a time, a few statements between frames, never more than
@@ -370,6 +375,8 @@ func _prewarm() -> void:
 	if tune_panel:
 		tune_panel.prewarm_show(false)
 		tune_panel.set_available(true)
+	if dev_menu:
+		dev_menu.set_available(true)
 	_warming = false
 	Boot.mark("prewarm: finished")
 	_boot_to_menu()
@@ -495,6 +502,7 @@ func restart() -> void:
 		hud.post_banner("No engines: no go-arounds, \u00d7%s pay" % str(snappedf(Tuning.no_engines_pay_mult, 0.1)), Color(1.0, 0.8, 0.3), "glider", 3.4)
 	hud.set_wind(wind.from_deg, wind.toward_deg())
 	hud.set_shift(shift)
+	_apply_dev_scenario()
 
 ## What the daily goals need to know about the player: the open airports, what they spawn, their weather, ordinary shift sizes.
 func goals_ctx(ap: int = -1) -> Dictionary:
@@ -870,6 +878,7 @@ func tally_active() -> bool:
 	return _tally != null
 
 func _show_menu() -> void:
+	_log("menu")
 	preview_kind = ""
 	Boot.mark("menu shown")
 	if _menu_first_ms == 0:
@@ -910,6 +919,11 @@ var _paused_total_ms := 0
 func _note_event(what: String) -> void:
 	_event = what
 	_event_frame = Engine.get_process_frames()
+	_log(what)
+
+## One line in the report's event log (Report.gd): the shift's clock when a shift is on.
+func _log(what: String) -> void:
+	Report.log_event(what, traffic.run_time if (screen == SCREEN_PLAY or screen == SCREEN_PAUSE) and traffic != null else -1.0)
 
 func _frame_delta(raw: float) -> float:
 	var used := 0.0
@@ -1120,6 +1134,12 @@ func _process(raw_delta: float) -> void:
 	sim_time += delta
 	elapsed += delta
 	step(delta)
+	for k in Dev.speed - 1:        # (dev menu: game speed x2 / x4 runs more steps of the same size, never one big one)
+		if screen != SCREEN_PLAY or not alive:
+			break
+		sim_time += delta
+		elapsed += delta
+		step(delta)
 
 ## One simulation step (the tests call this directly). A paused shift does not advance.
 func step(delta: float) -> void:
@@ -1131,6 +1151,9 @@ func step(delta: float) -> void:
 			hud.set_alert(false)
 			_update_audio(0.0)
 			return          # (Day 1: time waits until the player has drawn the first path)
+	if _dev_weather_t >= 0.0 and traffic.run_time >= _dev_weather_t:
+		_dev_weather_t = -1.0
+		trigger_weather(_dev_weather_kind)
 	traffic.step(delta)
 	airfield.step_taxi(delta)
 	_tick_toasts(delta)
@@ -1246,6 +1269,7 @@ func _on_landed(p: Aircraft) -> void:
 	if not alive:
 		return
 	score += 1
+	_log("landed #%d %s%s" % [score, "student " if p.student else "", Aircraft.Type.keys()[p.type].to_lower()])
 	var vip_paid := p.vip and p.vip_ok
 	var base := Tuning.landing_pay(p.type)
 	if no_engines:
@@ -1331,6 +1355,7 @@ func _apply_fine(amount: int, kind: String, label: String, world_at: Vector2) ->
 	if _tut != null:
 		return          # (Day 1 has no fines)
 	shift.fine(amount, kind)
+	_log("fine %d (%s)" % [amount, label])
 	sfx.play("fine")
 	hud.set_shift(shift)
 	# A fine is a quiet marker, not coins coming off the total: the reason in plain words, and a small ticket that pops at the plane and drops
@@ -1354,6 +1379,7 @@ func _on_crashed(p: Aircraft, kind: int) -> void:
 ## A go-around: the aircraft climbs out along the runway heading and needs a new path (it keeps its timer).
 func _on_go_around(p: Aircraft, reason: int) -> void:
 	var why := Approach.reason_text(reason)
+	_log("go-around%s" % ((": " + why) if why != "" else ""))
 	goal_go_arounds += 1
 	goal_locked_run = 0
 	sfx.play("go_around")
@@ -1517,6 +1543,7 @@ func _on_wind_warned(next_deg: float) -> void:
 
 ## The wind changed: the active ends change, and aircraft cleared for a closed end must be re-routed.
 func _on_wind_shifted() -> void:
+	_log("wind now from %s" % Wind.label(wind.from_deg))
 	hud.set_wind_warning(0.0, -1)
 	hud.set_wind(wind.from_deg, wind.toward_deg())
 	airfield.show_active(wind)
@@ -1533,6 +1560,7 @@ func _on_weather_warned(_kind: String, text: String) -> void:
 	hud.popup(text, Color(1.0, 0.85, 0.4), Vector2(get_viewport().get_visible_rect().size.x * 0.5, get_viewport().get_visible_rect().size.y * 0.4))
 
 func _on_weather_started(kind: String) -> void:
+	_log("weather started: " + kind)
 	traffic.event_active = true
 	goal_weather = true
 	match kind:
@@ -1633,6 +1661,7 @@ func _end_shift() -> void:
 	else:
 		shift.set_overtime(t_end - Tuning.par_eff(), int(Tuning.overtime_penalty_per_second))
 	_stinger_later("clear_sky" if shift.balance() >= 0 else "fine")
+	_log("shift over: %d landed, %d stars, net %d" % [shift.landed, shift.stars(), shift.balance()])
 	var gained := _settle()
 	_goal_event({"t": "shift", "ap": airport, "landed": shift.landed, "go_arounds": goal_go_arounds, "fines": shift.fines, "stars": shift.stars(), "net": shift.balance(), "hangar_full": shift.landed >= Ramp.star_landings(), "locked_run": goal_max_locked, "weather": goal_weather, "bad": bad_mode})
 	if progress_enabled:
@@ -1866,6 +1895,7 @@ func pause_game() -> void:
 		return
 	sfx.play("tap")
 	screen = SCREEN_PAUSE
+	_log("paused")
 	_pause_since_ms = Time.get_ticks_msec()
 	_cancel_drag()
 	hud.show_pause(Save.sound_volume, Save.music_volume, Save.ambience_volume)
@@ -1907,7 +1937,7 @@ func _input(event: InputEvent) -> void:
 	if not (event is InputEventScreenTouch or event is InputEventScreenDrag):
 		return
 	# A touch on the tuning panel's TUNE button belongs to the button, not the game.
-	if TunePanel.button_hit(event.position):
+	if TunePanel.button_hit(event.position) or DevMenu.button_hit(event.position):
 		return
 	if not _haptic_warmed:
 		_haptic_warmed = true
@@ -1926,6 +1956,8 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.index, event.position)
 
 func _touch_down(index: int, pos: Vector2) -> void:
+	if _dev_tap_check(pos):
+		return
 	if _reset_ui != null or _row_popup != null or _tips_page != null:
 		return          # (a sheet is up over the screen: it takes the touches)
 	if _tut != null and screen == SCREEN_PLAY and hud.skip_hit(pos):
@@ -2078,6 +2110,8 @@ func _on_button(id: String) -> void:
 		open_tips_page()
 	elif id == "replay":
 		start_tutorial()
+	elif id == "report":
+		send_report()
 	elif id == "goals":
 		_show_goals()
 	elif id == "ach":
@@ -2179,6 +2213,7 @@ func _tick_imp_hold(delta: float) -> void:
 func buy_improvement(airport_i: int, id: String) -> bool:
 	if not Save.buy_improvement(airport_i, id):
 		return false
+	_log("bought %s level %d at %s" % [id, Save.imp_level(airport_i, id), Airports.airport_name(airport_i)])
 	airfield.show_upgrades(true)
 	sfx.play("buy")
 	hud.flash(Color(0.4, 1.0, 0.6))
@@ -2197,6 +2232,7 @@ func buy_improvement(airport_i: int, id: String) -> bool:
 func buy_upgrade(id: String) -> bool:
 	if not Save.buy_upgrade(id):
 		return false
+	_log("bought tower %s, level %d" % [id, Save.upgrade_level(id)])
 	airfield.show_upgrades()
 	hud.flash(Color(0.4, 1.0, 0.6))
 	var vp := get_viewport().get_visible_rect().size
@@ -2482,6 +2518,233 @@ func _double_coins() -> void:
 	Save.write_file()
 	last_result["coins"] *= 2
 	_show_results(true)
+
+
+# ---------- Report a problem (pause menu, everyone) ----------
+
+## What the report's text block needs from the game.
+func report_context() -> Dictionary:
+	var where := ["menu", "play", "results", "pause", "upgrades", "shop", "select", "detail", "ad"]
+	var sh := ""
+	if screen == SCREEN_PLAY or screen == SCREEN_PAUSE or screen == SCREEN_OVER:
+		sh = "%s%s%s, %.0f s in, %d landed, net %d, %d fine(s)" % [
+			"Bad Pilot Day " if bad_mode else ("daily " if daily_mode else ""), "No engines " if no_engines else "", Airports.airport_name(airport), traffic.run_time, shift.landed, shift.balance(), shift.tickets]
+	return {"renderer": RenderingServer.get_video_adapter_name(), "screen_size": "%dx%d" % [int(get_viewport().get_visible_rect().size.x), int(get_viewport().get_visible_rect().size.y)],
+		"airport": Airports.airport_name(airport), "level": Save.ap_level(airport), "coins": Save.coins, "shifts": Save.shifts_played, "stars": Save.stars_total(),
+		"where": str(where[clampi(screen, 0, where.size() - 1)]) if screen < where.size() else str(screen), "shift": sh}
+
+var _pause_note_timer: SceneTreeTimer = null
+
+## The pause menu's "Report a problem": copy the block, save the screenshot, say so in the pause title for a moment.
+func send_report() -> void:
+	_log("report sent")
+	var text := Report.send(get_viewport(), report_context())
+	hud.set_pause_note("REPORT COPIED\nPaste it in a message")
+	sfx.play("buy")
+	_pause_note_timer = get_tree().create_timer(2.6, true, false, true)
+	_pause_note_timer.timeout.connect(func() -> void: hud.set_pause_note(""))
+	if DebugFlags.perf_enabled():
+		print(text)
+
+# ---------- Dev menu (hidden: ?dev or five taps on the build stamp) ----------
+
+func _ensure_dev_menu() -> void:
+	if dev_menu != null:
+		return
+	dev_menu = DevMenu.new()
+	dev_menu.main = self
+	add_child(dev_menu)
+
+var _vt_taps := 0
+var _vt_last_ms := 0
+
+## Five quick taps on the build stamp (the "build abc1234" tag on the menu and the pause screen, or the debug stamp) open the dev menu in any build.
+func _dev_tap_check(pos: Vector2) -> bool:
+	if _warming or hud == null or not hud.version_tag_hit(pos):
+		return false
+	var now := Time.get_ticks_msec()
+	_vt_taps = _vt_taps + 1 if now - _vt_last_ms < 900 else 1
+	_vt_last_ms = now
+	if _vt_taps >= 5:
+		_vt_taps = 0
+		Dev.unlocked = true
+		_ensure_dev_menu()
+		dev_menu.set_available(true)
+		dev_menu.open()
+		return true
+	return false
+
+## After the save was changed from outside the game's own flow (a preset, an import, a level): everything that shows it is brought up to date.
+func dev_refresh() -> void:
+	_tut = null
+	traffic.set_safe(false)
+	hud.set_tutorial_layer(0.0, PackedVector2Array(), -1.0, false)
+	alive = false
+	daily_mode = false
+	bad_mode = false
+	Save.sync_levels()
+	airport = clampi(Save.selected_airport, 0, Airports.COUNT - 1)
+	if not Save.airport_open(airport):
+		airport = 0
+		Save.selected_airport = 0
+	Airports.current = airport
+	apply_cosmetics()
+	airfield.show_upgrades(true)
+	airfield.select(airport)
+	airfield.show_active(wind)
+	_offline = {"total": 0}
+	_show_menu()
+
+func dev_refresh_coins() -> void:
+	if screen == SCREEN_MENU:
+		_show_menu()
+
+## "Fresh start" without opening the Tune panel's path: a new save with Day 1 on.
+func debug_fresh_tutorial_quiet() -> void:
+	onboarding_gates = true
+	debug_reset_save()
+	dev_refresh()
+
+## The welcome-back screen for the pretended absence.
+func dev_offline_now() -> void:
+	_offline = _offline_now()
+	if screen != SCREEN_MENU:
+		_show_menu()
+	elif int(_offline.get("total", 0)) > 0:
+		_maybe_tally()
+
+func dev_new_day() -> void:
+	Save.write_file()
+	if screen == SCREEN_MENU:
+		_show_menu()
+
+## Start a shift at sc["airport"] with the conditions in `sc` (DevMenu.scenario). Returns a line saying what was set.
+func dev_start(sc: Dictionary) -> String:
+	if not Save.airport_open(int(sc.get("airport", 0))):
+		Dev.unlock_all_airports()
+	_tut = null
+	Dev.event_override = str(sc.get("event", ""))
+	Save.sync_event()
+	Dev.scenario = sc
+	daily_mode = false
+	bad_mode = false
+	var ap := clampi(int(sc.get("airport", 0)), 0, Airports.COUNT - 1)
+	airport = ap
+	select_airport(ap)
+	Airports.current = airport
+	airfield.select(airport)
+	if bool(sc.get("bad", false)):
+		daily_mode = true
+		bad_mode = true
+	force_no_engines = bool(sc.get("no_engines", false))
+	restart()
+	force_no_engines = false
+	return "Shift started at %s: %s" % [Airports.airport_name(ap), _scenario_text(sc)]
+
+func _scenario_text(sc: Dictionary) -> String:
+	var parts: Array[String] = []
+	if bool(sc.get("student20", false)):
+		parts.append("student at 3 s")
+	if str(sc.get("wind", "")) != "":
+		parts.append("wind " + str(sc["wind"]) + " (from " + Wind.label(wind.from_deg) + ")")
+	if str(sc.get("weather", "")) != "":
+		parts.append(str(sc["weather"]) + " at 3 s")
+	if bool(sc.get("bad", false)):
+		parts.append("Bad Pilot Day")
+	if bool(sc.get("no_engines", false)):
+		parts.append("no engines")
+	if str(sc.get("event", "")) != "":
+		parts.append("event " + str(sc["event"]))
+	if bool(sc.get("heavy", false)):
+		parts.append("heavy traffic")
+	if bool(sc.get("hangar", false)):
+		parts.append("near-full hangar")
+	return ", ".join(parts) if not parts.is_empty() else "no forced condition"
+
+var _dev_weather_t := -1.0
+var _dev_weather_kind := ""
+
+## Read and clear Dev.scenario at the end of restart().
+func _apply_dev_scenario() -> void:
+	var sc := Dev.scenario
+	Dev.scenario = {}
+	_dev_weather_t = -1.0
+	traffic.dev_spawn_mult = 1.0
+	traffic.dev_student_t = -1.0
+	if sc.is_empty():
+		return
+	_log("dev scenario: " + _scenario_text(sc))
+	if bool(sc.get("student20", false)):
+		traffic.students_allowed = true
+		traffic.dev_student_t = 3.0
+	if bool(sc.get("student20", false)) and str(sc.get("wind", "")) == "":          # (a student needs a legal end: if the random wind leaves none, the wind is made calm)
+		var best_off := 999.0
+		for r in Airports.rw_count():
+			for e in 2:
+				if wind.is_active(r, e):
+					best_off = minf(best_off, Airports.angle_diff(Airports.end_heading_deg(r, e), wind.from_deg))
+		if best_off > Tuning.student_wind_deg:
+			sc["wind"] = "calm"
+	var wd := Dev.forced_wind_deg(str(sc.get("wind", "")))
+	if wd >= 0.0:
+		wind.from_deg = wd
+		wind.next_deg = wd
+		wind.warning = false
+		wind.countdown = 1.0e9
+		wind.refresh()
+		_last_wind_deg = wd
+		airfield.show_active(wind)
+		hud.set_wind(wind.from_deg, wind.toward_deg())
+	if str(sc.get("weather", "")) != "":
+		_calm_shift = false
+		_dev_weather_t = 3.0
+		_dev_weather_kind = str(sc["weather"])
+	if bool(sc.get("heavy", false)):
+		traffic.dev_spawn_mult = 0.4
+	if bool(sc.get("hangar", false)):
+		_dev_fill_hangar(2)
+
+## Park planes until the hangar is `left` landings from full (bookkeeping: the parked planes' pictures come with the next landings).
+func _dev_fill_hangar(left: int) -> void:
+	var n := maxi(Ramp.star_landings() - left, 0)
+	var base := Tuning.landing_pay(Aircraft.Type.SMALL)
+	for i in n:
+		airfield.ramp.place(Aircraft.Type.SMALL)
+		shift.on_landed(Aircraft.Type.SMALL, base, 0)
+	shift.just_stars = 0
+	score = n
+	hud.set_landed(score, false)
+	hud.set_shift(shift)
+
+## Dev menu: end the shift now with a chosen score (starting one at the scenario's airport from a menu).
+func dev_skip_shift(score_id: String, sc: Dictionary) -> String:
+	var spec: Array = []
+	for d in Dev.SCORES:
+		if d[0] == score_id:
+			spec = d
+	if spec.is_empty():
+		return "Unknown score."
+	if screen != SCREEN_PLAY and screen != SCREEN_PAUSE:
+		dev_start(sc)
+	elif screen == SCREEN_PAUSE:
+		resume_game()
+	var stars_want: int = spec[3]
+	var th := _thresholds()
+	var n := roundi(float(th[0]) * float(spec[2]))
+	n = maxi(n, th[0]) if stars_want >= 1 else mini(n, maxi(th[0] - 1, 0))
+	shift.reset(th, Tuning.landing_keep_fraction)
+	var base := Tuning.landing_pay(Aircraft.Type.SMALL)
+	for i in n:
+		shift.on_landed(Aircraft.Type.SMALL, base, 0)
+	if stars_want >= 2:
+		var need: int = th[stars_want - 1]
+		if shift.balance() < need:
+			shift.bonus += need - shift.balance()
+	score = n
+	traffic.release_all()
+	traffic.run_time = Tuning.spawn_stop_eff() + 6.0
+	_end_shift()
+	return "Skipped to the results: %d landed, %d stars, %d coins." % [shift.landed, shift.stars(), int(last_result.get("coins", 0))]
 
 ## ---- Debug (?tune) ----
 

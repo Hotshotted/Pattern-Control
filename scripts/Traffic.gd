@@ -92,6 +92,9 @@ var students_allowed := true            # (false in the first three shifts: nobo
 var demote_students := true             # (tests switch it off to hold a student in a wind that leaves it no end)
 var all_students := false               # Bad Pilot Day: every aircraft is a student pilot
 var no_engines := false                 # the "No engines" challenge: nobody can go around (a busy runway or a missed approach is a crash)
+var dev_spawn_mult := 1.0               # (dev menu) < 1: arrivals come faster
+var dev_student_t := -1.0              # (dev menu) run time at which a student is sent (-1: none)
+var _dev_force_student := false
 var grace_until := 0.0                  # run time until which conflicts are ignored (after an ad-continue)
 var _body_mats: Array[StandardMaterial3D] = []
 var _wing_mats: Array[StandardMaterial3D] = []
@@ -484,7 +487,7 @@ func spawn(force_type: int = -1) -> Aircraft:
 			p.entry = entry
 			make_special(p, emergency, vip)
 			if not emergency:
-				p.student = all_students or (not vip and p.tkind == Aircraft.Kind.RUNWAY and type != Aircraft.Type.GLIDER and _draws[31] < Tuning.student_chance and students_allowed and student_has_legal_end(p))       # (no legal end in this wind: an ordinary pilot)
+				p.student = all_students or (_dev_force_student and p.tkind == Aircraft.Kind.RUNWAY and student_has_legal_end(p)) or (not vip and p.tkind == Aircraft.Kind.RUNWAY and type != Aircraft.Type.GLIDER and _draws[31] < Tuning.student_chance and students_allowed and student_has_legal_end(p))       # (no legal end in this wind: an ordinary pilot)
 			spawned.emit(p)
 		return p
 	return null
@@ -920,6 +923,11 @@ func release_all() -> void:
 func step(delta: float) -> void:
 	run_time += delta
 	_dt = delta
+	if dev_student_t >= 0.0 and auto_spawn and run_time >= dev_student_t:
+		_dev_force_student = true
+		var sp0 := spawn(Aircraft.Type.SMALL)
+		_dev_force_student = false
+		dev_student_t = -1.0 if sp0 != null else run_time + 0.5
 	if auto_spawn and run_time < spawn_until:
 		var quiet := false
 		if _beat < beats.size():
@@ -935,7 +943,7 @@ func step(delta: float) -> void:
 			_spawn_timer -= delta
 			if _spawn_timer <= 0.0:
 				if active_count() < mini(Tuning.max_planes_eff(), pool_n) and spawn() != null:
-					_spawn_timer = Tuning.spawn_interval(run_time) * Tuning.traffic_spawn_mult() * rng.randf_range(0.75, 1.25)
+					_spawn_timer = Tuning.spawn_interval(run_time) * Tuning.traffic_spawn_mult() * dev_spawn_mult * rng.randf_range(0.75, 1.25)
 				else:
 					_spawn_timer = 0.25
 	if wind != null and not all_students and demote_students:           # a student that has no legal end any more (the wind shifted before it was cleared) becomes an ordinary pilot

@@ -70,6 +70,11 @@ func wipe_everything() -> void:
 		DirAccess.remove_absolute(path)
 	write_file()
 
+## A new game in memory and on disk, without the page restarting (the dev menu's presets start from this).
+func wipe_everything_quiet() -> void:
+	_defaults()
+	write_file()
+
 ## After a wipe: on the web the page loads again (without ?reset), so nothing of the old game is still running; elsewhere the scene starts over.
 ## (The short wait lets the browser finish writing its storage first.)
 func restart_clean() -> void:
@@ -134,6 +139,11 @@ func load_file() -> void:
 	var data = JSON.parse_string(f.get_as_text())
 	if not (data is Dictionary):
 		return
+	apply_data(data)
+
+## Fill every field from a save dictionary (the file's, or an imported code's): missing fields take their defaults, older versions migrate.
+func apply_data(data: Dictionary) -> void:
+	_defaults()
 	var version := int(data.get("version", 1))
 	if version < 2:
 		best[0] = int(data.get("best", 0))   # version 1: a single best score, kept for the first airport
@@ -201,12 +211,49 @@ func _dict(v) -> Dictionary:
 func write_file() -> void:
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f != null:
-		f.store_string(JSON.stringify({
-			"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
-			"upgrades": upgrades, "improvements": improvements, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
-			"bad_day": bad_day, "goals": goals_all, "last_seen": last_seen, "event": event, "streak": goal_streak, "mastery": Array(mastery), "mastery_paid": Array(mastery_paid), "ap_xp": Array(ap_xp), "ap_half": Array(ap_half), "stats": stats, "achievements": achievements, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
-			"sound_volume": sound_volume, "music_volume": music_volume, "ambience_volume": ambience_volume,
-		}))
+		f.store_string(JSON.stringify(to_dict()))
+
+## The whole save as a dictionary (what the file holds).
+func to_dict() -> Dictionary:
+	return {
+		"version": VERSION, "coins": coins, "stars": Array(stars), "best": Array(best), "best_coins": Array(best_coins),
+		"upgrades": upgrades, "improvements": improvements, "unlocks": unlocks, "equipped": equipped, "tips_seen": tips_seen,
+		"bad_day": bad_day, "goals": goals_all, "last_seen": last_seen, "event": event, "streak": goal_streak, "mastery": Array(mastery), "mastery_paid": Array(mastery_paid), "ap_xp": Array(ap_xp), "ap_half": Array(ap_half), "stats": stats, "achievements": achievements, "shifts_played": shifts_played, "airport_plays": Array(airport_plays), "no_engines_at": Array(no_engines_at), "no_engines_bad": no_engines_bad, "selected_airport": selected_airport, "ads": ads,
+		"sound_volume": sound_volume, "music_volume": music_volume, "ambience_volume": ambience_volume,
+	}
+
+const CODE_PREFIX := "PW1."
+
+## The save as a short text code (deflated JSON in base64, "PW1." first) a tester can paste into a message.
+func export_code() -> String:
+	var raw := JSON.stringify(to_dict()).to_utf8_buffer()
+	var packed := raw.compress(FileAccess.COMPRESSION_DEFLATE)
+	return CODE_PREFIX + str(raw.size()) + "." + Marshalls.raw_to_base64(packed).replace("+", "-").replace("/", "_").rstrip("=")
+
+## Read a code made by export_code (spaces and line breaks are ignored). Returns "" when it worked, else what is wrong; a bad code changes nothing.
+func import_code(code: String) -> String:
+	var c := code.strip_edges().replace("\n", "").replace("\r", "").replace(" ", "")
+	if not c.begins_with(CODE_PREFIX):
+		return "Not a save code (it starts with PW1.)"
+	var parts := c.substr(CODE_PREFIX.length()).split(".", false)
+	if parts.size() != 2 or not parts[0].is_valid_int():
+		return "The code is cut short or damaged."
+	var b64: String = String(parts[1]).replace("-", "+").replace("_", "/")
+	while b64.length() % 4 != 0:
+		b64 += "="
+	var packed := Marshalls.base64_to_raw(b64)
+	var size := int(parts[0])
+	if packed.is_empty() or size <= 0 or size > 4000000:
+		return "The code is cut short or damaged."
+	var raw := packed.decompress(size, FileAccess.COMPRESSION_DEFLATE)
+	if raw.size() != size:
+		return "The code is cut short or damaged."
+	var data = JSON.parse_string(raw.get_string_from_utf8())
+	if not (data is Dictionary) or not (data as Dictionary).has("coins"):
+		return "The code does not hold a save."
+	apply_data(data)
+	write_file()
+	return ""
 
 # ---------- Stars ----------
 
@@ -242,6 +289,10 @@ func event_add_shift(stars: int, unit: int) -> Array:
 ## Tell the airports which event is on (the traffic, the pay and the weather follow it).
 func sync_event() -> void:
 	Airports.event = Rhythm.event_for_week(Rhythm.week_of(today())) if event_modifiers else {}
+	if Dev.event_override != "":          # (the dev menu forces an event on)
+		for e in Rhythm.EVENTS:
+			if e["id"] == Dev.event_override:
+				Airports.event = e
 
 # ---------- Offline income ----------
 

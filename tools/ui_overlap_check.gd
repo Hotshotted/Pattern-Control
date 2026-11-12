@@ -1380,6 +1380,83 @@ func _states_misc() -> void:
 	dev_tp.close()
 	dev_tp.queue_free()
 	await _frames_ui(2)
+	# the dev menu itself (?dev / five taps on the build stamp): its four tabs, pictured at every size and measured at 390 x 844
+	var dev_dm = load("res://scripts/DevMenu.gd").new()
+	dev_dm.main = main
+	main.add_child(dev_dm)
+	dev_dm.open()
+	for dt in dev_dm.TABS.size():
+		dev_dm.set_tab(dt)
+		await _frames_ui(6)
+		var dev_name := "dev menu, tab %s" % str(dev_dm.TABS[dt]).to_lower()
+		_note_state(dev_name, [])
+		if cur_size["name"] == "390x844":
+			state_count += 1
+			_measure_dev_menu(dev_dm, dev_name)
+		if out_dir != "":
+			await _shot(dev_name, [])
+	dev_dm.close()
+	dev_dm.queue_free()
+	await _frames_ui(2)
+
+## The dev menu's controls, measured the way the player screens are (at 390 x 844 only): every button and label inside the screen's width, no two
+## buttons on top of each other, every button's text inside it, every button a finger tall (44 points).
+func _measure_dev_menu(dm: Node, name: String) -> void:
+	var scroll_rect: Rect2 = dm._scroll.get_global_rect()
+	var items: Array = []
+	var stack: Array = [dm._panel]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+		if not (n is Button or n is Label) or not (n as Control).is_visible_in_tree():
+			continue
+		var r: Rect2 = (n as Control).get_global_rect()
+		if r.size.x < 2.0 or r.size.y < 2.0:
+			continue
+		var in_scroll: bool = dm._scroll.is_ancestor_of(n)
+		if in_scroll:
+			r = r.intersection(scroll_rect)
+			if r.size.y < (n as Control).size.y * 0.6:
+				continue          # (mostly scrolled out of sight)
+		items.append([n, r])
+	var bad := []
+	for it in items:
+		var n: Control = it[0]
+		var r: Rect2 = it[1]
+		var kind := "button" if n is Button else "text"
+		var label := str((n as Button).text if n is Button else (n as Label).text)
+		if r.position.x < -0.5 or r.end.x > vp.x + 0.5:
+			bad.append(["clipped", it, "%s '%s' leaves the screen sideways" % [kind, label.left(24)]])
+		if n is Button:
+			var b := n as Button
+			var f: Font = b.get_theme_font("font")
+			var fs := b.get_theme_font_size("font_size")
+			var w := f.get_string_size(b.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			if w > b.size.x - 12.0:
+				bad.append(["clipped", it, "button '%s' needs %d units, has %d" % [label.left(24), w, b.size.x - 12.0]])
+			if b.size.y < Style.tap_px() - 1.0:
+				bad.append(["tap", it, "button '%s' is %d units tall, a finger is %d" % [label.left(24), b.size.y, Style.tap_px()]])
+		elif n is Label and (n as Label).autowrap_mode == TextServer.AUTOWRAP_OFF:
+			var lb := n as Label
+			var lf: Font = lb.get_theme_font("font")
+			var lw := lf.get_string_size(lb.text, HORIZONTAL_ALIGNMENT_LEFT, -1, lb.get_theme_font_size("font_size")).x
+			if lw > lb.size.x + 1.0 and lb.text != "":
+				bad.append(["clipped", it, "text '%s' needs %d units, has %d" % [label.left(24), lw, lb.size.x]])
+	for i in items.size():
+		if not (items[i][0] is Button):
+			continue
+		for j in range(i + 1, items.size()):
+			if not (items[j][0] is Button):
+				continue
+			var inter: Rect2 = (items[i][1] as Rect2).intersection(items[j][1])
+			if inter.size.x > 2.0 and inter.size.y > 2.0:
+				bad.append(["overlap", items[i], "buttons '%s' and '%s' overlap" % [str((items[i][0] as Button).text).left(20), str((items[j][0] as Button).text).left(20)]])
+	if not quiet:
+		print("  %-44s %d controls measured  %s" % [name, items.size(), "ok" if bad.is_empty() else "%d PROBLEM(S)" % bad.size()])
+	for b in bad:
+		var it2: Array = b[1]
+		problems.append({"size": cur_size["name"], "screen": name, "type": b[0], "a": {"k": "text", "id": "", "text": str((it2[0] as Control).name), "rect": it2[1], "inter": b[0] == "tap"}, "b": null, "detail": b[2]})
 
 ## The boot splash (the studio mark and a progress bar over the start-up pre-warm) is drawn by a class of its own, centred and at fixed
 ## sizes: check by measuring that its wordmark and bar fit the screen, with room to spare.

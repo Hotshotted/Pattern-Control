@@ -2763,6 +2763,18 @@ func _build_pause() -> void:
 	_version_tag(_pause)
 	_pause.visible = false
 
+## True if `pos` is on a build stamp (the "build abc1234" tag on the menu and the pause screen, or the debug stamp): five taps there open the dev menu.
+func version_tag_hit(pos: Vector2) -> bool:
+	for vt in _version_tags:
+		if is_instance_valid(vt) and vt.is_visible_in_tree() and vt.get_global_rect().grow(24.0).has_point(pos):
+			return true
+	return _stamp != null and _stamp.visible and _stamp.get_global_rect().grow(24.0).has_point(pos)
+
+## The pause title says something for a moment ("" puts PAUSED back).
+func set_pause_note(text: String) -> void:
+	if _pause_title != null:
+		_pause_title.text = "PAUSED" if text == "" else text
+
 ## The reset sheet covers the pause menu: its title and shade step aside while it is up.
 func set_pause_layer(on: bool) -> void:
 	if _pause != null:
@@ -2785,7 +2797,8 @@ func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 		var tap := Style.tap_px()
 		var dy := maxf(130.0, tap + 16.0)
 		var card_h := 80.0 + 2.0 * dy + 80.0 + 50.0
-		var total := 170.0 + 230.0 + 40.0 + card_h + 30.0 + 260.0 + 40.0 + 96.0 + 30.0 + 96.0
+		var gh := maxf(96.0, tap)         # (a settings button is at least a finger tall; the rows are a gap apart)
+		var total := 170.0 + 200.0 + 30.0 + card_h + 30.0 + 210.0 + 30.0 + gh + 30.0 + gh + 30.0 + gh
 		var yt := maxf(vp.y * 0.5 - total * 0.5, Style.safe_top + 24.0)
 		_pause_title.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)       # (the title sits over the stack: a Label of its own, 150 tall)
 		_pause_title.offset_left = -440.0
@@ -2793,22 +2806,24 @@ func show_pause(sound: float, music: float, ambience: float = 0.8) -> void:
 		_pause_title.offset_top = yt
 		_pause_title.offset_bottom = yt + 150.0
 		var y0 := yt + 170.0
-		var card_y := y0 + 230.0 + 40.0
+		var card_y := y0 + 200.0 + 30.0
 		_art.slider_rect[1] = Rect2(vp.x * 0.5 - 250.0, card_y + 80.0, 620.0, 80.0)            # music on top, then effects, then ambience
 		_art.slider_rect[0] = Rect2(vp.x * 0.5 - 250.0, card_y + 80.0 + dy, 620.0, 80.0)
 		_art.slider_rect[2] = Rect2(vp.x * 0.5 - 250.0, card_y + 80.0 + 2.0 * dy, 620.0, 80.0)
 		_art.pause_card = Rect2(vp.x * 0.5 - 440.0, card_y, 880.0, card_h)
 		_art.clear_buttons()
-		_art.add_button("resume", "RESUME", Rect2(vp.x * 0.5 - 420.0, y0, 840.0, 230.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
+		_art.add_button("resume", "RESUME", Rect2(vp.x * 0.5 - 420.0, y0, 840.0, 200.0), 2, "", -1, -1, {"kind": 2, "glyph": "play"})
 		var by := card_y + card_h + 30.0
-		_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, by, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
-		_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, by, 220.0, 260.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
-		var gy := by + 260.0 + 40.0                 # the settings buttons: two by two (Tips, Replay tutorial / Privacy policy, Reset progress)
+		_art.add_button("restart", "Restart", Rect2(vp.x * 0.5 - 330.0, by, 220.0, 210.0), 0, "", -1, -1, {"kind": 3, "glyph": "restart", "tint": Style.PRIMARY})
+		_art.add_button("quit", "Menu", Rect2(vp.x * 0.5 + 110.0, by, 220.0, 210.0), 0, "", -1, -1, {"kind": 3, "glyph": "home", "tint": Style.DANGER})
+		var gy := by + 210.0 + 30.0                 # the settings buttons: two by two (Tips, Replay tutorial / Privacy policy, Reset progress)
 		var gx := vp.x * 0.5 - 450.0
-		_art.add_button("tips", "Tips", Rect2(gx, gy, 440.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "star"})
-		_art.add_button("replay", "Replay tutorial", Rect2(gx + 460.0, gy, 440.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "restart"})
-		_art.add_button("privacy", "Privacy policy", Rect2(gx, gy + 126.0, 440.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "lock"})
-		_art.add_button("reset", "Reset progress", Rect2(gx + 460.0, gy + 126.0, 440.0, 96.0), 0, "", -1, -1, {"kind": 6, "glyph": "restart", "tint": Style.DANGER})
+		var gp := gh + 30.0
+		_art.add_button("tips", "Tips", Rect2(gx, gy, 440.0, gh), 0, "", -1, -1, {"kind": 6, "glyph": "star"})
+		_art.add_button("replay", "Replay tutorial", Rect2(gx + 460.0, gy, 440.0, gh), 0, "", -1, -1, {"kind": 6, "glyph": "restart"})
+		_art.add_button("privacy", "Privacy policy", Rect2(gx, gy + gp, 440.0, gh), 0, "", -1, -1, {"kind": 6, "glyph": "lock"})
+		_art.add_button("reset", "Reset progress", Rect2(gx + 460.0, gy + gp, 440.0, gh), 0, "", -1, -1, {"kind": 6, "glyph": "restart", "tint": Style.DANGER})
+		_art.add_button("report", "Report a problem", Rect2(gx, gy + 2.0 * gp, 900.0, gh), 0, "", -1, -1, {"kind": 6, "glyph": "ticket"})
 		_panel_sig["pause"] = _sig([])
 		_art.queue_redraw()
 	if not is_equal_approx(_art.slider_val[0], sound) or not is_equal_approx(_art.slider_val[1], music) or not is_equal_approx(_art.slider_val[2], ambience):

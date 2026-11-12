@@ -14,6 +14,7 @@ extends RefCounted
 ##   ?airports                                   every airport is open for this visit (to test the others' background build)
 ##   ?reset                                      wipe the save (a fresh start) and load the page again without the flag
 ##   ?notutorial                                 never start Day 1 (the web checks tap PLAY and expect an ordinary shift)
+##   ?dev                                        the hidden dev menu (career presets, scenarios, time, save code); a 5-tap on the build stamp opens it anywhere
 ##   ?debug                                      show the build stamp (it also shows with ?tune and ?perf)
 ## Combine with "&", e.g.  ?perf&tune. The active flags are printed under the build stamp.
 
@@ -35,6 +36,12 @@ static var airports := false
 static var debug := false
 static var reset := false
 static var notutorial := false
+static var dev := false
+
+## ?dev opens the hidden dev menu's button (the five-tap on the build stamp opens it in any build).
+static func dev_enabled() -> bool:
+	_load()
+	return dev
 
 ## True if the page was opened with ?reset (or the game started with --reset).
 static func wants_reset() -> bool:
@@ -65,7 +72,7 @@ static func tune_enabled() -> bool:
 ## The build stamp is only for people debugging: ?debug, ?tune or ?perf.
 static func stamp_enabled() -> bool:
 	_load()
-	return debug or tune or perf
+	return debug or tune or perf or dev
 
 static func light_enabled() -> bool:
 	_load()
@@ -129,6 +136,8 @@ static func summary() -> String:
 		parts.append("god")
 	if debug:
 		parts.append("debug")
+	if dev:
+		parts.append("dev")
 	for b in _bad:
 		parts.append("?" + b)
 	return " ".join(parts)
@@ -164,6 +173,7 @@ static func parse(args: Array[String]) -> void:
 	debug = false
 	reset = false
 	notutorial = false
+	dev = false
 	for a in args:
 		var kv := a.split("=", true, 1)
 		var key := kv[0].uri_decode().to_lower()
@@ -184,6 +194,8 @@ static func parse(args: Array[String]) -> void:
 				perf = true
 			"tune":
 				tune = true
+			"dev":
+				dev = true
 			"god":
 				god = true
 			"nolight":

@@ -7398,6 +7398,169 @@ func _initialize() -> void:
 					rc_ok = false
 		rc_ok = rc_ok and not Cosmetics.LIVERIES[rc_i].has("nose") and not Cosmetics.LIVERIES[rc_i].has("tip") and not Cosmetics.LIVERIES[rc_i].has("fin")
 	check(rc_ok, "none of the %d liveries uses a runway colour, and none sets the nose, wingtips or fin" % Cosmetics.LIVERY_COUNT)
+	print("49. Dev menu: presets, scenarios, time tools, save code, report")
+	var DevS = load("res://scripts/Dev.gd")          # (loaded when used: this script is parsed before the autoloads exist)
+	var DevMenuS = load("res://scripts/DevMenu.gd")
+	var ReportS = load("res://scripts/Report.gd")
+	main.progress_enabled = true
+	check(main.dev_menu == null and not DevS.available() and not DevMenuS.button_hit(Vector2(900, 60)), "without ?dev nothing of the dev menu exists (no menu, no button)")
+	DebugFlags.parse(["dev"])
+	check(DevS.available(), "?dev makes it available")
+	DebugFlags.parse([])
+	check(not DevS.available(), "...and without the flag it is not")
+	# presets
+	var dv_prev := -1
+	var dv_ok := true
+	for dv_id in ["m30", "h2", "h10", "h30", "h60", "all"]:
+		DevS.apply_preset(dv_id)
+		var dv_sum := 0
+		for dv_a in 6:
+			dv_sum += save.ap_level(dv_a)
+		dv_ok = dv_ok and dv_sum > dv_prev
+		dv_prev = dv_sum
+	check(dv_ok, "each preset has more levels than the one before it")
+	DevS.apply_preset("fresh")
+	check(save.coins == 0 and save.stars_total() == 0 and save.ap_level(0) == 1 and not save.airport_open(1), "Fresh start is a new save")
+	DevS.apply_preset("h2")
+	check(save.ap_level(0) >= 8 and save.airport_open(1) and save.ap_level(1) <= 2 and not save.airport_open(2), "2 h: Grass Strip is level 8 and County has just opened")
+	check(int(save.stats.get("tutorial", 0)) == 2 and save.coins > 0 and save.stars_total() >= 2, "...with coins, stars and the tutorial out of the way")
+	DevS.apply_preset("m30")
+	check(save.ap_level(0) >= 2 and save.ap_level(0) <= 5 and not save.airport_open(1), "30 min: Grass Strip is a few levels up and nothing else is open")
+	DevS.apply_preset("all")
+	var dv_full := true
+	for dv_a in 6:
+		dv_full = dv_full and save.ap_level(dv_a) == 20 and save.stars_of(dv_a) == 3 and save.imp_total(dv_a) == Improvements.total_levels()
+	for dv_u in Upgrades.IDS:
+		dv_full = dv_full and save.upgrade_level(dv_u) == Upgrades.MAX_LEVEL
+	check(dv_full, "Everything done: level 20, three stars, every improvement and tower upgrade bought at all six airports")
+	DevS.set_level(2, 7)
+	check(save.ap_level(2) == 7 and save.ap_xp[2] == Progression.xp_at_level(2, 7), "a manual level is exact")
+	var dv_c = save.coins
+	DevS.add_coins(10000)
+	check(save.coins == dv_c + 10000, "+10,000 coins")
+	# the save code
+	DevS.apply_preset("h10")
+	var dv_before := JSON.stringify(JSON.parse_string(JSON.stringify(save.to_dict())))          # (numbers as the file reads them back)
+	var dv_code: String = save.export_code()
+	check(dv_code.begins_with("PW1.") and dv_code.length() < 20000, "the save exports as a code (%d characters)" % dv_code.length())
+	save.reset_all()
+	check(save.import_code("not a code") != "" and save.import_code("PW1.5") != "" and save.coins == 0, "a bad code is refused and changes nothing")
+	check(save.import_code("  " + dv_code.substr(0, 40) + "\n" + dv_code.substr(40) + " ") == "" and JSON.stringify(JSON.parse_string(JSON.stringify(save.to_dict()))) == dv_before, "importing the code (with stray spaces and a line break) restores the exact state")
+	# scenarios
+	save.unlocks["all_airports"] = true
+	main.dev_start({"airport": 0, "student20": true})
+	var dv_found := false
+	for dv_k in 100:
+		main.step(0.06)
+		for dv_p in main.traffic.planes:
+			if dv_p.active() and dv_p.student:
+				dv_found = true
+	check(dv_found and main.traffic.run_time < 20.0, "Student scenario: a student arrives in the first 20 s")
+	for dv_w in ["calm", "cross", "tail"]:
+		main.dev_start({"airport": 1, "wind": dv_w})
+		var dv_h := Airports.end_heading_deg(0, 0)
+		var dv_act0: bool = main.wind.is_active(0, 0)
+		var dv_act1: bool = main.wind.is_active(0, 1)
+		match dv_w:
+			"calm":
+				check(is_equal_approx(main.wind.from_deg, fposmod(dv_h, 360.0)) and dv_act0, "Wind scenario calm: the main runway's end 0 is into the wind")
+			"cross":
+				check(dv_act0 and Airports.angle_diff(dv_h, main.wind.from_deg) > 50.0, "Wind scenario crosswind: the end is open with a big crosswind (%d degrees off)" % Airports.angle_diff(dv_h, main.wind.from_deg))
+			"tail":
+				check(not dv_act0 and dv_act1, "Wind scenario from behind: the usual end is closed and the far end takes the traffic")
+	main.dev_start({"airport": 1, "wind": "calm"})
+	check(main.wind.countdown > 1.0e6, "...a forced wind holds steady")
+	main.dev_start({"airport": 1, "weather": "crosswind"})
+	for dv_k in 70:
+		main.step(0.05)
+	check(main.weather.phase != 0 and main.weather.kind == "crosswind", "Gusty crosswind scenario: the closure is announced by 3 s")
+	main.dev_start({"airport": 0, "bad": true})
+	check(main.bad_mode and main.traffic.all_students and main.daily_mode, "Bad Pilot Day scenario")
+	main.dev_start({"airport": 0, "no_engines": true})
+	check(main.no_engines and main.traffic.no_engines, "No engines scenario")
+	main.dev_start({"airport": 0, "event": "storm"})
+	check(str(Airports.event.get("id", "")) == "storm", "Weekly event scenario forces that event on")
+	DevS.event_override = ""
+	save.sync_event()
+	main.dev_start({"airport": 0, "heavy": true})
+	check(is_equal_approx(main.traffic.dev_spawn_mult, 0.4), "Heavy traffic scenario")
+	main.dev_start({"airport": 0})
+	check(is_equal_approx(main.traffic.dev_spawn_mult, 1.0) and main.traffic.dev_student_t < 0.0, "...and the next ordinary shift is back to normal")
+	main.dev_start({"airport": 0, "hangar": true})
+	check(main.airfield.ramp.hangar == int(main.shift.thresholds[0]) - 2 and main.shift.landed == int(main.shift.thresholds[0]) - 2, "Near-full hangar scenario: two landings from full")
+	# time
+	main.dev_start({"airport": 0})
+	DevS.speed = 1
+	var dv_t0: float = main.traffic.run_time
+	main._process(0.05)
+	var dv_d1: float = main.traffic.run_time - dv_t0
+	DevS.speed = 4
+	dv_t0 = main.traffic.run_time
+	main._process(0.05)
+	var dv_d4: float = main.traffic.run_time - dv_t0
+	DevS.speed = 1
+	check(dv_d1 > 0.0 and absf(dv_d4 - 4.0 * dv_d1) < 0.001, "Game speed x4 runs four steps of the normal size (%.3f s against %.3f s)" % [dv_d4, dv_d1])
+	for dv_sc in [["poor", 0], ["average", 1], ["good", 2], ["three", 3]]:
+		main.dev_start({"airport": 2})
+		var dv_msg: String = main.dev_skip_shift(dv_sc[0], {"airport": 2})
+		check(main.screen == main.SCREEN_OVER and main.shift.stars() == dv_sc[1], "Skip to results with a '%s' score: %d star(s)" % [dv_sc[0], main.shift.stars()])
+	DevS.fake_offline(8.0)
+	var dv_off: Dictionary = main._offline_now()
+	check(int(dv_off.get("total", 0)) > 0 and float(dv_off.get("hours", 0.0)) >= 7.9, "8 h away: the hangars earned %d coins" % int(dv_off.get("total", 0)))
+	DevS.fake_offline(1.0)
+	check(int(main._offline_now().get("total", 0)) > 0, "1 h away shows the welcome-back screen too")
+	save.touch()
+	var dv_day: int = save.today()
+	save.goals = {}
+	DevS.advance_day()
+	check(save.today() == dv_day + 1, "Advance one day moves the day number on")
+	save.day_override = -1
+	save.sync_event()
+	# report
+	ReportS.events.clear()
+	for dv_i in 30:
+		ReportS.log_event("event %d" % dv_i, float(dv_i))
+	check(ReportS.events.size() == 20 and ReportS.events[-1].ends_with("event 29") and ReportS.events[0].ends_with("event 10"), "the report keeps the last 20 events")
+	main.dev_start({"airport": 1})
+	main.pause_game()
+	main.send_report()
+	check(ReportS.last_text.begins_with("PATTERN WORK REPORT") and ReportS.last_text.contains("build:") and ReportS.last_text.contains("County") and ReportS.last_text.contains("coins: %d" % save.coins) and ReportS.last_text.contains("last 20 events"), "Report a problem builds the text block (build, airport, level, coins, last events)")
+	check(main.hud._pause_title.text.begins_with("REPORT COPIED"), "...and says so in the pause title")
+	main.resume_game()
+	# the menu itself
+	main._ensure_dev_menu()
+	var dv_menu = main.dev_menu
+	dv_menu.open()
+	check(dv_menu.is_open and main.get_tree().paused, "the dev menu opens over the paused game")
+	for dv_t in 4:
+		dv_menu.set_tab(dv_t)
+	dv_menu.buttons["preset_h2"].pressed.emit()
+	check(dv_menu.out_text.begins_with("2 h") and save.airport_open(1) and main.screen == main.SCREEN_MENU, "its 2 h button sets the save and returns to the menu")
+	dv_menu.buttons["coins_1k"].pressed.emit()
+	dv_menu.buttons["export"].pressed.emit()
+	check(dv_menu.out_text.begins_with("Save code copied"), "its Export button makes the code")
+	dv_menu.buttons["speed_2"].pressed.emit()
+	check(DevS.speed == 2, "its speed button sets x2")
+	DevS.speed = 1
+	dv_menu.close()
+	check(not dv_menu.is_open and not main.get_tree().paused, "closing resumes the game")
+	main._show_menu()
+	var dv_tag: Label = main.hud._version_tags[0]
+	var dv_ctr := dv_tag.get_global_rect().get_center()
+	var dv_hit := false
+	for dv_i in 5:
+		dv_hit = main._dev_tap_check(dv_ctr)
+	check(dv_hit and DevS.unlocked and dv_menu.is_open, "five quick taps on the build stamp open the dev menu in any build")
+	dv_menu.close()
+	DevS.unlocked = false
+	main.dev_menu = null
+	dv_menu.queue_free()
+	DevS.event_override = ""
+	save.day_override = -1
+	save.reset_all()
+	main.progress_enabled = false
+	main.restart()
+
 	save.reset_all()
 	main.progress_enabled = false
 
