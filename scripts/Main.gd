@@ -1129,6 +1129,7 @@ func step(delta: float) -> void:
 		_tut.tick(delta)
 		if _tut != null and _tut.frozen:
 			hud.set_alert(false)
+			_update_audio(0.0)
 			return          # (Day 1: time waits until the player has drawn the first path)
 	traffic.step(delta)
 	airfield.step_taxi(delta)
@@ -1429,7 +1430,7 @@ func _day1_context() -> bool:
 
 ## Does a new player still need Day 1? (a fresh save at the Grass Strip, nothing played)
 func tutorial_needed() -> bool:
-	return onboarding_gates and int(Save.stats.get("tutorial", 0)) == 0 and Save.shifts_played == 0 and airport == 0 and not daily_mode and not bad_mode
+	return onboarding_gates and not DebugFlags.tutorial_off() and int(Save.stats.get("tutorial", 0)) == 0 and Save.shifts_played == 0 and airport == 0 and not daily_mode and not bad_mode
 
 func start_tutorial() -> void:
 	daily_mode = false

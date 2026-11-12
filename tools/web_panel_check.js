@@ -40,7 +40,7 @@ srv.listen(0, async () => {
     await page.bringToFront();
     const errors = [];
     page.on('pageerror', e => errors.push(String(e)));
-    await page.goto(`http://localhost:${port}/index.html?perf`);
+    await page.goto(`http://localhost:${port}/index.html?perf&notutorial`);
     await page.waitForFunction(() => (window.__boot || []).some(m => m[0] === 'menu shown'), null, { timeout: 240000 });
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });
     await page.waitForTimeout(4000);

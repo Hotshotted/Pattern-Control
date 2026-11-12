@@ -45,6 +45,8 @@ var out_dir := ""
 var only := ""
 var sizes_arg := ""
 var report_path := ""
+var manifest_path := ""                # manifest=<file>: every state captured (id, group, description, warnings per size) for the gallery page (tools/build_gallery.py)
+var states_meta := {}                   # state name -> {"order", "id", "group", "desc", "warn": {size: [lines]}}
 var baseline_path := ""
 var quiet := false
 var plant := false                    # self-test: put a label across the PLAY button, which the check must report (CI runs this and expects exit code 1)
@@ -79,6 +81,8 @@ func _initialize() -> void:
 			only = a.substr(5)
 		elif a.begins_with("sizes="):
 			sizes_arg = a.substr(6)
+		elif a.begins_with("manifest="):
+			manifest_path = a.substr(9)
 		elif a.begins_with("report="):
 			report_path = a.substr(7)
 		elif a.begins_with("baseline="):
@@ -681,12 +685,89 @@ func _check(name: String) -> void:
 		live.append(p)
 		problems.append(p)
 	screens_seen[name] = true
+	_note_state(name, live)
 	if not quiet:
 		print("  %-44s %3d elements  %s" % [name, els.size(), ("%d problem(s)" % live.size()) if live.size() > 0 else "ok"])
 		for p in live:
 			print("      %-10s %s%s -- %s" % [p["type"], _name_of(p["a"]), (("  vs  " + _name_of(p["b"])) if p["b"] != null else ""), p["detail"]])
 	if out_dir != "":
 		await _shot(name, live)
+
+## The gallery's record of a state: a short id (the picture's file name too), the group it belongs to, a one-line description, and its warnings per size.
+func _note_state(name: String, live: Array) -> void:
+	if not states_meta.has(name):
+		var g := _group_of(name)
+		states_meta[name] = {"order": states_meta.size(), "id": _slug(name), "group": g[0], "gorder": g[1], "desc": _describe(name), "warn": {}}
+	var lines := []
+	for p in live:
+		lines.append("%s: %s" % [p["type"], str(p["detail"])])
+	(states_meta[name]["warn"] as Dictionary)[cur_size["name"]] = lines
+
+static func _slug(name: String) -> String:
+	var out := ""
+	for ch in name.to_lower():
+		out += ch if (ch >= "a" and ch <= "z") or (ch >= "0" and ch <= "9") else "_"
+	while out.contains("__"):
+		out = out.replace("__", "_")
+	return out.trim_prefix("_").trim_suffix("_")
+
+## The groups, in the order a player meets them.
+const GROUPS := ["Menu", "Airport select", "Airport detail", "Improve", "Shop and awards", "Shift", "Results", "Pause and settings", "Popups", "Toasts", "Tutorial", "Tips", "Other screens", "Dev menu"]
+
+func _group_of(name: String) -> Array:
+	var n := name.to_lower()
+	var g := "Other screens"
+	if n.begins_with("dev menu"):
+		g = "Dev menu"
+	elif n.begins_with("tutorial"):
+		g = "Tutorial"
+	elif n.begins_with("shift tip") or n.begins_with("tip "):
+		g = "Tips"
+	elif n.begins_with("shift toast") or n.contains("toast"):
+		g = "Toasts"
+	elif n.begins_with("shift popups") or n.begins_with("popup"):
+		g = "Popups"
+	elif n.begins_with("pause") or n.begins_with("settings"):
+		g = "Pause and settings"
+	elif n.begins_with("results"):
+		g = "Results"
+	elif n.begins_with("shift"):
+		g = "Shift"
+	elif n.begins_with("shop") or n.begins_with("preview") or n.begins_with("tower") or n.begins_with("goals") or n.begins_with("achievements"):
+		g = "Shop and awards"
+	elif n.begins_with("detail") and n.contains("improve"):
+		g = "Improve"
+	elif n.begins_with("detail"):
+		g = "Airport detail"
+	elif n.begins_with("airports") or n.begins_with("select") or n.begins_with("airport"):
+		g = "Airport select"
+	elif n.begins_with("menu") or n.begins_with("studio") or n.begins_with("tally"):
+		g = "Menu"
+	return [g, GROUPS.find(g)]
+
+## "results rankup" -> "Results, a mastery rank up, long achievement text": the state's own words, with the shorthand spelt out.
+const WORDS := {
+	"win": "a good shift with goals done", "fail": "a failed shift with fines", "record": "a new best", "unlock": "a new airport opens", "rankup": "a mastery rank up, long achievement text",
+	"long": "the longest content", "details": "the Details breakdown open", "poor": "a poor save (little coins)", "rich": "a rich save (every number at its largest)", "ads": "with the rewarded pills",
+}
+
+func _describe(name: String) -> String:
+	var clauses := name.split(", ")
+	var out := PackedStringArray()
+	for ci in clauses.size():
+		var words := str(clauses[ci]).split(" ")
+		var rest := PackedStringArray()
+		for k in words.size():
+			if ci == 0 and k == 0:
+				continue
+			rest.append(str(WORDS[words[k]]) if WORDS.has(words[k]) else str(words[k]))
+		if ci == 0:
+			out.append(str(words[0]).capitalize())
+			if not rest.is_empty():
+				out.append(" ".join(rest))
+		else:
+			out.append(" ".join(rest))
+	return ", ".join(out)
 
 func _shot(name: String, live: Array) -> void:
 	await _frames(2)
@@ -696,14 +777,14 @@ func _shot(name: String, live: Array) -> void:
 		for key in ["a", "b"]:
 			if p[key] != null:
 				_outline(img, (p[key]["rect"] as Rect2), k)
-	var longest := 640
+	var longest := 760
 	var sc := minf(1.0, float(longest) / float(maxi(img.get_width(), img.get_height())))
 	if sc < 1.0:
 		img.resize(int(img.get_width() * sc), int(img.get_height() * sc), Image.INTERPOLATE_BILINEAR)
 	img.convert(Image.FORMAT_RGB8)
 	var dir := "%s/%s" % [out_dir, cur_size["name"]]
 	DirAccess.make_dir_recursive_absolute(dir)
-	img.save_jpg("%s/%s.jpg" % [dir, name.replace(" ", "_").replace("/", "-")], 0.6)
+	img.save_jpg("%s/%s.jpg" % [dir, _slug(name)], 0.6)
 	shot_count += 1
 
 func _outline(img: Image, r: Rect2, k: float) -> void:
@@ -989,6 +1070,24 @@ func _states_play() -> void:
 	st_tr.release_all()
 	main.wind.from_deg = 0.0
 	main.wind.refresh()
+	# the little tags over aircraft: SOS, VIP, the student L, a locked glider, a wobbling plane ("?") and one going around
+	var tag_a = st_tr.place(0, Vector2(-2.6, -3.0), 0.0, 2)
+	st_tr.make_special(tag_a, true, false)
+	var tag_b = st_tr.place(0, Vector2(2.6, -3.0), 0.0, 2)
+	st_tr.make_special(tag_b, false, true)
+	var tag_c = st_tr.place(0, Vector2(-2.6, 0.5), 0.0, 2)
+	tag_c.student = true
+	var tag_d = st_tr.place(0, Vector2(2.6, 0.5), 0.0, 0)
+	tag_d.locked = true
+	var tag_e = st_tr.place(0, Vector2(-2.6, 3.5), 0.0, 2)
+	tag_e.ga_pending = true
+	var tag_f = st_tr.place(0, Vector2(2.6, 3.5), 0.0, 2)
+	tag_f.climb = 1.0
+	tag_f.go_arounds = 1
+	await _frames_ui(4)
+	_clear_popups()
+	await _check("shift aircraft tags (SOS, VIP, L, LOCKED, ?, going around)")
+	st_tr.release_all()
 	main._apply_fine(root.get_node("Tuning").fine_amount(root.get_node("Tuning").fine_conflict), "conflict", "Too close!", Vector2(0, 0))
 	main._apply_fine(root.get_node("Tuning").fine_amount(root.get_node("Tuning").fine_conflict), "conflict", "Too close!", Vector2(1, 0))
 	for tk_i in 40:
@@ -1232,6 +1331,18 @@ func _states_results() -> void:
 			await _check("results %s unlock card" % variant)
 			main.hud.hide_unlock()
 		main.set_process(true)
+	# Bad Pilot Day's results (its own pay and header)
+	save.reset_all()
+	save.unlocks["all_airports"] = true
+	main.start_bad_day()
+	main.traffic.auto_spawn = false
+	main.set_process(false)
+	main.shift.earned = 900
+	main.shift.landed = 30
+	main._end_shift()
+	await _frames_ui(30)
+	await _check("results bad pilot day")
+	main.set_process(true)
 	save.reset_all()
 
 func _states_misc() -> void:
@@ -1257,6 +1368,18 @@ func _states_misc() -> void:
 	main.hud._logo_bg.visible = false
 	main._show_menu()
 	await _check("menu again")
+	# the dev menu (?tune): a developer tool, so it is pictured for the gallery but not measured
+	var dev_tp = load("res://scripts/TunePanel.gd").new()          # (loaded when used: this script is parsed before the autoloads exist)
+	main.add_child(dev_tp)
+	dev_tp.build()
+	dev_tp.open()
+	await _frames_ui(6)
+	_note_state("dev menu, the tuning panel", [])
+	if out_dir != "":
+		await _shot("dev menu, the tuning panel", [])
+	dev_tp.close()
+	dev_tp.queue_free()
+	await _frames_ui(2)
 
 ## The boot splash (the studio mark and a progress bar over the start-up pre-warm) is drawn by a class of its own, centred and at fixed
 ## sizes: check by measuring that its wordmark and bar fit the screen, with room to spare.
@@ -1282,6 +1405,17 @@ func _finish() -> void:
 	print("")
 	print("ui_overlap_check: %d states x sizes checked, %d pictures, %d problem(s) %s, %d allowed by the allowlist" % [state_count, shot_count, problems.size(), str(by_type), allowed_count])
 	print("screens that scroll (content taller than the room), by size: ", scrolling)
+	if manifest_path != "":
+		var rows := []
+		for nm in states_meta:
+			rows.append(states_meta[nm])
+		rows.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return (int(x["gorder"]) < int(y["gorder"])) or (int(x["gorder"]) == int(y["gorder"]) and int(x["order"]) < int(y["order"])))
+		var sizes := []
+		for sz in SIZES:
+			sizes.append({"name": sz["name"], "dev": sz["dev"]})
+		var mf := FileAccess.open(manifest_path, FileAccess.WRITE)
+		mf.store_string(JSON.stringify({"states": rows, "sizes": sizes, "groups": GROUPS}, "\t"))
+		mf.close()
 	print("not opened by the tool:")
 	for u in unreachable:
 		print("  - ", u)

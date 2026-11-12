@@ -64,7 +64,7 @@ srv.listen(0, async () => {
       requestAnimationFrame(tick);
     });
     const t0 = Date.now();
-    await page.goto(`http://localhost:${port}/index.html?${process.env.QUERY || "debug"}`);
+    await page.goto(`http://localhost:${port}/index.html?${process.env.QUERY || "debug&notutorial"}`);
     // the menu is there when the game says so
     await page.waitForFunction(() => (window.__boot || []).some(m => m[0] === 'menu shown'), null, { timeout: 240000 });
     const wall = Date.now() - t0;

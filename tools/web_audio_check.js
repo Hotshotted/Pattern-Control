@@ -107,7 +107,7 @@ srv.listen(0, async () => {
     const cdp = await context.newCDPSession(page);
     const t00 = Date.now(); const hitches = [];
     page.on('console', m => { const t = m.text(); const k = t.match(/^\[hitch\] #\d+ (\d+) ms/); if (k && +k[1] >= 250) hitches.push(((Date.now() - t00) / 1000).toFixed(1) + 's ' + t.slice(0, 110)); });
-    await page.goto(`http://localhost:${port}/index.html?${process.env.QUERY || 'debug'}`);
+    await page.goto(`http://localhost:${port}/index.html?${process.env.QUERY || 'debug&notutorial'}`);
     await page.waitForFunction(() => { const l = document.getElementById('loader'); return !l || l.style.display === 'none'; }, null, { timeout: 180000 });
     await page.waitForTimeout(3000);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });   // a phone is several times slower than this machine

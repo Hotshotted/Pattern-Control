@@ -116,7 +116,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglx-mesa0 > /dev/null
-          timeout 1500 xvfb-run -a godot --path . --rendering-driver opengl3 --script tools/ui_overlap_check.gd -- quiet shots="$RUNNER_TEMP/ui_audit_pictures" > /dev/null 2>&1 || true
+          timeout 1500 xvfb-run -a godot --path . --rendering-driver opengl3 --script tools/ui_overlap_check.gd -- quiet shots="$RUNNER_TEMP/ui_audit_pictures" manifest="$RUNNER_TEMP/ui_gallery.json" > /dev/null 2>&1 || true
 
       - name: Keep the UI overlap pictures
         if: always() && steps.uioverlap.outcome != 'skipped'
@@ -167,6 +167,18 @@ jobs:
           echo "web size: pck $PCK bytes, total $TOTAL bytes, total gzipped $GZ bytes"
           printf '### Web download size\n\n| .pck | everything | everything gzipped |\n|---|---|---|\n| %s | %s | %s |\n' "$PCK" "$TOTAL" "$GZ" >> "$GITHUB_STEP_SUMMARY"
 
+      # The UI gallery (hotshotted.github.io/Pattern-Control/ui-gallery/): every state the check pictures, at every size, with its id, description and warnings.
+      # It is built from the pictures of this run straight into the Pages folder: never committed, and tools/ is excluded from the game export.
+      - name: UI gallery (Pages only)
+        continue-on-error: true
+        run: |
+          if [ -f "$RUNNER_TEMP/ui_gallery.json" ]; then
+            python3 tools/build_gallery.py --pictures "$RUNNER_TEMP/ui_audit_pictures" --manifest "$RUNNER_TEMP/ui_gallery.json" --out build/web/ui-gallery --stamp "${GITHUB_SHA::7}" --time "$(date -u +'%Y-%m-%d %H:%M UTC')"
+            du -sh build/web/ui-gallery
+          else
+            echo "no manifest: the gallery is skipped"
+          fi
+
       # The exported game, loaded in headless Chrome and tapped like a phone: sound must really come out of it
       # (the menu music after the first tap, the shift music after PLAY).
       - name: Web audio check
@@ -199,7 +211,7 @@ jobs:
         run: |
           CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
           for i in 1 2 3; do
-            REPORT=boot_$i.json QUERY=perf THROTTLE=4 LIMIT_BUILD_MS=9000 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_boot_check.js build/web "$CHROME"
+            REPORT=boot_$i.json QUERY='perf&notutorial' THROTTLE=4 LIMIT_BUILD_MS=9000 NODE_PATH="$RUNNER_TEMP/pw/node_modules" node tools/web_boot_check.js build/web "$CHROME"
           done
           python3 tools/median_gate.py --history tools/gate_history.json --label boot boot_1.json boot_2.json boot_3.json
 
